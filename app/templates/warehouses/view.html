@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}{{ warehouse.warehouse_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('warehouses.list_warehouses', filter='all') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to List
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-building page-title-icon"></i>
+                <h1 class="page-title-text">{{ warehouse.warehouse_name }}</h1>
+                <span class="ms-3">
+                    {% if warehouse.status_code == 'A' %}
+                    <span class="status-badge status-badge-success">
+                        <i class="bi bi-check-circle"></i> Active
+                    </span>
+                    {% else %}
+                    <span class="status-badge status-badge-warning">
+                        <i class="bi bi-x-circle"></i> Inactive
+                    </span>
+                    {% endif %}
+                </span>
+            </div>
+            <p class="page-subtitle">Warehouse Details</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('warehouses.edit_warehouse', warehouse_id=warehouse.warehouse_id) }}" class="btn-relief-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteWarehouseModal">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <!-- Basic Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Warehouse Type</label>
+                            <p class="mb-0"><span class="badge bg-secondary">{{ warehouse.warehouse_type }}</span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Custodian</label>
+                            <p class="mb-0">{{ warehouse.custodian.custodian_name if warehouse.custodian else 'N/A' }}</p>
+                        </div>
+                    </div>
+                    {% if warehouse.status_code == 'I' and warehouse.reason_desc %}
+                    <div>
+                        <label class="text-muted small">Reason for Inactivation</label>
+                        <p class="mb-0">{{ warehouse.reason_desc }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Address Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Address Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="text-muted small">Address Line 1</label>
+                        <p class="mb-0">{{ warehouse.address1_text }}</p>
+                    </div>
+                    {% if warehouse.address2_text %}
+                    <div class="mb-3">
+                        <label class="text-muted small">Address Line 2</label>
+                        <p class="mb-0">{{ warehouse.address2_text }}</p>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <label class="text-muted small">Parish</label>
+                        <p class="mb-0">{{ warehouse.parish.parish_name if warehouse.parish else warehouse.parish_code }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Information Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-person-lines-fill"></i> Contact Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Contact Name</label>
+                            <p class="mb-0">{{ warehouse.contact_name }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Phone Number</label>
+                            <p class="mb-0">{{ warehouse.phone_no }}</p>
+                        </div>
+                    </div>
+                    {% if warehouse.email_text %}
+                    <div>
+                        <label class="text-muted small">Email</label>
+                        <p class="mb-0"><a href="mailto:{{ warehouse.email_text }}">{{ warehouse.email_text }}</a></p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Audit Trail Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="bi bi-clock-history"></i> Audit Trail</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="text-muted small">Created By</label>
+                        <p class="mb-0">{{ warehouse.create_by_id }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Created Date</label>
+                        <p class="mb-0">{{ warehouse.create_dtime.strftime('%Y-%m-%d %I:%M %p') if warehouse.create_dtime else 'N/A' }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified By</label>
+                        <p class="mb-0">{{ warehouse.update_by_id }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified Date</label>
+                        <p class="mb-0">{{ warehouse.update_dtime.strftime('%Y-%m-%d %I:%M %p') if warehouse.update_dtime else 'N/A' }}</p>
+                    </div>
+                    <div>
+                        <label class="text-muted small">Version Number</label>
+                        <p class="mb-0"><span class="badge bg-info">{{ warehouse.version_nbr }}</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteWarehouseModal" tabindex="-1" aria-labelledby="deleteWarehouseModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteWarehouseModalLabel">
+                    <i class="bi bi-exclamation-triangle"></i> Confirm Deletion
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete warehouse <strong>{{ warehouse.warehouse_name }}</strong>?</p>
+                <p class="text-danger"><strong>Warning:</strong> This action cannot be undone. This warehouse will only be deleted if it is not referenced in any inventory or other records.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="POST" action="{{ url_for('warehouses.delete_warehouse', warehouse_id=warehouse.warehouse_id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> Delete Warehouse
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

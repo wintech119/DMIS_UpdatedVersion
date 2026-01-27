@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+{% from 'user_admin/_macros.html' import password_strength_indicator %}
+
+{% block title %}Create User - DMIS{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/user-management-ui.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="user-management-container">
+    <!-- Page Header -->
+    <div class="page-header-modern">
+        <div class="page-title-group">
+            <h1>
+                <i class="bi bi-person-plus-fill"></i>
+                Create New User
+            </h1>
+            <p class="subtitle">Add a new user account to the system</p>
+        </div>
+        <div>
+            <a href="{{ url_for('user_admin.index') }}" class="btn-user-action">
+                <i class="bi bi-arrow-left"></i> Back to Directory
+            </a>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" class="needs-validation" novalidate id="createUserForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-4">
+            <!-- Main Form Column -->
+            <div class="col-lg-8">
+                <!-- Account Information -->
+                <div class="info-card">
+                    <div class="info-card-header">
+                        <h3 class="info-card-title">
+                            <i class="bi bi-person-badge"></i> Account Information
+                        </h3>
+                        <span class="badge bg-danger">Required</span>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="email" class="form-label">
+                                Email Address <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                                <input type="email" 
+                                       name="email" 
+                                       id="email" 
+                                       class="form-control" 
+                                       required
+                                       placeholder="user@example.com"
+                                       aria-describedby="emailHelp"
+                                       oninput="generateUserName()">
+                            </div>
+                            <small id="emailHelp" class="form-text text-muted">
+                                <i class="bi bi-info-circle"></i> Used for login and system notifications
+                            </small>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="user_name" class="form-label">
+                                User Name <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
+                                <input type="text" 
+                                       name="user_name" 
+                                       id="user_name" 
+                                       class="form-control" 
+                                       required
+                                       maxlength="20"
+                                       placeholder="Auto-generated from email"
+                                       aria-describedby="userNameHelp"
+                                       oninput="updateUserNameCount()">
+                            </div>
+                            <small id="userNameHelp" class="form-text text-muted">
+                                <i class="bi bi-info-circle"></i> <span id="userNameCount">0</span>/20 characters - Used for audit tracking
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="password" class="form-label">
+                                Password <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-key"></i></span>
+                                <input type="password" 
+                                       name="password" 
+                                       id="password" 
+                                       class="form-control" 
+                                       required 
+                                       minlength="8"
+                                       autocomplete="new-password"
+                                       placeholder="Min. 8 characters"
+                                       aria-describedby="passwordHelp">
+                                <button class="btn btn-outline-secondary" 
+                                        type="button" 
+                                        id="togglePassword"
+                                        aria-label="Toggle password visibility">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <small id="passwordHelp" class="form-text text-muted">
+                                <i class="bi bi-shield-check"></i> Minimum 8 characters required
+                            </small>
+                            <div id="passwordStrength" class="mt-2 d-none">
+                                {{ password_strength_indicator() }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Personal Information -->
+                <div class="info-card">
+                    <div class="info-card-header">
+                        <h3 class="info-card-title">
+                            <i class="bi bi-person"></i> Personal Information
+                        </h3>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="first_name" class="form-label">First Name</label>
+                            <input type="text" 
+                                   name="first_name" 
+                                   id="first_name" 
+                                   class="form-control"
+                                   placeholder="First name">
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="last_name" class="form-label">Last Name</label>
+                            <input type="text" 
+                                   name="last_name" 
+                                   id="last_name" 
+                                   class="form-control"
+                                   placeholder="Last name">
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="job_title" class="form-label">Job Title</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-briefcase"></i></span>
+                                <input type="text" 
+                                       name="job_title" 
+                                       id="job_title" 
+                                       class="form-control"
+                                       placeholder="e.g., Logistics Coordinator">
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="phone" class="form-label">Phone Number</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-telephone"></i></span>
+                                <input type="tel" 
+                                       name="phone" 
+                                       id="phone" 
+                                       class="form-control phone-mask"
+                                       maxlength="20"
+                                       placeholder="+1 (___) ___-____">
+                            </div>
+                        </div>
+                        
+                        <div class="col-12">
+                            <label for="organization" class="form-label">Organization</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-building"></i></span>
+                                <select name="organization" id="organization" class="form-select">
+                                    <option value="">-- Select Organization --</option>
+                                    <optgroup label="Agencies">
+                                        {% for agency in agencies %}
+                                        <option value="AGENCY:{{ agency.agency_id }}">{{ agency.agency_name }}</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    <optgroup label="Custodians">
+                                        {% for custodian in custodians %}
+                                        <option value="CUSTODIAN:{{ custodian.custodian_id }}">{{ custodian.custodian_name }}</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Role Assignment -->
+                <div class="info-card">
+                    <div class="info-card-header">
+                        <h3 class="info-card-title">
+                            <i class="bi bi-shield-lock"></i> Role Assignment
+                        </h3>
+                        <span class="badge bg-info" id="roleCount">0 selected</span>
+                    </div>
+                    <p class="text-muted mb-3">
+                        <i class="bi bi-info-circle"></i> Select one or more roles to define user permissions
+                    </p>
+                    
+                    <div class="role-selection-grid">
+                        {% for role in roles %}
+                        <div class="role-option">
+                            <input type="checkbox" 
+                                   name="roles" 
+                                   value="{{ role.id }}" 
+                                   id="role_{{ role.id }}" 
+                                   class="role-checkbox">
+                            <label for="role_{{ role.id }}" class="role-label">
+                                <div class="role-header">
+                                    <i class="bi bi-shield-fill-check"></i>
+                                    <strong>{{ role.name }}</strong>
+                                </div>
+                                {% if role.role_desc %}
+                                <small class="role-description">{{ role.role_desc }}</small>
+                                {% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Warehouse Access -->
+                <div class="info-card">
+                    <div class="info-card-header">
+                        <h3 class="info-card-title">
+                            <i class="bi bi-building-check"></i> Warehouse Access
+                        </h3>
+                        <span class="badge bg-secondary" id="warehouseCount">All warehouses</span>
+                    </div>
+                    <p class="text-muted mb-3">
+                        <i class="bi bi-info-circle"></i> Leave empty to grant access to all warehouses
+                    </p>
+                    
+                    <div class="warehouse-selection-grid">
+                        {% for warehouse in warehouses %}
+                        <div class="warehouse-option">
+                            <input type="checkbox" 
+                                   name="warehouses" 
+                                   value="{{ warehouse.warehouse_id }}" 
+                                   id="warehouse_{{ warehouse.warehouse_id }}" 
+                                   class="warehouse-checkbox">
+                            <label for="warehouse_{{ warehouse.warehouse_id }}" class="warehouse-label">
+                                <i class="bi bi-building"></i>
+                                <span>{{ warehouse.warehouse_name }}</span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <!-- Account Status -->
+                <div class="info-card sticky-top sticky-top-1">
+                    <div class="info-card-header">
+                        <h3 class="info-card-title">
+                            <i class="bi bi-toggle-on"></i> Account Status
+                        </h3>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input type="checkbox" 
+                               name="is_active" 
+                               id="is_active" 
+                               class="form-check-input" 
+                               checked
+                               role="switch"
+                               aria-describedby="activeHelp">
+                        <label for="is_active" class="form-check-label">
+                            <strong>Active Account</strong>
+                        </label>
+                    </div>
+                    <small id="activeHelp" class="form-text text-muted d-block mb-3">
+                        Active users can log in and access the system immediately
+                    </small>
+
+                    <div class="alert alert-info">
+                        <i class="bi bi-lightbulb"></i>
+                        <strong>Tip:</strong> You can deactivate the account later if needed
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="info-card">
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn-user-action primary">
+                            <i class="bi bi-person-plus-fill"></i> Create User
+                        </button>
+                        <a href="{{ url_for('user_admin.index') }}" class="btn-user-action">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Security Notice -->
+                <div class="info-card">
+                    <div class="security-notice">
+                        <i class="bi bi-shield-check"></i>
+                        <div>
+                            <strong>Security Notice</strong>
+                            <p class="mb-0 small">User will receive email notification with login credentials</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/phone-mask.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+// Auto-generate user_name from email
+function generateUserName() {
+    const emailInput = document.getElementById('email');
+    const userNameInput = document.getElementById('user_name');
+    
+    if (emailInput.value) {
+        // Take first 20 characters and convert to uppercase
+        const generatedName = emailInput.value.substring(0, 20).toUpperCase();
+        userNameInput.value = generatedName;
+        updateUserNameCount();
+    }
+}
+
+// Update user_name character count
+function updateUserNameCount() {
+    const userNameInput = document.getElementById('user_name');
+    const countSpan = document.getElementById('userNameCount');
+    const currentLength = userNameInput.value.length;
+    countSpan.textContent = currentLength;
+    
+    // Color coding
+    countSpan.classList.remove('char-count-danger', 'char-count-warning', 'char-count-normal');
+    if (currentLength > 18) {
+        countSpan.classList.add('char-count-danger');
+    } else if (currentLength > 15) {
+        countSpan.classList.add('char-count-warning');
+    } else {
+        countSpan.classList.add('char-count-normal');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('createUserForm');
+    const passwordInput = document.getElementById('password');
+    const togglePasswordBtn = document.getElementById('togglePassword');
+    const roleCheckboxes = document.querySelectorAll('.role-checkbox');
+    const warehouseCheckboxes = document.querySelectorAll('.warehouse-checkbox');
+    const roleCountBadge = document.getElementById('roleCount');
+    const warehouseCountBadge = document.getElementById('warehouseCount');
+    
+    // Toggle password visibility
+    if (togglePasswordBtn) {
+        togglePasswordBtn.addEventListener('click', function() {
+            const type = passwordInput.type === 'password' ? 'text' : 'password';
+            passwordInput.type = type;
+            const icon = this.querySelector('i');
+            icon.classList.toggle('bi-eye');
+            icon.classList.toggle('bi-eye-slash');
+        });
+    }
+    
+    // Password strength indicator
+    if (passwordInput) {
+        passwordInput.addEventListener('input', function() {
+            const strengthDiv = document.getElementById('passwordStrength');
+            if (this.value.length > 0) {
+                strengthDiv.classList.remove('d-none');
+                strengthDiv.classList.add('d-block');
+                const strength = calculatePasswordStrength(this.value);
+                updatePasswordStrength(strength);
+            } else {
+                strengthDiv.classList.remove('d-block');
+                strengthDiv.classList.add('d-none');
+            }
+        });
+    }
+    
+    function calculatePasswordStrength(password) {
+        let strength = 0;
+        if (password.length >= 8) strength++;
+        if (password.length >= 12) strength++;
+        if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+        if (/\d/.test(password)) strength++;
+        if (/[^a-zA-Z0-9]/.test(password)) strength++;
+        return strength;
+    }
+    
+    function updatePasswordStrength(strength) {
+        const bar = document.querySelector('.password-strength-bar');
+        const text = document.querySelector('.password-strength-text');
+        if (!bar || !text) return;
+        
+        bar.className = 'password-strength-bar';
+        bar.classList.remove('strength-0', 'strength-20', 'strength-40', 'strength-60', 'strength-80', 'strength-100');
+        if (strength <= 2) {
+            bar.classList.add('weak');
+            text.textContent = 'Weak';
+        } else if (strength <= 3) {
+            bar.classList.add('fair');
+            text.textContent = 'Fair';
+        } else if (strength <= 4) {
+            bar.classList.add('good');
+            text.textContent = 'Good';
+        } else {
+            bar.classList.add('strong');
+            text.textContent = 'Strong';
+        }
+        bar.classList.add('strength-' + (strength * 20));
+    }
+    
+    // Update role count
+    function updateRoleCount() {
+        const count = document.querySelectorAll('.role-checkbox:checked').length;
+        roleCountBadge.textContent = count + ' selected';
+    }
+    
+    roleCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateRoleCount);
+    });
+    
+    // Update warehouse count
+    function updateWarehouseCount() {
+        const count = document.querySelectorAll('.warehouse-checkbox:checked').length;
+        warehouseCountBadge.textContent = count === 0 ? 'All warehouses' : count + ' selected';
+    }
+    
+    warehouseCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateWarehouseCount);
+    });
+    
+    // Form validation
+    form.addEventListener('submit', function(e) {
+        if (!form.checkValidity()) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
+});
+</script>
+{% endblock %}

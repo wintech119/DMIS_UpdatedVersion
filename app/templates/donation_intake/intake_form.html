@@ -1,0 +1,866 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+<style nonce="{{ csp_nonce() }}">
+.item-card {
+    border-left: 4px solid #009639;
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    margin-bottom: 0.875rem;
+    transition: all 0.2s;
+}
+.item-card:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    border-left-color: #00b347;
+}
+.batch-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #009639;
+    margin-right: 5px;
+}
+.required-field::after {
+    content: " *";
+    color: #dc3545;
+}
+.field-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6c757d;
+    margin-bottom: 0.2rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+.qty-input {
+    width: 115px;
+}
+.item-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    padding: 0.6rem 0.875rem;
+    border-radius: 0.375rem 0.375rem 0 0;
+}
+.item-body {
+    padding: 0.75rem 0.875rem;
+}
+.row-divider {
+    border-top: 1px dashed #dee2e6;
+    margin: 0.5rem 0;
+}
+.donated-qty-box {
+    text-align: center;
+    padding: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 0.25rem;
+}
+/* Hide number input spinner arrows */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}
+</style>
+{% endblock %}
+
+{% block title %}Donation Intake Form{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-box-arrow-in-down page-title-icon"></i>
+                <h1 class="page-title-text">Donation Intake Form</h1>
+            </div>
+            <p class="text-muted mb-0">Donation #{{ donation.donation_id }} → {{ warehouse.warehouse_name }}</p>
+        </div>
+        <a href="{{ url_for('donation_intake.list_intakes') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i>
+            Back to List
+        </a>
+    </div>
+
+    <form method="POST" action="{{ url_for('donation_intake.intake_form', donation_id=donation.donation_id, inventory_id=warehouse.warehouse_id) }}" id="intakeForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row">
+            <!-- Main Form Section -->
+            <div class="col-lg-9">
+                <!-- Intake Header Card -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-file-text text-primary"></i>
+                            Intake Details
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="intake_date" class="form-label fw-bold required-field">Intake Date</label>
+                                <input type="text" 
+                                       class="form-control iso-date-picker" 
+                                       name="intake_date" 
+                                       id="intake_date" 
+                                       data-max-date="{{ today }}"
+                                       value="{{ today }}"
+                                       placeholder="YYYY-MM-DD"
+                                       required>
+                                <div class="form-text">Cannot be in the future</div>
+                            </div>
+                            <div class="col-md-8 mb-3">
+                                <label for="comments_text" class="form-label fw-bold">Comments</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       name="comments_text" 
+                                       id="comments_text" 
+                                       maxlength="255"
+                                       placeholder="Optional comments (max 255 characters)">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Donation Items Section -->
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-box-seam text-primary"></i>
+                            Donation Items ({{ donation_items|length }} items)
+                        </h5>
+                        <p class="mb-0 mt-1 text-muted small">
+                            <i class="bi bi-info-circle"></i>
+                            Enter batch details for each item. Total quantities must match donation quantities exactly.
+                        </p>
+                    </div>
+                    <div class="card-body">
+                        {% for di in donation_items %}
+                        {% set donated_qty = di.item_qty or 0 %}
+                        <!-- Item Card -->
+                        <div class="item-card">
+                            <!-- Item Header -->
+                            <div class="item-header">
+                                <div class="d-flex align-items-center">
+                                    <span class="batch-indicator"></span>
+                                    <div>
+                                        <strong class="d-block">{{ di.item.item_code }}</strong>
+                                        <small class="text-muted">{{ di.item.item_name }}</small>
+                                    </div>
+                                    <div class="ms-auto">
+                                        {% if di.item.is_batched_flag %}
+                                        <span class="badge bg-warning text-dark me-1" title="Batch tracking required">
+                                            <i class="bi bi-tag"></i> Batched
+                                        </span>
+                                        {% endif %}
+                                        {% if di.item.can_expire_flag %}
+                                        <span class="badge bg-danger" title="Expiry date required">
+                                            <i class="bi bi-calendar-x"></i> Perishable
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Item Body -->
+                            <div class="item-body">
+                                <!-- Row 1: Item Details and Batch Information -->
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-2">
+                                        <div class="field-label">Donated Qty</div>
+                                        <div class="donated-qty-box">
+                                            <strong class="text-primary fs-6">{{ donated_qty }}</strong>
+                                            <small class="text-muted d-block fs-tiny">{{ di.uom_code }}</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="batch_no_{{ di.item_id }}" class="field-label">Batch No</label>
+                                        <input type="text" 
+                                               class="form-control form-control-sm batch-no-input text-uppercase" 
+                                               id="batch_no_{{ di.item_id }}"
+                                               name="batch_no_{{ di.item_id }}" 
+                                               data-item-id="{{ di.item_id }}"
+                                               data-is-batched="{{ 'true' if di.item.is_batched_flag else 'false' }}"
+                                               placeholder="{% if di.item.is_batched_flag %}Required{% else %}Optional{% endif %}"
+                                               {% if di.item.is_batched_flag %}required{% endif %}
+                                               data-validate="batch-pairing">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="batch_date_{{ di.item_id }}" class="field-label">Batch Date</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" 
+                                                   class="form-control form-control-sm iso-date-picker batch-date batch-date-input" 
+                                                   id="batch_date_{{ di.item_id }}"
+                                                   name="batch_date_{{ di.item_id }}" 
+                                                   data-item-id="{{ di.item_id }}"
+                                                   data-is-batched="{{ 'true' if di.item.is_batched_flag else 'false' }}"
+                                                   data-max-date="{{ today }}"
+                                                   placeholder="YYYY-MM-DD"
+                                                   {% if di.item.is_batched_flag %}required{% endif %}
+                                                   data-validate="batch-pairing">
+                                            <span class="input-group-text bg-white" style="cursor: pointer;" onclick="document.getElementById('batch_date_{{ di.item_id }}').focus()">
+                                                <i class="bi bi-calendar3"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="expiry_date_{{ di.item_id }}" class="field-label">Expiry Date</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" 
+                                                   class="form-control form-control-sm iso-date-picker expiry-date" 
+                                                   id="expiry_date_{{ di.item_id }}"
+                                                   name="expiry_date_{{ di.item_id }}" 
+                                                   data-item-id="{{ di.item_id }}"
+                                                   data-can-expire="{{ 'true' if di.item.can_expire_flag else 'false' }}"
+                                                   data-min-date="{{ today }}"
+                                                   placeholder="{% if di.item.can_expire_flag %}YYYY-MM-DD{% else %}Not applicable{% endif %}"
+                                                   {% if di.item.can_expire_flag %}required{% else %}disabled{% endif %}
+                                                   {% if not di.item.can_expire_flag %}class="form-control form-control-sm iso-date-picker expiry-date bg-light cursor-not-allowed"{% endif %}>
+                                            <span class="input-group-text {% if not di.item.can_expire_flag %}bg-light{% else %}bg-white{% endif %}" {% if di.item.can_expire_flag %}style="cursor: pointer;" onclick="document.getElementById('expiry_date_{{ di.item_id }}').focus()"{% endif %}>
+                                                <i class="bi bi-calendar3"></i>
+                                            </span>
+                                        </div>
+                                        <div class="invalid-feedback expiry-error-{{ di.item_id }} d-none">
+                                            <i class="bi bi-exclamation-circle"></i>
+                                            <span class="expiry-error-text-{{ di.item_id }}"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Divider -->
+                                <div class="row-divider"></div>
+                                
+                                <!-- Row 2: Quantity Breakdown -->
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-2">
+                                        <label for="uom_code_{{ di.item_id }}" class="field-label">UOM</label>
+                                        <input type="text" 
+                                               class="form-control form-control-sm bg-light field-disabled-visual" 
+                                               value="{{ di.uom_code }}"
+                                               disabled>
+                                        <input type="hidden" name="uom_code_{{ di.item_id }}" value="{{ di.uom_code }}">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="avg_unit_value_{{ di.item_id }}" class="field-label">Unit Cost ($J)</label>
+                                        <input type="text" 
+                                               class="form-control form-control-sm bg-light text-end field-disabled-visual" 
+                                               value="{{ "%.2f"|format(di.item_cost) }}"
+                                               disabled>
+                                        <input type="hidden" name="avg_unit_value_{{ di.item_id }}" value="{{ di.item_cost }}">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="usable_qty_{{ di.item_id }}" class="field-label">Usable Qty</label>
+                                        <input type="number"
+                                               class="form-control form-control-sm qty-input bg-light"
+                                               id="usable_qty_{{ di.item_id }}"
+                                               name="usable_qty_{{ di.item_id }}"
+                                               step="0.01"
+                                               min="0"
+                                               value="{{ donated_qty }}"
+                                               data-expected="{{ donated_qty }}"
+                                               data-item-id="{{ di.item_id }}"
+                                               data-validate="quantities"
+                                               data-decimal-places="2"
+                                               required
+                                               readonly>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label for="defective_qty_{{ di.item_id }}" class="field-label">Defective Qty</label>
+                                        <input type="number" 
+                                               class="form-control form-control-sm qty-input" 
+                                               id="defective_qty_{{ di.item_id }}"
+                                               name="defective_qty_{{ di.item_id }}" 
+                                               step="0.01" 
+                                               min="0"
+                                               value="0"
+                                               data-item-id="{{ di.item_id }}"
+                                               data-validate="quantities"
+                                               data-decimal-places="2"
+                                               data-auto-adjust="usable-qty">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="expired_qty_{{ di.item_id }}" class="field-label">Expiry Qty</label>
+                                        <input type="number" 
+                                               class="form-control form-control-sm qty-input" 
+                                               id="expired_qty_{{ di.item_id }}"
+                                               name="expired_qty_{{ di.item_id }}" 
+                                               step="0.01" 
+                                               min="0"
+                                               value="0"
+                                               data-item-id="{{ di.item_id }}"
+                                               data-validate="quantities"
+                                               data-decimal-places="2"
+                                               data-auto-adjust="usable-qty">
+                                    </div>
+                                </div>
+                                
+                                <!-- Batch Pairing Validation Error Messages -->
+                                <div class="row g-2 mt-1">
+                                    <div class="col-12">
+                                        <div class="invalid-feedback d-block batch-pair-error-{{ di.item_id }} d-none">
+                                            <i class="bi bi-exclamation-circle"></i>
+                                            <span class="batch-pair-error-text-{{ di.item_id }}"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Quantity Validation Error Messages -->
+                                <div class="row g-2 mt-1">
+                                    <div class="col-12">
+                                        <div class="invalid-feedback d-block qty-error-{{ di.item_id }} d-none">
+                                            <i class="bi bi-exclamation-circle"></i>
+                                            <span class="qty-error-text-{{ di.item_id }}"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('donation_intake.create_intake') }}" class="btn-relief-secondary">
+                                <i class="bi bi-arrow-left"></i>
+                                Back
+                            </a>
+                            <div class="d-flex gap-2">
+                                <button type="submit" name="action" value="save_draft" class="btn btn-outline-secondary" id="saveDraftBtn">
+                                    <i class="bi bi-save"></i>
+                                    Save Draft
+                                </button>
+                                <button type="submit" name="action" value="submit" class="btn-relief-primary" id="submitBtn">
+                                    <i class="bi bi-send"></i>
+                                    Submit for Verification
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Info -->
+            <div class="col-lg-3">
+                <!-- Donation Info Card -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-gift"></i>
+                            Donation Information
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-5">Donation ID:</dt>
+                            <dd class="col-sm-7">#{{ donation.donation_id }}</dd>
+                            
+                            <dt class="col-sm-5">Donor:</dt>
+                            <dd class="col-sm-7">{{ donation.donor.donor_name }}</dd>
+                            
+                            <dt class="col-sm-5">Received:</dt>
+                            <dd class="col-sm-7">{{ donation.received_date|format_date }}</dd>
+                            
+                            <dt class="col-sm-5">Status:</dt>
+                            <dd class="col-sm-7">
+                                <span class="badge bg-success">Verified</span>
+                            </dd>
+                            
+                            <dt class="col-sm-5">Description:</dt>
+                            <dd class="col-sm-7">{{ donation.donation_desc }}</dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <!-- Warehouse Info Card -->
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-building"></i>
+                            Target Warehouse
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-5">Name:</dt>
+                            <dd class="col-sm-7">{{ warehouse.warehouse_name }}</dd>
+                            
+                            <dt class="col-sm-5">Location:</dt>
+                            <dd class="col-sm-7">{{ warehouse.location_name }}</dd>
+                            
+                            <dt class="col-sm-5">Status:</dt>
+                            <dd class="col-sm-7">
+                                <span class="badge bg-success">Active</span>
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <!-- Validation Rules Card -->
+                <div class="card border-warning">
+                    <div class="card-header bg-warning text-dark">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Validation Rules
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="mb-0 small">
+                            <li><strong>Usable Qty</strong>: Auto-calculated (read-only). Formula: Donated Qty - Defective - Expired</li>
+                            <li><strong>Defective/Expired</strong>: Enter amounts as needed. Usable qty adjusts automatically in real-time (max 2 decimal places)</li>
+                            <li><strong>Usable Qty Cannot Be Zero</strong>: At least some portion of the donation must be usable. Cannot mark entire donation as defective/expired.</li>
+                            <li><strong>Batch Number & Batch Date (Paired)</strong>: For batched items, both are required. For non-batched items, both are optional but must be paired (if you enter one, you must enter the other)</li>
+                            <li><strong>Batch Date</strong>: Cannot be in the future</li>
+                            <li><strong>Expiry Date</strong>: Required for perishable items, must be future date</li>
+                            <li><strong>Unit Cost ($J)</strong>: Must be greater than 0, max 99,999,999.99 (max 2 decimal places)</li>
+                            <li><strong>UOM</strong>: Must be selected from dropdown</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+// Auto-adjust usable quantity based on defective and expired quantities
+function autoAdjustUsableQty(itemId) {
+    const usableInput = document.querySelector(`input[name="usable_qty_${itemId}"]`);
+    const defectiveInput = document.querySelector(`input[name="defective_qty_${itemId}"]`);
+    const expiredInput = document.querySelector(`input[name="expired_qty_${itemId}"]`);
+    
+    if (!usableInput || !defectiveInput || !expiredInput) return;
+    
+    const donatedQty = parseFloat(usableInput.dataset.expected) || 0;
+    const defectiveQty = parseFloat(defectiveInput.value) || 0;
+    const expiredQty = parseFloat(expiredInput.value) || 0;
+    
+    // Calculate usable quantity: donated - defective - expired
+    let calculatedUsable = donatedQty - defectiveQty - expiredQty;
+    
+    // Ensure it doesn't go negative
+    if (calculatedUsable < 0) {
+        calculatedUsable = 0;
+    }
+    
+    // Round to 2 decimal places to avoid floating point precision issues
+    calculatedUsable = Math.round(calculatedUsable * 100) / 100;
+    
+    // Update the usable quantity field
+    usableInput.value = calculatedUsable.toFixed(2);
+    
+    // Immediately validate quantities after adjustment (for real-time feedback)
+    validateQuantities(itemId);
+}
+
+// Enforce maximum decimal places on numeric input
+function enforceDecimalPlaces(input, maxDecimals) {
+    let value = input.value;
+    
+    // If value is empty, do nothing
+    if (value === '') return;
+    
+    // Check if the value has more decimal places than allowed
+    const parts = value.split('.');
+    if (parts.length === 2 && parts[1].length > maxDecimals) {
+        // Truncate to max decimal places
+        input.value = parseFloat(value).toFixed(maxDecimals);
+    }
+}
+
+// Validate Unit Cost field (8.2 format: max 8 digits before decimal, 2 after)
+function validateUnitCost(input) {
+    const itemId = input.dataset.itemId;
+    const errorDiv = document.querySelector(`.unit-cost-error-${itemId}`);
+    let value = input.value;
+    
+    // Remove invalid indicator first
+    input.classList.remove('is-invalid');
+    if (errorDiv) {
+        errorDiv.classList.add('d-none');
+        errorDiv.classList.remove('d-block');
+        errorDiv.textContent = '';
+    }
+    
+    // If empty, skip validation
+    if (value === '') return;
+    
+    const numValue = parseFloat(value);
+    
+    // Check max value (99999999.99)
+    if (numValue > 99999999.99) {
+        input.classList.add('is-invalid');
+        if (errorDiv) {
+            errorDiv.textContent = 'Unit cost cannot exceed 99,999,999.99';
+            errorDiv.classList.remove('d-none');
+            errorDiv.classList.add('d-block');
+        }
+        return;
+    }
+    
+    // Enforce 2 decimal places
+    const parts = value.split('.');
+    if (parts.length === 2 && parts[1].length > 2) {
+        input.value = parseFloat(value).toFixed(2);
+    }
+    
+    // Check digits before decimal (max 8)
+    if (parts[0].length > 8) {
+        input.classList.add('is-invalid');
+        if (errorDiv) {
+            errorDiv.textContent = 'Unit cost cannot have more than 8 digits before decimal';
+            errorDiv.classList.remove('d-none');
+            errorDiv.classList.add('d-block');
+        }
+    }
+}
+
+function validateQuantities(itemId) {
+    const usableInput = document.querySelector(`input[name="usable_qty_${itemId}"]`);
+    const defectiveInput = document.querySelector(`input[name="defective_qty_${itemId}"]`);
+    const expiredInput = document.querySelector(`input[name="expired_qty_${itemId}"]`);
+    const errorDiv = document.querySelector(`.qty-error-${itemId}`);
+    const errorText = document.querySelector(`.qty-error-text-${itemId}`);
+    
+    const usable = parseFloat(usableInput.value) || 0;
+    const defective = parseFloat(defectiveInput.value) || 0;
+    const expired = parseFloat(expiredInput.value) || 0;
+    const expected = parseFloat(usableInput.dataset.expected);
+    
+    const total = usable + defective + expired;
+    const diff = Math.abs(total - expected);
+    
+    // Check if usable quantity is zero (entire donation is defective/expired)
+    if (usable === 0) {
+        usableInput.classList.add('is-invalid');
+        defectiveInput.classList.add('is-invalid');
+        expiredInput.classList.add('is-invalid');
+        usableInput.dataset.zeroUsableError = 'true';
+        
+        // Show inline error message
+        if (errorDiv && errorText) {
+            errorText.textContent = 'Usable quantity cannot be zero. At least some portion of the donation must be usable.';
+            errorDiv.classList.remove('d-none');
+            errorDiv.classList.add('d-block');
+        }
+    }
+    // Use tolerance of 0.01 since we're now limited to 2 decimal places
+    else if (diff > 0.01) {
+        usableInput.classList.add('is-invalid');
+        defectiveInput.classList.add('is-invalid');
+        expiredInput.classList.add('is-invalid');
+        delete usableInput.dataset.zeroUsableError;
+        
+        // Show inline error message for total mismatch
+        if (errorDiv && errorText) {
+            errorText.textContent = 'Total quantities (Usable + Defective + Expired) must equal donated quantity.';
+            errorDiv.classList.remove('d-none');
+            errorDiv.classList.add('d-block');
+        }
+    } else {
+        usableInput.classList.remove('is-invalid');
+        defectiveInput.classList.remove('is-invalid');
+        expiredInput.classList.remove('is-invalid');
+        delete usableInput.dataset.zeroUsableError;
+        
+        // Hide inline error message
+        if (errorDiv && errorText) {
+            errorText.textContent = '';
+            errorDiv.classList.add('d-none');
+            errorDiv.classList.remove('d-block');
+        }
+    }
+}
+
+// Validate batch number and batch date pairing (deterministic clear-then-validate workflow)
+function validateBatchPairing(itemId) {
+    const batchNoInput = document.querySelector(`input[name="batch_no_${itemId}"]`);
+    const batchDateInput = document.querySelector(`input[name="batch_date_${itemId}"]`);
+    const errorDiv = document.querySelector(`.batch-pair-error-${itemId}`);
+    const errorText = document.querySelector(`.batch-pair-error-text-${itemId}`);
+    
+    if (!batchNoInput || !batchDateInput) return true; // No inputs to validate
+    
+    // Step 1: Clear existing error states (deterministic reset)
+    batchNoInput.classList.remove('is-invalid');
+    batchDateInput.classList.remove('is-invalid');
+    if (errorDiv && errorText) {
+        errorText.textContent = '';
+        errorDiv.classList.add('d-none');
+        errorDiv.classList.remove('d-block');
+    }
+    
+    // Step 2: Read current values
+    const batchNo = batchNoInput.value.trim();
+    const batchDate = batchDateInput.value.trim();
+    const isBatched = batchNoInput.dataset.isBatched === 'true';
+    
+    // Step 3: Evaluate validation rules and reapply errors only if failing
+    if (isBatched) {
+        // Batched items: both fields are always required
+        if (!batchNo && !batchDate) {
+            // Both missing
+            batchNoInput.classList.add('is-invalid');
+            batchDateInput.classList.add('is-invalid');
+            if (errorDiv && errorText) {
+                errorText.textContent = 'Batch number and date are required for batched items.';
+                errorDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-block');
+            }
+            return false;
+        } else if (!batchNo) {
+            // Only batch number missing
+            batchNoInput.classList.add('is-invalid');
+            if (errorDiv && errorText) {
+                errorText.textContent = 'Batch number is required for batched items.';
+                errorDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-block');
+            }
+            return false;
+        } else if (!batchDate) {
+            // Only batch date missing
+            batchDateInput.classList.add('is-invalid');
+            if (errorDiv && errorText) {
+                errorText.textContent = 'Batch date is required for batched items.';
+                errorDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-block');
+            }
+            return false;
+        }
+        // Both present - valid
+        return true;
+    } else {
+        // Non-batched items: enforce pairing (both filled or both empty)
+        const hasBatchNo = batchNo.length > 0;
+        const hasBatchDate = batchDate.length > 0;
+        
+        if (hasBatchNo && !hasBatchDate) {
+            // Has batch number but no batch date
+            batchDateInput.classList.add('is-invalid');
+            if (errorDiv && errorText) {
+                errorText.textContent = 'Please enter a Batch Date when a Batch No is provided.';
+                errorDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-block');
+            }
+            return false;
+        } else if (!hasBatchNo && hasBatchDate) {
+            // Has batch date but no batch number
+            batchNoInput.classList.add('is-invalid');
+            if (errorDiv && errorText) {
+                errorText.textContent = 'Please enter a Batch No when a Batch Date is provided.';
+                errorDiv.classList.remove('d-none');
+                errorDiv.classList.add('d-block');
+            }
+            return false;
+        }
+        
+        // Either both are filled or both are empty - valid
+        return true;
+    }
+}
+
+// Validate expiry date for items that can expire
+function validateExpiryDate(itemId) {
+    const expiryInput = document.querySelector(`input[name="expiry_date_${itemId}"]`);
+    const errorDiv = document.querySelector(`.expiry-error-${itemId}`);
+    const errorText = document.querySelector(`.expiry-error-text-${itemId}`);
+    
+    if (!expiryInput) return true; // No input to validate
+    
+    // Clear existing error states
+    expiryInput.classList.remove('is-invalid');
+    if (errorDiv && errorText) {
+        errorText.textContent = '';
+        errorDiv.classList.add('d-none');
+        errorDiv.classList.remove('d-block');
+    }
+    
+    const canExpire = expiryInput.dataset.canExpire === 'true';
+    const expiryValue = expiryInput.value.trim();
+    
+    // Only validate if item can expire
+    if (canExpire && !expiryValue) {
+        expiryInput.classList.add('is-invalid');
+        if (errorDiv && errorText) {
+            errorText.textContent = 'Expiry Date is required for items that can expire.';
+            errorDiv.classList.remove('d-none');
+            errorDiv.classList.add('d-block');
+        }
+        return false;
+    }
+    
+    return true;
+}
+
+document.getElementById('intakeForm').addEventListener('submit', function(e) {
+    let hasError = false;
+    let errorMessages = [];
+    const itemIds = [...new Set([...document.querySelectorAll('[data-item-id]')].map(el => el.dataset.itemId))];
+    
+    // Validate batch pairing
+    itemIds.forEach(itemId => {
+        const isValid = validateBatchPairing(itemId);
+        if (!isValid) {
+            hasError = true;
+            const errorDiv = document.querySelector(`.batch-pair-error-text-${itemId}`);
+            if (errorDiv && errorDiv.textContent) {
+                errorMessages.push(errorDiv.textContent);
+            }
+        }
+    });
+    
+    // Validate expiry dates
+    itemIds.forEach(itemId => {
+        const isValid = validateExpiryDate(itemId);
+        if (!isValid) {
+            hasError = true;
+            const errorDiv = document.querySelector(`.expiry-error-text-${itemId}`);
+            if (errorDiv && errorDiv.textContent) {
+                errorMessages.push(errorDiv.textContent);
+            }
+        }
+    });
+    
+    // Validate quantities
+    itemIds.forEach(itemId => {
+        validateQuantities(itemId);
+        const usableInput = document.querySelector(`input[name="usable_qty_${itemId}"]`);
+        if (usableInput.classList.contains('is-invalid')) {
+            hasError = true;
+            // Check if this is a zero usable quantity error
+            if (usableInput.dataset.zeroUsableError === 'true') {
+                errorMessages.push('Usable quantity cannot be zero. At least some portion of the donation must be usable.');
+            } else {
+                errorMessages.push('Total quantities (Usable + Defective + Expired) must equal donated quantities for all items.');
+            }
+        }
+    });
+    
+    // Validate unit costs
+    const unitCostInputs = document.querySelectorAll('.unit-cost-input');
+    unitCostInputs.forEach(input => {
+        validateUnitCost(input);
+        if (input.classList.contains('is-invalid')) {
+            hasError = true;
+            const itemId = input.dataset.itemId;
+            const errorDiv = document.querySelector(`.unit-cost-error-${itemId}`);
+            if (errorDiv && errorDiv.textContent) {
+                errorMessages.push(errorDiv.textContent);
+            }
+        }
+    });
+    
+    if (hasError) {
+        e.preventDefault();
+        // Show unique error messages
+        const uniqueErrors = [...new Set(errorMessages)];
+        alert('Validation Error:\n\n' + uniqueErrors.join('\n'));
+        return false;
+    }
+});
+</script>
+
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize all date pickers with YYYY-MM-DD format
+    const dateInputs = document.querySelectorAll('.iso-date-picker');
+    
+    dateInputs.forEach(function(input) {
+        // Skip disabled inputs (e.g., expiry date for non-expirable items)
+        if (input.disabled) {
+            return;
+        }
+        
+        const maxDate = input.getAttribute('data-max-date');
+        const minDate = input.getAttribute('data-min-date');
+        
+        const options = {
+            dateFormat: 'Y-m-d',
+            allowInput: true,
+            locale: {
+                firstDayOfWeek: 1
+            }
+        };
+        
+        // Add max date constraint (for past dates like batch date, intake date)
+        if (maxDate) {
+            options.maxDate = maxDate;
+        }
+        
+        // Add min date constraint (for future dates like expiry date)
+        if (minDate) {
+            options.minDate = minDate;
+        }
+        
+        flatpickr(input, options);
+    });
+    
+    // Validate all quantities on page load for immediate feedback
+    const itemIds = [...new Set([...document.querySelectorAll('[data-item-id]')].map(el => el.dataset.itemId))];
+    itemIds.forEach(itemId => {
+        validateQuantities(itemId);
+    });
+    
+    // Event delegation for data-validate attributes
+    document.addEventListener('input', function(e) {
+        const target = e.target;
+        const validateType = target.dataset.validate;
+        const itemId = target.dataset.itemId;
+        
+        if (!validateType || !itemId) return;
+        
+        if (validateType === 'batch-pairing') {
+            validateBatchPairing(itemId);
+        } else if (validateType === 'unit-cost') {
+            validateUnitCost(target);
+        } else if (validateType === 'quantities') {
+            const decimalPlaces = target.dataset.decimalPlaces;
+            if (decimalPlaces) {
+                enforceDecimalPlaces(target, parseInt(decimalPlaces));
+            }
+            if (target.dataset.autoAdjust === 'usable-qty') {
+                autoAdjustUsableQty(itemId);
+            }
+            validateQuantities(itemId);
+        }
+    });
+    
+    document.addEventListener('change', function(e) {
+        const target = e.target;
+        const validateType = target.dataset.validate;
+        const itemId = target.dataset.itemId;
+        
+        if (!validateType || !itemId) return;
+        
+        if (validateType === 'batch-pairing') {
+            validateBatchPairing(itemId);
+        } else if (validateType === 'quantities') {
+            validateQuantities(itemId);
+        }
+    });
+    
+    document.addEventListener('blur', function(e) {
+        const target = e.target;
+        const validateType = target.dataset.validate;
+        const itemId = target.dataset.itemId;
+        
+        if (!validateType || !itemId) return;
+        
+        if (validateType === 'batch-pairing') {
+            validateBatchPairing(itemId);
+        }
+    });
+});
+</script>
+{% endblock %}

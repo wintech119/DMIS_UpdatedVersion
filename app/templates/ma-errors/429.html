@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Too Many Requests - DMIS{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0">
+                        <i class="bi bi-hourglass-split me-2"></i>
+                        Too Many Requests
+                    </h4>
+                </div>
+                <div class="card-body text-center py-4">
+                    <div class="display-1 text-warning mb-3">429</div>
+                    <p class="lead">
+                        You've made too many requests in a short period of time.
+                    </p>
+                    <p class="text-muted">
+                        Please wait a moment before trying again.
+                    </p>
+                    {% if retry_after %}
+                    <p class="text-muted">
+                        <i class="bi bi-clock me-1"></i>
+                        You can try again in approximately {{ retry_after }} seconds.
+                    </p>
+                    {% endif %}
+                    <hr>
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                        <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
+                            <i class="bi bi-house me-1"></i>
+                            Go to Dashboard
+                        </a>
+                        <button onclick="history.back()" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>
+                            Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

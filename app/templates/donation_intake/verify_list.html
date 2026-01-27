@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Verify Donation Intakes{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-box-arrow-in-down page-title-icon"></i>
+                <h1 class="page-title-text">Donation Intake</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('donation_intake.create_intake') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            New Intake
+        </a>
+    </div>
+
+    {% set summary_metrics = [
+        {
+            'icon': 'hourglass-split',
+            'label': 'Pending Verification',
+            'value': pending_count,
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs - Matches donation_intake list.html -->
+    <nav class="filter-tabs" role="navigation" aria-label="Intake filters">
+        <a href="{{ url_for('donation_intake.list_intakes', filter='all') }}" 
+           class="filter-tab">
+            All
+        </a>
+        <a href="{{ url_for('donation_intake.list_intakes', filter='draft') }}" 
+           class="filter-tab">
+            Drafts
+        </a>
+        <a href="{{ url_for('donation_intake.verify_list') }}" 
+           class="filter-tab active"
+           aria-current="page">
+            <i class="bi bi-clipboard-check"></i> Pending Verification
+            {% if pending_count > 0 %}
+            <span class="filter-tab-count" aria-label="{{ pending_count }} pending">{{ pending_count }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('donation_intake.list_intakes', filter='verified') }}" 
+           class="filter-tab">
+            Verified
+        </a>
+    </nav>
+
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('donation_intake.verify_list') }}" class="row g-2">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control" 
+                               name="search" 
+                               value="{{ search_query }}" 
+                               placeholder="Search by donation or warehouse..."
+                               aria-label="Search intakes">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn-relief-secondary w-100">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            {% if intakes %}
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>Donation ID</th>
+                            <th>Donation Description</th>
+                            <th>Warehouse</th>
+                            <th>Intake Date</th>
+                            <th>Submitted By</th>
+                            <th>Submitted On</th>
+                            <th>Items</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for intake in intakes %}
+                        <tr>
+                            <td class="fw-bold">#{{ intake.donation_id }}</td>
+                            <td>{{ intake.donation.donation_desc|truncate(50) }}</td>
+                            <td>{{ intake.warehouse.warehouse_name }}</td>
+                            <td>{{ intake.intake_date|format_date }}</td>
+                            <td>{{ intake.update_by_id }}</td>
+                            <td>{{ intake.update_dtime|format_datetime }}</td>
+                            <td>
+                                <span class="badge bg-info">
+                                    {{ intake.items|length }} items
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <a href="{{ url_for('donation_intake.verify_intake', donation_id=intake.donation_id, inventory_id=intake.inventory_id) }}" 
+                                   class="btn btn-sm btn-outline-success" title="Verify Intake">
+                                    <i class="bi bi-check-circle"></i> Verify
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-check-circle display-1 d-block mb-3 text-success"></i>
+                <p class="lead">No intakes pending verification</p>
+                <p>All submitted intakes have been verified</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

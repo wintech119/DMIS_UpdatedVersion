@@ -1,0 +1,518 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+    /* Print Styles */
+    @media print {
+        .no-print { display: none !important; }
+        .print-only { display: block !important; }
+        body { background: white; }
+        .container-fluid { max-width: 100%; padding: 1rem; }
+        .signature-section { page-break-before: avoid; margin-top: 2rem; }
+        .info-card { border: 1px solid #dee2e6 !important; box-shadow: none !important; }
+        .section-header { background: #f8f9fa !important; }
+        table { font-size: 0.9rem; }
+        .page-break { page-break-before: always; }
+    }
+
+    /* Screen Styles */
+    .dispatch-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .info-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border: 1px solid #e9ecef;
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .section-header {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        padding: 1rem 1.5rem;
+        border-bottom: 2px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .section-header h5 {
+        margin: 0;
+        font-weight: 600;
+        color: #2c3e50;
+        font-size: 1.1rem;
+    }
+
+    .section-header i {
+        font-size: 1.3rem;
+        color: #0066cc;
+    }
+
+    .info-grid {
+        padding: 1.5rem;
+    }
+
+    .info-item {
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .info-label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.25rem;
+    }
+
+    .info-value {
+        font-size: 1rem;
+        color: #2c3e50;
+        font-weight: 500;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .status-awaiting {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffc107;
+    }
+
+    .status-completed {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #28a745;
+    }
+
+    /* Items Table */
+    .items-table {
+        margin: 0;
+    }
+
+    .items-table thead {
+        background: #f8f9fa;
+    }
+
+    .items-table thead th {
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #495057;
+        padding: 1rem 0.75rem;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .items-table tbody td {
+        padding: 0.875rem 0.75rem;
+        vertical-align: middle;
+        color: #2c3e50;
+    }
+
+    .items-table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+
+    .qty-issued {
+        font-weight: 700;
+        color: #0066cc;
+        font-size: 1.05rem;
+    }
+
+    .items-table tfoot {
+        background: #f8f9fa;
+        font-weight: 600;
+        border-top: 2px solid #dee2e6;
+    }
+
+    /* Signature Section */
+    .signature-section {
+        background: white;
+        border: 2px solid #0066cc;
+        border-radius: 12px;
+        padding: 2rem;
+        margin-top: 2rem;
+    }
+
+    .signature-section h4 {
+        color: #2c3e50;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #e9ecef;
+    }
+
+    .signature-field {
+        margin-bottom: 1.5rem;
+    }
+
+    .signature-field label {
+        font-weight: 600;
+        color: #495057;
+        font-size: 0.95rem;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .signature-line {
+        border-bottom: 2px solid #2c3e50;
+        min-height: 50px;
+        display: block;
+        margin-top: 0.5rem;
+    }
+
+    /* Action Buttons */
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    .btn-modern {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.2s;
+        border: none;
+    }
+
+    .btn-print {
+        background: #0066cc;
+        color: white;
+    }
+
+    .btn-print:hover {
+        background: #0052a3;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,102,204,0.3);
+    }
+
+    .btn-handover {
+        background: #28a745;
+        color: white;
+    }
+
+    .btn-handover:hover {
+        background: #218838;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(40,167,69,0.3);
+    }
+
+    /* Print Footer */
+    .print-footer {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 2px solid #dee2e6;
+        text-align: center;
+        color: #6c757d;
+    }
+
+    .print-footer p {
+        margin-bottom: 0.25rem;
+        font-size: 0.85rem;
+    }
+
+    .print-only {
+        display: none;
+    }
+
+    /* Package Header */
+    .package-header {
+        background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 12px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 12px rgba(0,102,204,0.2);
+    }
+
+    .package-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .package-header p {
+        margin: 0;
+        opacity: 0.95;
+        font-size: 1.05rem;
+    }
+
+    @media print {
+        .package-header {
+            background: white !important;
+            color: #2c3e50 !important;
+            border: 2px solid #0066cc;
+            box-shadow: none !important;
+        }
+
+        .package-header h1 {
+            color: #0066cc !important;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block title %}Dispatch Slip - PKG-{{ '%06d'|format(relief_pkg.reliefpkg_id) }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="dispatch-container">
+        <!-- Action Buttons (No Print) -->
+        <div class="no-print action-buttons">
+            <a href="{{ url_for('packaging.awaiting_dispatch') }}" class="btn btn-outline-secondary btn-modern">
+                <i class="bi bi-arrow-left"></i> Back to Dispatch Queue
+            </a>
+            <div class="d-flex gap-3">
+                <button data-action="print" class="btn-modern btn-print">
+                    <i class="bi bi-printer"></i> Print Dispatch Slip
+                </button>
+                {% if not relief_pkg.received_dtime %}
+                <form method="POST" action="{{ url_for('packaging.mark_handover', reliefpkg_id=relief_pkg.reliefpkg_id) }}" 
+                      class="d-inline-block" 
+                      data-confirm="Confirm that this package has been handed over to the agency representative?">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn-modern btn-handover">
+                        <i class="bi bi-check-circle"></i> Mark as Handed Over
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Package Header -->
+        <div class="package-header">
+            <h1>
+                <i class="bi bi-file-earmark-text"></i>
+                Dispatch Slip
+            </h1>
+            <p>Package ID: <strong>PKG-{{ '%06d'|format(relief_pkg.reliefpkg_id) }}</strong> | Request ID: <strong>RR-{{ '%06d'|format(relief_request.reliefrqst_id) }}</strong></p>
+        </div>
+
+        <!-- Agency Information -->
+        <div class="info-card">
+            <div class="section-header">
+                <i class="bi bi-building"></i>
+                <h5>Agency Information</h5>
+            </div>
+            <div class="info-grid">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Agency Name</span>
+                            <span class="info-value">{{ relief_request.agency.agency_name if relief_request.agency else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Contact Person</span>
+                            <span class="info-value">{{ relief_request.agency.contact_name if relief_request.agency else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Contact Phone</span>
+                            <span class="info-value">{{ relief_request.agency.phone_no if relief_request.agency else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Parish</span>
+                            <span class="info-value">{{ relief_request.agency.parish.parish_name if relief_request.agency and relief_request.agency.parish else 'N/A' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dispatch Details -->
+        <div class="info-card">
+            <div class="section-header">
+                <i class="bi bi-calendar-event"></i>
+                <h5>Dispatch Details</h5>
+            </div>
+            <div class="info-grid">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Request Date</span>
+                            <span class="info-value">{{ relief_request.request_date.strftime('%d %B %Y') if relief_request.request_date else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Dispatched Date & Time</span>
+                            <span class="info-value">{{ relief_pkg.dispatch_dtime.strftime('%d %B %Y at %I:%M %p') if relief_pkg.dispatch_dtime else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Event</span>
+                            <span class="info-value">{{ relief_request.eligible_event.event_desc if relief_request.eligible_event else 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-item">
+                            <span class="info-label">Status</span>
+                            {% if relief_pkg.received_dtime %}
+                            <span class="status-badge status-completed">
+                                <i class="bi bi-check-circle-fill"></i>
+                                Handed Over on {{ relief_pkg.received_dtime.strftime('%d %b %Y at %I:%M %p') }}
+                            </span>
+                            {% else %}
+                            <span class="status-badge status-awaiting">
+                                <i class="bi bi-clock-fill"></i>
+                                Awaiting Handover to Agency
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Items by Warehouse -->
+        {% for warehouse_id, items in items_by_warehouse.items() %}
+        <div class="info-card">
+            <div class="section-header">
+                <i class="bi bi-box-seam"></i>
+                <h5>Items from {{ warehouses[warehouse_id].warehouse_name if warehouse_id in warehouses else 'Unknown Warehouse' }}</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table items-table mb-0">
+                    <thead>
+                        <tr>
+                            <th class="w-30">Item Name</th>
+                            <th class="w-15">Batch/Lot No.</th>
+                            <th class="w-12">Expiry Date</th>
+                            <th class="w-12 text-end">Requested Qty</th>
+                            <th class="w-12 text-end">Issued Qty</th>
+                            <th class="w-10">UOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pkg_item in items %}
+                        {% set rqst_item = relief_request.items|selectattr('item_id', 'equalto', pkg_item.item_id)|first %}
+                        <tr>
+                            <td>
+                                <strong>{{ pkg_item.item.item_name if pkg_item.item else 'N/A' }}</strong>
+                            </td>
+                            <td>
+                                {% if pkg_item.batch and pkg_item.batch.lot_no %}
+                                    <span class="badge bg-secondary">{{ pkg_item.batch.lot_no }}</span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if pkg_item.batch and pkg_item.batch.expiry_date %}
+                                    {{ pkg_item.batch.expiry_date.strftime('%d %b %Y') }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                {{ '{:,.2f}'.format(rqst_item.qty_req) if rqst_item and rqst_item.qty_req else '—' }}
+                            </td>
+                            <td class="text-end qty-issued">
+                                {{ '{:,.2f}'.format(pkg_item.item_qty) if pkg_item.item_qty else '0.00' }}
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark">{{ pkg_item.uom_code or 'N/A' }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="4" class="text-end"><strong>Total Items in this Warehouse:</strong></td>
+                            <td colspan="2"><strong>{{ items|length }} item(s)</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- Signature Section -->
+        <div class="signature-section">
+            <h4>
+                <i class="bi bi-pencil-square"></i>
+                Agency Receipt Confirmation
+            </h4>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="signature-field">
+                        <label>Received By (Print Name):</label>
+                        <div class="signature-line"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="signature-field">
+                        <label>Position/Title:</label>
+                        <div class="signature-line"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="signature-field">
+                        <label>Signature:</label>
+                        <div class="signature-line"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="signature-field">
+                        <label>Date Received:</label>
+                        <div class="signature-line"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-info mt-4 mb-0">
+                <i class="bi bi-info-circle"></i>
+                <strong>Important:</strong> This document confirms receipt of disaster relief supplies from ODPEM. 
+                The agency representative must sign above to acknowledge receipt of the items listed in this dispatch slip.
+            </div>
+        </div>
+
+        <!-- Print Footer -->
+        <div class="print-only print-footer">
+            <p><strong>Office of Disaster Preparedness and Emergency Management (ODPEM)</strong></p>
+            <p>Government of Jamaica</p>
+            <p>Disaster Relief Inventory Management System (DRIMS)</p>
+            <p class="mt-3">Document printed on {{ now.strftime('%d %B %Y at %I:%M %p') if now else '' }}</p>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+// Set current date/time for print footer
+const now = new Date();
+</script>
+{% endblock %}

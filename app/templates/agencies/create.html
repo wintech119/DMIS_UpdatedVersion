@@ -1,0 +1,340 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+    .warehouse-field-disabled {
+        background-color: #f8f9fa;
+        opacity: 0.6;
+    }
+</style>
+{% endblock %}
+
+{% block title %}Create Agency{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-shop page-title-icon"></i>
+                <h1 class="page-title-text">Create New Agency</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('agencies.list_agencies') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-9">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('agencies.create_agency') }}" id="agencyForm" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <!-- Basic Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Basic Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-8">
+                                    <label for="agency_name" class="form-label">
+                                        Agency Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control {% if errors and errors.get('agency_name') %}is-invalid{% endif %}" 
+                                           id="agency_name" 
+                                           name="agency_name" 
+                                           maxlength="120"
+                                           value="{{ form_data.get('agency_name', '') }}"
+                                           required 
+                                           placeholder="Enter agency name (will be converted to UPPERCASE)"
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Max 120 characters, auto-converted to UPPERCASE, must be unique</small>
+                                    {% if errors and errors.get('agency_name') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('agency_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="status_code" class="form-label">
+                                        Status <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select {% if errors and errors.get('status_code') %}is-invalid{% endif %}" 
+                                            id="status_code" 
+                                            name="status_code" 
+                                            required>
+                                        <option value="A" {% if form_data.get('status_code') == 'A' or not form_data.get('status_code') %}selected{% endif %}>Active</option>
+                                        <option value="I" {% if form_data.get('status_code') == 'I' %}selected{% endif %}>Inactive</option>
+                                    </select>
+                                    {% if errors and errors.get('status_code') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('status_code') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agency Type and Warehouse Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-diagram-3"></i> Agency Type and Assignment
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="agency_type" class="form-label">
+                                        Agency Type <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select {% if errors and errors.get('agency_type') %}is-invalid{% endif %}" 
+                                            id="agency_type" 
+                                            name="agency_type" 
+                                            required>
+                                        <option value="">-- Select Type --</option>
+                                        <option value="SHELTER" {% if form_data.get('agency_type') == 'SHELTER' %}selected{% endif %}>
+                                            Shelter (Cannot have warehouse)
+                                        </option>
+                                        <option value="DISTRIBUTOR" {% if form_data.get('agency_type') == 'DISTRIBUTOR' %}selected{% endif %}>
+                                            Distributor (Must have warehouse)
+                                        </option>
+                                    </select>
+                                    <small class="form-text text-muted">Determines if warehouse assignment is required</small>
+                                    {% if errors and errors.get('agency_type') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('agency_type') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="warehouse_id" class="form-label">
+                                        Warehouse <span class="warehouse-required text-danger d-none">*</span>
+                                    </label>
+                                    <select class="form-select {% if errors and errors.get('warehouse_id') %}is-invalid{% endif %}" 
+                                            id="warehouse_id" 
+                                            name="warehouse_id">
+                                        <option value="">-- Select Warehouse --</option>
+                                        {% for warehouse in warehouses %}
+                                        <option value="{{ warehouse.warehouse_id }}" 
+                                                {% if form_data.get('warehouse_id') == warehouse.warehouse_id|string %}selected{% endif %}>
+                                            {{ warehouse.warehouse_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="form-text text-muted warehouse-help">Required for Distributors, not allowed for Shelters</small>
+                                    {% if errors and errors.get('warehouse_id') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('warehouse_id') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Address Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-geo-alt"></i> Address Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="address1_text" class="form-label">
+                                        Address Line 1 <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control {% if errors and errors.get('address1_text') %}is-invalid{% endif %}" 
+                                           id="address1_text" 
+                                           name="address1_text" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('address1_text', '') }}"
+                                           required 
+                                           placeholder="Street address">
+                                    {% if errors and errors.get('address1_text') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('address1_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-12">
+                                    <label for="address2_text" class="form-label">
+                                        Address Line 2
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control {% if errors and errors.get('address2_text') %}is-invalid{% endif %}" 
+                                           id="address2_text" 
+                                           name="address2_text" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('address2_text', '') }}"
+                                           placeholder="Apartment, suite, unit, etc. (optional)">
+                                    {% if errors and errors.get('address2_text') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('address2_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="parish_code" class="form-label">
+                                        Parish <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select {% if errors and errors.get('parish_code') %}is-invalid{% endif %}" 
+                                            id="parish_code" 
+                                            name="parish_code" 
+                                            required>
+                                        <option value="">-- Select Parish --</option>
+                                        {% for parish in parishes %}
+                                        <option value="{{ parish.parish_code }}" 
+                                                {% if form_data.get('parish_code') == parish.parish_code %}selected{% endif %}>
+                                            {{ parish.parish_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if errors and errors.get('parish_code') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('parish_code') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Contact Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-person-lines-fill"></i> Contact Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label for="contact_name" class="form-label">
+                                        Contact Person <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control {% if errors and errors.get('contact_name') %}is-invalid{% endif %}" 
+                                           id="contact_name" 
+                                           name="contact_name" 
+                                           maxlength="50"
+                                           value="{{ form_data.get('contact_name', '') }}"
+                                           required 
+                                           placeholder="Full name"
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Max 50 characters, auto-converted to UPPERCASE</small>
+                                    {% if errors and errors.get('contact_name') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('contact_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="phone_no" class="form-label">
+                                        Phone Number <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="tel" 
+                                           class="form-control phone-mask {% if errors and errors.get('phone_no') %}is-invalid{% endif %}" 
+                                           id="phone_no" 
+                                           name="phone_no" 
+                                           maxlength="20"
+                                           value="{{ form_data.get('phone_no', '') }}"
+                                           required 
+                                           placeholder="+1 (876) XXX-XXXX">
+                                    <small class="form-text text-muted">Format: +1 (XXX) XXX-XXXX</small>
+                                    {% if errors and errors.get('phone_no') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('phone_no') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="email_text" class="form-label">
+                                        Email Address
+                                    </label>
+                                    <input type="email" 
+                                           class="form-control {% if errors and errors.get('email_text') %}is-invalid{% endif %}" 
+                                           id="email_text" 
+                                           name="email_text" 
+                                           maxlength="100"
+                                           value="{{ form_data.get('email_text', '') }}"
+                                           placeholder="agency@example.com">
+                                    <small class="form-text text-muted">Optional, max 100 characters</small>
+                                    {% if errors and errors.get('email_text') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('email_text') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Optional Configuration Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-sliders"></i> Optional Configuration
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="ineligible_event_id" class="form-label">
+                                        Ineligible Event
+                                    </label>
+                                    <select class="form-select {% if errors and errors.get('ineligible_event_id') %}is-invalid{% endif %}" 
+                                            id="ineligible_event_id" 
+                                            name="ineligible_event_id">
+                                        <option value="">-- No restriction --</option>
+                                        {% for event in events %}
+                                        <option value="{{ event.event_id }}" 
+                                                {% if form_data.get('ineligible_event_id') == event.event_id|string %}selected{% endif %}>
+                                            {{ event.event_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="form-text text-muted">Optional: Event for which this agency is not eligible</small>
+                                    {% if errors and errors.get('ineligible_event_id') %}
+                                    <div class="invalid-feedback d-block">{{ errors.get('ineligible_event_id') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <a href="{{ url_for('agencies.list_agencies') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Create Agency
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script  nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/phone-mask.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+// Handle agency type and warehouse relationship
+document.addEventListener('DOMContentLoaded', function() {
+    const agencyTypeSelect = document.getElementById('agency_type');
+    const warehouseSelect = document.getElementById('warehouse_id');
+    const warehouseRequired = document.querySelector('.warehouse-required');
+    
+    function updateWarehouseField() {
+        const agencyType = agencyTypeSelect.value;
+        
+        if (agencyType === 'DISTRIBUTOR') {
+            // Distributor requires warehouse
+            warehouseSelect.disabled = false;
+            warehouseSelect.required = true;
+            warehouseSelect.classList.remove('warehouse-field-disabled');
+            warehouseRequired.classList.remove('d-none');
+            warehouseRequired.classList.add('d-inline');
+        } else if (agencyType === 'SHELTER') {
+            // Shelter cannot have warehouse
+            warehouseSelect.disabled = true;
+            warehouseSelect.required = false;
+            warehouseSelect.value = '';
+            warehouseSelect.classList.add('warehouse-field-disabled');
+            warehouseRequired.classList.remove('d-inline');
+            warehouseRequired.classList.add('d-none');
+        } else {
+            // No type selected
+            warehouseSelect.disabled = true;
+            warehouseSelect.required = false;
+            warehouseSelect.classList.add('warehouse-field-disabled');
+            warehouseRequired.classList.remove('d-inline');
+            warehouseRequired.classList.add('d-none');
+        }
+    }
+    
+    // Update on page load
+    updateWarehouseField();
+    
+    // Update on change
+    agencyTypeSelect.addEventListener('change', updateWarehouseField);
+});
+</script>
+{% endblock %}

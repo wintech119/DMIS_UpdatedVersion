@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Logistics Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-speedometer2 page-title-icon"></i>
+                <h1 class="page-title-text">Logistics Dashboard</h1>
+            </div>
+            <p class="page-subtitle">Welcome back, {{ current_user.first_name }}! Manage fulfillment operations</p>
+        </div>
+        {% if has_feature('package_preparation') %}
+        <a href="{{ url_for('packaging.pending_fulfillment') }}" class="btn btn-relief-primary">
+            <i class="bi bi-box-seam me-2"></i>
+            View All Fulfillment
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'hourglass-split',
+            'label': 'Pending Fulfillment',
+            'value': counts.get('pending', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Being Prepared',
+            'value': counts.get('in_progress', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Ready for Dispatch',
+            'value': counts.get('ready', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'clipboard-check',
+            'label': 'Completed',
+            'value': counts.get('completed', 0),
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Dashboard filters">
+        <a href="{{ url_for('dashboard.logistics_dashboard', filter='pending') }}" 
+           class="filter-tab {% if current_filter == 'pending' %}active{% endif %}">
+            Pending Fulfillment
+        </a>
+        <a href="{{ url_for('dashboard.logistics_dashboard', filter='in_progress') }}" 
+           class="filter-tab {% if current_filter == 'in_progress' %}active{% endif %}">
+            Being Prepared
+        </a>
+        <a href="{{ url_for('dashboard.logistics_dashboard', filter='ready') }}" 
+           class="filter-tab {% if current_filter == 'ready' %}active{% endif %}">
+            Ready for Dispatch
+        </a>
+        <a href="{{ url_for('dashboard.logistics_dashboard', filter='completed') }}" 
+           class="filter-tab {% if current_filter == 'completed' %}active{% endif %}">
+            Completed
+        </a>
+        <a href="{{ url_for('dashboard.logistics_dashboard', filter='all') }}" 
+           class="filter-tab {% if current_filter == 'all' %}active{% endif %}">
+            All
+        </a>
+    </nav>
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <div class="table-responsive-mobile">
+        <table class="relief-requests-table">
+        <thead>
+            <tr>
+                <th>Request Number</th>
+                <th>Agency</th>
+                <th>Priority</th>
+                <th>Items</th>
+                <th>Requested Date</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" class="table-link">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%B %d, %Y') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status %}
+                    {{ status_badge(req.status.status_code|string, req.status.status_desc) }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status_code == STATUS_SUBMITTED and not req.fulfillment_lock %}
+                        {% if has_feature('package_preparation') %}
+                        <a href="{{ url_for('packaging.prepare_package', reliefrqst_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-primary btn-sm">
+                            <i class="bi bi-box-seam me-1"></i> Prepare
+                        </a>
+                        {% endif %}
+                    {% elif req.fulfillment_lock %}
+                        <span class="text-muted">
+                            <i class="bi bi-lock"></i> In Progress
+                        </span>
+                    {% elif req.status_code == STATUS_PART_FILLED %}
+                        {% if has_feature('package_approval') %}
+                        <a href="{{ url_for('packaging.review_approval', reliefpkg_id=req.reliefpkg.reliefpkg_id if req.reliefpkg else req.reliefrqst_id) }}" 
+                           class="btn btn-relief-secondary btn-sm">
+                            <i class="bi bi-check-circle me-1"></i> Review
+                        </a>
+                        {% endif %}
+                    {% else %}
+                        <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-secondary btn-sm">
+                            <i class="bi bi-eye me-1"></i> View
+                        </a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="bi bi-inbox empty-state-icon"></i>
+        <p class="empty-state-text">No requests found for this filter</p>
+        <p class="empty-state-subtext">Try selecting a different filter or check back later</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

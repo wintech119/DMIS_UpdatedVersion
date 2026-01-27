@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Inventory Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-boxes page-title-icon"></i>
+                <h1 class="page-title-text">Inventory Dashboard</h1>
+            </div>
+            <p class="page-subtitle">Welcome back, {{ current_user.first_name }}! Manage inventory and stock levels</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if has_feature('inventory_intake') %}
+            <a href="{{ url_for('intake.list_intakes') }}" class="btn btn-relief-primary">
+                <i class="bi bi-arrow-down-circle me-2"></i>
+                Record Intake
+            </a>
+            {% endif %}
+            {% if has_feature('inventory_view') %}
+            <a href="{{ url_for('inventory.list_inventory') }}" class="btn btn-relief-secondary">
+                <i class="bi bi-boxes me-2"></i>
+                View Inventory
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set low_stock_count = low_stock_items|length if low_stock_items else 0 %}
+    {% set summary_metrics = [
+        {
+            'icon': 'boxes',
+            'label': 'Total Inventory Value',
+            'value': '$' + '{:,.2f}'.format(total_inventory_value|default(0)),
+            'variant': 'primary'
+        },
+        {
+            'icon': 'exclamation-triangle',
+            'label': 'Low Stock Items',
+            'value': low_stock_count,
+            'variant': 'warning'
+        },
+        {
+            'icon': 'arrow-down-circle',
+            'label': 'Recent Intakes',
+            'value': 0,
+            'variant': 'info'
+        },
+        {
+            'icon': 'arrow-left-right',
+            'label': 'Pending Transfers',
+            'value': 0,
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Low Stock Alert -->
+    {% if low_stock_items %}
+    <div class="drims-card mb-4">
+        <div class="card-body">
+            <h5 class="card-title text-warning mb-4">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                Low Stock Items - Immediate Attention Required
+            </h5>
+            <div class="table-responsive-mobile">
+                <table class="relief-requests-table">
+                    <thead>
+                        <tr>
+                            <th>Item Name</th>
+                            <th>Current Stock</th>
+                            <th>Reorder Level</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in low_stock_items[:10] %}
+                        <tr>
+                            <td>
+                                <strong>{{ item.item_name }}</strong>
+                            </td>
+                            <td>
+                                <span class="badge bg-warning text-dark">{{ item.total_qty|default(0) }} units</span>
+                            </td>
+                            <td>
+                                {{ item.reorder_level|default(0) }} units
+                            </td>
+                            <td>
+                                {% if item.total_qty|default(0) == 0 %}
+                                <span class="badge bg-danger">Out of Stock</span>
+                                {% elif item.total_qty|default(0) < item.reorder_level|default(0) %}
+                                <span class="badge bg-warning text-dark">Low Stock</span>
+                                {% else %}
+                                <span class="badge bg-success">In Stock</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if has_feature('inventory_view') %}
+                                <a href="{{ url_for('inventory.list_inventory') }}?item_id={{ item.item_id }}" 
+                                   class="btn btn-relief-secondary btn-sm">
+                                    <i class="bi bi-eye me-1"></i> View Details
+                                </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success">
+        <i class="bi bi-check-circle me-2"></i>
+        <strong>All good!</strong> No low stock items at this time.
+    </div>
+    {% endif %}
+
+    <!-- Quick Actions -->
+    {% if quick_actions %}
+    <div class="mt-4">
+        <h5 class="mb-3">Quick Actions</h5>
+        <div class="d-flex flex-wrap gap-2">
+            {% for action in quick_actions %}
+            <a href="{{ action.url }}" class="btn btn-{{ action.variant }}">
+                <i class="{{ action.icon }} me-1"></i>
+                {{ action.label }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

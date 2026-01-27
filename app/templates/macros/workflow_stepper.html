@@ -1,0 +1,229 @@
+{% macro relief_request_stepper(current_status_code) %}
+{# 
+  Reusable workflow stepper for agency relief requests
+  Shows 5-step process: Prepare → Submitted → Processing → Dispatched → Received
+  
+  Usage:
+    {% from 'macros/workflow_stepper.html' import relief_request_stepper %}
+    {{ relief_request_stepper(request.status_code) }}
+#}
+
+{# Normalize to integer in case a string status slips through #}
+{% set normalized_status = current_status_code | int %}
+
+{% set steps = [
+  {
+    'number': 1,
+    'name': 'Prepare Request',
+    'description': 'Draft and add items',
+    'status_codes': [0],
+    'icon': 'bi-pencil-square'
+  },
+  {
+    'number': 2,
+    'name': 'Submitted to ODPEM',
+    'description': 'Awaiting review',
+    'status_codes': [1, 3],
+    'icon': 'bi-send-check'
+  },
+  {
+    'number': 3,
+    'name': 'ODPEM Processing',
+    'description': 'Review and package preparation',
+    'status_codes': [5],
+    'icon': 'bi-gear'
+  },
+  {
+    'number': 4,
+    'name': 'Goods Dispatched',
+    'description': 'In transit to your agency',
+    'status_codes': [6],
+    'icon': 'bi-truck'
+  },
+  {
+    'number': 5,
+    'name': 'Goods Received',
+    'description': 'Request completed',
+    'status_codes': [7],
+    'icon': 'bi-check-circle'
+  }
+] %}
+
+{% set terminal_statuses = {
+  2: {'label': 'Request cancelled', 'step': 2},
+  4: {'label': 'Request denied', 'step': 2},
+  8: {'label': 'Marked ineligible', 'step': 2}
+} %}
+
+{% set terminal_info = terminal_statuses.get(normalized_status) %}
+
+{% set current_step = terminal_info.step if terminal_info else 1 %}
+{% for step in steps %}
+  {% if normalized_status in step.status_codes %}
+    {% set current_step = step.number %}
+  {% endif %}
+{% endfor %}
+
+<div class="workflow-stepper mb-4">
+  <div class="row">
+    {% for step in steps %}
+    <div class="col">
+      {% set step_class = 'step' %}
+      {% if step.number == current_step %}
+        {% set step_class = step_class + ' active' %}
+      {% elif step.number < current_step %}
+        {% set step_class = step_class + ' completed' %}
+      {% else %}
+        {% set step_class = step_class + ' pending' %}
+      {% endif %}
+      {% if terminal_info and step.number == current_step %}
+        {% set step_class = step_class + ' terminal' %}
+      {% endif %}
+      <div class="{{ step_class }}">
+        <div class="step-icon">
+          <i class="bi {{ step.icon }}"></i>
+          <span class="step-number">{{ step.number }}</span>
+        </div>
+        <div class="step-content">
+          <div class="step-title">{{ step.name }}</div>
+          <div class="step-description">{{ step.description }}</div>
+          {% if terminal_info and step.number == current_step %}
+            <div class="step-status text-danger fw-semibold small">{{ terminal_info.label }}</div>
+          {% endif %}
+        </div>
+        {% if step.number < 5 %}
+        <div class="step-connector"></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<style nonce="{{ csp_nonce() }}">
+.workflow-stepper {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 2rem 1rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.workflow-stepper .step {
+  position: relative;
+  text-align: center;
+  padding: 0 0.5rem;
+}
+
+.workflow-stepper .step-icon {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 0.75rem;
+  background: #e9ecef;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #6c757d;
+  transition: all 0.3s;
+}
+
+.workflow-stepper .step.active .step-icon {
+  background: #009639;
+  color: white;
+  box-shadow: 0 4px 8px rgba(0, 150, 57, 0.3);
+}
+
+.workflow-stepper .step.completed .step-icon {
+  background: #198754;
+  color: white;
+}
+
+.workflow-stepper .step-number {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #e9ecef;
+}
+
+.workflow-stepper .step.active .step-number {
+  border-color: #009639;
+  color: #009639;
+}
+
+.workflow-stepper .step.completed .step-number {
+  border-color: #198754;
+  color: #198754;
+}
+
+.workflow-stepper .step-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #495057;
+  margin-bottom: 0.25rem;
+}
+
+.workflow-stepper .step.active .step-title {
+  color: #009639;
+}
+
+.workflow-stepper .step.completed .step-title {
+  color: #198754;
+}
+
+.workflow-stepper .step.terminal .step-icon {
+  background: #f8d7da;
+  color: #dc3545;
+  box-shadow: none;
+}
+
+.workflow-stepper .step.terminal .step-title {
+  color: #dc3545;
+}
+
+.workflow-stepper .step-description {
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+.workflow-stepper .step-connector {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #dee2e6;
+  z-index: -1;
+}
+
+.workflow-stepper .step.completed .step-connector {
+  background: #198754;
+}
+
+@media (max-width: 768px) {
+  .workflow-stepper .step-icon {
+    width: 50px;
+    height: 50px;
+    font-size: 1.25rem;
+  }
+  
+  .workflow-stepper .step-title {
+    font-size: 0.8rem;
+  }
+  
+  .workflow-stepper .step-description {
+    display: none;
+  }
+}
+</style>
+{% endmacro %}

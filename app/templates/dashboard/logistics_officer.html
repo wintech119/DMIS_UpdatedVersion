@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% from "macros.html" import kpi_card, status_badge, data_table %}
+{% block title %}Logistics Officer Dashboard - DMIS{% endblock %}
+
+{% set active_page = 'dashboard' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-grid-3x3-gap-fill"></i> Logistics Officer Dashboard</h2>
+        <p class="text-muted mb-0">Operational tasks and fulfilment preparation</p>
+    </div>
+    <div class="text-muted">
+        <i class="bi bi-clock"></i> {{ now.strftime('%B %d, %Y %H:%M') }}
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        {{ kpi_card('inbox', 'Pending Needs', needs_by_status.get('Submitted', 0), 'primary') }}
+    </div>
+    <div class="col-md-3">
+        {{ kpi_card('box-seam', 'In Preparation', fulfilment_by_status.get('In Preparation', 0), 'info') }}
+    </div>
+    <div class="col-md-3">
+        {{ kpi_card('check-circle', 'Ready to Dispatch', fulfilment_by_status.get('Ready', 0), 'success') }}
+    </div>
+    <div class="col-md-3">
+        {{ kpi_card('exclamation-triangle', 'Low Stock Alerts', low_stock_items|length, 'danger') }}
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header card-header-goj d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-task"></i> Needs Lists - Awaiting Preparation</h5>
+                <span class="badge bg-light text-dark">{{ needs_by_status.get('Submitted', 0) }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% set submitted_needs = recent_needs|selectattr('status', 'equalto', 'Submitted')|list %}
+                {% if submitted_needs %}
+                <div class="list-group list-group-flush">
+                    {% for need in submitted_needs %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <strong class="text-primary">{{ need.needs_list_nbr }}</strong>
+                                {% if need.agency %}
+                                <span class="text-muted">- {{ need.agency.agency_name }}</span>
+                                {% endif %}
+                            </div>
+                            {{ status_badge(need.status) }}
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                <i class="bi bi-calendar"></i> {{ need.create_dtime.strftime('%Y-%m-%d %H:%M') }}
+                            </small>
+                            <div>
+                                <a href="{{ url_for('needs_list.view', needs_list_id=need.needs_list_id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                                <a href="{{ url_for('fulfilment.create', needs_list_id=need.needs_list_id) }}" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-plus-circle"></i> Prepare
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-check-circle fs-1 text-success"></i>
+                    <p class="mb-0 mt-2">All needs lists have been prepared</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header card-header-goj d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-truck"></i> Fulfilments - In Preparation</h5>
+                <span class="badge bg-light text-dark">{{ fulfilment_by_status.get('In Preparation', 0) }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% set in_prep_fulfilments = recent_fulfilments|selectattr('status', 'equalto', 'In Preparation')|list %}
+                {% if in_prep_fulfilments %}
+                <div class="list-group list-group-flush">
+                    {% for ful in in_prep_fulfilments %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <strong class="text-info">{{ ful.fulfilment_nbr }}</strong>
+                                {% if ful.warehouse %}
+                                <span class="text-muted">- {{ ful.warehouse.warehouse_name }}</span>
+                                {% endif %}
+                            </div>
+                            {{ status_badge(ful.status) }}
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                <i class="bi bi-calendar"></i> {{ ful.create_dtime.strftime('%Y-%m-%d %H:%M') }}
+                            </small>
+                            <div>
+                                <a href="{{ url_for('fulfilment.view', fulfilment_id=ful.fulfilment_id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                                <a href="{{ url_for('fulfilment.update_status', fulfilment_id=ful.fulfilment_id, status='Ready') }}" class="btn btn-sm btn-success">
+                                    <i class="bi bi-check-circle"></i> Mark Ready
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-inbox fs-1"></i>
+                    <p class="mb-0 mt-2">No fulfilments in preparation</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pending Fulfillment Section -->
+<div class="row g-3 mb-4">
+    <div class="col-md-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header card-header-goj d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-box-seam"></i> Relief Request Fulfillment Queue</h5>
+                <a href="{{ url_for('packaging.pending_fulfillment') }}" class="btn btn-sm btn-light">View All</a>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-3">
+                    <div class="col-md-4">
+                        <div class="p-3 bg-warning bg-opacity-10 rounded">
+                            <h3 class="mb-1 text-warning">{{ packaging_counts.awaiting }}</h3>
+                            <small class="text-muted">Awaiting to be Filled</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-info bg-opacity-10 rounded">
+                            <h3 class="mb-1 text-info">{{ packaging_counts.in_progress }}</h3>
+                            <small class="text-muted">Being Prepared</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3 bg-success bg-opacity-10 rounded">
+                            <h3 class="mb-1 text-success">{{ packaging_counts.ready }}</h3>
+                            <small class="text-muted">Ready for Dispatch</small>
+                        </div>
+                    </div>
+                </div>
+                
+                {% if pending_fulfillment_requests %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm table-clickable mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="py-2 px-3">Request Number</th>
+                                <th class="py-2 px-3">Agency</th>
+                                <th class="py-2 px-3">Items</th>
+                                <th class="py-2 px-3">Status</th>
+                                <th class="py-2 px-3 text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for req in pending_fulfillment_requests %}
+                            <tr>
+                                <td class="py-2 px-3">
+                                    <strong>RR-{{ '%06d'|format(req.reliefrqst_id) }}</strong>
+                                </td>
+                                <td class="py-2 px-3">
+                                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                                </td>
+                                <td class="py-2 px-3">
+                                    {{ req.items|length if req.items else 0 }} items
+                                </td>
+                                <td class="py-2 px-3">
+                                    {% if req.fulfillment_lock %}
+                                    <span class="badge bg-info">Being Prepared</span>
+                                    {% elif req.status %}
+                                    <span class="badge {% if req.status_code == STATUS_SUBMITTED %}bg-warning{% elif req.status_code == STATUS_PART_FILLED %}bg-success{% endif %}">
+                                        {{ req.status.status_desc }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-2 px-3 text-end">
+                                    <a href="{{ url_for('packaging.prepare_package', reliefrqst_id=req.reliefrqst_id) }}" 
+                                       class="btn btn-sm btn-outline-primary" data-action="stop-propagation">
+                                        <i class="bi bi-box-seam"></i> Prepare
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-3 text-center text-muted">
+                    <i class="bi bi-inbox fs-2rem"></i>
+                    <p class="mb-0 mt-2">No relief requests pending fulfillment</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle-fill"></i> Stock Allocation Alerts</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if low_stock_items %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm table-clickable mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="py-2 px-3">Item</th>
+                                <th class="py-2 px-3 text-end">Available</th>
+                                <th class="py-2 px-3 text-end">Reorder Level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in low_stock_items %}
+                            <tr class="cursor-pointer" data-href="{{ url_for('items.view', item_id=item.item_id) }}">
+                                <td class="py-2 px-3">
+                                    <i class="bi bi-exclamation-circle text-danger"></i> {{ item.item_name }}
+                                </td>
+                                <td class="py-2 px-3 text-end text-danger fw-bold">{{ "%.2f"|format(item.total_qty) }}</td>
+                                <td class="py-2 px-3 text-end">{{ "%.2f"|format(item.reorder_level) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-check-circle fs-1 text-success"></i>
+                    <p class="mb-0 mt-2">All items adequately stocked</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header card-header-goj">
+                <h5 class="mb-0"><i class="bi bi-building"></i> Warehouse Stock Overview</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm table-clickable mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="py-2 px-3">Warehouse</th>
+                                <th class="py-2 px-3 text-end">Items</th>
+                                <th class="py-2 px-3 text-end">Total Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for wh in warehouse_stock[:6] %}
+                            <tr class="cursor-pointer" data-href="{{ url_for('warehouses.view', warehouse_id=wh.warehouse_id) }}">
+                                <td class="py-2 px-3">{{ wh.warehouse_name }}</td>
+                                <td class="py-2 px-3 text-end">{{ wh.item_count }}</td>
+                                <td class="py-2 px-3 text-end">{{ "%.2f"|format(wh.total_qty) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header card-header-goj">
+                <h5 class="mb-0"><i class="bi bi-clipboard-data"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <a href="{{ url_for('needs_list.index') }}" class="btn btn-outline-primary w-100 py-3">
+                            <i class="bi bi-list-check d-block mb-2 fs-2rem"></i>
+                            View All Needs Lists
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('fulfilment.index') }}" class="btn btn-outline-primary w-100 py-3">
+                            <i class="bi bi-box-seam d-block mb-2 fs-2rem"></i>
+                            View All Fulfilments
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('inventory.list_inventory') }}" class="btn btn-outline-primary w-100 py-3">
+                            <i class="bi bi-boxes d-block mb-2" style="font-size: 2rem;"></i>
+                            Check Stock Levels
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('reports.index') }}" class="btn btn-outline-primary w-100 py-3">
+                            <i class="bi bi-file-earmark-bar-graph d-block mb-2" style="font-size: 2rem;"></i>
+                            Generate Reports
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

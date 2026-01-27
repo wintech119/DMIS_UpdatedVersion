@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Transfers - DRIMS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-arrow-left-right"></i> Inventory Transfers</h2>
+    <a href="{{ url_for('transfers.create') }}" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Create Transfer
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive-mobile">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Transfer ID</th>
+                        <th>Date</th>
+                        <th>From Warehouse</th>
+                        <th>To Warehouse</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transfer in transfers %}
+                    <tr>
+                        <td>{{ transfer.transfer_id }}</td>
+                        <td>{{ transfer.transfer_date.strftime('%Y-%m-%d') if transfer.transfer_date }}</td>
+                        <td>{{ transfer.from_inventory.warehouse.warehouse_name if transfer.from_inventory and transfer.from_inventory.warehouse else '-' }}</td>
+                        <td>{{ transfer.to_inventory.warehouse.warehouse_name if transfer.to_inventory and transfer.to_inventory.warehouse else '-' }}</td>
+                        <td>
+                            {% if transfer.status_code == 'C' %}
+                                <span class="badge bg-success">Completed</span>
+                            {% elif transfer.status_code == 'V' %}
+                                <span class="badge bg-info">Verified</span>
+                            {% elif transfer.status_code == 'D' %}
+                                <span class="badge bg-primary">Dispatched</span>
+                            {% else %}
+                                <span class="badge bg-warning">Processing</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('transfers.view', transfer_id=transfer.transfer_id) }}" class="btn btn-sm btn-primary">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">No transfers found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

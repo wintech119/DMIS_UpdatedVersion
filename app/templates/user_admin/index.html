@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+{% from 'user_admin/_macros.html' import status_badge, role_badges, mfa_status_badge, last_login_display, action_buttons, metric_card, empty_state %}
+
+{% block title %}User Management - DMIS{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/user-management-ui.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="user-management-container">
+    <!-- Page Header -->
+    <div class="page-header-modern">
+        <div class="page-title-group">
+            <h1>
+                <i class="bi bi-people-fill"></i>
+                User Management
+            </h1>
+            <p class="subtitle">Manage system users, roles, and access control</p>
+        </div>
+        <div>
+            <a href="{{ url_for('user_admin.create') }}" class="btn-user-action primary">
+                <i class="bi bi-person-plus-fill"></i>
+                Create User
+            </a>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Metrics Dashboard -->
+    <div class="metrics-grid" role="region" aria-label="User Statistics">
+        {{ metric_card(
+            value=metrics.total_users,
+            label='Total Users',
+            icon='people-fill',
+            variant='total-users'
+        ) }}
+        
+        {{ metric_card(
+            value=metrics.active_users,
+            label='Active Users',
+            icon='check-circle-fill',
+            variant='active-users'
+        ) }}
+        
+        {{ metric_card(
+            value=metrics.locked_users,
+            label='Locked Accounts',
+            icon='lock-fill',
+            variant='locked-accounts'
+        ) }}
+        
+        {{ metric_card(
+            value=metrics.mfa_enabled,
+            label='MFA Enabled',
+            icon='shield-fill-check',
+            variant='mfa-enabled'
+        ) }}
+        
+        {{ metric_card(
+            value=metrics.mfa_percentage ~ '%',
+            label='MFA Coverage',
+            icon='shield-check',
+            variant='mfa-enabled'
+        ) }}
+        
+        {{ metric_card(
+            value=metrics.admin_users,
+            label='Admin Users',
+            icon='star-fill',
+            variant='admin-users'
+        ) }}
+    </div>
+
+    <!-- Filter and Search Bar -->
+    <div class="filter-search-bar">
+        <div class="filter-tabs" role="tablist" aria-label="User Filter Tabs">
+            <button class="filter-tab active" data-filter="all" role="tab" aria-selected="true" aria-controls="users-table">
+                All Users <span class="count">{{ users|length }}</span>
+            </button>
+            <button class="filter-tab" data-filter="active" role="tab" aria-selected="false" aria-controls="users-table">
+                Active <span class="count">{{ metrics.active_users }}</span>
+            </button>
+            <button class="filter-tab" data-filter="inactive" role="tab" aria-selected="false" aria-controls="users-table">
+                Inactive <span class="count">{{ metrics.inactive_users }}</span>
+            </button>
+            <button class="filter-tab" data-filter="locked" role="tab" aria-selected="false" aria-controls="users-table">
+                Locked <span class="count">{{ metrics.locked_users }}</span>
+            </button>
+            <button class="filter-tab" data-filter="no-mfa" role="tab" aria-selected="false" aria-controls="users-table">
+                No MFA <span class="count">{{ metrics.total_users - metrics.mfa_enabled }}</span>
+            </button>
+            <button class="filter-tab" data-filter="admin" role="tab" aria-selected="false" aria-controls="users-table">
+                Administrators <span class="count">{{ metrics.admin_users }}</span>
+            </button>
+        </div>
+
+        <div class="search-controls">
+            <div class="search-input-group">
+                <i class="bi bi-search"></i>
+                <input type="text" 
+                       id="userSearch" 
+                       placeholder="Search by name, email, or organization..." 
+                       aria-label="Search users">
+            </div>
+            <select class="filter-select" id="roleFilter" aria-label="Filter by role">
+                <option value="">All Roles</option>
+                {% set all_roles = [] %}
+                {% for user in users %}
+                    {% for role in user.roles %}
+                        {% if role.name not in all_roles %}
+                            {% set _ = all_roles.append(role.name) %}
+                        {% endif %}
+                    {% endfor %}
+                {% endfor %}
+                {% for role_name in all_roles|sort %}
+                <option value="{{ role_name }}">{{ role_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="table-responsive-mobile">
+        {% if users %}
+        <table class="users-table" id="users-table" role="table" aria-label="System Users">
+            <thead>
+                <tr role="row">
+                    <th scope="col" class="sortable" data-sort="name" role="columnheader" aria-sort="none">
+                        User <i class="bi bi-chevron-expand"></i>
+                    </th>
+                    <th scope="col" role="columnheader">Organization</th>
+                    <th scope="col" role="columnheader">Roles</th>
+                    <th scope="col" class="sortable" data-sort="status" role="columnheader" aria-sort="none">
+                        Status <i class="bi bi-chevron-expand"></i>
+                    </th>
+                    <th scope="col" role="columnheader">Security</th>
+                    <th scope="col" class="sortable" data-sort="last-login" role="columnheader" aria-sort="none">
+                        Last Login <i class="bi bi-chevron-expand"></i>
+                    </th>
+                    <th scope="col" class="text-end" role="columnheader">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr class="user-row" 
+                    data-user-id="{{ user.user_id }}"
+                    data-status="{{ 'active' if user.is_active else ('locked' if user.is_locked else 'inactive') }}"
+                    data-mfa="{{ 'yes' if user.mfa_enabled else 'no' }}"
+                    data-roles="{{ user.roles|map(attribute='name')|join(',') }}"
+                    data-is-admin="{{ 'yes' if user.roles|selectattr('role_code', 'in', ['SYSTEM_ADMINISTRATOR', 'SYS_ADMIN'])|list else 'no' }}"
+                    role="row">
+                    <td data-label="User">
+                        <div class="user-identity">
+                            <span class="user-name">{{ user.full_name or 'Unnamed User' }}</span>
+                            <span class="user-email">{{ user.email }}</span>
+                        </div>
+                    </td>
+                    <td data-label="Organization">
+                        {% if user.organization %}
+                            <span>{{ user.organization }}</span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td data-label="Roles">
+                        {{ role_badges(user.roles, max_display=2) }}
+                    </td>
+                    <td data-label="Status">
+                        {% if user.is_locked %}
+                            {{ status_badge('locked') }}
+                        {% else %}
+                            {{ status_badge('active' if user.is_active else 'inactive', user.is_active) }}
+                        {% endif %}
+                    </td>
+                    <td data-label="Security">
+                        {{ mfa_status_badge(user.mfa_enabled, user.mfa_secret is not none) }}
+                    </td>
+                    <td data-label="Last Login" data-timestamp="{{ user.last_login_dtime.timestamp() if user.last_login_dtime else 0 }}">
+                        {{ last_login_display(user.last_login_dtime) }}
+                    </td>
+                    <td data-label="Actions" class="text-end">
+                        {{ action_buttons(
+                            view_url=url_for('user_admin.view', user_id=user.user_id),
+                            edit_url=url_for('user_admin.edit', user_id=user.user_id)
+                        ) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            {{ empty_state(
+                title='No Users Found',
+                message='Get started by creating your first user account.',
+                icon='people',
+                action_url=url_for('user_admin.create'),
+                action_text='Create First User'
+            ) }}
+        {% endif %}
+    </div>
+
+    <div class="mt-3 text-muted small">
+        <i class="bi bi-info-circle"></i>
+        Showing {{ users|length }} user{{ 's' if users|length != 1 else '' }}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}">
+// User Management JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('userSearch');
+    const roleFilter = document.getElementById('roleFilter');
+    const filterTabs = document.querySelectorAll('.filter-tab');
+    const rows = document.querySelectorAll('.user-row');
+    
+    let currentFilter = 'all';
+    let currentSort = null;
+    let currentSortDir = 'asc';
+    
+    // Filter functionality
+    filterTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            filterTabs.forEach(t => {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+            });
+            this.classList.add('active');
+            this.setAttribute('aria-selected', 'true');
+            currentFilter = this.dataset.filter;
+            applyFilters();
+        });
+    });
+    
+    // Search functionality
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(applyFilters, 300));
+    }
+    
+    // Role filter
+    if (roleFilter) {
+        roleFilter.addEventListener('change', applyFilters);
+    }
+    
+    // Apply all filters
+    function applyFilters() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const selectedRole = roleFilter ? roleFilter.value.toLowerCase() : '';
+        
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+            const name = row.querySelector('.user-name')?.textContent.toLowerCase() || '';
+            const email = row.querySelector('.user-email')?.textContent.toLowerCase() || '';
+            const org = row.querySelector('[data-label="Organization"]')?.textContent.toLowerCase() || '';
+            const status = row.dataset.status;
+            const hasMfa = row.dataset.mfa === 'yes';
+            const isAdmin = row.dataset.isAdmin === 'yes';
+            const userRoles = row.dataset.roles.toLowerCase();
+            
+            // Search filter
+            const matchesSearch = !searchTerm || 
+                name.includes(searchTerm) || 
+                email.includes(searchTerm) || 
+                org.includes(searchTerm);
+            
+            // Tab filter
+            let matchesTab = true;
+            if (currentFilter === 'active') matchesTab = status === 'active';
+            else if (currentFilter === 'inactive') matchesTab = status === 'inactive';
+            else if (currentFilter === 'locked') matchesTab = status === 'locked';
+            else if (currentFilter === 'no-mfa') matchesTab = !hasMfa;
+            else if (currentFilter === 'admin') matchesTab = isAdmin;
+            
+            // Role filter
+            const matchesRole = !selectedRole || userRoles.includes(selectedRole);
+            
+            // Show/hide row
+            if (matchesSearch && matchesTab && matchesRole) {
+                row.classList.remove('d-none');
+                visibleCount++;
+            } else {
+                row.classList.add('d-none');
+            }
+        });
+        
+        // Update visible count
+        updateVisibleCount(visibleCount);
+    }
+    
+    // Sortable columns
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.addEventListener('click', function() {
+            const sortKey = this.dataset.sort;
+            
+            if (currentSort === sortKey) {
+                currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort = sortKey;
+                currentSortDir = 'asc';
+            }
+            
+            // Update aria-sort
+            document.querySelectorAll('.sortable').forEach(h => h.setAttribute('aria-sort', 'none'));
+            this.setAttribute('aria-sort', currentSortDir === 'asc' ? 'ascending' : 'descending');
+            
+            sortTable(sortKey, currentSortDir);
+        });
+    });
+    
+    function sortTable(key, direction) {
+        const tbody = document.querySelector('.users-table tbody');
+        const rowsArray = Array.from(rows);
+        
+        rowsArray.sort((a, b) => {
+            let aVal, bVal;
+            
+            if (key === 'name') {
+                aVal = a.querySelector('.user-name')?.textContent || '';
+                bVal = b.querySelector('.user-name')?.textContent || '';
+            } else if (key === 'status') {
+                aVal = a.dataset.status;
+                bVal = b.dataset.status;
+            } else if (key === 'last-login') {
+                aVal = parseFloat(a.querySelector('[data-timestamp]')?.dataset.timestamp || 0);
+                bVal = parseFloat(b.querySelector('[data-timestamp]')?.dataset.timestamp || 0);
+            }
+            
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        rowsArray.forEach(row => tbody.appendChild(row));
+    }
+    
+    function updateVisibleCount(count) {
+        const countEl = document.querySelector('.mt-3.text-muted.small');
+        if (countEl) {
+            countEl.innerHTML = `<i class="bi bi-info-circle"></i> Showing ${count} user${count !== 1 ? 's' : ''}`;
+        }
+    }
+    
+    // Debounce helper
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        if (e.key === '/' && e.target.tagName !== 'INPUT') {
+            e.preventDefault();
+            searchInput?.focus();
+        }
+    });
+});
+</script>
+{% endblock %}

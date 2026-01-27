@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Donation #{{ donation.donation_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('donations.list_donations') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to List
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-gift page-title-icon"></i>
+                <h1 class="page-title-text">Donation #{{ donation.donation_id }}</h1>
+                <span class="ms-3">
+                    {% if donation.status_code == 'E' %}
+                    <span class="status-badge status-badge-info">
+                        <i class="bi bi-inbox"></i> Entered
+                    </span>
+                    {% elif donation.status_code == 'V' %}
+                    <span class="status-badge status-badge-success">
+                        <i class="bi bi-check-circle"></i> Verified
+                    </span>
+                    {% elif donation.status_code == 'P' %}
+                    <span class="status-badge status-badge-primary">
+                        <i class="bi bi-box-seam"></i> Processed
+                    </span>
+                    {% endif %}
+                </span>
+            </div>
+            <p class="page-subtitle">Received {{ donation.received_date.strftime('%B %d, %Y') }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if donation.status_code == 'E' %}
+            {% if has_feature('donation_verification') %}
+            <a href="{{ url_for('donations.verify_donation_detail', donation_id=donation.donation_id) }}"
+               class="btn-relief-primary">
+                <i class="bi bi-clipboard-check"></i> Review &amp; Verify
+            </a>
+            {% endif %}
+            <a href="{{ url_for('donations.edit_donation', donation_id=donation.donation_id) }}" class="btn-relief-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            {% elif donation.status_code == 'V' %}
+            <span class="badge bg-secondary" title="Verified donations are read-only">
+                <i class="bi bi-lock"></i> Locked (Verified)
+            </span>
+            {% elif donation.status_code == 'P' %}
+            <span class="badge bg-secondary" title="Processed donations cannot be edited">
+                <i class="bi bi-lock"></i> Locked (Already in Warehouse)
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <!-- Donation Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Donation Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Donor</label>
+                            <p class="mb-0">{{ donation.donor.donor_name if donation.donor else 'Unknown' }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Event</label>
+                            <p class="mb-0">{{ donation.event.event_name if donation.event else 'Unknown' }}</p>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Custodian</label>
+                            <p class="mb-0">{{ donation.custodian.custodian_name if donation.custodian else 'Unknown' }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Received Date</label>
+                            <p class="mb-0">{{ donation.received_date.strftime('%Y-%m-%d') }}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-muted small">Description</label>
+                        <p class="mb-0">{{ donation.donation_desc }}</p>
+                    </div>
+                    {% if donation.comments_text %}
+                    <div class="mt-3">
+                        <label class="text-muted small">Comments</label>
+                        <p class="mb-0">{{ donation.comments_text }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Donation Items Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-box-seam"></i> Donation Items ({{ donation.items|length }})</h5>
+                </div>
+                <div class="card-body {% if donation.items %}p-0{% endif %}">
+                    {% if donation.items %}
+                    <div class="table-responsive">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Item</th>
+                                    <th scope="col" class="text-end">Quantity</th>
+                                    <th scope="col">UOM</th>
+                                    <th scope="col">Currency</th>
+                                    <th scope="col">Location</th>
+                                    <th scope="col" class="text-center">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in donation.items %}
+                                <tr>
+                                    <td>
+                                        {{ item.item.item_name if item.item else 'Unknown' }}
+                                        {% if item.item and item.item.item_code %}
+                                        <div><small class="text-muted">{{ item.item.item_code }}</small></div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end"><strong>{{ item.item_qty }}</strong></td>
+                                    <td>
+                                        {% if item.uom_code %}
+                                        <span class="code-pill">{{ item.uom_code }}</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if item.currency_code and not item.uom_code %}
+                                        <span class="code-pill">{{ item.currency_code }}</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ item.location_name }}</td>
+                                    <td class="text-center">
+                                        {% if item.status_code == 'P' %}
+                                        <span class="status-badge status-badge-warning">
+                                            <i class="bi bi-hourglass-split"></i> Pending
+                                        </span>
+                                        {% elif item.status_code == 'V' %}
+                                        <span class="status-badge status-badge-success">
+                                            <i class="bi bi-check-circle"></i> Verified
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% if item.comments_text %}
+                                <tr>
+                                    <td colspan="6" class="bg-light">
+                                        <small><i class="bi bi-chat-left-text"></i> {{ item.comments_text }}</small>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-box-seam text-muted fs-3rem"></i>
+                        <p class="text-muted mt-3">No items added yet. {% if donation.status_code == 'E' %}Use the Edit button to add items to this donation.{% elif donation.status_code == 'V' %}This verified donation has no items.{% else %}This processed donation has no items.{% endif %}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Audit Trail Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="bi bi-clock-history"></i> Audit Trail</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="text-muted small">Created By</label>
+                        <p class="mb-0">{{ donation.created_by.user_name if donation.created_by else donation.create_by_id }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Created Date</label>
+                        <p class="mb-0">{{ donation.create_dtime.strftime('%Y-%m-%d %I:%M %p') if donation.create_dtime else 'N/A' }}</p>
+                    </div>
+                    {% if donation.verify_by %}
+                    <div class="mb-3">
+                        <label class="text-muted small">Verified By</label>
+                        <p class="mb-0">{{ donation.verify_by.user_name }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Verified Date</label>
+                        <p class="mb-0">{{ donation.verify_dtime.strftime('%Y-%m-%d %I:%M %p') if donation.verify_dtime else 'N/A' }}</p>
+                    </div>
+                    {% endif %}
+                    {% if donation.update_by %}
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified By</label>
+                        <p class="mb-0">{{ donation.update_by.user_name }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified Date</label>
+                        <p class="mb-0">{{ donation.update_dtime.strftime('%Y-%m-%d %I:%M %p') if donation.update_dtime else 'N/A' }}</p>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <label class="text-muted small">Version Number</label>
+                        <p class="mb-0"><span class="badge bg-info">{{ donation.version_nbr }}</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

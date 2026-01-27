@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% from 'notifications/_macros.html' import notification_card, metric_card, empty_state %}
+
+{% block title %}Notifications - DRIMS{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/notifications-ui.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="notifications-container">
+    <!-- Page Header -->
+    <div class="page-header-modern">
+        <div class="page-title-group">
+            <h1>
+                <i class="bi bi-bell-fill"></i>
+                Notifications
+            </h1>
+            <p class="subtitle">Stay updated with system alerts and activity</p>
+        </div>
+        <div>
+            {% if notifications %}
+            <button type="button" 
+                    class="btn-notification-action danger" 
+                    id="clearAllBtn"
+                    aria-label="Clear all notifications"
+                    data-bs-toggle="modal"
+                    data-bs-target="#clearAllModal">
+                <i class="bi bi-trash-fill"></i>
+                Clear All
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Metrics Dashboard -->
+    <div class="metrics-grid" role="region" aria-label="Notification Statistics">
+        {{ metric_card(
+            value=notifications|length,
+            label='Total Notifications',
+            icon='bell-fill',
+            variant='total'
+        ) }}
+        
+        {{ metric_card(
+            value=unread_count,
+            label='Unread',
+            icon='envelope-fill',
+            variant='unread'
+        ) }}
+        
+        {{ metric_card(
+            value=read_count,
+            label='Read',
+            icon='envelope-open-fill',
+            variant='read'
+        ) }}
+        
+        {{ metric_card(
+            value=today_count,
+            label='Today',
+            icon='calendar-check-fill',
+            variant='today'
+        ) }}
+        
+        {{ metric_card(
+            value=week_count,
+            label='This Week',
+            icon='calendar-week-fill',
+            variant='week'
+        ) }}
+        
+        {{ metric_card(
+            value=low_stock_items|length if low_stock_items else 0,
+            label='Low Stock Alerts',
+            icon='exclamation-triangle-fill',
+            variant='alerts'
+        ) }}
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <div class="filter-tabs" role="tablist" aria-label="Notification Filter Tabs">
+            <button class="filter-tab active" 
+                    data-filter="all" 
+                    role="tab" 
+                    aria-selected="true"
+                    aria-controls="notifications-list"
+                    id="tab-all">
+                All <span class="count" aria-label="{{ notifications|length }} notifications">{{ notifications|length }}</span>
+            </button>
+            <button class="filter-tab" 
+                    data-filter="unread" 
+                    role="tab" 
+                    aria-selected="false"
+                    aria-controls="notifications-list"
+                    id="tab-unread">
+                Unread <span class="count" aria-label="{{ unread_count }} unread">{{ unread_count }}</span>
+            </button>
+            <button class="filter-tab" 
+                    data-filter="read" 
+                    role="tab" 
+                    aria-selected="false"
+                    aria-controls="notifications-list"
+                    id="tab-read">
+                Read <span class="count" aria-label="{{ read_count }} read">{{ read_count }}</span>
+            </button>
+            <button class="filter-tab" 
+                    data-filter="today" 
+                    role="tab" 
+                    aria-selected="false"
+                    aria-controls="notifications-list"
+                    id="tab-today">
+                Today <span class="count" aria-label="{{ today_count }} from today">{{ today_count }}</span>
+            </button>
+            <button class="filter-tab" 
+                    data-filter="this-week" 
+                    role="tab" 
+                    aria-selected="false"
+                    aria-controls="notifications-list"
+                    id="tab-this-week">
+                This Week <span class="count" aria-label="{{ week_count }} from this week">{{ week_count }}</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notifications List -->
+    <div class="notifications-list-container">
+        {% if notifications %}
+        <div class="notifications-list" id="notifications-list" role="list" aria-label="Notifications">
+            {% for notif in notifications %}
+            {{ notification_card(notif, today, this_week) }}
+            {% endfor %}
+        </div>
+        {% else %}
+        {{ empty_state(
+            icon='check-circle-fill',
+            title='All Clear!',
+            message='You have no notifications at this time.',
+            variant='success'
+        ) }}
+        {% endif %}
+    </div>
+
+    <!-- Low Stock Alerts Section -->
+    {% if low_stock_items %}
+    <div class="low-stock-section mt-4">
+        <div class="section-header">
+            <h3>
+                <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                Low Stock Alerts
+            </h3>
+            <p class="text-muted">Items that need restocking</p>
+        </div>
+        <div class="low-stock-grid">
+            {% for item in low_stock_items %}
+            <a href="/items/{{ item.item_id }}" class="low-stock-card">
+                <div class="low-stock-icon">
+                    <i class="bi bi-box-seam"></i>
+                </div>
+                <div class="low-stock-content">
+                    <h6>{{ item.item_name }}</h6>
+                    <div class="stock-levels">
+                        <span class="current-stock">{{ item.total_qty }}</span>
+                        <span class="divider">/</span>
+                        <span class="reorder-level">{{ item.reorder_qty }}</span>
+                    </div>
+                    <small class="text-muted">Current / Reorder Level</small>
+                </div>
+                <i class="bi bi-chevron-right"></i>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Clear All Confirmation Modal -->
+<div class="modal fade" id="clearAllModal" tabindex="-1" aria-labelledby="clearAllModalLabel" aria-hidden="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="clearAllModalLabel">
+                    <i class="bi bi-exclamation-triangle text-warning" aria-hidden="true"></i>
+                    Confirm Clear All
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to clear all notifications? This action cannot be undone.</p>
+                <div class="alert alert-warning mb-0" role="alert">
+                    <i class="bi bi-info-circle me-2" aria-hidden="true"></i>
+                    This will permanently delete all {{ notifications|length }} notifications.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="POST" action="{{ url_for('notifications.clear_all') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger" aria-label="Confirm clear all notifications">
+                        <i class="bi bi-trash-fill" aria-hidden="true"></i>
+                        Clear All Notifications
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    const filterTabs = document.querySelectorAll('.filter-tab');
+    const notificationsList = document.getElementById('notifications-list');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    
+    // Filter functionality
+    filterTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            // Update active tab and ARIA attributes
+            filterTabs.forEach(t => {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+            });
+            this.classList.add('active');
+            this.setAttribute('aria-selected', 'true');
+            
+            // Update ARIA live region announcement
+            const filter = this.dataset.filter;
+            filterNotifications(filter);
+        });
+    });
+    
+    function filterNotifications(filter) {
+        const cards = document.querySelectorAll('.notification-card');
+        let visibleCount = 0;
+        
+        cards.forEach(card => {
+            let show = false;
+            
+            if (filter === 'all') {
+                show = true;
+            } else if (filter === 'unread') {
+                show = card.dataset.status === 'unread';
+            } else if (filter === 'read') {
+                show = card.dataset.status === 'read';
+            } else if (filter === 'today') {
+                show = card.dataset.period === 'today';
+            } else if (filter === 'this-week') {
+                show = card.dataset.period === 'this-week' || card.dataset.period === 'today';
+            }
+            
+            if (show) {
+                card.classList.remove('d-none');
+                visibleCount++;
+            } else {
+                card.classList.add('d-none');
+            }
+        });
+        
+        // Show/hide empty state
+        if (visibleCount === 0 && notificationsList) {
+            if (!document.querySelector('.empty-state-inline')) {
+                const emptyState = `
+                    <div class="empty-state-inline">
+                        <i class="bi bi-inbox empty-state-icon"></i>
+                        <h5 class="mt-3">No notifications found</h5>
+                        <p class="text-muted">No notifications match the selected filter.</p>
+                    </div>
+                `;
+                notificationsList.insertAdjacentHTML('afterend', emptyState);
+            }
+        } else {
+            const emptyState = document.querySelector('.empty-state-inline');
+            if (emptyState) {
+                emptyState.remove();
+            }
+        }
+    }
+    
+    // Clear all button handler
+    if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', function() {
+            const modal = new bootstrap.Modal(document.getElementById('clearAllModal'));
+            modal.show();
+        });
+    }
+    
+    // Delete individual notification
+    document.querySelectorAll('.delete-notification-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (confirm('Delete this notification?')) {
+                const notificationId = this.dataset.notificationId;
+                csrfFetch(`/notifications/api/delete/${notificationId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Remove the card with animation
+                        const card = this.closest('.notification-card');
+                        card.classList.add('transition-all', 'opacity-0', 'translate-x-20');
+                        setTimeout(() => {
+                            card.remove();
+                            // Reload page if no notifications left
+                            if (document.querySelectorAll('.notification-card').length === 0) {
+                                window.location.reload();
+                            }
+                        }, 300);
+                    }
+                })
+                .catch(error => console.error('Error deleting notification:', error));
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

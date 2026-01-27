@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Awaiting Dispatch{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-truck page-title-icon"></i>
+                <h1 class="page-title-text">Awaiting Dispatch</h1>
+            </div>
+            <p class="page-subtitle">Packages approved by Logistics Manager awaiting handover to agencies</p>
+        </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'hourglass-split',
+            'label': 'Awaiting Handover',
+            'value': counts.get('awaiting', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Completed',
+            'value': counts.get('completed', 0),
+            'variant': 'success'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Dispatch queue filters">
+        <a href="{{ url_for('packaging.awaiting_dispatch', filter='awaiting') }}" 
+           class="filter-tab {% if current_filter == 'awaiting' or not current_filter %}active{% endif %}"
+           aria-current="{% if current_filter == 'awaiting' or not current_filter %}page{% endif %}">
+            Awaiting Handover
+            {% if global_counts.get('awaiting', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ global_counts.get('awaiting', 0) }} awaiting">{{ global_counts.get('awaiting', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('packaging.awaiting_dispatch', filter='completed') }}" 
+           class="filter-tab {% if current_filter == 'completed' %}active{% endif %}"
+           aria-current="{% if current_filter == 'completed' %}page{% endif %}">
+            Completed
+            {% if global_counts.get('completed', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ global_counts.get('completed', 0) }} completed">{{ global_counts.get('completed', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('packaging.awaiting_dispatch', filter='all') }}" 
+           class="filter-tab {% if current_filter == 'all' %}active{% endif %}"
+           aria-current="{% if current_filter == 'all' %}page{% endif %}">
+            All
+        </a>
+    </nav>
+
+    <!-- Packages Table -->
+    {% if packages %}
+    <div class="table-responsive-mobile">
+        <table class="relief-requests-table" role="table" aria-label="Dispatch queue">
+        <thead>
+            <tr>
+                <th scope="col">Package ID</th>
+                <th scope="col">Agency</th>
+                <th scope="col">Items</th>
+                <th scope="col">Total Qty</th>
+                <th scope="col">Dispatched Date</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for data in packages %}
+            {% set pkg = data.package %}
+            {% set req = data.relief_request %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('packaging.dispatch_details', reliefpkg_id=pkg.reliefpkg_id) }}" 
+                       class="table-link"
+                       aria-label="View dispatch details for PKG-{{ '%06d'|format(pkg.reliefpkg_id) }}">
+                        PKG-{{ '%06d'|format(pkg.reliefpkg_id) }}
+                    </a>
+                    <div class="table-sku">RR-{{ '%06d'|format(req.reliefrqst_id) }}</div>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ data.item_count }}</td>
+                <td>{{ data.total_qty|round(2) if data.total_qty else '0' }}</td>
+                <td>
+                    {% if pkg.dispatch_dtime %}
+                    {{ pkg.dispatch_dtime.strftime('%Y-%m-%d %I:%M %p') }}
+                    <div class="table-sku">{{ (now - pkg.dispatch_dtime).days }} days ago</div>
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if pkg.received_dtime %}
+                    {{ status_badge('success', 'Handed Over') }}
+                    <div class="table-sku">{{ pkg.received_dtime.strftime('%Y-%m-%d %I:%M %p') }}</div>
+                    {% else %}
+                    {{ status_badge('warning', 'Awaiting Handover') }}
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('packaging.dispatch_details', reliefpkg_id=pkg.reliefpkg_id) }}" 
+                       class="btn btn-sm btn-primary"
+                       aria-label="View dispatch details">
+                        <i class="bi bi-eye"></i> View Details
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info" role="alert">
+        <i class="bi bi-info-circle me-2"></i>
+        {% if current_filter == 'awaiting' %}
+        No packages awaiting handover at this time.
+        {% elif current_filter == 'completed' %}
+        No completed handovers found.
+        {% else %}
+        No dispatch packages found.
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+// Set now variable for template
+const now = new Date();
+</script>
+{% endblock %}

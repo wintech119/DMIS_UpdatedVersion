@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Intake #{{ intake.reliefpkg_id }} - DRIMS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Intake Record #{{ intake.reliefpkg_id }} - {{ warehouse.warehouse_name }}</h2>
+            <p class="text-muted">Package receipt and verification details</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('intake.list_intakes') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+            {% if intake.status_code == 'I' %}
+            <form method="POST" action="{{ url_for('intake.complete_intake', reliefpkg_id=intake.reliefpkg_id, inventory_id=intake.inventory_id) }}" 
+                  class="d-inline" data-confirm="Mark this intake as complete?">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-circle"></i> Mark Complete
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Intake Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th width="40%">Relief Package:</th>
+                            <td>
+                                <strong>#{{ package.reliefpkg_id }}</strong>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Warehouse:</th>
+                            <td>{{ warehouse.warehouse_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Intake Date:</th>
+                            <td>{{ intake.intake_date.strftime('%Y-%m-%d') }}</td>
+                        </tr>
+                        <tr>
+                            <th>Status:</th>
+                            <td>
+                                <span class="badge bg-{{ intake.status_code|status_badge('dbintake') }}">
+                                    {{ intake.status_code|status_label('dbintake') }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% if intake.comments_text %}
+                        <tr>
+                            <th>Comments:</th>
+                            <td>{{ intake.comments_text }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Audit Trail</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th width="40%">Created By:</th>
+                            <td>{{ intake.create_by_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Created:</th>
+                            <td>{{ intake.create_dtime.strftime('%Y-%m-%d %H:%M') }}</td>
+                        </tr>
+                        {% if intake.update_dtime %}
+                        <tr>
+                            <th>Updated By:</th>
+                            <td>{{ intake.update_by_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Updated:</th>
+                            <td>{{ intake.update_dtime.strftime('%Y-%m-%d %H:%M') }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr>
+                            <th>Version:</th>
+                            <td>{{ intake.version_nbr }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Items Received</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Usable Qty</th>
+                            <th>Defective Qty</th>
+                            <th>Expired Qty</th>
+                            <th>Total Qty</th>
+                            <th>UOM</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for intake_item, item in items %}
+                        <tr>
+                            <td>{{ item.item_name }}</td>
+                            <td class="text-end">{{ "%.2f"|format(intake_item.usable_qty) }}</td>
+                            <td class="text-end">{{ "%.2f"|format(intake_item.defective_qty) }}</td>
+                            <td class="text-end">{{ "%.2f"|format(intake_item.expired_qty) }}</td>
+                            <td class="text-end">
+                                <strong>{{ "%.2f"|format(intake_item.usable_qty + intake_item.defective_qty + intake_item.expired_qty) }}</strong>
+                            </td>
+                            <td>{{ intake_item.uom_code }}</td>
+                            <td>
+                                <span class="badge bg-{{ intake_item.status_code|status_badge('dbintake_item') }}">
+                                    {{ intake_item.status_code|status_label('dbintake_item') }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted">No items recorded</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

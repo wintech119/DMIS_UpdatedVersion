@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Request Agency Account - DMIS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="bi bi-building-add"></i> Request Agency Account</h2>
+                    <p class="text-muted mb-0">Submit a request to create a new agency account in DMIS</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 col-xl-6 mx-auto">
+            <div class="drims-card">
+                <div class="card-body p-4">
+                    <div class="alert alert-info mb-4">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Account Request Process:</strong>
+                        <ol class="mb-0 mt-2">
+                            <li>Submit this request form with your agency details</li>
+                            <li>ODPEM administrators will review your request</li>
+                            <li>If approved, you will receive login credentials via email</li>
+                            <li>You can then access DMIS to manage relief supplies</li>
+                        </ol>
+                    </div>
+
+                    <form method="POST" action="{{ url_for('account_requests.create_request') }}" class="needs-validation" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-3">
+                            <label for="agency_name" class="form-label">
+                                <i class="bi bi-building text-primary"></i> Agency Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="agency_name" name="agency_name" 
+                                   placeholder="Enter your agency or organization name" required
+                                   maxlength="200">
+                            <div class="form-text">Official name of your agency or organization</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="contact_name" class="form-label">
+                                <i class="bi bi-person text-primary"></i> Contact Person Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="contact_name" name="contact_name" 
+                                   placeholder="Enter full name of primary contact" required
+                                   maxlength="200">
+                            <div class="form-text">Full name of the person responsible for this account</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="contact_phone" class="form-label">
+                                <i class="bi bi-telephone text-primary"></i> Contact Phone <span class="text-danger">*</span>
+                            </label>
+                            <input type="tel" class="form-control" id="contact_phone" name="contact_phone" 
+                                   placeholder="876-555-1234" required
+                                   maxlength="20">
+                            <div class="form-text">Primary phone number for communication</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="contact_email" class="form-label">
+                                <i class="bi bi-envelope text-primary"></i> Contact Email <span class="text-danger">*</span>
+                            </label>
+                            <input type="email" class="form-control" id="contact_email" name="contact_email" 
+                                   placeholder="contact [at] agency [dot] gov [dot] jm" required
+                                   maxlength="200">
+                            <div class="form-text">Email address where login credentials will be sent</div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="reason_text" class="form-label">
+                                <i class="bi bi-chat-left-text text-primary"></i> Reason for Request <span class="text-danger">*</span>
+                            </label>
+                            <textarea class="form-control" id="reason_text" name="reason_text" rows="4" 
+                                      placeholder="Please describe why your agency needs access to DMIS and how you will use it for disaster relief operations..." 
+                                      required maxlength="1000"></textarea>
+                            <div class="form-text">Explain how your agency will participate in disaster relief efforts</div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-send"></i> Submit Request
+                            </button>
+                            <a href="{{ url_for('login') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left"></i> Back to Login
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="text-center mt-4 text-muted">
+                <small>
+                    <i class="bi bi-shield-check"></i> 
+                    All requests are reviewed by ODPEM administrators for security and compliance
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    'use strict';
+    
+    var forms = document.querySelectorAll('.needs-validation');
+    
+    Array.prototype.slice.call(forms).forEach(function(form) {
+        form.addEventListener('submit', function(event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    });
+})();
+</script>
+{% endblock %}

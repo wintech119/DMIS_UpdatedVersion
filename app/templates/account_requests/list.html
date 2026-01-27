@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Agency Account Requests - DRIMS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="bi bi-file-earmark-text"></i> Agency Account Requests</h2>
+                    <p class="text-muted mb-0">Manage and review agency account requests</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('account_requests.submit_form') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> New Request
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="drims-card">
+                <div class="card-body">
+                    <div class="btn-group" role="group" aria-label="Filter by status">
+                        <a href="{{ url_for('account_requests.list_requests', status='all') }}" 
+                           class="btn btn-sm {{ 'btn-primary' if status_filter == 'all' else 'btn-outline-primary' }}">
+                            <i class="bi bi-collection"></i> All
+                        </a>
+                        <a href="{{ url_for('account_requests.list_requests', status='S') }}" 
+                           class="btn btn-sm {{ 'btn-primary' if status_filter == 'S' else 'btn-outline-primary' }}">
+                            <i class="bi bi-inbox"></i> Submitted
+                        </a>
+                        <a href="{{ url_for('account_requests.list_requests', status='R') }}" 
+                           class="btn btn-sm {{ 'btn-primary' if status_filter == 'R' else 'btn-outline-primary' }}">
+                            <i class="bi bi-hourglass-split"></i> In Review
+                        </a>
+                        <a href="{{ url_for('account_requests.list_requests', status='A') }}" 
+                           class="btn btn-sm {{ 'btn-primary' if status_filter == 'A' else 'btn-outline-primary' }}">
+                            <i class="bi bi-check-circle"></i> Approved
+                        </a>
+                        <a href="{{ url_for('account_requests.list_requests', status='D') }}" 
+                           class="btn btn-sm {{ 'btn-primary' if status_filter == 'D' else 'btn-outline-primary' }}">
+                            <i class="bi bi-x-circle"></i> Denied
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="drims-card">
+                <div class="card-body">
+                    {% if requests %}
+                        <div class="table-responsive-mobile">
+                            <table class="table drims-table table-clickable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Agency Name</th>
+                                        <th>Contact Person</th>
+                                        <th>Contact Email</th>
+                                        <th>Status</th>
+                                        <th>Submitted</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for req in requests %}
+                                    <tr data-href="{{ url_for('account_requests.view_request', request_id=req.request_id) }}">
+                                        <td>{{ req.request_id }}</td>
+                                        <td>{{ req.agency_name }}</td>
+                                        <td>{{ req.contact_name }}</td>
+                                        <td>{{ req.contact_email }}</td>
+                                        <td>
+                                            {% if req.status_code == 'S' %}
+                                                <span class="badge bg-info">Submitted</span>
+                                            {% elif req.status_code == 'R' %}
+                                                <span class="badge bg-warning">In Review</span>
+                                            {% elif req.status_code == 'A' %}
+                                                <span class="badge bg-success">Approved</span>
+                                            {% elif req.status_code == 'D' %}
+                                                <span class="badge bg-danger">Denied</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>
+                                            <a href="{{ url_for('account_requests.view_request', request_id=req.request_id) }}" 
+                                               class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-eye"></i> View
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="bi bi-inbox display-1 text-muted"></i>
+                            <h4 class="mt-3 text-muted">No requests found</h4>
+                            <p class="text-muted">
+                                {% if status_filter != 'all' %}
+                                    No requests with this status. Try a different filter.
+                                {% else %}
+                                    No agency account requests have been submitted yet.
+                                {% endif %}
+                            </p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,716 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/batch-drawer.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.page-title {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #009639;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-subtitle {
+    font-size: 1rem;
+    color: #6c757d;
+    margin: 0;
+}
+
+.metric-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.metric-card {
+    background: #fff;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.metric-icon {
+    font-size: 2rem;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+}
+
+.metric-icon.total {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.metric-icon.filled {
+    background: #e8f5e9;
+    color: #388e3c;
+}
+
+.metric-icon.partial {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.metric-icon.unallocated {
+    background: #fce4ec;
+    color: #c2185b;
+}
+
+.metric-content {
+    flex: 1;
+}
+
+.metric-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #212529;
+    line-height: 1;
+    margin-bottom: 0.25rem;
+}
+
+.metric-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.search-filter-bar {
+    background: #fff;
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.search-input-wrapper {
+    flex: 1;
+    min-width: 250px;
+    position: relative;
+}
+
+.search-input-wrapper i {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #6c757d;
+}
+
+.search-input-wrapper input {
+    width: 100%;
+    padding: 0.5rem 0.75rem 0.5rem 2.5rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+.filter-dropdown {
+    min-width: 150px;
+}
+
+.btn-jump {
+    background: #007bff;
+    color: #fff;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.btn-jump:hover {
+    background: #0056b3;
+}
+
+.items-table {
+    width: 100%;
+    background: #fff;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    margin-bottom: 1.5rem;
+}
+
+.items-table table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* Column Widths for Proper Alignment */
+.items-table th:nth-child(1),
+.items-table td:nth-child(1) {
+    width: 18%;
+}
+
+.items-table th:nth-child(2),
+.items-table td:nth-child(2) {
+    width: 10%;
+}
+
+.items-table th:nth-child(3),
+.items-table td:nth-child(3) {
+    width: 38%;
+}
+
+.items-table th:nth-child(4),
+.items-table td:nth-child(4) {
+    width: 10%;
+}
+
+.items-table th:nth-child(5),
+.items-table td:nth-child(5) {
+    width: 10%;
+}
+
+.items-table th:nth-child(6),
+.items-table td:nth-child(6) {
+    width: 14%;
+}
+
+.items-table thead {
+    background: #f8f9fa;
+}
+
+.items-table th {
+    padding: 0.75rem 0.875rem;
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.875rem;
+    text-align: left;
+    border-bottom: 2px solid #dee2e6;
+    vertical-align: middle;
+}
+
+.items-table td {
+    padding: 0.75rem 0.875rem;
+    vertical-align: middle;
+    border-bottom: 1px solid #f1f3f5;
+    word-wrap: break-word;
+}
+
+.items-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.item-name {
+    font-weight: 600;
+    color: #212529;
+}
+
+.item-sku {
+    font-size: 0.8125rem;
+    color: #6c757d;
+}
+
+.hub-allocation-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    width: 100%;
+}
+
+.warehouse-allocation-row {
+    display: grid;
+    grid-template-columns: 45px 1fr 75px;
+    align-items: center;
+    gap: 8px;
+    padding: 0.25rem 0;
+}
+
+.warehouse-allocation-row .warehouse-stock {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #212529;
+    text-align: right;
+    padding-right: 4px;
+}
+
+.warehouse-allocation-row .warehouse-name {
+    font-size: 0.8125rem;
+    color: #495057;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.allocation-input {
+    width: 75px;
+    padding: 4px 6px;
+    box-sizing: border-box;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    text-align: right;
+}
+
+.hub-select {
+    min-width: 150px;
+    max-width: 200px;
+}
+
+.qty-input {
+    width: 100px;
+}
+
+.stock-info {
+    font-size: 0.8125rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+}
+
+.status-badge-inline {
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.status-filled {
+    background: #e8f5e9;
+    color: #388e3c;
+}
+
+.status-partial {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.status-unallocated {
+    background: #fce4ec;
+    color: #c2185b;
+}
+
+.status-waiting {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.status-requested {
+    background: #f5f5f5;
+    color: #616161;
+}
+
+.workflow-sidebar-modern {
+    background: #fff;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.workflow-header {
+    background: #007bff;
+    color: #fff;
+    padding: 1rem 1.25rem;
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.workflow-steps {
+    padding: 1.5rem 1.25rem;
+}
+
+.workflow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+}
+
+.workflow-step:last-child {
+    margin-bottom: 0;
+}
+
+.workflow-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 12px;
+    top: 30px;
+    width: 2px;
+    height: calc(100% + 1rem);
+    background: #e9ecef;
+}
+
+.step-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    z-index: 1;
+    background: #fff;
+}
+
+.step-icon.completed {
+    background: #28a745;
+    color: #fff;
+}
+
+.step-icon.active {
+    background: #007bff;
+    color: #fff;
+    border: 3px solid #007bff;
+}
+
+.step-icon.pending {
+    border: 2px solid #28a745;
+    color: #6c757d;
+}
+
+.step-content {
+    flex: 1;
+}
+
+.step-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #212529;
+    margin-bottom: 0.125rem;
+}
+
+.step-description {
+    font-size: 0.8125rem;
+    color: #6c757d;
+    margin: 0;
+}
+
+.notes-section {
+    padding: 1.25rem;
+    border-top: 1px solid #dee2e6;
+}
+
+.notes-section h6 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.75rem;
+}
+
+.notes-textarea {
+    width: 100%;
+    min-height: 100px;
+    padding: 0.75rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    resize: vertical;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+}
+
+.status-dropdown {
+    min-width: 150px;
+    font-size: 0.875rem;
+}
+
+.status-dropdown.is-invalid {
+    border-color: #dc3545;
+}
+
+.violation-alert {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1050;
+    max-width: 400px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+</style>
+{% endblock %}
+
+{% block title %}Prepare Package - RR-{{ '%06d'|format(relief_request.reliefrqst_id) }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('packaging.pending_approval') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back
+        </a>
+    </div>
+
+    <div class="row g-4">
+        <!-- Main Content -->
+        <div class="col-lg-9 col-xl-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">
+                        <i class="bi bi-clipboard-check"></i>
+                        Approve Relief Package
+                    </h1>
+                    <p class="page-subtitle">
+                        {{ relief_request.tracking_no if relief_request.tracking_no else 'RR-' + '%06d'|format(relief_request.reliefrqst_id) }} • {{ relief_request.agency.agency_name if relief_request.agency else 'Unknown Agency' }}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Metric Cards -->
+            <div class="metric-cards">
+                <div class="metric-card">
+                    <div class="metric-icon total">
+                        <i class="bi bi-box"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="metric-total">{{ relief_request.items|length }}</div>
+                        <div class="metric-label">Total Items</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon filled">
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="metric-filled">0</div>
+                        <div class="metric-label">Fully Allocated</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon partial">
+                        <i class="bi bi-hourglass-split"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="metric-partial">0</div>
+                        <div class="metric-label">Partial</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon unallocated">
+                        <i class="bi bi-exclamation-circle"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-value" id="metric-unallocated">{{ relief_request.items|length }}</div>
+                        <div class="metric-label">Unallocated</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search and Filter Bar -->
+            <div class="search-filter-bar">
+                <div class="search-input-wrapper">
+                    <i class="bi bi-search"></i>
+                    <input type="text" id="searchInput" placeholder="Search items by name or SKU...">
+                </div>
+                <select class="form-select filter-dropdown" id="filterDropdown">
+                    <option value="all">All Items</option>
+                    <option value="unallocated">Unallocated</option>
+                    <option value="partial">Partially Allocated</option>
+                    <option value="filled">Fully Allocated</option>
+                </select>
+                <button type="button" class="btn-jump" data-action="jump-unallocated">
+                    <i class="bi bi-arrow-down-circle"></i>
+                    Jump to First Unallocated
+                </button>
+            </div>
+
+            <!-- Items Table -->
+            <div class="table-responsive-mobile">
+                <form method="POST" id="packagingForm" action="{{ url_for('packaging.approve_package', reliefrqst_id=relief_request.reliefrqst_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {# Hidden fields for optimistic locking #}
+                    <input type="hidden" name="relief_request_version" id="relief_request_version" value="{{ relief_request.version_nbr }}">
+                    <input type="hidden" name="package_version" id="package_version" value="{{ relief_pkg.version_nbr }}">
+                    <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Requested</th>
+                            <th scope="col">Batch Allocation</th>
+                            <th scope="col">Allocated</th>
+                            <th scope="col">Remaining</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemsTableBody">
+                        {% for item in relief_request.items %}
+                        <tr class="item-row" 
+                            data-item-id="{{ item.item_id }}" 
+                            data-item-name="{{ item.item.item_desc if item.item else 'Unknown' }}"
+                            data-item-sku="{{ item.item.sku_code if item.item and item.item.sku_code else '' }}">
+                            <td>
+                                <div class="item-info">
+                                    <span class="item-name">{{ item.item.item_desc if item.item else 'Unknown Item' }}</span>
+                                    {% if item.item and item.item.sku_code %}
+                                    <span class="item-sku">SKU: {{ item.item.sku_code }}</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <strong data-requested-qty="{{ item.request_qty }}">{{ item.request_qty }}</strong>
+                                {% if item.item and item.item.default_uom %}
+                                <div class="item-sku">{{ item.item.default_uom.uom_desc }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set has_allocations = existing_batch_allocations and item.item_id in existing_batch_allocations %}
+                                {% set batch_count = existing_batch_allocations[item.item_id]|length if has_allocations else 0 %}
+                                
+                                <button 
+                                    type="button" 
+                                    class="btn {% if has_allocations %}btn-success{% else %}btn-outline-secondary{% endif %} select-batches-btn"
+                                    data-item-id="{{ item.item_id }}"
+                                    data-item-name="{{ item.item.item_desc if item.item else 'Unknown Item' }}"
+                                    data-request-qty="{{ item.request_qty }}">
+                                    <i class="bi bi-{% if has_allocations %}eye{% else %}clipboard-check{% endif %}"></i>
+                                    {% if has_allocations %}
+                                        View/Edit Batches
+                                        <span class="badge bg-light text-success ms-1">{{ batch_count }}</span>
+                                    {% else %}
+                                        Select Batches
+                                    {% endif %}
+                                </button>
+                                
+                                {# Show summary of allocated batches below button #}
+                                {% if has_allocations %}
+                                    <div class="text-muted text-small mt-1">
+                                        {% set warehouse_ids = existing_batch_allocations[item.item_id]|map(attribute='warehouse_id')|unique|list %}
+                                        {{ warehouse_ids|length }} warehouse{{ 's' if warehouse_ids|length > 1 else '' }}
+                                    </div>
+                                {% endif %}
+                                
+                                {# Hidden inputs for batch allocations - pre-populated from LO's prepared package #}
+                                {% if has_allocations %}
+                                    {% for batch_alloc in existing_batch_allocations[item.item_id] %}
+                                        <input type="hidden" 
+                                               name="batch_allocation_{{ item.item_id }}_{{ batch_alloc.batch_id }}" 
+                                               value="{{ batch_alloc.qty }}"
+                                               data-warehouse-id="{{ batch_alloc.warehouse_id }}">
+                                    {% endfor %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set allocated_qty = item_status_options.get(item.item_id, {}).get('total_allocated', 0) %}
+                                <strong class="total-allocated" id="total_{{ item.item_id }}">{{ allocated_qty }}</strong>
+                            </td>
+                            <td>
+                                {% set remaining_qty = item.request_qty|float - allocated_qty %}
+                                <strong class="remaining-qty" id="remaining_{{ item.item_id }}">{{ remaining_qty }}</strong>
+                            </td>
+                            <td>
+                                {% set status_opts = item_status_options.get(item.item_id, {}) %}
+                                {% set allowed = status_opts.get('allowed_codes', [item.status_code]) %}
+                                {% set auto = status_opts.get('auto_status', item.status_code) %}
+                                <select 
+                                    class="form-select form-select-sm status-dropdown" 
+                                    name="status_{{ item.item_id }}" 
+                                    id="status_{{ item.item_id }}"
+                                    data-item-id="{{ item.item_id }}"
+                                    data-requested-qty="{{ item.request_qty }}"
+                                    data-auto-status="{{ auto }}"
+                                    data-allowed-codes="{{ allowed|join(',') }}">
+                                    {% for code in allowed %}
+                                    {% set label = status_map.get(code, {}).get('desc', code) %}
+                                    <option value="{{ code }}" {% if code == item.status_code %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="invalid-feedback d-none" id="status_error_{{ item.item_id }}"></div>
+                                
+                                <!-- Reason field for D/L statuses -->
+                                <div class="status-reason-wrapper d-none mt-2" id="reason_wrapper_{{ item.item_id }}">
+                                    <textarea 
+                                        class="form-control form-control-sm text-sm" 
+                                        name="status_reason_{{ item.item_id }}"
+                                        id="status_reason_{{ item.item_id }}"
+                                        rows="2"
+                                        placeholder="Provide reason for this decision...">{{ item.status_reason_desc or '' }}</textarea>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button type="submit" name="action" value="save_draft" class="btn-relief-secondary">
+                        <i class="bi bi-save"></i>
+                        Save Draft
+                    </button>
+                    <button type="submit" name="action" value="approve_and_dispatch" class="btn-relief-primary" id="sendForDispatchBtn">
+                        <i class="bi bi-truck"></i>
+                        Approve and Dispatch
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Cancel Button -->
+            <div class="mt-3">
+                <a href="{{ url_for('packaging.pending_approval') }}" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left"></i>
+                    Back to Approval Queue
+                </a>
+            </div>
+            </div>
+        </div>
+
+        <!-- Workflow Sidebar -->
+        <div class="col-lg-3 col-xl-3">
+            {{ render_workflow_progress([
+                {'title': 'Submitted', 'description': relief_request.agency.agency_name if relief_request.agency else 'Agency', 'status': 'completed'},
+                {'title': 'Prepared', 'description': 'Stock allocated', 'status': 'completed'},
+                {'title': 'Approval', 'description': 'Manager review', 'status': 'active'},
+                {'title': 'Dispatch', 'description': 'Transfer stock', 'status': 'pending'}
+            ], notes_enabled=True) }}
+        </div>
+    </div>
+</div>
+
+<!-- Inject global variables for approve.js -->
+<script nonce="{{ csp_nonce() }}">
+    window.DMIS_STATUS_MAP = {{ status_map|tojson }};
+    window.DMIS_CANCEL_URL = '{{ url_for("packaging.pending_approval") }}';
+</script>
+
+<!-- Package Approval JavaScript -->
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/approve.js') }}"></script>
+
+{# Batch Allocation Module #}
+<script  nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/batch-allocation.js') }}"></script>
+
+{# Batch Selection Drawer #}
+{% include 'packaging/_batch_drawer.html' %}
+
+{% endblock %}

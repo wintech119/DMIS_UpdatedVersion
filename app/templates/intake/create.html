@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Create Intake Record - DRIMS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Create Intake Record</h2>
+            <p class="text-muted">Record receipt of dispatched relief packages into warehouse</p>
+        </div>
+    </div>
+
+    <form method="POST" id="intakeForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Intake Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label for="reliefpkg_id" class="form-label">Relief Package <span class="text-danger">*</span></label>
+                            <select class="form-select" id="reliefpkg_id" name="reliefpkg_id" required>
+                                <option value="">Select Package...</option>
+                                {% for pkg in packages %}
+                                <option value="{{ pkg.reliefpkg_id }}">
+                                    Package #{{ pkg.reliefpkg_id }} - Request #{{ pkg.reliefrqst_id }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label for="warehouse_id" class="form-label">Receiving Warehouse <span class="text-danger">*</span></label>
+                            <select class="form-select" id="warehouse_id" name="warehouse_id" required>
+                                <option value="">Select Warehouse...</option>
+                                {% for warehouse in warehouses %}
+                                <option value="{{ warehouse.warehouse_id }}">
+                                    {{ warehouse.warehouse_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label for="intake_date" class="form-label">Intake Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="intake_date" name="intake_date" 
+                                   max="{{ now.strftime('%Y-%m-%d') }}" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <div class="mb-3">
+                            <label for="comments" class="form-label">Comments</label>
+                            <textarea class="form-control text-uppercase" id="comments" name="comments" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Items Received</h5>
+                <button type="button" class="btn btn-sm btn-primary" id="addItemBtn">
+                    <i class="bi bi-plus-circle"></i> Add Item
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Usable Qty</th>
+                                <th>Defective Qty</th>
+                                <th>Expired Qty</th>
+                                <th width="50">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsTable">
+                            <tr class="item-row">
+                                <td>
+                                    <select class="form-select form-select-sm" name="item_id[]" required>
+                                        <option value="">Select Item...</option>
+                                        {% for item in items %}
+                                        <option value="{{ item.item_id }}">{{ item.item_name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="usable_qty[]" min="0" step="0.01" value="0">
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="defective_qty[]" min="0" step="0.01" value="0">
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="expired_qty[]" min="0" step="0.01" value="0">
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-danger" data-action="remove-row">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <button type="submit" class="btn btn-primary">Create Intake Record</button>
+            <a href="{{ url_for('intake.list_intakes') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Add item row button
+    const addItemBtn = document.getElementById('addItemBtn');
+    if (addItemBtn) {
+        addItemBtn.addEventListener('click', function() {
+            const table = document.getElementById('itemsTable');
+            const row = table.rows[0].cloneNode(true);
+            row.querySelectorAll('input, select').forEach(input => {
+                if (input.type === 'number') input.value = '0';
+                else input.value = '';
+            });
+            table.appendChild(row);
+        });
+    }
+    
+    // Remove row buttons - event delegation
+    const itemsTable = document.getElementById('itemsTable');
+    if (itemsTable) {
+        itemsTable.addEventListener('click', function(e) {
+            const removeBtn = e.target.closest('[data-action="remove-row"]');
+            if (removeBtn) {
+                if (itemsTable.rows.length > 1) {
+                    removeBtn.closest('tr').remove();
+                } else {
+                    alert('At least one item row is required');
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

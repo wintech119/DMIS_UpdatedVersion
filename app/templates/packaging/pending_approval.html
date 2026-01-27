@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Pending LM Approval{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-clipboard-check page-title-icon"></i>
+                <h1 class="page-title-text">Pending LM Approval</h1>
+            </div>
+            <p class="page-subtitle">Review and approve relief packages submitted by Logistics Officers</p>
+        </div>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'clipboard-check',
+            'label': 'Pending Approval',
+            'value': counts.get('pending_approval', 0),
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <table class="relief-requests-table" role="table" aria-label="Pending LM approval requests">
+        <thead>
+            <tr>
+                <th scope="col">Request Number</th>
+                <th scope="col">Requesting Agency</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Items</th>
+                <th scope="col">Submitted Date</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('packaging.approve_package', reliefrqst_id=req.reliefrqst_id) }}" 
+                       class="table-link"
+                       aria-label="Review package for RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%b %d, %Y') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {{ status_badge('pending_approval', 'Pending LM Approval') }}
+                </td>
+                <td>
+                    <a href="{{ url_for('packaging.approve_package', reliefrqst_id=req.reliefrqst_id) }}" 
+                       class="btn btn-relief-primary btn-sm"
+                       aria-label="Review RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        <i class="bi bi-clipboard-check"></i> Review & Approve
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <!-- Empty State -->
+    <div class="text-center py-5">
+        <i class="bi bi-clipboard-check text-muted" style="font-size: 4rem;"></i>
+        <h4 class="mt-3 text-muted">No Packages Pending Approval</h4>
+        <p class="text-muted">All submitted packages have been reviewed.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

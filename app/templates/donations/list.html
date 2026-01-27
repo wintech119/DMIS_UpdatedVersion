@@ -1,0 +1,291 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Donations{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-gift page-title-icon"></i>
+                <h1 class="page-title-text">Donations</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('donations.create_donation') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Accept New Donation
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'inbox',
+            'label': 'Entered',
+            'value': status_counts.get('E', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Verified',
+            'value': status_counts.get('V', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Processed',
+            'value': status_counts.get('P', 0),
+            'variant': 'primary'
+        },
+        {
+            'icon': 'gift',
+            'label': 'Total Donations',
+            'value': status_counts.get('all', 0),
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Donation status filters">
+        <a href="{{ url_for('donations.list_donations', status='all') }}" 
+           class="filter-tab {% if current_filter == 'all' or not current_filter %}active{% endif %}"
+           aria-current="{% if current_filter == 'all' or not current_filter %}page{% endif %}">
+            All Donations
+            {% if status_counts.get('all', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ status_counts.get('all', 0) }} total">{{ status_counts.get('all', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('donations.list_donations', status='E') }}" 
+           class="filter-tab {% if current_filter == 'E' %}active{% endif %}"
+           aria-current="{% if current_filter == 'E' %}page{% endif %}">
+            Entered
+            {% if status_counts.get('E', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ status_counts.get('E', 0) }} entered">{{ status_counts.get('E', 0) }}</span>
+            {% endif %}
+        </a>
+        {% if has_feature('donation_verification') %}
+        <a href="{{ url_for('donations.verify_list') }}" 
+           class="filter-tab {% if current_filter == 'pending_verification' %}active{% endif %}"
+           aria-current="{% if current_filter == 'pending_verification' %}page{% endif %}">
+            <i class="bi bi-clipboard-check"></i> Pending Verification
+            {% if status_counts.get('E', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ status_counts.get('E', 0) }} pending verification">{{ status_counts.get('E', 0) }}</span>
+            {% endif %}
+        </a>
+        {% endif %}
+        <a href="{{ url_for('donations.list_donations', status='V') }}" 
+           class="filter-tab {% if current_filter == 'V' %}active{% endif %}"
+           aria-current="{% if current_filter == 'V' %}page{% endif %}">
+            Verified
+            {% if status_counts.get('V', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ status_counts.get('V', 0) }} verified">{{ status_counts.get('V', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('donations.list_donations', status='P') }}" 
+           class="filter-tab {% if current_filter == 'P' %}active{% endif %}"
+           aria-current="{% if current_filter == 'P' %}page{% endif %}">
+            Processed
+            {% if status_counts.get('P', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ status_counts.get('P', 0) }} processed">{{ status_counts.get('P', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Search Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('donations.list_donations') }}" class="row g-2">
+                <input type="hidden" name="status" value="{{ current_filter }}">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control" 
+                               name="search" 
+                               value="{{ search_query }}" 
+                               placeholder="Search donations by description..."
+                               aria-label="Search donations">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="donor_id" aria-label="Filter by donor">
+                        <option value="">All Donors</option>
+                        {% for donor in donors %}
+                        <option value="{{ donor.donor_id }}" {% if donor_filter == donor.donor_id %}selected{% endif %}>
+                            {{ donor.donor_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="event_id" aria-label="Filter by event">
+                        <option value="">All Events</option>
+                        {% for event in events %}
+                        <option value="{{ event.event_id }}" {% if event_filter == event.event_id %}selected{% endif %}>
+                            {{ event.event_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn-relief-primary w-100">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+                {% if search_query or donor_filter or event_filter %}
+                <div class="col-12">
+                    <a href="{{ url_for('donations.list_donations', status=current_filter) }}" class="btn-relief-secondary btn-sm">
+                        <i class="bi bi-x-circle"></i> Clear Filters
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Donations Table -->
+    {% if donations %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Donor</th>
+                            <th scope="col">Event</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Received Date</th>
+                            <th scope="col" class="text-center">Items</th>
+                            <th scope="col" class="text-center">Status</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for donation in donations %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('donations.view_donation', donation_id=donation.donation_id) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    #{{ donation.donation_id }}
+                                </a>
+                            </td>
+                            <td>
+                                {{ donation.donor.donor_name if donation.donor else 'Unknown' }}
+                                {% if donation.donor and donation.donor.donor_code %}
+                                <div><small class="text-muted">{{ donation.donor.donor_code }}</small></div>
+                                {% endif %}
+                            </td>
+                            <td>{{ donation.event.event_name if donation.event else 'Unknown' }}</td>
+                            <td>
+                                <div class="text-truncate max-width-300" title="{{ donation.donation_desc }}">
+                                    {{ donation.donation_desc }}
+                                </div>
+                            </td>
+                            <td>{{ donation.received_date.strftime('%Y-%m-%d') }}</td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary">{{ donation.items|length }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if donation.status_code == 'E' %}
+                                <span class="status-badge status-badge-info">
+                                    <i class="bi bi-inbox"></i> Entered
+                                </span>
+                                {% elif donation.status_code == 'V' %}
+                                <span class="status-badge status-badge-success">
+                                    <i class="bi bi-check-circle"></i> Verified
+                                </span>
+                                {% elif donation.status_code == 'P' %}
+                                <span class="status-badge status-badge-primary">
+                                    <i class="bi bi-box-seam"></i> Processed
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group" role="group" aria-label="Donation actions">
+                                    <a href="{{ url_for('donations.view_donation', donation_id=donation.donation_id) }}"
+                                       class="btn btn-sm btn-outline-primary"
+                                       title="View details"
+                                       aria-label="View donation #{{ donation.donation_id }} details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if donation.status_code == 'E' and has_feature('donation_verification') %}
+                                    <a href="{{ url_for('donations.verify_donation_detail', donation_id=donation.donation_id) }}"
+                                       class="btn btn-sm btn-outline-warning"
+                                       title="Review and verify donation"
+                                       aria-label="Review and verify donation #{{ donation.donation_id }}">
+                                        <i class="bi bi-clipboard-check"></i>
+                                    </a>
+                                    {% endif %}
+                                    {% if donation.status_code == 'E' %}
+                                    <a href="{{ url_for('donations.edit_donation', donation_id=donation.donation_id) }}"
+                                       class="btn btn-sm btn-outline-secondary"
+                                       title="Edit donation"
+                                       aria-label="Edit donation #{{ donation.donation_id }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    {% else %}
+                                    <span class="btn btn-sm btn-outline-secondary disabled" title="Editing locked">
+                                        <i class="bi bi-lock"></i>
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="bi bi-gift"></i>
+        </div>
+        <h3 class="empty-state-title">
+            {% if search_query or donor_filter or event_filter %}
+                No donations found
+            {% elif current_filter == 'E' %}
+                No entered donations
+            {% elif current_filter == 'V' %}
+                No verified donations
+            {% elif current_filter == 'P' %}
+                No processed donations
+            {% else %}
+                No donations yet
+            {% endif %}
+        </h3>
+        <p class="empty-state-text">
+            {% if search_query or donor_filter or event_filter %}
+                Try adjusting your search terms or <a href="{{ url_for('donations.list_donations', status=current_filter) }}">clear the filters</a>.
+            {% elif current_filter == 'E' %}
+                There are no entered donations at this time.
+            {% elif current_filter == 'V' %}
+                There are no verified donations at this time.
+            {% elif current_filter == 'P' %}
+                There are no processed donations at this time.
+            {% else %}
+                Get started by accepting your first donation.
+            {% endif %}
+        </p>
+        {% if not search_query and not donor_filter and not event_filter and (current_filter == 'all' or not current_filter) %}
+        <a href="{{ url_for('donations.create_donation') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Accept First Donation
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

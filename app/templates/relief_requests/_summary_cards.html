@@ -1,0 +1,29 @@
+{# Summary Metric Cards Component - Matches Needs Lists Design #}
+{% macro render_metric_card(icon, label, value, sublabel='', variant='default') %}
+<div class="metric-card metric-card-{{ variant }}">
+    <div class="metric-icon">
+        <i class="bi bi-{{ icon }}"></i>
+    </div>
+    <div class="metric-content">
+        <div class="metric-label">{{ label }}</div>
+        <div class="metric-value">{{ value }}</div>
+        {% if sublabel %}
+        <div class="metric-sublabel">{{ sublabel }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{% macro render_summary_cards(metrics) %}
+<div class="summary-cards-row">
+    {% for metric in metrics %}
+    {{ render_metric_card(
+        icon=metric.icon,
+        label=metric.label,
+        value=metric.value,
+        sublabel=metric.sublabel if metric.sublabel else '',
+        variant=metric.variant if metric.variant else 'default'
+    ) }}
+    {% endfor %}
+</div>
+{% endmacro %}

@@ -1,0 +1,297 @@
+{% extends 'base.html' %}
+{% from 'macros/workflow_stepper.html' import workflow_stepper %}
+
+{% block title %}Relief Request #{{ request.reliefrqst_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="text-goj-green mb-1">
+                        <i class="bi bi-box-seam"></i> Relief Request #{{ request.reliefrqst_id }}
+                    </h2>
+                    <p class="text-muted mb-0">{{ request.agency.agency_name }}</p>
+                </div>
+                <div>
+                    {% if request.status_code == 10 %}
+                        <a href="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" class="btn btn-warning">
+                            <i class="bi bi-pencil"></i> Edit Items
+                        </a>
+                        <form method="POST" action="{{ url_for('requests.submit_request', request_id=request.reliefrqst_id) }}" class="d-inline" id="submitRequestForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-goj">
+                                <i class="bi bi-send"></i> Submit to ODPEM
+                            </button>
+                        </form>
+                    {% endif %}
+                    <a href="{{ url_for('requests.list_requests') }}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to List
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{ workflow_stepper(request.status_code) }}
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <div class="drims-card">
+                <h5 class="mb-3"><i class="bi bi-info-circle"></i> Request Details</h5>
+                <table class="table table-sm">
+                    <tr>
+                        <th width="40%">Request ID:</th>
+                        <td><strong>#{{ request.reliefrqst_id }}</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Agency:</th>
+                        <td>{{ request.agency.agency_name }}</td>
+                    </tr>
+                    <tr>
+                        <th>Disaster Event:</th>
+                        <td>
+                            {% if request.event %}
+                                {{ request.event.event_name }}
+                            {% else %}
+                                <span class="text-muted">Not specified</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Request Date:</th>
+                        <td>{{ request.request_date.strftime('%Y-%m-%d') }}</td>
+                    </tr>
+                    <tr>
+                        <th>Urgency Level:</th>
+                        <td>
+                            {% if request.urgency_ind == 'H' %}
+                                <span class="badge bg-danger">High</span>
+                            {% elif request.urgency_ind == 'M' %}
+                                <span class="badge bg-warning text-dark">Medium</span>
+                            {% elif request.urgency_ind == 'L' %}
+                                <span class="badge bg-info text-dark">Low</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Status:</th>
+                        <td>
+                            {% if request.status_code == 10 %}
+                                <span class="badge bg-secondary">Draft</span>
+                            {% elif request.status_code == 20 %}
+                                <span class="badge bg-primary">Submitted</span>
+                            {% elif request.status_code == 30 %}
+                                <span class="badge bg-info text-dark">In Review</span>
+                            {% elif request.status_code == 40 %}
+                                <span class="badge bg-warning text-dark">Approved</span>
+                            {% elif request.status_code == 60 %}
+                                <span class="badge bg-success">Dispatched</span>
+                            {% elif request.status_code == 70 %}
+                                <span class="badge bg-success">Partially Received</span>
+                            {% elif request.status_code == 80 %}
+                                <span class="badge bg-success">Completed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-3">
+            <div class="drims-card">
+                <h5 class="mb-3"><i class="bi bi-journal-text"></i> Notes</h5>
+                {% if request.rqst_notes_text %}
+                    <p class="mb-0">{{ request.rqst_notes_text }}</p>
+                {% else %}
+                    <p class="text-muted mb-0">No notes provided.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="drims-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-list-ul"></i> Requested Items</h5>
+            {% if request.status_code == 10 %}
+                <a href="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" class="btn btn-sm btn-goj">
+                    <i class="bi bi-plus-circle"></i> Add Items
+                </a>
+            {% endif %}
+        </div>
+
+        {% if request.items %}
+        <div class="table-responsive">
+            <table class="table drims-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>SKU</th>
+                        <th class="text-end">Requested Qty</th>
+                        <th class="text-end">Allocated Qty</th>
+                        <th>Urgency</th>
+                        <th>Justification</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in request.items %}
+                    <tr>
+                        <td>{{ item.item.item_name }}</td>
+                        <td><code>{{ item.item.sku_code }}</code></td>
+                        <td class="text-end">
+                            <strong>{{ "%.2f"|format(item.request_qty) }}</strong>
+                            {{ item.item.default_uom_code }}
+                        </td>
+                        <td class="text-end">
+                            {% if item.issue_qty %}
+                                <span class="badge bg-success">{{ "%.2f"|format(item.issue_qty) }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.urgency_ind == 'H' %}
+                                <span class="badge bg-danger">High</span>
+                            {% elif item.urgency_ind == 'M' %}
+                                <span class="badge bg-warning text-dark">Medium</span>
+                            {% elif item.urgency_ind == 'L' %}
+                                <span class="badge bg-info text-dark">Low</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.rqst_reason_desc %}
+                                {{ item.rqst_reason_desc }}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-inbox text-muted icon-lg"></i>
+            <p class="text-muted mt-2 mb-3">No items added yet</p>
+            {% if request.status_code == 10 %}
+                <a href="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" class="btn btn-goj btn-sm">
+                    <i class="bi bi-plus-circle"></i> Add Items Now
+                </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if request.status_code >= 40 %}
+    <div class="drims-card mt-3">
+        <h5 class="mb-3"><i class="bi bi-truck"></i> Distribution Packages</h5>
+        {% if packages %}
+        <div class="table-responsive">
+            <table class="table drims-table">
+                <thead>
+                    <tr>
+                        <th>Package #</th>
+                        <th>Created Date</th>
+                        <th>Items</th>
+                        <th>Status</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for package in packages %}
+                    <tr>
+                        <td><strong>{{ package.reliefpkg_nbr }}</strong></td>
+                        <td>{{ package.create_dtime.strftime('%Y-%m-%d') }}</td>
+                        <td><span class="badge bg-secondary">{{ package.items|length }} item(s)</span></td>
+                        <td>
+                            {% if package.status_code == 10 %}
+                                <span class="badge bg-secondary">Draft</span>
+                            {% elif package.status_code == 20 %}
+                                <span class="badge bg-success">Ready</span>
+                            {% elif package.status_code == 30 %}
+                                <span class="badge bg-info text-dark">Dispatched</span>
+                            {% elif package.status_code == 40 %}
+                                <span class="badge bg-success">Received</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <span class="text-muted" title="Package details shown inline"><i class="bi bi-info-circle"></i></span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No packages created yet. ODPEM will prepare packages for approved items.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Submit Request Confirmation Modal -->
+<div class="modal fade" id="submitRequestModal" tabindex="-1" aria-labelledby="submitRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="submitRequestModalLabel">
+                    <i class="bi bi-send-fill me-2"></i>
+                    Submit Request to ODPEM
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Submit this request to ODPEM for eligibility review?</strong></p>
+                <p class="mb-2">After submission:</p>
+                <ul class="mb-3">
+                    <li>You will not be able to edit items</li>
+                    <li>The request will be sent to ODPEM for eligibility review</li>
+                    <li>You can track the status in your requests list</li>
+                </ul>
+                <p class="text-muted mb-0"><small>You can still add notes or communicate about the request after submission.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" id="confirmSubmitBtn">
+                    <i class="bi bi-send-fill"></i>
+                    Yes, Submit Request
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+// Submit form confirmation modal - proper handling without preventDefault issues
+let submitHandler;
+const submitRequestForm = document.getElementById('submitRequestForm');
+if (submitRequestForm) {
+    submitHandler = function(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('submitRequestModal'));
+        modal.show();
+        return false;
+    };
+    submitRequestForm.addEventListener('submit', submitHandler);
+}
+
+// Confirmation button handler - properly removes handler and submits
+const confirmBtn = document.getElementById('confirmSubmitBtn');
+if (confirmBtn) {
+    confirmBtn.addEventListener('click', function() {
+        const form = document.getElementById('submitRequestForm');
+        if (form && submitHandler) {
+            form.removeEventListener('submit', submitHandler);
+            form.submit();
+        }
+    });
+}
+</script>
+{% endblock %}

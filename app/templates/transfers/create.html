@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Create Transfer - DRIMS{% endblock %}
+
+{% block content %}
+<h2><i class="bi bi-plus-circle"></i> Create Inventory Transfer</h2>
+<a href="{{ url_for('transfers.list_transfers') }}" class="btn btn-secondary mb-3">
+    <i class="bi bi-arrow-left"></i> Back to Transfers
+</a>
+
+<form method="POST" id="transferForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="card mb-3">
+        <div class="card-header card-header-goj">
+            <h5 class="mb-0">Transfer Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="from_warehouse_id" class="form-label">From Warehouse *</label>
+                    <select name="from_warehouse_id" id="from_warehouse_id" class="form-select" required>
+                        <option value="">Select Source Warehouse</option>
+                        {% for wh in warehouses %}
+                        <option value="{{ wh.warehouse_id }}">{{ wh.warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="to_warehouse_id" class="form-label">To Warehouse *</label>
+                    <select name="to_warehouse_id" id="to_warehouse_id" class="form-select" required>
+                        <option value="">Select Destination Warehouse</option>
+                        {% for wh in warehouses %}
+                        <option value="{{ wh.warehouse_id }}">{{ wh.warehouse_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label for="item_id" class="form-label">Item *</label>
+                    <select name="item_id" id="item_id" class="form-select" required>
+                        <option value="">Select Item</option>
+                        {% for item in items %}
+                        <option value="{{ item.item_id }}">{{ item.item_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="quantity" class="form-label">Quantity *</label>
+                    <input type="number" name="quantity" id="quantity" class="form-control" step="0.01" min="0.01" required>
+                    <small id="availableQty" class="text-muted"></small>
+                </div>
+                <div class="col-md-3">
+                    <label for="uom_code" class="form-label">Unit *</label>
+                    <select name="uom_code" id="uom_code" class="form-select" required>
+                        <option value="">Select Unit</option>
+                        {% for uom in uoms %}
+                        <option value="{{ uom.uom_code }}">{{ uom.uom_desc }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="transport_mode" class="form-label">Transport Mode</label>
+                <input type="text" name="transport_mode" id="transport_mode" class="form-control" placeholder="e.g., Truck, Van, Air">
+            </div>
+            
+            <div class="mb-3">
+                <label for="comments_text" class="form-label">Comments/Reason</label>
+                <textarea name="comments_text" id="comments_text" class="form-control" rows="3"></textarea>
+            </div>
+        </div>
+    </div>
+    
+    <button type="submit" class="btn btn-success">
+        <i class="bi bi-save"></i> Create Transfer
+    </button>
+    <a href="{{ url_for('transfers.list_transfers') }}" class="btn btn-secondary">Cancel</a>
+</form>
+
+<script nonce="{{ csp_nonce() }}">
+document.getElementById('from_warehouse_id').addEventListener('change', checkAvailability);
+document.getElementById('item_id').addEventListener('change', checkAvailability);
+
+function checkAvailability() {
+    const warehouseId = document.getElementById('from_warehouse_id').value;
+    const itemId = document.getElementById('item_id').value;
+    const availableQtyDiv = document.getElementById('availableQty');
+    
+    if (warehouseId && itemId) {
+        fetch(`/transfers/api/inventory/${warehouseId}/${itemId}`)
+            .then(response => response.json())
+            .then(data => {
+                availableQtyDiv.textContent = `Available: ${data.available} (Reserved: ${data.reserved})`;
+                if (data.available <= 0) {
+                    availableQtyDiv.classList.add('text-danger');
+                    availableQtyDiv.classList.remove('text-success');
+                } else {
+                    availableQtyDiv.classList.add('text-success');
+                    availableQtyDiv.classList.remove('text-danger');
+                }
+            });
+    }
+}
+</script>
+{% endblock %}

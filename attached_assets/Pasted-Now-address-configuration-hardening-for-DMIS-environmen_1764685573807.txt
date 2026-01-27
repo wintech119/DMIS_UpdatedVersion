@@ -1,0 +1,55 @@
+Now address configuration hardening for DMIS: environment variables, secrets, and NGINX/runtime settings. This is Phase 4, not app logic.
+
+Goal: Ensure that sensitive settings (DB credentials, secret keys, API keys) and runtime config (debug, allowed hosts, etc.) are safe and environment-driven.
+
+Step 1 – Centralize configuration
+
+Review how Flask configuration is currently loaded (likely in drims_app.py or a config module).
+
+Confirm and, if needed, refactor to a pattern where:
+
+Sensitive values come from environment variables only (e.g. DMIS_SECRET_KEY, DMIS_DATABASE_URL, etc.).
+
+Debug mode is OFF by default unless explicitly enabled for a dev environment.
+
+No credentials are hard-coded in source.
+
+Example snippet (adjust to match current structure):
+
+import os  
+ 
+class Config:  
+    SECRET_KEY = os.environ.get("DMIS_SECRET_KEY")  
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DMIS_DATABASE_URL")  
+    DEBUG = os.environ.get("DMIS_DEBUG", "false").lower() == "true"  
+
+
+Show the final config class/module, ensuring you don’t change existing behavior beyond sourcing values from env vars.
+
+Step 2 – Secrets management and .env handling (for Replit/dev)
+
+Ensure local dev and Replit use environment variables (or a .env file not committed to version control).
+
+Add or update .gitignore to exclude .env and similar secret files.
+
+Show any relevant updates to .gitignore or configuration docs.
+
+Step 3 – NGINX / reverse proxy hardening (text config only)
+
+Provide a secure NGINX configuration template for running DMIS in production that includes:
+
+TLS enforcement
+
+HSTS
+
+Strict server block with only necessary locations
+
+Proxy headers (X-Forwarded-For, X-Forwarded-Proto) handled safely
+
+client_max_body_size appropriate for file uploads, but not oversized
+
+proxy_read_timeout appropriate, without being too lax
+
+The NGINX config should not break DMIS’s existing CSP and header logic, but should complement it.
+
+This template can live as deploy/nginx.conf.example and be referenced in deployment docs.

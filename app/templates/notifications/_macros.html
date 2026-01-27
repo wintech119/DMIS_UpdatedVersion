@@ -1,0 +1,104 @@
+{# Notification Card Macro #}
+{% macro notification_card(notification, today=None, this_week=None) %}
+{% set is_unread = notification.status == 'unread' %}
+
+{# Determine notification icon and variant #}
+{% set icon = 'bi-bell-fill' %}
+{% set variant = 'primary' %}
+{% if 'denied' in notification.type or 'ineligible' in notification.type %}
+    {% set icon = 'bi-x-circle-fill' %}
+    {% set variant = 'danger' %}
+{% elif 'approved' in notification.type or 'dispatched' in notification.type %}
+    {% set icon = 'bi-check-circle-fill' %}
+    {% set variant = 'success' %}
+{% elif 'submitted' in notification.type or 'ready' in notification.type %}
+    {% set icon = 'bi-info-circle-fill' %}
+    {% set variant = 'info' %}
+{% elif notification.type == 'low_stock' %}
+    {% set icon = 'bi-exclamation-triangle-fill' %}
+    {% set variant = 'warning' %}
+{% elif 'package' in notification.type %}
+    {% set icon = 'bi-box-seam-fill' %}
+    {% set variant = 'primary' %}
+{% endif %}
+
+{# Determine time period #}
+{% set time_period = 'older' %}
+{% if notification.created_at and today and this_week %}
+    {% if notification.created_at >= today %}
+        {% set time_period = 'today' %}
+    {% elif notification.created_at >= this_week %}
+        {% set time_period = 'this-week' %}
+    {% endif %}
+{% endif %}
+
+<div class="notification-card {% if is_unread %}unread{% endif %}" 
+     data-notification-id="{{ notification.id }}"
+     data-status="{{ notification.status }}"
+     data-period="{{ time_period }}"
+     data-type="{{ notification.type }}">
+    <div class="notification-icon {{ variant }}">
+        <i class="bi {{ icon }}"></i>
+    </div>
+    
+    <div class="notification-content">
+        <div class="notification-header">
+            <h6 class="notification-title">{{ notification.title }}</h6>
+            {% if is_unread %}
+            <span class="badge-new">New</span>
+            {% endif %}
+        </div>
+        
+        <p class="notification-message">{{ notification.message }}</p>
+        
+        <div class="notification-footer">
+            <span class="notification-time">
+                <i class="bi bi-clock"></i>
+                {{ notification.created_at.strftime('%b %d, %Y at %I:%M %p') if notification.created_at else 'Just now' }}
+            </span>
+        </div>
+    </div>
+    
+    <div class="notification-actions">
+        {% if notification.link_url %}
+        <form method="POST" action="{{ url_for('notifications.mark_read', notification_id=notification.id) }}" class="notification-link-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn-notification-link" title="View details" aria-label="View notification details">
+                <i class="bi bi-arrow-right-circle"></i>
+            </button>
+        </form>
+        {% endif %}
+        <button type="button" 
+                class="btn-notification-delete delete-notification-btn" 
+                data-notification-id="{{ notification.id }}"
+                title="Delete notification"
+                aria-label="Delete notification">
+            <i class="bi bi-trash"></i>
+        </button>
+    </div>
+</div>
+{% endmacro %}
+
+{# Metric Card Macro #}
+{% macro metric_card(value, label, icon, variant='primary') %}
+<div class="metric-card metric-card-{{ variant }}" role="region" aria-label="{{ label }}">
+    <div class="metric-icon" aria-hidden="true">
+        <i class="bi bi-{{ icon }}"></i>
+    </div>
+    <div class="metric-content">
+        <div class="metric-value">{{ value }}</div>
+        <div class="metric-label">{{ label }}</div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Empty State Macro #}
+{% macro empty_state(icon, title, message, variant='info') %}
+<div class="empty-state empty-state-{{ variant }}" role="status" aria-live="polite">
+    <div class="empty-state-icon" aria-hidden="true">
+        <i class="bi bi-{{ icon }}"></i>
+    </div>
+    <h4 class="empty-state-title">{{ title }}</h4>
+    <p class="empty-state-message">{{ message }}</p>
+</div>
+{% endmacro %}

@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+{% endblock %}
+
+{% block title %}Create Relief Request (On Behalf of Agency){% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        {% if is_logistics %}
+            <a href="{{ url_for('requests.list_requests') }}" class="btn-back">
+                <i class="bi bi-arrow-left"></i>
+                Back to Relief Request (On Behalf of Agency)
+            </a>
+        {% else %}
+            <a href="{{ url_for('dashboard.index') }}" class="btn-back">
+                <i class="bi bi-arrow-left"></i>
+                Back to Dashboard
+            </a>
+        {% endif %}
+    </div>
+
+    <div class="row">
+        <!-- Main Content Column -->
+        <div class="col-lg-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-title">
+                    <i class="bi bi-plus-circle page-title-icon"></i>
+                    <h1 class="page-title-text">Create Relief Request (On Behalf of Agency)</h1>
+                </div>
+                <p class="page-subtitle">Step 1 of 5: Provide request details</p>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="info-panel" role="region" aria-label="Next steps information">
+                <div class="info-panel-title">
+                    <i class="bi bi-info-circle-fill"></i>
+                    What Happens Next
+                </div>
+                <div class="info-panel-content">
+                    <p class="mb-0">After creating this request, you'll be able to add items with quantities and justifications before submitting to ODPEM for eligibility review.</p>
+                </div>
+            </div>
+
+            <!-- Request Details Form -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Request Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('packaging.create_request_on_behalf') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="agency_id" class="form-label">Requesting Agency <span class="text-danger">*</span></label>
+                                {% if is_logistics %}
+                                    {# Logistics users can select any agency #}
+                                    <select class="form-select" id="agency_id" name="agency_id" required>
+                                        <option value="">Select agency...</option>
+                                        {% for agency in agencies %}
+                                        <option value="{{ agency.agency_id }}">{{ agency.agency_name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="text-muted">Select the agency this request is for</small>
+                                {% else %}
+                                    {# Agency users see their own agency (read-only) #}
+                                    <input type="text" class="form-control" value="{{ user_agency.agency_name if user_agency else 'N/A' }}" readonly>
+                                    <small class="text-muted">Your agency</small>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="request_date" class="form-label">Request Date <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="request_date" 
+                                           name="request_date" 
+                                           value="{{ today }}"
+                                           placeholder="YYYY-MM-DD"
+                                           required
+                                           readonly>
+                                    <span class="input-group-text" id="request-date-calendar-icon" style="cursor: pointer;">
+                                        <i class="bi bi-calendar3"></i>
+                                    </span>
+                                </div>
+                                <small class="text-muted">Click to select date (today or earlier)</small>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="eligible_event_id" class="form-label">Disaster Event <span class="text-danger">*</span></label>
+                                <select class="form-select" id="eligible_event_id" name="eligible_event_id" required>
+                                    <option value="">Select event...</option>
+                                    {% for event in events %}
+                                    <option value="{{ event.event_id }}">{{ event.event_name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <small class="text-muted">Select the disaster event this request is for</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="urgency_ind" class="form-label">Urgency Level <span class="text-danger">*</span></label>
+                                <select class="form-select" id="urgency_ind" name="urgency_ind" required>
+                                    <option value="">Select urgency...</option>
+                                    <option value="H">High - Emergency response required</option>
+                                    <option value="M" selected>Medium - Urgent action needed</option>
+                                    <option value="L">Low - Standard processing</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="rqst_notes_text" class="form-label">Request Notes</label>
+                            <textarea class="form-control" id="rqst_notes_text" name="rqst_notes_text" rows="4" placeholder="Provide additional details about this relief request..."></textarea>
+                            <small class="text-muted">Optional: Add context, special requirements, or delivery instructions</small>
+                        </div>
+
+                        <div class="d-flex gap-2 pt-3 border-top">
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i>
+                                Create Request
+                            </button>
+                            {% if is_logistics %}
+                                <a href="{{ url_for('requests.list_requests') }}" class="btn-relief-secondary">
+                                    <i class="bi bi-x-circle"></i>
+                                    Cancel
+                                </a>
+                            {% else %}
+                                <a href="{{ url_for('dashboard.index') }}" class="btn-relief-secondary">
+                                    <i class="bi bi-x-circle"></i>
+                                    Cancel
+                                </a>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workflow Sidebar Column -->
+        <div class="col-lg-3">
+            {{ render_workflow_progress([
+                {'title': 'Create Request', 'description': 'Provide basic request details and disaster event information', 'status': 'active'},
+                {'title': 'Add Items', 'description': 'Add items with quantities, urgency levels, and justifications', 'status': 'pending'},
+                {'title': 'Review & Submit', 'description': 'Review your request and submit to ODPEM for processing', 'status': 'pending'},
+                {'title': 'Eligibility Review', 'description': 'ODPEM reviews eligibility and makes approval decision', 'status': 'pending'},
+                {'title': 'Fulfillment & Delivery', 'description': 'ODPEM logistics prepares and delivers approved items', 'status': 'pending'}
+            ]) }}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Flatpickr for request_date (today or earlier)
+    const requestDatePicker = flatpickr("#request_date", {
+        dateFormat: "Y-m-d",
+        maxDate: "today",
+        defaultDate: "{{ today }}",
+        allowInput: false,
+        clickOpens: true
+    });
+    
+    // Make calendar icon clickable
+    const calendarIcon = document.getElementById('request-date-calendar-icon');
+    if (calendarIcon) {
+        calendarIcon.addEventListener('click', function() {
+            requestDatePicker.open();
+        });
+    }
+});
+</script>
+{% endblock %}

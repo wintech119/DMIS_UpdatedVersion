@@ -1,0 +1,5 @@
+{% macro render_status_badge(status_code, entity_type='event') %}
+    <span class="badge bg-{{ status_code|status_badge(entity_type) }}">
+        {{ status_code|status_label(entity_type) }}
+    </span>
+{% endmacro %}

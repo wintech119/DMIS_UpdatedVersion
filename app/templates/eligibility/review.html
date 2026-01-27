@@ -1,0 +1,340 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Review Request - RR-{{ '%06d'|format(request.reliefrqst_id) }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Decision Made Banner -->
+    {% if decision_made %}
+    <div class="alert-banner alert-banner-info" role="alert">
+        <i class="bi bi-info-circle-fill"></i>
+        <div class="alert-banner-content">
+            A decision has already been made for this request. This page is read-only.
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('eligibility.pending_list') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Pending List
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-title">
+                    <i class="bi bi-clipboard-check page-title-icon"></i>
+                    <h1 class="page-title-text">
+                        RR-{{ '%06d'|format(request.reliefrqst_id) }}
+                    </h1>
+                    <span class="page-title-badge">
+                        {% if request.status_code == STATUS_INELIGIBLE %}
+                        {{ status_badge('ineligible') }}
+                        {% elif request.status_code == STATUS_SUBMITTED %}
+                        {{ status_badge('submitted') }}
+                        {% elif request.status_code == STATUS_AWAITING_APPROVAL %}
+                        {{ status_badge('awaiting-approval', 'Awaiting Approval') }}
+                        {% else %}
+                        {{ status_badge(request.status_code) }}
+                        {% endif %}
+                    </span>
+                </div>
+                <p class="page-subtitle">
+                    {{ request.agency.agency_name if request.agency else 'Unknown Agency' }}
+                    {% if request.agency and request.agency.contact_name %}
+                    <span class="text-muted">({{ request.agency.contact_name }})</span>
+                    {% endif %}
+                </p>
+            </div>
+
+            <!-- Request Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Request Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <small class="text-muted">Agency:</small><br>
+                            <strong>{{ request.agency.agency_name if request.agency else 'Unknown' }}</strong>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <small class="text-muted">Event:</small><br>
+                            <strong>{{ request.eligible_event.event_name if request.eligible_event else 'Not specified' }}</strong>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <small class="text-muted">Request Date:</small><br>
+                            <strong>{{ request.request_date.strftime('%Y-%m-%d') if request.request_date else 'N/A' }}</strong>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <small class="text-muted">Priority:</small><br>
+                            {% if request.urgency_ind == 'C' or request.urgency_ind == 'H' %}
+                            {{ status_badge('high', 'High') }}
+                            {% elif request.urgency_ind == 'M' %}
+                            {{ status_badge('medium', 'Medium') }}
+                            {% elif request.urgency_ind == 'L' %}
+                            {{ status_badge('low', 'Low') }}
+                            {% else %}
+                            <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </div>
+                        {% if request.rqst_notes_text %}
+                        <div class="col-12">
+                            <small class="text-muted">Request Notes:</small><br>
+                            <p class="mb-0">{{ request.rqst_notes_text }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Requested Items -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-box-seam"></i> Requested Items</h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if items %}
+                    <div class="table-responsive-mobile">
+                        <table class="relief-requests-table mb-0" role="table" aria-label="Requested relief items">
+                        <thead>
+                            <tr>
+                                <th scope="col">Item</th>
+                                <th scope="col">Quantity</th>
+                                <th scope="col">Priority</th>
+                                <th scope="col">Justification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in items %}
+                            <tr>
+                                <td>
+                                    <strong>{{ item.item.item_name if item.item else 'Unknown Item' }}</strong>
+                                    {% if item.item and item.item.sku_code %}
+                                    <div class="table-sku">SKU: {{ item.item.sku_code }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ item.request_qty }}</strong>
+                                    {{ item.item.default_uom.uom_desc if (item.item and item.item.default_uom) else '' }}
+                                </td>
+                                <td>
+                                    {% if item.urgency_ind == 'C' or item.urgency_ind == 'H' %}
+                                    {{ status_badge('high', 'High') }}
+                                    {% elif item.urgency_ind == 'M' %}
+                                    {{ status_badge('medium', 'Medium') }}
+                                    {% elif item.urgency_ind == 'L' %}
+                                    {{ status_badge('low', 'Low') }}
+                                    {% else %}
+                                    <span class="text-muted">N/A</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ item.rqst_reason_desc if item.rqst_reason_desc else 'No justification provided' }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Eligibility Decision Form -->
+            {% if can_edit and not decision_made %}
+            <div class="card mb-4">
+                <div class="card-header" style="background: #ffc107; color: #212529;">
+                    <h5 class="mb-0"><i class="bi bi-clipboard-check"></i> Eligibility Decision</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('eligibility.submit_decision', request_id=request.reliefrqst_id) }}" id="eligibilityForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <fieldset>
+                            <legend class="form-label fw-bold">Is this request eligible for relief?</legend>
+                            <div class="mb-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="decision" id="decisionYes" value="Y" checked>
+                                    <label class="form-check-label" for="decisionYes">
+                                        <strong>Yes - Eligible</strong>
+                                        <small class="text-muted d-block">This request meets eligibility criteria and can proceed to fulfillment</small>
+                                    </label>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="radio" name="decision" id="decisionNo" value="N">
+                                    <label class="form-check-label" for="decisionNo">
+                                        <strong>No - Ineligible</strong>
+                                        <small class="text-muted d-block">This request does not meet eligibility criteria</small>
+                                    </label>
+                                </div>
+                            </div>
+                        </fieldset>
+
+                        <div class="mb-4" id="reasonContainer" style="display: none;">
+                            <label for="reason" class="form-label fw-bold">
+                                Reason for Ineligibility <span class="text-danger">*</span>
+                            </label>
+                            <textarea class="form-control" id="reason" name="reason" rows="4" 
+                                      placeholder="Please provide a detailed reason why this request is ineligible..."></textarea>
+                            <small class="text-muted">This reason will be communicated to the requesting agency</small>
+                            <div class="invalid-feedback" role="alert">
+                                Please provide a reason for marking this request as ineligible.
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn-relief-primary" id="submitBtn">
+                                <i class="bi bi-check-circle"></i> Confirm Decision
+                            </button>
+                            <a href="{{ url_for('eligibility.pending_list') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% elif decision_made %}
+            <!-- Show decision details (read-only) -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Eligibility Decision (Read-Only)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <small class="text-muted">Decision:</small><br>
+                        {% if request.status_code == STATUS_INELIGIBLE %}
+                        {{ status_badge('ineligible') }}
+                        {% else %}
+                        <span class="status-badge status-badge-completed">Approved</span>
+                        {% endif %}
+                    </div>
+                    {% if request.status_reason_desc %}
+                    <div class="mb-2">
+                        <small class="text-muted">Reason:</small><br>
+                        {{ request.status_reason_desc }}
+                    </div>
+                    {% endif %}
+                    {% if request.review_by_id %}
+                    <div class="mb-2">
+                        <small class="text-muted">Reviewed By:</small><br>
+                        {{ request.review_by_id }}
+                    </div>
+                    {% endif %}
+                    {% if request.review_dtime %}
+                    <div>
+                        <small class="text-muted">Review Date:</small><br>
+                        {{ request.review_dtime.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Workflow Sidebar -->
+        <div class="col-lg-3">
+            {{ render_workflow_progress([
+                {'title': 'Agency Submits', 'description': 'Request received', 'status': 'completed'},
+                {'title': 'ODPEM Review', 'description': 'Eligibility evaluation', 'status': 'completed' if decision_made else 'active'},
+                {'title': 'Decision Made', 'description': 'Approve or deny', 'status': 'completed' if decision_made else 'pending'},
+                {'title': 'Next Steps', 'description': 'Package fulfillment', 'status': 'pending'}
+            ]) }}
+            
+            <!-- Details Section -->
+            <div class="card mt-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="bi bi-info-circle"></i> Summary</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <small class="text-muted">Total Items:</small><br>
+                        <strong>{{ items|length if items else 0 }}</strong>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted">Status:</small><br>
+                        {% if request.status_code == STATUS_INELIGIBLE %}
+                        {{ status_badge('ineligible') }}
+                        {% elif request.status_code == STATUS_SUBMITTED %}
+                        {{ status_badge('submitted') }}
+                        {% elif request.status_code == STATUS_AWAITING_APPROVAL %}
+                        {{ status_badge('awaiting-approval', 'Awaiting Approval') }}
+                        {% endif %}
+                    </div>
+                    {% if request.create_dtime %}
+                    <div>
+                        <small class="text-muted">Created:</small><br>
+                        {{ request.create_dtime.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('eligibilityForm');
+    if (!form) return;
+    
+    const decisionYes = document.getElementById('decisionYes');
+    const decisionNo = document.getElementById('decisionNo');
+    const reasonContainer = document.getElementById('reasonContainer');
+    const reasonField = document.getElementById('reason');
+    
+    function updateReasonVisibility() {
+        if (decisionNo.checked) {
+            reasonContainer.classList.remove('d-none');
+            reasonContainer.classList.add('d-block');
+            reasonField.required = true;
+            setTimeout(() => reasonField.focus(), 100);
+        } else {
+            reasonContainer.classList.remove('d-block');
+            reasonContainer.classList.add('d-none');
+            reasonField.required = false;
+            reasonField.value = '';
+            reasonField.classList.remove('is-invalid');
+        }
+    }
+    
+    decisionYes.addEventListener('change', updateReasonVisibility);
+    decisionNo.addEventListener('change', updateReasonVisibility);
+    
+    form.addEventListener('submit', function(e) {
+        if (decisionNo.checked && !reasonField.value.trim()) {
+            e.preventDefault();
+            reasonField.classList.add('is-invalid');
+            reasonField.focus();
+            return false;
+        }
+        
+        const decision = decisionNo.checked ? 'INELIGIBLE' : 'ELIGIBLE';
+        if (!confirm(`Are you sure you want to mark this request as ${decision}?`)) {
+            e.preventDefault();
+            return false;
+        }
+    });
+    
+    if (reasonField) {
+        reasonField.addEventListener('blur', function() {
+            if (decisionNo.checked && !reasonField.value.trim()) {
+                reasonField.classList.add('is-invalid');
+            } else {
+                reasonField.classList.remove('is-invalid');
+            }
+        });
+    }
+});
+</script>
+
+{% endblock %}

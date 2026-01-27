@@ -1,0 +1,227 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Agency Details{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-shop page-title-icon"></i>
+                <h1 class="page-title-text">{{ agency.agency_name }}</h1>
+            </div>
+        </div>
+        <div class="btn-group" role="group">
+            <a href="{{ url_for('agencies.edit_agency', agency_id=agency.agency_id) }}" class="btn-relief-primary">
+                <i class="bi bi-pencil"></i> Edit Agency
+            </a>
+            <a href="{{ url_for('agencies.list_agencies') }}" class="btn-relief-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Basic Information Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-borderless mb-0">
+                        <tr>
+                            <th width="35%">Agency ID:</th>
+                            <td>{{ agency.agency_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Agency Name:</th>
+                            <td><strong>{{ agency.agency_name }}</strong></td>
+                        </tr>
+                        <tr>
+                            <th>Agency Type:</th>
+                            <td>
+                                {% if agency.agency_type == 'DISTRIBUTOR' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-truck"></i> Distributor</span>
+                                {% elif agency.agency_type == 'SHELTER' %}
+                                <span class="badge bg-primary"><i class="bi bi-house"></i> Shelter</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ agency.agency_type }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Status:</th>
+                            <td>
+                                {% if agency.status_code == 'A' %}
+                                <span class="badge bg-success">Active</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Warehouse:</th>
+                            <td>
+                                {% if agency.warehouse %}
+                                <a href="{{ url_for('warehouses.view_warehouse', warehouse_id=agency.warehouse.warehouse_id) }}">
+                                    <i class="bi bi-building"></i> {{ agency.warehouse.warehouse_name }}
+                                </a>
+                                {% else %}
+                                <span class="text-muted">No warehouse assigned</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Address Information Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Address Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-borderless mb-0">
+                        <tr>
+                            <th width="35%">Address:</th>
+                            <td>
+                                {{ agency.address1_text }}<br>
+                                {% if agency.address2_text %}{{ agency.address2_text }}<br>{% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Parish:</th>
+                            <td>{{ agency.parish.parish_name if agency.parish else '—' }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Contact Information Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-person-lines-fill"></i> Contact Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-borderless mb-0">
+                        <tr>
+                            <th width="35%">Contact Person:</th>
+                            <td>{{ agency.contact_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Phone Number:</th>
+                            <td><a href="tel:{{ agency.phone_no }}"><i class="bi bi-telephone"></i> {{ agency.phone_no }}</a></td>
+                        </tr>
+                        <tr>
+                            <th>Email Address:</th>
+                            <td>
+                                {% if agency.email_text %}
+                                <a href="mailto:{{ agency.email_text }}"><i class="bi bi-envelope"></i> {{ agency.email_text }}</a>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Optional Configuration Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-sliders"></i> Optional Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-borderless mb-0">
+                        <tr>
+                            <th width="35%">Ineligible Event:</th>
+                            <td>
+                                {% if agency.ineligible_event %}
+                                <span class="badge bg-warning text-dark">{{ agency.ineligible_event.event_name }}</span>
+                                {% else %}
+                                <span class="text-muted">Eligible for all events</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Statistics Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Relief Requests:</span>
+                        <span class="badge bg-info">{{ request_count }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Information Card -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Audit Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm table-borderless mb-0">
+                        <tr>
+                            <th>Created By:</th>
+                            <td>{{ agency.create_by_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Created On:</th>
+                            <td>{{ agency.create_dtime.strftime('%Y-%m-%d %I:%M %p') if agency.create_dtime else '—' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Last Updated By:</th>
+                            <td>{{ agency.update_by_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Last Updated On:</th>
+                            <td>{{ agency.update_dtime.strftime('%Y-%m-%d %I:%M %p') if agency.update_dtime else '—' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Version:</th>
+                            <td><span class="badge bg-secondary">{{ agency.version_nbr }}</span></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Actions Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-gear"></i> Actions</h5>
+                </div>
+                <div class="card-body">
+                    {% if agency.status_code == 'A' %}
+                    <form method="POST" action="{{ url_for('agencies.deactivate_agency', agency_id=agency.agency_id) }}" 
+                          data-confirm="Are you sure you want to deactivate this agency? This agency will no longer appear in dropdowns for new operations.">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-warning w-100">
+                            <i class="bi bi-x-circle"></i> Deactivate Agency
+                        </button>
+                    </form>
+                    {% else %}
+                    <p class="text-muted small mb-0">
+                        <i class="bi bi-info-circle"></i> This agency is currently inactive.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

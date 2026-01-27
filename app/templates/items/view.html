@@ -1,0 +1,375 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}View Item - {{ item.item_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-box-seam page-title-icon"></i>
+                <h1 class="page-title-text">{{ item.item_name }}</h1>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('items.list_items') }}" class="btn-relief-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+            <a href="{{ url_for('items.edit_item', item_id=item.item_id) }}" class="btn-relief-primary">
+                <i class="bi bi-pencil"></i> Edit Item
+            </a>
+        </div>
+    </div>
+
+    <!-- Item Details Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <!-- Identification Section -->
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-tag"></i> Item Identification
+                        </h5>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label text-muted">Item Code</label>
+                                <div><span class="code-pill">{{ item.item_code }}</span></div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label text-muted">SKU Code</label>
+                                <div><span class="code-pill">{{ item.sku_code }}</span></div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label text-muted">Item ID</label>
+                                <div><span class="badge bg-light text-dark">{{ item.item_id }}</span></div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label text-muted">Status</label>
+                                <div>
+                                    {% if item.status_code == 'A' %}
+                                        <span class="status-badge status-badge-success">
+                                            <i class="bi bi-check-circle"></i> Active
+                                        </span>
+                                    {% elif item.status_code == 'I' %}
+                                        <span class="status-badge status-badge-warning">
+                                            <i class="bi bi-x-circle"></i> Inactive
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Basic Information Section -->
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-info-circle"></i> Basic Information
+                        </h5>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label text-muted">Item Name</label>
+                                <div class="fw-bold">{{ item.item_name }}</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label text-muted">Item Description</label>
+                                <div>{{ item.item_desc }}</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Category</label>
+                                <div>
+                                    {% if item.category %}
+                                        <span class="badge bg-secondary me-2">{{ item.category.category_code }}</span>
+                                        <span>{{ item.category.category_desc }}</span>
+                                    {% else %}
+                                        <span class="text-muted">Not assigned</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Default Unit of Measure</label>
+                                <div>
+                                    <span class="badge bg-light text-dark">{{ item.default_uom_code }}</span>
+                                    {% if item.default_uom %}
+                                        <span class="text-muted">- {{ item.default_uom.uom_desc }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quantity and Behavior Section -->
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-sliders"></i> Quantity & Behavior
+                        </h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Reorder Quantity</label>
+                                <div class="fw-bold">{{ item.reorder_qty }} {{ item.default_uom_code }}</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Issuance Order</label>
+                                <div><span class="badge bg-secondary">{{ item.issuance_order }}</span></div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-4">
+                                <label class="form-label text-muted">Is Batched</label>
+                                <div>
+                                    {% if item.is_batched_flag %}
+                                        <span class="badge bg-primary">
+                                            <i class="bi bi-check-circle"></i> Yes
+                                        </span>
+                                        <br><small class="text-muted">Requires batch number for all movements</small>
+                                    {% else %}
+                                        <span class="badge bg-light text-dark">
+                                            <i class="bi bi-x-circle"></i> No
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label text-muted">Can Expire</label>
+                                <div>
+                                    {% if item.can_expire_flag %}
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-check-circle"></i> Yes
+                                        </span>
+                                        <br><small class="text-muted">Requires expiry date tracking</small>
+                                    {% else %}
+                                        <span class="badge bg-light text-dark">
+                                            <i class="bi bi-x-circle"></i> No
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label text-muted">Variable Size</label>
+                                <div>
+                                    {% if item.units_size_vary_flag %}
+                                        <span class="badge bg-info">
+                                            <i class="bi bi-check-circle"></i> Yes
+                                        </span>
+                                        <br><small class="text-muted">Units have varying sizes</small>
+                                    {% else %}
+                                        <span class="badge bg-light text-dark">
+                                            <i class="bi bi-x-circle"></i> No
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storage and Usage Section -->
+                    {% if item.usage_desc or item.storage_desc %}
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-building"></i> Storage & Usage
+                        </h5>
+                        <div class="row g-3">
+                            {% if item.usage_desc %}
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Usage Description</label>
+                                <div>{{ item.usage_desc }}</div>
+                            </div>
+                            {% endif %}
+                            {% if item.storage_desc %}
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Storage Description</label>
+                                <div>{{ item.storage_desc }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Comments Section -->
+                    {% if item.comments_text %}
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-chat-text"></i> Comments
+                        </h5>
+                        <div>{{ item.comments_text }}</div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Audit Information Section -->
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 mb-3">
+                            <i class="bi bi-clock-history"></i> Audit Information
+                        </h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Created By</label>
+                                <div>{{ item.create_by_id }}</div>
+                                <small class="text-muted">{{ item.create_dtime.strftime('%Y-%m-%d %H:%M:%S') if item.create_dtime else '-' }}</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Last Updated By</label>
+                                <div>{{ item.update_by_id }}</div>
+                                <small class="text-muted">{{ item.update_dtime.strftime('%Y-%m-%d %H:%M:%S') if item.update_dtime else '-' }}</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label text-muted">Version Number</label>
+                                <div><span class="badge bg-light text-dark">{{ item.version_nbr }}</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-flex gap-2 justify-content-end border-top pt-3">
+                        {% if item.status_code == 'A' %}
+                        <form method="POST" action="{{ url_for('items.inactivate_item', item_id=item.item_id) }}" id="inactivateItemForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-warning">
+                                <i class="bi bi-x-circle"></i> Inactivate Item
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="POST" action="{{ url_for('items.activate_item', item_id=item.item_id) }}" id="reactivateItemForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-success">
+                                <i class="bi bi-check-circle"></i> Reactivate Item
+                            </button>
+                        </form>
+                        {% endif %}
+                        <a href="{{ url_for('items.edit_item', item_id=item.item_id) }}" class="btn-relief-primary">
+                            <i class="bi bi-pencil"></i> Edit Item
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Inactivate Item Confirmation Modal -->
+<div class="modal fade" id="inactivateItemModal" tabindex="-1" aria-labelledby="inactivateItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title" id="inactivateItemModalLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Inactivate Item
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Inactivate this item?</strong></p>
+                <p class="mb-2">After inactivation:</p>
+                <ul class="mb-3">
+                    <li>This item will no longer appear in selection lists</li>
+                    <li>No new transactions can be created with this item</li>
+                    <li>Existing inventory and transactions remain intact</li>
+                </ul>
+                <p class="text-muted mb-0"><small>You can reactivate the item later if needed.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-warning" id="confirmInactivateBtn">
+                    <i class="bi bi-x-circle"></i>
+                    Yes, Inactivate Item
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reactivate Item Confirmation Modal -->
+<div class="modal fade" id="reactivateItemModal" tabindex="-1" aria-labelledby="reactivateItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="reactivateItemModalLabel">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    Reactivate Item
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Reactivate this item?</strong></p>
+                <p class="mb-2">After reactivation:</p>
+                <ul class="mb-3">
+                    <li>This item will appear in selection lists again</li>
+                    <li>New transactions can be created with this item</li>
+                    <li>Item becomes fully active in the system</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" id="confirmReactivateBtn">
+                    <i class="bi bi-check-circle"></i>
+                    Yes, Reactivate Item
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+// Inactivate item confirmation modal - proper handler management
+let inactivateItemHandler;
+const inactivateItemForm = document.getElementById('inactivateItemForm');
+if (inactivateItemForm) {
+    inactivateItemHandler = function(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('inactivateItemModal'));
+        modal.show();
+        return false;
+    };
+    inactivateItemForm.addEventListener('submit', inactivateItemHandler);
+}
+
+// Confirm inactivate button
+const confirmInactivateBtn = document.getElementById('confirmInactivateBtn');
+if (confirmInactivateBtn) {
+    confirmInactivateBtn.addEventListener('click', function() {
+        const form = document.getElementById('inactivateItemForm');
+        if (form && inactivateItemHandler) {
+            form.removeEventListener('submit', inactivateItemHandler);
+            form.submit();
+        }
+    });
+}
+
+// Reactivate item confirmation modal - proper handler management
+let reactivateItemHandler;
+const reactivateItemForm = document.getElementById('reactivateItemForm');
+if (reactivateItemForm) {
+    reactivateItemHandler = function(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('reactivateItemModal'));
+        modal.show();
+        return false;
+    };
+    reactivateItemForm.addEventListener('submit', reactivateItemHandler);
+}
+
+// Confirm reactivate button
+const confirmReactivateBtn = document.getElementById('confirmReactivateBtn');
+if (confirmReactivateBtn) {
+    confirmReactivateBtn.addEventListener('click', function() {
+        const form = document.getElementById('reactivateItemForm');
+        if (form && reactivateItemHandler) {
+            form.removeEventListener('submit', reactivateItemHandler);
+            form.submit();
+        }
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}Access Denied - DMIS{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-6 col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-body text-center p-5">
+                    <div class="mb-4">
+                        <i class="bi bi-shield-x text-danger fs-4rem"></i>
+                    </div>
+                    
+                    <h1 class="h3 mb-3">Access Denied</h1>
+                    
+                    {% if error_message %}
+                    <p class="text-muted mb-4">
+                        {{ error_message }}
+                    </p>
+                    
+                    <div class="alert alert-warning border">
+                        <small>
+                            <strong>To resolve this issue:</strong><br>
+                            • Try refreshing the page and submitting again<br>
+                            • Make sure you're not using an outdated browser tab<br>
+                            • If the problem persists, log out and log back in
+                        </small>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-4">
+                        You don't have permission to access this page or perform this action.
+                    </p>
+                    
+                    <div class="alert alert-light border">
+                        <small class="text-muted">
+                            <strong>This may be because:</strong><br>
+                            • Your account doesn't have the required role<br>
+                            • You need to request additional permissions<br>
+                            • The resource is restricted to specific users
+                        </small>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mt-4">
+                        <a href="{{ url_for('index') }}" class="btn btn-primary me-2">
+                            <i class="bi bi-house-door me-1"></i> Return to Dashboard
+                        </a>
+                        <button data-action="go-back" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i> Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center mt-3">
+                <small class="text-muted">
+                    Government of Jamaica - Office of Disaster Preparedness and Emergency Management
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

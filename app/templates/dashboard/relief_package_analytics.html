@@ -1,0 +1,721 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.kpi-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.kpi-icon.primary {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.kpi-icon.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.kpi-icon.warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.kpi-icon.info {
+    background: rgba(6, 182, 212, 0.1);
+    color: #06b6d4;
+}
+
+.kpi-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.kpi-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.2;
+}
+
+.kpi-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+.chart-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+}
+
+.chart-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.chart-card-title i {
+    color: #6b7280;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 1rem;
+}
+
+.chart-container-lg {
+    height: 350px;
+}
+
+.no-data-message {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6b7280;
+}
+
+.no-data-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.3;
+}
+
+.packages-table-container {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+    margin-top: 2rem;
+}
+
+.packages-table-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.packages-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.packages-table thead th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    background: #f9fafb;
+    border-bottom: 2px solid #e5e7eb;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.packages-table tbody td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 0.875rem;
+    color: #4b5563;
+}
+
+.packages-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.packages-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-badge.dispatched {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.status-badge.received {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.type-badge.shelter {
+    background: rgba(139, 92, 246, 0.1);
+    color: #8b5cf6;
+}
+
+.type-badge.distributor {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.tracking-no {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+@media (max-width: 768px) {
+    .analytics-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .chart-container {
+        height: 250px;
+    }
+    
+    .kpi-value {
+        font-size: 1.5rem;
+    }
+    
+    .packages-table-container {
+        overflow-x: auto;
+    }
+    
+    .packages-table {
+        min-width: 800px;
+    }
+}
+
+@media (max-width: 480px) {
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block title %}Relief Package Analytics{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="page-title">
+            <i class="bi bi-box-arrow-up-right page-title-icon"></i>
+            <h1 class="page-title-text">Relief Package Analytics</h1>
+        </div>
+        <p class="page-subtitle">Overview of dispatched relief packages to shelters and distributors</p>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-icon primary">
+                <i class="bi bi-box-seam"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ total_packages | default(0) }}</div>
+                <div class="kpi-label">Total Packages Dispatched</div>
+            </div>
+        </div>
+        
+        <div class="kpi-card">
+            <div class="kpi-icon success">
+                <i class="bi bi-stack"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ "{:,.0f}".format(total_items) }}</div>
+                <div class="kpi-label">Total Items Dispatched</div>
+            </div>
+        </div>
+        
+        <div class="kpi-card">
+            <div class="kpi-icon warning">
+                <i class="bi bi-geo-alt"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ beneficiary_locations | default(0) }}</div>
+                <div class="kpi-label">Beneficiary Locations</div>
+            </div>
+        </div>
+        
+        <div class="kpi-card">
+            <div class="kpi-icon info">
+                <i class="bi bi-check2-circle"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ requests_fulfilled | default(0) }}</div>
+                <div class="kpi-label">Requests Fulfilled</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-pie-chart"></i>
+                Packages by Destination Type
+            </h3>
+            <div class="chart-container">
+                {% if destination_type_data.labels %}
+                <canvas id="destinationTypeChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-pie-chart"></i></div>
+                    <p>No package data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-bar-chart"></i>
+                Packages by Parish
+            </h3>
+            <div class="chart-container">
+                {% if parish_chart_data.labels %}
+                <canvas id="parishChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-geo-alt"></i></div>
+                    <p>No parish data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-graph-up"></i>
+                Packages Dispatched Over Time (Last 12 Months)
+            </h3>
+            <div class="chart-container chart-container-lg">
+                {% if timeline_data.labels %}
+                <canvas id="timelineChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-calendar3"></i></div>
+                    <p>No timeline data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-building"></i>
+                Top Destinations by Packages Received
+            </h3>
+            <div class="chart-container chart-container-lg">
+                {% if top_destinations_data.labels %}
+                <canvas id="topDestinationsChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-building"></i></div>
+                    <p>No destination data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="packages-table-container">
+        <h3 class="packages-table-title">
+            <i class="bi bi-table"></i>
+            Dispatched Packages Detail
+        </h3>
+        {% if dispatched_packages %}
+        <table class="packages-table">
+            <thead>
+                <tr>
+                    <th>Package ID</th>
+                    <th>Request ID</th>
+                    <th>Destination</th>
+                    <th>Type</th>
+                    <th>Parish</th>
+                    <th>Dispatch Date</th>
+                    <th>Items</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pkg in dispatched_packages %}
+                <tr>
+                    <td><span class="tracking-no">{{ pkg.tracking_no }}</span></td>
+                    <td>
+                        {% if pkg.relief_request %}
+                        <span class="tracking-no">{{ pkg.relief_request.tracking_no }}</span>
+                        {% else %}
+                        <span class="text-muted">N/A</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ pkg.agency.agency_name if pkg.agency else 'Unknown' }}</td>
+                    <td>
+                        {% if pkg.agency %}
+                            {% if pkg.agency.agency_type == 'SHELTER' %}
+                            <span class="type-badge shelter">Shelter</span>
+                            {% elif pkg.agency.agency_type == 'DISTRIBUTOR' %}
+                            <span class="type-badge distributor">Distributor</span>
+                            {% else %}
+                            <span class="type-badge">{{ pkg.agency.agency_type or 'Unknown' }}</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="type-badge">Unknown</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ pkg.agency.parish.parish_name if pkg.agency and pkg.agency.parish else 'N/A' }}</td>
+                    <td>{{ pkg.dispatch_dtime.strftime('%d %b %Y') if pkg.dispatch_dtime else 'N/A' }}</td>
+                    <td>{{ "{:,.0f}".format(package_item_counts.get(pkg.reliefpkg_id, 0)) }}</td>
+                    <td>
+                        {% if pkg.status_code == 'D' %}
+                        <span class="status-badge dispatched">
+                            <i class="bi bi-truck me-1"></i> Dispatched
+                        </span>
+                        {% elif pkg.status_code == 'R' %}
+                        <span class="status-badge received">
+                            <i class="bi bi-check2-circle me-1"></i> Received
+                        </span>
+                        {% else %}
+                        <span class="status-badge">{{ status_labels.get(pkg.status_code, pkg.status_code) }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="no-data-message">
+            <div class="no-data-icon"><i class="bi bi-inbox"></i></div>
+            <p>No dispatched packages found</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.color = '#6b7280';
+
+const colors = {
+    primary: '#3b82f6',
+    success: '#10b981',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+    info: '#06b6d4',
+    secondary: '#6b7280',
+    purple: '#8b5cf6',
+    pink: '#ec4899',
+    indigo: '#6366f1',
+    teal: '#14b8a6'
+};
+
+const chartColorPalette = [
+    colors.primary,
+    colors.success,
+    colors.warning,
+    colors.info,
+    colors.purple,
+    colors.pink,
+    colors.indigo,
+    colors.teal,
+    colors.danger,
+    colors.secondary
+];
+
+{% if destination_type_data.labels %}
+const destTypeCtx = document.getElementById('destinationTypeChart').getContext('2d');
+new Chart(destTypeCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ destination_type_data.labels | tojson }},
+        datasets: [{
+            data: {{ destination_type_data.counts | tojson }},
+            backgroundColor: [colors.purple, colors.warning, colors.secondary],
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'right',
+                labels: {
+                    padding: 15,
+                    font: {
+                        size: 12
+                    },
+                    generateLabels: function(chart) {
+                        const data = chart.data;
+                        const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                        return data.labels.map((label, i) => {
+                            const value = data.datasets[0].data[i];
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return {
+                                text: label + ' (' + percentage + '%)',
+                                fillStyle: data.datasets[0].backgroundColor[i],
+                                hidden: false,
+                                index: i
+                            };
+                        });
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const items = {{ destination_type_data['items'] | tojson }};
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
+                        return [
+                            context.label + ': ' + context.parsed + ' packages (' + percentage + '%)',
+                            'Items: ' + items[context.dataIndex].toLocaleString()
+                        ];
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if parish_chart_data.labels %}
+const parishCtx = document.getElementById('parishChart').getContext('2d');
+new Chart(parishCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ parish_chart_data.labels | tojson }},
+        datasets: [{
+            label: 'Packages',
+            data: {{ parish_chart_data.counts | tojson }},
+            backgroundColor: colors.primary,
+            borderColor: colors.primary,
+            borderWidth: 1,
+            borderRadius: 4
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.parsed.x + ' packages';
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
+                }
+            },
+            y: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if timeline_data.labels %}
+const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+new Chart(timelineCtx, {
+    type: 'line',
+    data: {
+        labels: {{ timeline_data.labels | tojson }},
+        datasets: [{
+            label: 'Packages Dispatched',
+            data: {{ timeline_data.counts | tojson }},
+            borderColor: colors.primary,
+            backgroundColor: colors.primary + '20',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: colors.primary,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
+                    padding: 15
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.parsed.y + ' packages';
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if top_destinations_data.labels %}
+const topDestCtx = document.getElementById('topDestinationsChart').getContext('2d');
+new Chart(topDestCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ top_destinations_data.labels | tojson }},
+        datasets: [{
+            label: 'Packages Received',
+            data: {{ top_destinations_data.counts | tojson }},
+            backgroundColor: chartColorPalette,
+            borderColor: chartColorPalette,
+            borderWidth: 1,
+            borderRadius: 4
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const items = {{ top_destinations_data['items'] | tojson }};
+                        const types = {{ top_destinations_data['types'] | tojson }};
+                        return [
+                            context.parsed.x + ' packages',
+                            'Items: ' + items[context.dataIndex].toLocaleString(),
+                            'Type: ' + types[context.dataIndex]
+                        ];
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
+                }
+            },
+            y: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

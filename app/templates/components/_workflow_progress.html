@@ -1,0 +1,68 @@
+{# 
+  Unified Workflow Progress Sidebar Component
+  
+  This is the single source of truth for all workflow sidebars in DRIMS.
+  
+  Usage:
+    {% from 'components/_workflow_progress.html' import render_workflow_progress %}
+    
+    {{ render_workflow_progress(
+        steps=[
+            {'title': 'Submitted', 'description': 'Agency Name', 'status': 'completed'},
+            {'title': 'Eligibility Review', 'description': 'Approved by ODPEM Director', 'status': 'completed'},
+            {'title': 'Package Prepared', 'description': 'By Logistics Officer', 'status': 'active'},
+            {'title': 'LM Approval', 'description': 'Awaiting review', 'status': 'pending'},
+            {'title': 'Dispatch', 'description': 'To Inventory Clerk', 'status': 'pending'}
+        ],
+        notes_enabled=False,
+        completion_message=None
+    ) }}
+  
+  Parameters:
+    - steps: List of dictionaries with 'title', 'description', 'status' keys
+            status can be: 'completed', 'active', or 'pending'
+    - notes_enabled: (optional) Boolean, shows notes textarea if True
+    - completion_message: (optional) String, shows completion box if provided
+#}
+
+{% macro render_workflow_progress(steps, notes_enabled=False, completion_message=None) %}
+<div class="workflow-sidebar-modern">
+    <div class="workflow-header">
+        <i class="bi bi-list-check"></i> Workflow Progress
+    </div>
+    
+    <div class="workflow-steps">
+        {% for step in steps %}
+        <div class="workflow-step">
+            <div class="step-icon {{ step.status }}">
+                {% if step.status == 'completed' %}
+                <i class="bi bi-check"></i>
+                {% elif step.status == 'active' %}
+                <i class="bi bi-circle-fill"></i>
+                {% else %}
+                <i class="bi bi-circle"></i>
+                {% endif %}
+            </div>
+            <div class="step-content">
+                <div class="step-title">{{ step.title }}</div>
+                <div class="step-description">{{ step.description }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if notes_enabled %}
+    <div class="notes-section">
+        <h6>Notes (Optional)</h6>
+        <textarea class="notes-textarea" name="notes" placeholder="Add notes..."></textarea>
+    </div>
+    {% endif %}
+    
+    {% if completion_message %}
+    <div class="workflow-completion-box">
+        <i class="bi bi-info-circle-fill"></i>
+        <p class="workflow-completion-message">{{ completion_message }}</p>
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}
