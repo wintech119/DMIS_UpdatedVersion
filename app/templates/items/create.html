@@ -1,0 +1,262 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Create Item{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-box-seam page-title-icon"></i>
+                <h1 class="page-title-text">Create New Item</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('items.list_items') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('items.create_item') }}" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <!-- Identification Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-tag"></i> Item Identification
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label for="item_code" class="form-label">
+                                        Item Code <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="item_code" 
+                                           name="item_code" 
+                                           maxlength="16" 
+                                           required
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Max 16 characters, auto-converted to uppercase</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="sku_code" class="form-label">
+                                        SKU Code <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="sku_code" 
+                                           name="sku_code" 
+                                           maxlength="30" 
+                                           required
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Max 30 characters</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="status_code" class="form-label">
+                                        Status <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="status_code" name="status_code" required>
+                                        <option value="A" selected>Active</option>
+                                        <option value="I">Inactive</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Basic Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Basic Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="item_name" class="form-label">
+                                        Item Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="item_name" 
+                                           name="item_name" 
+                                           maxlength="60" 
+                                           required
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Max 60 characters, auto-converted to uppercase</small>
+                                </div>
+                                <div class="col-12">
+                                    <label for="item_desc" class="form-label">
+                                        Item Description <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="item_desc" 
+                                              name="item_desc" 
+                                              rows="3" 
+                                              required></textarea>
+                                    <small class="form-text text-muted">Case-insensitive, used for searching</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="category_id" class="form-label">
+                                        Category <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="category_id" name="category_id" required>
+                                        <option value="">-- Select Category --</option>
+                                        {% for category in categories %}
+                                        <option value="{{ category.category_id }}">
+                                            {{ category.category_code }} - {{ category.category_desc }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="default_uom_code" class="form-label">
+                                        Default Unit of Measure <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="default_uom_code" name="default_uom_code" required>
+                                        <option value="">-- Select UOM --</option>
+                                        {% for uom in uoms %}
+                                        <option value="{{ uom.uom_code }}">
+                                            {{ uom.uom_code }} - {{ uom.uom_desc }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quantity and Flags Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-sliders"></i> Quantity & Behavior
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="reorder_qty" class="form-label">
+                                        Reorder Quantity <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number" 
+                                           class="form-control" 
+                                           id="reorder_qty" 
+                                           name="reorder_qty" 
+                                           step="0.01" 
+                                           min="0.01" 
+                                           required>
+                                    <small class="form-text text-muted">Must be greater than zero</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="issuance_order" class="form-label">
+                                        Issuance Order <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="issuance_order" name="issuance_order" required>
+                                        <option value="FIFO" selected>FIFO (First In, First Out)</option>
+                                        <option value="FEFO">FEFO (First Expired, First Out)</option>
+                                        <option value="LIFO">LIFO (Last In, First Out)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row g-3 mt-2">
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="is_batched_flag" 
+                                               name="is_batched_flag" 
+                                               checked>
+                                        <label class="form-check-label" for="is_batched_flag">
+                                            <strong>Is Batched</strong>
+                                            <br><small class="text-muted">Requires batch number for all movements</small>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="can_expire_flag" 
+                                               name="can_expire_flag">
+                                        <label class="form-check-label" for="can_expire_flag">
+                                            <strong>Can Expire</strong>
+                                            <br><small class="text-muted">Requires expiry date tracking</small>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="units_size_vary_flag" 
+                                               name="units_size_vary_flag">
+                                        <label class="form-check-label" for="units_size_vary_flag">
+                                            <strong>Variable Size</strong>
+                                            <br><small class="text-muted">Units have varying sizes</small>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Storage and Usage Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-building"></i> Storage & Usage
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="usage_desc" class="form-label">
+                                        Usage Description
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="usage_desc" 
+                                              name="usage_desc" 
+                                              rows="3"></textarea>
+                                    <small class="form-text text-muted">How this item is typically used</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="storage_desc" class="form-label">
+                                        Storage Description
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="storage_desc" 
+                                              name="storage_desc" 
+                                              rows="3"></textarea>
+                                    <small class="form-text text-muted">Storage requirements (temperature, stacking, etc.)</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Comments Section -->
+                        <div class="mb-4">
+                            <label for="comments_text" class="form-label">
+                                Comments
+                            </label>
+                            <textarea class="form-control" 
+                                      id="comments_text" 
+                                      name="comments_text" 
+                                      rows="3" 
+                                      maxlength="300"></textarea>
+                            <small class="form-text text-muted">Max 300 characters</small>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex gap-2 justify-content-end border-top pt-3">
+                            <a href="{{ url_for('items.list_items') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Create Item
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

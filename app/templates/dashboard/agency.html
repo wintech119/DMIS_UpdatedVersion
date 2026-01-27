@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Agency Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-building page-title-icon"></i>
+                <h1 class="page-title-text">Agency Dashboard</h1>
+            </div>
+            <p class="page-subtitle">Welcome back, {{ current_user.first_name }}! Manage your relief requests</p>
+        </div>
+        {% if has_feature('relief_request_creation') %}
+        <a href="{{ url_for('requests.create_request') }}" class="btn btn-relief-primary">
+            <i class="bi bi-plus-circle me-2"></i>
+            Create New Request
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'file-earmark-text',
+            'label': 'Draft Requests',
+            'value': counts.get('draft', 0),
+            'variant': 'secondary'
+        },
+        {
+            'icon': 'hourglass-split',
+            'label': 'Pending Review',
+            'value': counts.get('pending', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Approved & In Progress',
+            'value': counts.get('approved', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Completed',
+            'value': counts.get('completed', 0),
+            'variant': 'success'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Request filters">
+        <a href="{{ url_for('dashboard.agency_dashboard', filter='active') }}" 
+           class="filter-tab {% if current_filter == 'active' %}active{% endif %}">
+            Active Requests
+            {% if global_counts.get('active', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('active', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.agency_dashboard', filter='draft') }}" 
+           class="filter-tab {% if current_filter == 'draft' %}active{% endif %}">
+            Drafts
+            {% if global_counts.get('draft', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('draft', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.agency_dashboard', filter='pending') }}" 
+           class="filter-tab {% if current_filter == 'pending' %}active{% endif %}">
+            Pending Review
+            {% if global_counts.get('pending', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('pending', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.agency_dashboard', filter='approved') }}" 
+           class="filter-tab {% if current_filter == 'approved' %}active{% endif %}">
+            Approved
+            {% if global_counts.get('approved', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('approved', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.agency_dashboard', filter='completed') }}" 
+           class="filter-tab {% if current_filter == 'completed' %}active{% endif %}">
+            Completed
+            {% if global_counts.get('completed', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('completed', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <div class="table-responsive-mobile">
+        <table class="relief-requests-table">
+        <thead>
+            <tr>
+                <th>Request Number</th>
+                <th>Event</th>
+                <th>Priority</th>
+                <th>Items</th>
+                <th>Request Date</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" class="table-link">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.event.event_name if req.event else 'N/A' }}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%B %d, %Y') }}
+                    {% elif req.create_dtime %}
+                    {{ req.create_dtime.strftime('%B %d, %Y') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status %}
+                    {{ status_badge(req.status.status_code|string, req.status.status_desc) }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status_code == 0 %}
+                        <a href="{{ url_for('requests.edit_request', request_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-primary btn-sm">
+                            <i class="bi bi-pencil me-1"></i> Edit
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-secondary btn-sm">
+                            <i class="bi bi-eye me-1"></i> View
+                        </a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="bi bi-inbox empty-state-icon"></i>
+        <p class="empty-state-text">No requests found</p>
+        <p class="empty-state-subtext">
+            {% if current_filter == 'draft' %}
+                You don't have any draft requests. Click "Create New Request" to get started.
+            {% else %}
+                No requests match this filter. Try selecting a different filter.
+            {% endif %}
+        </p>
+        {% if has_feature('relief_request_creation') and current_filter in ['draft', 'active'] %}
+        <a href="{{ url_for('requests.create_request') }}" class="btn btn-relief-primary mt-3">
+            <i class="bi bi-plus-circle me-2"></i>
+            Create Your First Request
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Quick Actions -->
+    {% if quick_actions %}
+    <div class="mt-4">
+        <h5 class="mb-3">Quick Actions</h5>
+        <div class="d-flex flex-wrap gap-2">
+            {% for action in quick_actions %}
+            <a href="{{ action.url }}" class="btn btn-{{ action.variant }}">
+                <i class="{{ action.icon }} me-1"></i>
+                {{ action.label }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

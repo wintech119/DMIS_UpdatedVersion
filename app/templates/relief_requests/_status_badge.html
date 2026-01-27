@@ -1,0 +1,24 @@
+{# Status Badge Component - Matches Needs Lists Design #}
+{% macro status_badge(status_code, status_text='') %}
+{% set badge_config = {
+    0: {'class': 'draft', 'text': 'Draft', 'icon': ''},
+    1: {'class': 'awaiting-approval', 'text': 'Awaiting Approval', 'icon': ''},
+    3: {'class': 'submitted', 'text': 'Submitted', 'icon': ''},
+    5: {'class': 'part-filled', 'text': 'Part Filled', 'icon': ''},
+    7: {'class': 'filled', 'text': 'Filled', 'icon': ''},
+    8: {'class': 'ineligible', 'text': 'Ineligible', 'icon': ''},
+    'completed': {'class': 'completed', 'text': 'Completed', 'icon': ''},
+    'urgent': {'class': 'urgent', 'text': 'Urgent', 'icon': ''},
+    'high': {'class': 'high', 'text': 'High', 'icon': ''},
+    'medium': {'class': 'medium', 'text': 'Medium', 'icon': ''},
+    'low': {'class': 'low', 'text': 'Low', 'icon': ''}
+} %}
+
+{% set config = badge_config.get(status_code, {'class': 'default', 'text': status_text or 'Unknown', 'icon': ''}) %}
+<span class="status-badge status-badge-{{ config.class }}" aria-label="{{ config.text }} status">
+    {% if config.icon %}
+    <i class="bi bi-{{ config.icon }}"></i>
+    {% endif %}
+    {{ config.text }}
+</span>
+{% endmacro %}

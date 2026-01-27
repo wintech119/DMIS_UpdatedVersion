@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Needs & Fulfilment Report - DRIMS{% endblock %}
+
+{% block content %}
+<h2><i class="bi bi-truck"></i> Needs & Fulfilment Report</h2>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header card-header-goj">
+                <h5 class="mb-0">Recent Needs Lists (Last 100)</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Needs #</th>
+                                <th>Agency</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for need in needs %}
+                            <tr>
+                                <td><a href="{{ url_for('needs_list.view', needs_list_id=need.needs_list_id) }}">{{ need.needs_list_nbr }}</a></td>
+                                <td>{{ need.agency.agency_name if need.agency else '-' }}</td>
+                                <td><span class="badge bg-{{ need.status | status_badge('needs_list') }}">{{ need.status }}</span></td>
+                                <td>{{ need.create_dtime.strftime('%Y-%m-%d') if need.create_dtime }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header card-header-goj">
+                <h5 class="mb-0">Recent Fulfilments (Last 100)</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Fulfilment #</th>
+                                <th>Warehouse</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ful in fulfilments %}
+                            <tr>
+                                <td><a href="{{ url_for('fulfilment.view', fulfilment_id=ful.fulfilment_id) }}">{{ ful.fulfilment_nbr }}</a></td>
+                                <td>{{ ful.warehouse.warehouse_name if ful.warehouse else '-' }}</td>
+                                <td><span class="badge bg-{{ ful.status | status_badge('fulfilment') }}">{{ ful.status }}</span></td>
+                                <td>{{ ful.create_dtime.strftime('%Y-%m-%d') if ful.create_dtime }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

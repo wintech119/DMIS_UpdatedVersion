@@ -1,0 +1,231 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}{{ donor.donor_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('donors.list_donors') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to List
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-people page-title-icon"></i>
+                <h1 class="page-title-text">{{ donor.donor_name }}</h1>
+                <span class="ms-3">
+                    <span class="code-pill">{{ donor.donor_code }}</span>
+                </span>
+            </div>
+            <p class="page-subtitle">Donor Details</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('donors.edit', donor_id=donor.donor_id) }}" class="btn-relief-secondary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteDonorModal">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <!-- Basic Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Donor Code</label>
+                            <p class="mb-0"><span class="code-pill">{{ donor.donor_code }}</span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Donor Name</label>
+                            <p class="mb-0 fw-medium">{{ donor.donor_name }}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-muted small">Organization Type</label>
+                        <p class="mb-0">
+                            {% if donor.org_type_desc %}
+                                {{ donor.org_type_desc }}
+                            {% else %}
+                                <span class="text-muted fst-italic">Not specified</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Address Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-geo-alt"></i> Address Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="text-muted small">Address Line 1</label>
+                        <p class="mb-0">{{ donor.address1_text }}</p>
+                    </div>
+                    {% if donor.address2_text %}
+                    <div class="mb-3">
+                        <label class="text-muted small">Address Line 2</label>
+                        <p class="mb-0">{{ donor.address2_text }}</p>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <label class="text-muted small">Country</label>
+                        <p class="mb-0">{{ country_name }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-telephone"></i> Contact Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Phone Number</label>
+                            <p class="mb-0">{{ donor.phone_no }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Email</label>
+                            <p class="mb-0">
+                                {% if donor.email_text %}
+                                    <a href="mailto:{{ donor.email_text }}">{{ donor.email_text }}</a>
+                                {% else %}
+                                    <span class="text-muted fst-italic">None</span>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Donation History Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-gift"></i> Donation History</h5>
+                </div>
+                <div class="card-body">
+                    {% if donations %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Donation ID</th>
+                                    <th>Received Date</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for donation in donations %}
+                                <tr>
+                                    <td>{{ donation.donation_id }}</td>
+                                    <td>{{ donation.received_date.strftime('%Y-%m-%d') if donation.received_date else 'N/A' }}</td>
+                                    <td>{{ donation.donation_desc[:50] }}{% if donation.donation_desc|length > 50 %}...{% endif %}</td>
+                                    <td>
+                                        {% if donation.status_code == 'E' %}
+                                            <span class="badge bg-warning text-dark">Entered</span>
+                                        {% elif donation.status_code == 'V' %}
+                                            <span class="badge bg-success">Verified</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ donation.status_code }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">No donations recorded yet for this donor.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Audit Trail Card -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="bi bi-clock-history"></i> Audit Trail</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="text-muted small">Created By</label>
+                        <p class="mb-0">{{ donor.create_by_id }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Created Date</label>
+                        <p class="mb-0">{{ donor.create_dtime.strftime('%Y-%m-%d %I:%M %p') if donor.create_dtime else 'N/A' }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified By</label>
+                        <p class="mb-0">{{ donor.update_by_id }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-muted small">Last Modified Date</label>
+                        <p class="mb-0">{{ donor.update_dtime.strftime('%Y-%m-%d %I:%M %p') if donor.update_dtime else 'N/A' }}</p>
+                    </div>
+                    <div>
+                        <label class="text-muted small">Version Number</label>
+                        <p class="mb-0"><span class="badge bg-info">{{ donor.version_nbr }}</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteDonorModal" tabindex="-1" aria-labelledby="deleteDonorModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteDonorModalLabel">
+                    <i class="bi bi-exclamation-triangle"></i> Confirm Deletion
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete donor <strong>{{ donor.donor_name }}</strong>?</p>
+                <p class="text-danger"><strong>Warning:</strong> This action cannot be undone. This donor will only be deleted if it is not referenced in any donation records.</p>
+                {% if donations %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    This donor has {{ donations|length }} donation record(s) and cannot be deleted until those are removed.
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="POST" action="{{ url_for('donors.delete', donor_id=donor.donor_id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger" {% if donations %}disabled{% endif %}>
+                        <i class="bi bi-trash"></i> Delete Donor
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

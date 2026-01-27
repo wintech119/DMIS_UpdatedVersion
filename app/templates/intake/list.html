@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Intake Records - DRIMS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Intake Records</h2>
+            <p class="text-muted">Distribution and donation intake tracking</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('intake.create_intake') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Create Intake
+            </a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive-mobile">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Package ID</th>
+                            <th>Warehouse</th>
+                            <th>Intake Date</th>
+                            <th>Status</th>
+                            <th>Created By</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for intake, package, warehouse in intakes %}
+                        <tr>
+                            <td>
+                                <strong>#{{ intake.reliefpkg_id }}</strong>
+                            </td>
+                            <td>{{ warehouse.warehouse_name }}</td>
+                            <td>{{ intake.intake_date.strftime('%Y-%m-%d') }}</td>
+                            <td>
+                                <span class="badge bg-{{ intake.status_code|status_badge('dbintake') }}">
+                                    {{ intake.status_code|status_label('dbintake') }}
+                                </span>
+                            </td>
+                            <td>{{ intake.create_by_id }}</td>
+                            <td>
+                                <a href="{{ url_for('intake.view_intake', reliefpkg_id=intake.reliefpkg_id, inventory_id=intake.inventory_id) }}" 
+                                   class="btn btn-sm btn-info">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No intake records found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+
+{% block title %}Operations Dashboard - DMIS{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Operations Dashboard</h1>
+            <p class="text-muted mb-0">System-wide operational performance metrics</p>
+        </div>
+        <div>
+            <select class="form-select" id="periodSelector" data-action="navigate" data-param="period">
+                <option value="7" {% if period_days == 7 %}selected{% endif %}>Last 7 Days</option>
+                <option value="30" {% if period_days == 30 %}selected{% endif %}>Last 30 Days</option>
+                <option value="90" {% if period_days == 90 %}selected{% endif %}>Last 90 Days</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Donation KPI Cards -->
+    <h5 class="mb-3">Donation Performance</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1 small">Total Donations</h6>
+                            <h2 class="mb-0">{{ total_donations }}</h2>
+                            <p class="text-muted mb-0 small">Last {{ period_days }} days</p>
+                        </div>
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-gift-fill text-primary fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1 small">Donation Items</h6>
+                            <h2 class="mb-0">{{ total_donation_items }}</h2>
+                            <p class="text-muted mb-0 small">Total items received</p>
+                        </div>
+                        <div class="bg-success bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-box-seam-fill text-success fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <h6 class="text-muted mb-1 small">Avg Approval Time</h6>
+                            <h2 class="mb-0">{% if avg_approval_time %}{{ avg_approval_time }} days{% else %}N/A{% endif %}</h2>
+                            <p class="text-muted mb-0 small">Request to approval</p>
+                        </div>
+                        <div class="bg-info bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-clock-fill text-info fs-4"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Relief Request KPI Cards -->
+    <h5 class="mb-3">Relief Request & Fulfillment Performance</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1 small">Total Requests</h6>
+                    <h2 class="mb-0">{{ total_requests }}</h2>
+                    <p class="text-muted mb-0 small">Last {{ period_days }} days</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1 small">Packages Dispatched</h6>
+                    <h2 class="mb-0">{{ packages_dispatched }}</h2>
+                    <p class="text-muted mb-0 small">Sent to agencies</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1 small">Packages Received</h6>
+                    <h2 class="mb-0">{{ packages_received }}</h2>
+                    <p class="text-muted mb-0 small">Confirmed by agencies</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="text-muted mb-1 small">Avg Dispatch Time</h6>
+                    <h2 class="mb-0">{% if avg_dispatch_time %}{{ avg_dispatch_time }} days{% else %}N/A{% endif %}</h2>
+                    <p class="text-muted mb-0 small">Approval to dispatch</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Operational Status -->
+    <h5 class="mb-3">Current Operational Status (All Time)</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 bg-warning bg-opacity-10 h-100">
+                <div class="card-body text-center">
+                    <h3 class="mb-1 text-warning">{{ current_counts.awaiting_filling }}</h3>
+                    <p class="mb-0 small">Awaiting to be Filled</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-info bg-opacity-10 h-100">
+                <div class="card-body text-center">
+                    <h3 class="mb-1 text-info">{{ current_counts.being_prepared }}</h3>
+                    <p class="mb-0 small">Being Prepared</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-success bg-opacity-10 h-100">
+                <div class="card-body text-center">
+                    <h3 class="mb-1 text-success">{{ current_counts.approved_dispatch }}</h3>
+                    <p class="mb-0 small">Approved for Dispatch</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-secondary bg-opacity-10 h-100">
+                <div class="card-body text-center">
+                    <h3 class="mb-1 text-secondary">{{ current_counts.completed }}</h3>
+                    <p class="mb-0 small">Completed</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1: Timeline Charts -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Donations Over Time</h6>
+                    <div class="chart-container">
+                        <canvas id="donationsTimelineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Relief Requests & Fulfillment Over Time</h6>
+                    <div class="chart-container">
+                        <canvas id="requestsTimelineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2: Status and Top Agencies -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Relief Request Status Breakdown</h6>
+                    <div class="chart-container">
+                        <canvas id="statusBreakdownChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Top Requesting Agencies</h6>
+                    <div class="chart-container">
+                        <canvas id="topAgenciesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Period selector navigation
+    const periodSelector = document.getElementById('periodSelector');
+    if (periodSelector) {
+        periodSelector.addEventListener('change', (event) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('period', event.target.value);
+            window.location.href = url.toString();
+        });
+    }
+
+    // Common chart options
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top'
+            }
+        }
+    };
+
+    // 1. Donations Timeline Chart
+    const donationsTimelineData = {{ donations_timeline | tojson }};
+    const donationsLabels = donationsTimelineData.labels.map(d => new Date(d).toLocaleDateString());
+    const donationsValues = donationsTimelineData.values;
+
+    new Chart(document.getElementById('donationsTimelineChart'), {
+        type: 'line',
+        data: {
+            labels: donationsLabels,
+            datasets: [{
+                label: 'Donations',
+                data: donationsValues,
+                borderColor: 'rgb(13, 110, 253)',
+                backgroundColor: 'rgba(13, 110, 253, 0.2)',
+                borderWidth: 3,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: 'rgb(13, 110, 253)',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            ...commonOptions,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+
+    // 2. Requests & Fulfillment Timeline Chart
+    const requestsTimelineData = {{ requests_timeline | tojson }};
+    const fulfilledTimelineData = {{ fulfilled_timeline | tojson }};
+    const timelineLabels = requestsTimelineData.labels.map(d => new Date(d).toLocaleDateString());
+
+    new Chart(document.getElementById('requestsTimelineChart'), {
+        type: 'line',
+        data: {
+            labels: timelineLabels,
+            datasets: [
+                {
+                    label: 'Requests Submitted',
+                    data: requestsTimelineData.values,
+                    borderColor: 'rgb(255, 193, 7)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: 'rgb(255, 193, 7)',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                },
+                {
+                    label: 'Requests Fulfilled',
+                    data: fulfilledTimelineData.values,
+                    borderColor: 'rgb(25, 135, 84)',
+                    backgroundColor: 'rgba(25, 135, 84, 0.2)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: 'rgb(25, 135, 84)',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }
+            ]
+        },
+        options: {
+            ...commonOptions,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+
+    // 3. Status Breakdown Chart
+    const statusBreakdown = {{ status_breakdown | tojson }};
+
+    new Chart(document.getElementById('statusBreakdownChart'), {
+        type: 'doughnut',
+        data: {
+            labels: statusBreakdown.labels,
+            datasets: [{
+                data: statusBreakdown.values,
+                backgroundColor: [
+                    'rgb(108, 117, 125)',
+                    'rgb(255, 193, 7)',
+                    'rgb(220, 53, 69)',
+                    'rgb(255, 165, 0)',
+                    'rgb(111, 66, 193)',
+                    'rgb(13, 202, 240)',
+                    'rgb(25, 135, 84)',
+                    'rgb(214, 51, 132)'
+                ]
+            }]
+        },
+        options: {
+            ...commonOptions,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'right'
+                }
+            }
+        }
+    });
+
+    // 4. Top Agencies Chart
+    const topAgencies = {{ top_agencies | tojson }};
+    const agencyLabels = topAgencies.labels;
+    const agencyValues = topAgencies.values;
+
+    new Chart(document.getElementById('topAgenciesChart'), {
+        type: 'bar',
+        data: {
+            labels: agencyLabels,
+            datasets: [{
+                label: 'Fulfilled Requests',
+                data: agencyValues,
+                backgroundColor: 'rgb(13, 110, 253)',
+                borderColor: 'rgb(13, 110, 253)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            ...commonOptions,
+            indexAxis: 'y',
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

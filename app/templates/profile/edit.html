@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Edit Profile{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-pencil-square page-title-icon"></i>
+                <h1 class="page-title-text">Edit Profile</h1>
+            </div>
+            <p class="page-subtitle">Update your personal information</p>
+        </div>
+        <a href="{{ url_for('profile.view_profile') }}" class="btn btn-relief-secondary">
+            <i class="bi bi-x-circle me-2"></i>
+            Cancel
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="drims-card">
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('profile.edit_profile') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <h5 class="card-title mb-4">
+                            <i class="bi bi-person me-2"></i>
+                            Personal Information
+                        </h5>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="first_name" class="form-label">
+                                    First Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="first_name" 
+                                       name="first_name" 
+                                       value="{{ user.first_name or '' }}" 
+                                       required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="last_name" class="form-label">
+                                    Last Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="last_name" 
+                                       name="last_name" 
+                                       value="{{ user.last_name or '' }}" 
+                                       required>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="email" class="form-label">Email Address</label>
+                                <input type="email" 
+                                       class="form-control" 
+                                       id="email" 
+                                       value="{{ user.email }}" 
+                                       disabled>
+                                <small class="text-muted">Email cannot be changed</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="phone" class="form-label">Phone Number</label>
+                                <input type="tel" 
+                                       class="form-control" 
+                                       id="phone" 
+                                       name="phone" 
+                                       value="{{ user.phone or '' }}" 
+                                       placeholder="876-555-1234">
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label for="job_title" class="form-label">Job Title</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="job_title" 
+                                       name="job_title" 
+                                       value="{{ user.job_title or '' }}" 
+                                       placeholder="e.g., Logistics Manager">
+                            </div>
+                        </div>
+
+                        <h5 class="card-title mb-4 mt-5">
+                            <i class="bi bi-globe me-2"></i>
+                            Regional Settings
+                        </h5>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="timezone" class="form-label">Timezone</label>
+                                <select class="form-select" id="timezone" name="timezone">
+                                    {% for tz in timezones %}
+                                    <option value="{{ tz }}" {% if user.timezone == tz or (not user.timezone and tz == 'America/Jamaica') %}selected{% endif %}>
+                                        {{ tz }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="language" class="form-label">Language</label>
+                                <select class="form-select" id="language" name="language">
+                                    {% for lang_code, lang_name in languages %}
+                                    <option value="{{ lang_code }}" {% if user.language == lang_code or (not user.language and lang_code == 'en') %}selected{% endif %}>
+                                        {{ lang_name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                            <a href="{{ url_for('profile.view_profile') }}" class="btn btn-relief-secondary">
+                                <i class="bi bi-x-circle me-2"></i>
+                                Cancel
+                            </a>
+                            <button type="submit" class="btn btn-relief-primary">
+                                <i class="bi bi-check-circle me-2"></i>
+                                Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help Sidebar -->
+        <div class="col-lg-4">
+            <div class="drims-card">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        Profile Guidelines
+                    </h6>
+                    
+                    <ul class="small text-muted mb-0">
+                        <li class="mb-2">
+                            <strong>First & Last Name:</strong> Will be displayed in uppercase throughout the system
+                        </li>
+                        <li class="mb-2">
+                            <strong>Email:</strong> Cannot be changed for security reasons. Contact your administrator if needed.
+                        </li>
+                        <li class="mb-2">
+                            <strong>Phone:</strong> Use format: 876-555-1234 for Jamaican numbers
+                        </li>
+                        <li class="mb-2">
+                            <strong>Timezone:</strong> Affects how dates and times are displayed
+                        </li>
+                        <li class="mb-2">
+                            <strong>Language:</strong> Changes the interface language (coming soon)
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="drims-card mt-3">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">
+                        <i class="bi bi-shield-lock me-2"></i>
+                        Need to Change Your Password?
+                    </h6>
+                    
+                    <p class="small text-muted mb-3">
+                        For security reasons, password changes are done separately.
+                    </p>
+                    
+                    <a href="{{ url_for('profile.change_password') }}" class="btn btn-relief-secondary btn-sm w-100">
+                        <i class="bi bi-key me-2"></i>
+                        Change Password
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

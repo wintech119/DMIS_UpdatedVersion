@@ -1,0 +1,151 @@
+{#
+Feature Card Component
+
+Renders a dashboard card for a feature with icon, title, metrics, and action button.
+Only displays if user has access to the feature.
+
+Usage:
+    {% from 'components/dashboard/_feature_card.html' import feature_card %}
+    {{ feature_card('relief_request_creation', title='Create Request', icon='bi-plus-circle') }}
+
+Parameters:
+    feature_key: Feature key from FeatureRegistry
+    title: Card title (optional, uses feature name if not provided)
+    icon: Bootstrap icon class (optional, uses feature icon if not provided)
+    metric_value: Primary metric to display (optional)
+    metric_label: Label for metric (optional)
+    action_url: Custom action URL (optional, uses feature route if not provided)
+    action_label: Action button text (default: 'View')
+    badge_text: Optional badge text
+    badge_variant: Bootstrap badge variant (default: 'primary')
+#}
+
+{% macro feature_card(feature_key, title=None, icon=None, metric_value=None, metric_label=None, action_url=None, action_label='View', badge_text=None, badge_variant='primary') %}
+    {% if has_feature(feature_key) %}
+        {% set feature = get_feature_details(feature_key) %}
+        {% set display_title = title or feature.name %}
+        {% set display_icon = icon or feature.icon %}
+        {% set card_url = action_url or url_for(feature.route) if feature.route else feature.url %}
+        
+        <div class="drims-card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex align-items-center">
+                        <i class="{{ display_icon }} fs-3 text-primary me-2"></i>
+                        <h5 class="card-title mb-0">{{ display_title }}</h5>
+                    </div>
+                    {% if badge_text %}
+                        <span class="badge bg-{{ badge_variant }}">{{ badge_text }}</span>
+                    {% endif %}
+                </div>
+                
+                {% if metric_value is not none %}
+                    <div class="mb-3">
+                        <div class="display-6 fw-bold text-dark">{{ metric_value }}</div>
+                        {% if metric_label %}
+                            <small class="text-muted">{{ metric_label }}</small>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                
+                {% if feature.description %}
+                    <p class="card-text text-muted small">{{ feature.description }}</p>
+                {% endif %}
+                
+                <a href="{{ card_url }}" class="btn btn-relief-primary btn-sm w-100">
+                    {{ action_label }}
+                </a>
+            </div>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+
+{#
+Widget Card Component
+
+Renders a dashboard widget with data from dashboard_service.
+
+Usage:
+    {% from 'components/dashboard/_feature_card.html' import widget_card %}
+    {{ widget_card(widget_data) }}
+
+Parameters:
+    widget: Widget dictionary from DashboardService
+#}
+
+{% macro widget_card(widget) %}
+    <div class="drims-card h-100">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div class="d-flex align-items-center">
+                    <i class="{{ widget.icon }} fs-3 text-primary me-2"></i>
+                    <h5 class="card-title mb-0">{{ widget.title }}</h5>
+                </div>
+                {% if widget.data.get('badge_variant') %}
+                    <span class="badge bg-{{ widget.data.badge_variant }}">
+                        {{ widget.data.get('pending_count', widget.data.get('unread_count', 0)) }}
+                    </span>
+                {% endif %}
+            </div>
+            
+            {# Widget-specific content #}
+            {% if widget.widget_id == 'my_requests' %}
+                <div class="mb-3">
+                    <div class="display-6 fw-bold text-dark">{{ widget.data.total_count }}</div>
+                    <small class="text-muted">Total Requests</small>
+                </div>
+                {% if widget.data.requests %}
+                    <div class="list-group list-group-flush small mb-3">
+                        {% for req in widget.data.requests[:3] %}
+                            <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                               class="list-group-item list-group-item-action py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">Request #{{ req.reliefrqst_id }}</span>
+                                    <span class="badge bg-secondary">{{ req.status_cd }}</span>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% elif widget.widget_id in ['pending_eligibility', 'pending_fulfillment', 'pending_approval'] %}
+                <div class="mb-3">
+                    <div class="display-6 fw-bold text-dark">{{ widget.data.pending_count }}</div>
+                    <small class="text-muted">Pending Items</small>
+                </div>
+            {% elif widget.widget_id == 'notifications' %}
+                <div class="mb-3">
+                    <div class="display-6 fw-bold text-dark">{{ widget.data.unread_count }}</div>
+                    <small class="text-muted">Unread Notifications</small>
+                </div>
+            {% endif %}
+            
+            <a href="{{ widget.action_url }}" class="btn btn-relief-primary btn-sm w-100">
+                {{ widget.action_label }}
+            </a>
+        </div>
+    </div>
+{% endmacro %}
+
+
+{#
+Metric Card Component
+
+Simple metric display card.
+
+Usage:
+    {% from 'components/dashboard/_feature_card.html' import metric_card %}
+    {{ metric_card('Total Requests', 42, 'bi-list-check') }}
+#}
+
+{% macro metric_card(title, value, icon=None, variant='primary') %}
+    <div class="drims-card h-100">
+        <div class="card-body text-center">
+            {% if icon %}
+                <i class="{{ icon }} fs-2 text-{{ variant }} mb-2"></i>
+            {% endif %}
+            <div class="display-5 fw-bold text-dark">{{ value }}</div>
+            <p class="card-text text-muted small mb-0">{{ title }}</p>
+        </div>
+    </div>
+{% endmacro %}

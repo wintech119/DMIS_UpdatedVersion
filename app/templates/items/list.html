@@ -1,0 +1,265 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Items{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-box-seam page-title-icon"></i>
+                <h1 class="page-title-text">Relief Items</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('items.create_item') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create Item
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'box-seam',
+            'label': 'Total Items',
+            'value': metrics.get('total_items', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Active',
+            'value': metrics.get('active_items', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'x-circle',
+            'label': 'Inactive',
+            'value': metrics.get('inactive_items', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'layers',
+            'label': 'Batched',
+            'value': metrics.get('batched_items', 0),
+            'variant': 'primary'
+        },
+        {
+            'icon': 'calendar-x',
+            'label': 'Expirable',
+            'value': metrics.get('expirable_items', 0),
+            'variant': 'danger'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Item status filters">
+        <a href="{{ url_for('items.list_items', filter='active', search=search_query, category=category_filter) }}" 
+           class="filter-tab {% if filter_type == 'active' or not filter_type %}active{% endif %}"
+           aria-current="{% if filter_type == 'active' or not filter_type %}page{% endif %}">
+            Active Items
+            {% if metrics.get('active_items', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('active_items', 0) }} active">{{ metrics.get('active_items', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('items.list_items', filter='inactive', search=search_query, category=category_filter) }}" 
+           class="filter-tab {% if filter_type == 'inactive' %}active{% endif %}"
+           aria-current="{% if filter_type == 'inactive' %}page{% endif %}">
+            Inactive Items
+            {% if metrics.get('inactive_items', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('inactive_items', 0) }} inactive">{{ metrics.get('inactive_items', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('items.list_items', filter='all', search=search_query, category=category_filter) }}" 
+           class="filter-tab {% if filter_type == 'all' %}active{% endif %}"
+           aria-current="{% if filter_type == 'all' %}page{% endif %}">
+            All Items
+            {% if metrics.get('total_items', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('total_items', 0) }} total">{{ metrics.get('total_items', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Search and Filter Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('items.list_items') }}" class="row g-2">
+                <input type="hidden" name="filter" value="{{ filter_type }}">
+                
+                <!-- Search Input -->
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control" 
+                               name="search" 
+                               value="{{ search_query }}" 
+                               placeholder="Search by item code, name, SKU, or description..."
+                               aria-label="Search items">
+                    </div>
+                </div>
+                
+                <!-- Category Filter -->
+                <div class="col-md-3">
+                    <select class="form-select" name="category" aria-label="Filter by category">
+                        <option value="">All Categories</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.category_id }}" {% if category_filter == cat.category_id|string %}selected{% endif %}>
+                            {{ cat.category_desc }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn-relief-primary flex-grow-1">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                    {% if search_query or category_filter %}
+                    <a href="{{ url_for('items.list_items', filter=filter_type) }}" class="btn-relief-secondary">
+                        <i class="bi bi-x-circle"></i> Clear
+                    </a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Items Table -->
+    {% if items %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Item Code</th>
+                            <th scope="col">SKU</th>
+                            <th scope="col">Item Name</th>
+                            <th scope="col">Category</th>
+                            <th scope="col" class="text-end">Reorder Qty</th>
+                            <th scope="col">UOM</th>
+                            <th scope="col" class="text-center">Flags</th>
+                            <th scope="col" class="text-center">Issuance</th>
+                            <th scope="col" class="text-center">Status</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('items.view_item', item_id=item.item_id) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    <span class="code-pill">{{ item.item_code }}</span>
+                                </a>
+                            </td>
+                            <td>
+                                <span class="code-pill">{{ item.sku_code }}</span>
+                            </td>
+                            <td>
+                                <strong>{{ item.item_name }}</strong>
+                                {% if item.item_desc %}
+                                <br><small class="text-muted">{{ item.item_desc[:50] }}{% if item.item_desc|length > 50 %}...{% endif %}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.category %}
+                                    <span class="badge bg-secondary">{{ item.category.category_code }}</span>
+                                    <br><small class="text-muted">{{ item.category.category_desc }}</small>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">{{ item.reorder_qty }}</td>
+                            <td>
+                                <span class="badge bg-light text-dark">{{ item.default_uom_code }}</span>
+                            </td>
+                            <td class="text-center">
+                                <div class="d-flex gap-1 justify-content-center flex-wrap">
+                                    {% if item.is_batched_flag %}
+                                    <span class="badge bg-primary" title="Batched">
+                                        <i class="bi bi-layers"></i>
+                                    </span>
+                                    {% endif %}
+                                    {% if item.can_expire_flag %}
+                                    <span class="badge bg-danger" title="Expires">
+                                        <i class="bi bi-calendar-x"></i>
+                                    </span>
+                                    {% endif %}
+                                    {% if item.units_size_vary_flag %}
+                                    <span class="badge bg-info" title="Variable Size">
+                                        <i class="bi bi-rulers"></i>
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary">{{ item.issuance_order }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if item.status_code == 'A' %}
+                                    <span class="status-badge status-badge-success">
+                                        <i class="bi bi-check-circle"></i> Active
+                                    </span>
+                                {% elif item.status_code == 'I' %}
+                                    <span class="status-badge status-badge-warning">
+                                        <i class="bi bi-x-circle"></i> Inactive
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group" role="group" aria-label="Item actions">
+                                    <a href="{{ url_for('items.view_item', item_id=item.item_id) }}" 
+                                       class="btn btn-sm btn-outline-primary" 
+                                       title="View details"
+                                       aria-label="View {{ item.item_name }} details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('items.edit_item', item_id=item.item_id) }}" 
+                                       class="btn btn-sm btn-outline-secondary" 
+                                       title="Edit item"
+                                       aria-label="Edit {{ item.item_name }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-box-seam text-muted icon-xxl"></i>
+            <h5 class="mt-3">No Items Found</h5>
+            <p class="text-muted">
+                {% if search_query or category_filter %}
+                    No items match your search criteria. Try adjusting your filters or search.
+                {% else %}
+                    Get started by creating your first relief item.
+                {% endif %}
+            </p>
+            {% if not search_query and not category_filter %}
+            <a href="{{ url_for('items.create_item') }}" class="btn-relief-primary mt-2">
+                <i class="bi bi-plus-circle"></i> Create Item
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

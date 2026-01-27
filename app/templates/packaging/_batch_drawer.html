@@ -1,0 +1,168 @@
+{# Batch Selection Drawer Component #}
+{# Side drawer for selecting batches during package preparation #}
+
+{# Overlay backdrop #}
+<div class="batch-drawer-overlay" id="batchDrawerOverlay"></div>
+
+{# Drawer container #}
+<div class="batch-drawer" id="batchDrawer">
+    {# Header #}
+    <div class="batch-drawer-header">
+        <button type="button" class="batch-drawer-close" id="batchDrawerClose" aria-label="Close">
+            <i class="bi bi-x-lg"></i>
+        </button>
+        <h2 class="batch-drawer-title">Select Batches</h2>
+        <p class="batch-drawer-subtitle" id="batchDrawerItemName">Choose batches for allocation</p>
+    </div>
+
+    {# Body #}
+    <div class="batch-drawer-body">
+        {# Request Summary #}
+        <div class="batch-request-summary">
+            <div class="batch-request-summary-grid">
+                <div class="batch-summary-item">
+                    <span class="batch-summary-label">Requested Quantity</span>
+                    <span class="batch-summary-value" id="batchRequestedQty">0</span>
+                </div>
+                <div class="batch-summary-item">
+                    <span class="batch-summary-label">Allocated Quantity</span>
+                    <span class="batch-summary-value highlight" id="batchAllocatedQty">0</span>
+                </div>
+                <div class="batch-summary-item">
+                    <span class="batch-summary-label">Remaining</span>
+                    <span class="batch-summary-value warning" id="batchRemainingQty">0</span>
+                </div>
+                <div class="batch-summary-item">
+                    <span class="batch-summary-label">Allocation Rule</span>
+                    <span class="batch-summary-value" id="batchIssuanceOrder">FIFO</span>
+                </div>
+            </div>
+        </div>
+
+
+        {# Jump to Warehouse Control #}
+        <div class="batch-warehouse-jump-control d-none" id="warehouseJumpControl">
+            <label for="warehouseJumpSelect" class="batch-warehouse-jump-label">
+                <i class="bi bi-buildings"></i>
+                Jump to Warehouse:
+            </label>
+            <select id="warehouseJumpSelect" class="batch-warehouse-jump-select">
+                <option value="">Select warehouse...</option>
+            </select>
+        </div>
+
+        {# Batch List by Warehouse #}
+        <div id="batchListContainer">
+            <h3 class="batch-list-header">Available Batches by Warehouse</h3>
+            <div class="batch-list" id="batchList">
+                {# Warehouses and their batches will be loaded here dynamically #}
+            </div>
+        </div>
+
+        {# Empty State #}
+        <div class="batch-empty-state d-none" id="batchEmptyState">
+            <div class="batch-empty-state-icon">
+                <i class="bi bi-inbox"></i>
+            </div>
+            <p class="batch-empty-state-text">No batches available for this item</p>
+        </div>
+
+        {# Loading State #}
+        <div class="batch-loading d-none" id="batchLoadingState">
+            <div class="batch-loading-spinner"></div>
+        </div>
+    </div>
+
+    {# Footer #}
+    <div class="batch-drawer-footer">
+        <button type="button" class="batch-drawer-footer-btn secondary" id="batchDrawerCancel">
+            Cancel
+        </button>
+        <button type="button" class="batch-drawer-footer-btn primary" id="batchDrawerApply">
+            Apply Allocations
+        </button>
+    </div>
+</div>
+
+{# Warehouse Section Template (hidden, cloned by JavaScript) #}
+<template id="warehouseSectionTemplate">
+    <div class="batch-warehouse-section" data-warehouse-id="">
+        <div class="batch-warehouse-header">
+            <div class="batch-warehouse-header-main">
+                <button type="button" class="batch-warehouse-collapse-btn" aria-expanded="true">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="batch-warehouse-info">
+                    <h4 class="batch-warehouse-name">
+                        <i class="bi bi-building"></i>
+                        <span class="warehouse-name-text"></span>
+                    </h4>
+                    <p class="batch-warehouse-summary">
+                        <span class="warehouse-batch-count">0 batches</span>
+                        <span class="warehouse-separator">•</span>
+                        <span class="warehouse-total-qty">0 available</span>
+                    </p>
+                </div>
+            </div>
+            <div class="batch-warehouse-allocation-summary">
+                <span class="warehouse-allocated-label">Allocated:</span>
+                <span class="warehouse-allocated-value">0</span>
+            </div>
+        </div>
+        <div class="batch-warehouse-body" data-warehouse-body>
+            {# Batches for this warehouse will be added here #}
+        </div>
+    </div>
+</template>
+
+{# Batch Item Template (hidden, cloned by JavaScript) #}
+<template id="batchItemTemplate">
+    <div class="batch-item" data-batch-id="">
+        <div class="batch-item-header">
+            <div class="batch-item-main">
+                <div class="batch-item-number">
+                    <i class="bi bi-box-seam"></i>
+                    <span class="batch-number"></span>
+                </div>
+            </div>
+            <div class="batch-item-status-container">
+                {# Status badge will be added here if needed #}
+            </div>
+        </div>
+
+        <div class="batch-item-details">
+            <div class="batch-detail-item">
+                <span class="batch-detail-label">Expiry Date</span>
+                <span class="batch-detail-value batch-expiry-date">-</span>
+            </div>
+            <div class="batch-detail-item">
+                <span class="batch-detail-label">Batch Date</span>
+                <span class="batch-detail-value batch-batch-date">-</span>
+            </div>
+            <div class="batch-detail-item">
+                <span class="batch-detail-label">Available Quantity</span>
+                <span class="batch-detail-value highlight batch-available-qty">0</span>
+            </div>
+            <div class="batch-detail-item">
+                <span class="batch-detail-label">Size/UOM</span>
+                <span class="batch-detail-value batch-size-uom">-</span>
+            </div>
+        </div>
+
+        <div class="batch-allocation-input-group">
+            <div class="batch-allocation-input-wrapper">
+                <input 
+                    type="number" 
+                    class="batch-allocation-input" 
+                    placeholder="Enter quantity" 
+                    min="0" 
+                    step="0.0001"
+                    data-batch-allocation-input
+                />
+            </div>
+            <button type="button" class="batch-allocation-max-btn" data-batch-max-btn>
+                Use Max
+            </button>
+        </div>
+    </div>
+</template>

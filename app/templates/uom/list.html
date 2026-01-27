@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Units of Measure{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-rulers page-title-icon"></i>
+                <h1 class="page-title-text">Units of Measure</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('uom.create_uom') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create Unit of Measure
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'rulers',
+            'label': 'Total Units',
+            'value': metrics.get('total_uoms', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Active',
+            'value': metrics.get('active_uoms', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'x-circle',
+            'label': 'Inactive',
+            'value': metrics.get('inactive_uoms', 0),
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="UOM status filters">
+        <a href="{{ url_for('uom.list_uom', filter='all') }}" 
+           class="filter-tab {% if filter_type == 'all' or not filter_type %}active{% endif %}"
+           aria-current="{% if filter_type == 'all' or not filter_type %}page{% endif %}">
+            All Units
+            {% if metrics.get('total_uoms', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('total_uoms', 0) }} total">{{ metrics.get('total_uoms', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('uom.list_uom', filter='active') }}" 
+           class="filter-tab {% if filter_type == 'active' %}active{% endif %}"
+           aria-current="{% if filter_type == 'active' %}page{% endif %}">
+            Active
+            {% if metrics.get('active_uoms', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('active_uoms', 0) }} active">{{ metrics.get('active_uoms', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('uom.list_uom', filter='inactive') }}" 
+           class="filter-tab {% if filter_type == 'inactive' %}active{% endif %}"
+           aria-current="{% if filter_type == 'inactive' %}page{% endif %}">
+            Inactive
+            {% if metrics.get('inactive_uoms', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('inactive_uoms', 0) }} inactive">{{ metrics.get('inactive_uoms', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Search Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('uom.list_uom') }}" class="d-flex gap-2">
+                <input type="hidden" name="filter" value="{{ filter_type }}">
+                <div class="input-group flex-grow-1">
+                    <span class="input-group-text bg-white">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" 
+                           class="form-control" 
+                           name="search" 
+                           value="{{ search_query }}" 
+                           placeholder="Search units of measure by code or description..."
+                           aria-label="Search units of measure">
+                </div>
+                <button type="submit" class="btn-relief-primary">
+                    <i class="bi bi-search"></i> Search
+                </button>
+                {% if search_query %}
+                <a href="{{ url_for('uom.list_uom', filter=filter_type) }}" class="btn-relief-secondary">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Units of Measure Table -->
+    {% if uoms %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">UOM Code</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Comments</th>
+                            <th scope="col" class="text-center">Status</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for uom in uoms %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('uom.view_uom', uom_code=uom.uom_code) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    <span class="code-pill">{{ uom.uom_code }}</span>
+                                </a>
+                            </td>
+                            <td>{{ uom.uom_desc }}</td>
+                            <td>
+                                {% if uom.comments_text %}
+                                    <div class="text-truncate" style="max-width: 300px;" title="{{ uom.comments_text }}">
+                                        {{ uom.comments_text }}
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if uom.status_code == 'A' %}
+                                    <span class="status-badge status-badge-success">
+                                        <i class="bi bi-check-circle"></i> Active
+                                    </span>
+                                {% elif uom.status_code == 'I' %}
+                                    <span class="status-badge status-badge-warning">
+                                        <i class="bi bi-x-circle"></i> Inactive
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group" role="group" aria-label="UOM actions">
+                                    <a href="{{ url_for('uom.view_uom', uom_code=uom.uom_code) }}" 
+                                       class="btn btn-sm btn-outline-primary" 
+                                       title="View details"
+                                       aria-label="View {{ uom.uom_code }} details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('uom.edit_uom', uom_code=uom.uom_code) }}" 
+                                       class="btn btn-sm btn-outline-secondary" 
+                                       title="Edit unit"
+                                       aria-label="Edit {{ uom.uom_code }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-rulers text-muted" style="font-size: 4rem;"></i>
+            <h5 class="mt-3">No Units of Measure Found</h5>
+            <p class="text-muted">
+                {% if search_query %}
+                    No units match your search criteria. Try adjusting your search.
+                {% else %}
+                    Get started by creating your first unit of measure.
+                {% endif %}
+            </p>
+            {% if not search_query %}
+            <a href="{{ url_for('uom.create_uom') }}" class="btn-relief-primary mt-2">
+                <i class="bi bi-plus-circle"></i> Create Unit of Measure
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

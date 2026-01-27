@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Inventory{% endblock %}
+
+{% block styles %}
+<style nonce="{{ csp_nonce() }}">
+.inventory-table th:nth-child(n+4):nth-child(-n+7),
+.inventory-table td:nth-child(n+4):nth-child(-n+7) {
+    text-align: right;
+    min-width: 90px;
+}
+.inventory-table th:nth-child(8),
+.inventory-table td:nth-child(8) {
+    text-align: center;
+    min-width: 60px;
+}
+.inventory-table th:nth-child(9),
+.inventory-table td:nth-child(9) {
+    text-align: center;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-boxes page-title-icon"></i>
+                <h1 class="page-title-text">Inventory Summary</h1>
+            </div>
+        </div>
+        {% if has_feature('inventory_intake') %}
+        <a href="{{ url_for('intake.list_intakes') }}" class="btn-relief-primary">
+            <i class="bi bi-arrow-down-circle"></i>
+            Record Intake
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Calculate Totals -->
+    {% set totals = namespace(usable=0, reserved=0, defective=0, expired=0) %}
+    {% for inv, _, _, _ in inventory_items %}
+        {% set totals.usable = totals.usable + inv.usable_qty %}
+        {% set totals.reserved = totals.reserved + inv.reserved_qty %}
+        {% set totals.defective = totals.defective + inv.defective_qty %}
+        {% set totals.expired = totals.expired + inv.expired_qty %}
+    {% endfor %}
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'check-circle',
+            'label': 'Usable Stock',
+            'value': totals.usable|int,
+            'variant': 'success'
+        },
+        {
+            'icon': 'bookmark',
+            'label': 'Reserved',
+            'value': totals.reserved|int,
+            'variant': 'warning'
+        },
+        {
+            'icon': 'exclamation-triangle',
+            'label': 'Defective',
+            'value': totals.defective|int,
+            'variant': 'danger'
+        },
+        {
+            'icon': 'calendar-x',
+            'label': 'Expired',
+            'value': totals.expired|int,
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-building"></i>
+                        </span>
+                        <select class="form-select" name="warehouse_id" id="warehouse_id" data-auto-submit="true" aria-label="Filter by warehouse">
+                            <option value="">All Warehouses</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.warehouse_id }}" {% if selected_warehouse_id == warehouse.warehouse_id %}selected{% endif %}>
+                                {{ warehouse.warehouse_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-box-seam"></i>
+                        </span>
+                        <select class="form-select" name="item_id" id="item_id" data-auto-submit="true" aria-label="Filter by item">
+                            <option value="">All Items</option>
+                            {% for item in items %}
+                            <option value="{{ item.item_id }}" {% if selected_item_id == item.item_id %}selected{% endif %}>
+                                {{ item.item_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn-relief-primary w-100">
+                        <i class="bi bi-funnel"></i> Filter
+                    </button>
+                </div>
+                {% if selected_warehouse_id or selected_item_id %}
+                <div class="col-md-2">
+                    <a href="{{ url_for('inventory.list_inventory') }}" class="btn-relief-secondary w-100">
+                        <i class="bi bi-x-circle"></i> Clear
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Inventory Table -->
+    {% if inventory_items %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table inventory-table">
+                    <caption class="visually-hidden">Inventory quantities by warehouse and item</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Warehouse</th>
+                            <th scope="col">Item</th>
+                            <th scope="col">SKU</th>
+                            <th scope="col">Usable</th>
+                            <th scope="col">Reserved</th>
+                            <th scope="col">Defective</th>
+                            <th scope="col">Expired</th>
+                            <th scope="col">UOM</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv, item_name, sku_code, warehouse_name in inventory_items %}
+                        <tr>
+                            <td>
+                                <strong>{{ warehouse_name }}</strong>
+                            </td>
+                            <td>{{ item_name }}</td>
+                            <td>
+                                <code class="code-pill">{{ sku_code }}</code>
+                            </td>
+                            <td>
+                                <strong class="text-success">{{ inv.usable_qty }}</strong>
+                            </td>
+                            <td>
+                                <span class="text-warning">{{ inv.reserved_qty }}</span>
+                            </td>
+                            <td>
+                                <span class="text-danger">{{ inv.defective_qty }}</span>
+                            </td>
+                            <td>
+                                <span class="text-muted">{{ inv.expired_qty }}</span>
+                            </td>
+                            <td>{{ inv.uom_code }}</td>
+                            <td>
+                                <span class="status-badge status-badge-{{ inv.status_code|status_badge('inventory') }}">
+                                    {{ inv.status_code|status_label('inventory') }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-boxes text-muted" style="font-size: 3rem;"></i>
+            <h5 class="mt-3">No Inventory Records</h5>
+            <p class="text-muted">No inventory records found for the selected filters.</p>
+            {% if has_feature('inventory_intake') %}
+            <a href="{{ url_for('intake.list_intakes') }}" class="btn-relief-primary">
+                <i class="bi bi-arrow-down-circle me-2"></i>
+                Record Intake
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    const autoSubmitSelects = document.querySelectorAll('select[data-auto-submit="true"]');
+    autoSubmitSelects.forEach(function(select) {
+        select.addEventListener('change', function() {
+            this.form.submit();
+        });
+    });
+});
+</script>
+{% endblock %}

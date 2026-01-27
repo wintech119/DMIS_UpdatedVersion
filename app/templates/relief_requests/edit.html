@@ -1,0 +1,184 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Relief Request - RR-{{ '%06d'|format(request.reliefrqst_id) }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Success Message -->
+    {% if show_success %}
+    <div class="alert-banner alert-banner-success" role="alert">
+        <i class="bi bi-check-circle-fill"></i>
+        <div class="alert-banner-content">
+            Relief request RR-{{ '%06d'|format(request.reliefrqst_id) }} created successfully.
+        </div>
+        <button type="button" class="alert-banner-close" data-action="close-alert" aria-label="Close">
+            <i class="bi bi-x"></i>
+        </button>
+    </div>
+    {% endif %}
+
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('requests.list_requests') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-title">
+                    <i class="bi bi-clipboard-check page-title-icon"></i>
+                    <h1 class="page-title-text">
+                        RR-{{ '%06d'|format(request.reliefrqst_id) }}
+                    </h1>
+                    <span class="page-title-badge">
+                        {{ status_badge(request.status_code) }}
+                    </span>
+                </div>
+                <p class="page-subtitle">
+                    {{ request.agency.agency_name if request.agency else 'Unknown Agency' }}
+                    {% if request.agency and request.agency.contact_name %}
+                    <span class="text-muted">({{ request.agency.contact_name }})</span>
+                    {% endif %}
+                </p>
+            </div>
+
+            <!-- Info Panel -->
+            {% if request.status_code == 0 %}
+            <div class="info-panel" role="region" aria-label="Draft status information">
+                <div class="info-panel-title">
+                    <i class="bi bi-info-circle-fill"></i>
+                    Review Your Relief Request
+                </div>
+                <div class="info-panel-content">
+                    <p class="mb-2">Your relief request is currently in <strong>Draft</strong> status. Please review the items and quantities below.</p>
+                    <p class="mb-0"><strong>Next Steps:</strong> You can edit this draft to make changes, or submit it to ODPEM for processing when ready.</p>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Summary Cards -->
+            {% set summary_metrics = [
+                {
+                    'icon': 'box-seam',
+                    'label': 'Total Items',
+                    'value': request.items|length if request.items else 0,
+                    'variant': 'default'
+                },
+                {
+                    'icon': 'check-circle',
+                    'label': 'Fully Allocated',
+                    'value': allocated_count,
+                    'variant': 'success'
+                },
+                {
+                    'icon': 'exclamation-triangle',
+                    'label': 'Partial',
+                    'value': partial_count,
+                    'variant': 'warning'
+                },
+                {
+                    'icon': 'x-circle',
+                    'label': 'Unallocated',
+                    'value': unallocated_count,
+                    'variant': 'danger'
+                }
+            ] %}
+            {{ render_summary_cards(summary_metrics) }}
+
+            <!-- Items Table -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Requested Items</h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if request.items %}
+                    <table class="relief-requests-table mb-0" role="table" aria-label="Requested items">
+                        <thead>
+                            <tr>
+                                <th scope="col">Item</th>
+                                <th scope="col">Requested</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in request.items %}
+                            <tr>
+                                <td>
+                                    <strong>{{ item.item.item_name if item.item else 'Unknown Item' }}</strong>
+                                    {% if item.item and item.item.sku_code %}
+                                    <div class="table-sku">SKU: {{ item.item.sku_code }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ item.request_qty }}</strong>
+                                    {{ item.item.default_uom.uom_desc if (item.item and item.item.default_uom) else '' }}
+                                </td>
+                                <td>
+                                    {% if request.status_code == 0 %}
+                                    <span class="status-badge status-badge-draft">Draft</span>
+                                    <div class="table-sku">Awaiting submission</div>
+                                    {% else %}
+                                    {% if item.issue_qty and item.issue_qty >= item.request_qty %}
+                                    <span class="status-badge status-badge-completed">Fulfilled</span>
+                                    {% elif item.issue_qty and item.issue_qty > 0 %}
+                                    <span class="status-badge status-badge-part-filled">Partial</span>
+                                    <div class="table-sku">{{ item.issue_qty }} of {{ item.request_qty }}</div>
+                                    {% else %}
+                                    <span class="status-badge status-badge-urgent">Unfilled</span>
+                                    {% endif %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox text-muted icon-md"></i>
+                        <p class="mt-3 text-muted">No items added yet.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="mt-4 d-flex gap-2">
+                {% if request.status_code == 0 %}
+                <form method="POST" action="{{ url_for('requests.submit_request', request_id=request.reliefrqst_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn-relief-primary">
+                        <i class="bi bi-send"></i>
+                        Submit to ODPEM
+                    </button>
+                </form>
+                <a href="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" class="btn-relief-secondary">
+                    <i class="bi bi-pencil"></i>
+                    Edit Items
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Workflow Sidebar -->
+        <div class="col-lg-3">
+            {{ render_workflow_progress([
+                {'title': 'Create Request', 'description': 'Add items you need', 'status': 'completed' if request.status_code >= 0 else 'active'},
+                {'title': 'Submit to ODPEM', 'description': 'Send request for review', 'status': 'completed' if request.status_code >= 1 else ('active' if request.status_code == 0 else 'pending')},
+                {'title': 'ODPEM Processing', 'description': 'Awaiting review', 'status': 'completed' if request.status_code >= 3 else 'pending'},
+                {'title': 'Receive Items', 'description': 'Awaiting dispatch', 'status': 'completed' if request.status_code >= 7 else 'pending'}
+            ]) }}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}View Item Category - {{ category.category_code }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('item_categories.list_categories') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Categories
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header mb-4">
+        <div class="page-title">
+            <i class="bi bi-grid-3x3 page-title-icon"></i>
+            <h1 class="page-title-text">
+                Category Details: <span class="code-pill">{{ category.category_code }}</span>
+            </h1>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('item_categories.edit_category', category_id=category.category_id) }}" 
+               class="btn-relief-primary">
+                <i class="bi bi-pencil"></i>
+                Edit Category
+            </a>
+            <button type="button" 
+                    class="btn-relief-danger" 
+                    data-bs-toggle="modal" 
+                    data-bs-target="#deleteModal">
+                <i class="bi bi-trash"></i>
+                Delete
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Main Information -->
+        <div class="col-md-8">
+            <!-- Category Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Category Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small mb-1">Category Code</label>
+                            <div class="fw-medium">
+                                <span class="code-pill">{{ category.category_code }}</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small mb-1">Status</label>
+                            <div>
+                                {% if category.status_code == 'A' %}
+                                    <span class="status-badge status-badge-success">
+                                        <i class="bi bi-check-circle"></i> Active
+                                    </span>
+                                {% elif category.status_code == 'I' %}
+                                    <span class="status-badge status-badge-warning">
+                                        <i class="bi bi-x-circle"></i> Inactive
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <label class="text-muted small mb-1">Description</label>
+                            <div class="fw-medium">{{ category.category_desc }}</div>
+                        </div>
+                    </div>
+
+                    {% if category.comments_text %}
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <label class="text-muted small mb-1">Comments</label>
+                            <div class="border rounded p-3 bg-light">
+                                {{ category.comments_text }}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Usage Information Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Usage Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info d-flex align-items-center" role="alert">
+                        <i class="bi bi-info-circle me-2" style="font-size: 1.5rem;"></i>
+                        <div>
+                            <strong>{{ item_count }}</strong> item{{ 's' if item_count != 1 else '' }} 
+                            {{ 'are' if item_count != 1 else 'is' }} using this category.
+                            {% if item_count > 0 %}
+                                <br>
+                                <small class="text-muted">This category cannot be deleted while items reference it.</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar: Audit Information -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Audit Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-4">
+                        <label class="text-muted small mb-1 d-block">Created By</label>
+                        <strong>{{ category.create_by_id }}</strong>
+                        <br>
+                        <small class="text-muted">
+                            {{ category.create_dtime.strftime('%B %d, %Y') if category.create_dtime else 'N/A' }}
+                            <br>
+                            {{ category.create_dtime.strftime('%I:%M %p') if category.create_dtime else '' }}
+                        </small>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="text-muted small mb-1 d-block">Last Updated By</label>
+                        <strong>{{ category.update_by_id }}</strong>
+                        <br>
+                        <small class="text-muted">
+                            {{ category.update_dtime.strftime('%B %d, %Y') if category.update_dtime else 'N/A' }}
+                            <br>
+                            {{ category.update_dtime.strftime('%I:%M %p') if category.update_dtime else '' }}
+                        </small>
+                    </div>
+                    
+                    <div class="border-top pt-3">
+                        <label class="text-muted small mb-1 d-block">Version</label>
+                        <strong>{{ category.version_nbr }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteModalLabel">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Confirm Deletion
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">Are you sure you want to delete the category <strong>"{{ category.category_code }}"</strong>?</p>
+                
+                {% if item_count > 0 %}
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> This category is currently used by {{ item_count }} item{{ 's' if item_count != 1 else '' }}.
+                    The deletion will be blocked.
+                </div>
+                {% else %}
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle me-2"></i>
+                    This action cannot be undone. The category will be permanently removed from the system.
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </button>
+                {% if item_count == 0 %}
+                <form method="POST" action="{{ url_for('item_categories.delete_category', category_id=category.category_id) }}" style="display: inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> Delete Category
+                    </button>
+                </form>
+                {% else %}
+                <button type="button" class="btn btn-danger" disabled>
+                    <i class="bi bi-trash"></i> Cannot Delete
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

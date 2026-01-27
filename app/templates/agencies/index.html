@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Agencies - DRIMS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-building"></i> Relief Agencies</h2>
+    <a href="{{ url_for('agencies.create') }}" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Add New Agency
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive-mobile">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Agency Name</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Parish</th>
+                        <th>Contact Person</th>
+                        <th>Phone</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for agency in agencies %}
+                    <tr>
+                        <td>{{ agency.agency_id }}</td>
+                        <td>{{ agency.agency_name }}</td>
+                        <td>
+                            {% if agency.agency_type == 'DISTRIBUTOR' %}
+                            <span class="badge bg-primary">Distributor</span>
+                            {% elif agency.agency_type == 'SHELTER' %}
+                            <span class="badge bg-info">Shelter</span>
+                            {% else %}
+                            {{ agency.agency_type }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if agency.status_code == 'A' %}
+                            <span class="badge bg-success">Active</span>
+                            {% elif agency.status_code == 'I' %}
+                            <span class="badge bg-secondary">Inactive</span>
+                            {% else %}
+                            {{ agency.status_code }}
+                            {% endif %}
+                        </td>
+                        <td>{{ agency.parish.parish_name if agency.parish else '-' }}</td>
+                        <td>{{ agency.contact_name }}</td>
+                        <td>{{ agency.phone_no }}</td>
+                        <td>
+                            <a href="{{ url_for('agencies.view', agency_id=agency.agency_id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <a href="{{ url_for('agencies.edit', agency_id=agency.agency_id) }}" class="btn btn-sm btn-warning">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted">No agencies found. <a href="{{ url_for('agencies.create') }}">Add the first agency</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

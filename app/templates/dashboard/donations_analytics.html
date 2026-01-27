@@ -1,0 +1,850 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-grid-secondary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.kpi-featured-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.kpi-card-featured {
+    border-radius: 16px;
+    padding: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card-featured:hover {
+    transform: translateY(-2px);
+}
+
+.kpi-card-goods {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+}
+
+.kpi-card-goods:hover {
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+.kpi-card-funds {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+
+.kpi-card-funds:hover {
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+}
+
+.kpi-card-featured .kpi-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.kpi-card-featured .kpi-value {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 700;
+    color: white;
+    line-height: 1.2;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.kpi-card-featured .kpi-label {
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.9);
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+.kpi-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.kpi-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.kpi-icon.primary {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.kpi-icon.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.kpi-icon.warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.kpi-icon.info {
+    background: rgba(6, 182, 212, 0.1);
+    color: #06b6d4;
+}
+
+.kpi-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.kpi-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.2;
+}
+
+.kpi-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+.chart-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+}
+
+.chart-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.chart-card-title i {
+    color: #6b7280;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 1rem;
+}
+
+.chart-container-lg {
+    height: 350px;
+}
+
+.no-data-message {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6b7280;
+}
+
+.no-data-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.3;
+}
+
+.recent-donations-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.donation-item {
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.donation-item:last-child {
+    border-bottom: none;
+}
+
+.donation-info {
+    flex: 1;
+}
+
+.donation-donor {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+}
+
+.donation-meta {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.donation-amount {
+    font-weight: 700;
+    color: #10b981;
+    font-size: 1.125rem;
+}
+
+@media (max-width: 992px) {
+    .kpi-grid-secondary {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .analytics-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .kpi-grid-secondary {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .kpi-featured-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .chart-container {
+        height: 250px;
+    }
+    
+    .kpi-value {
+        font-size: 1.5rem;
+    }
+    
+    .kpi-card-featured {
+        padding: 1.5rem;
+    }
+    
+    .kpi-card-featured .kpi-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 1.75rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .kpi-grid-secondary {
+        grid-template-columns: 1fr;
+    }
+    
+    .kpi-card-featured {
+        flex-direction: column;
+        text-align: center;
+        padding: 1.5rem 1rem;
+    }
+    
+    .kpi-card-featured .kpi-value {
+        font-size: 1.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block title %}Donation Analytics Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="page-header mb-4">
+        <div class="page-title">
+            <i class="bi bi-graph-up-arrow page-title-icon"></i>
+            <h1 class="page-title-text">Donation Analytics</h1>
+        </div>
+        <p class="page-subtitle">Overview of donation metrics, trends, and distribution</p>
+    </div>
+
+    <div class="kpi-featured-row">
+        <div class="kpi-card-featured kpi-card-goods">
+            <div class="kpi-icon">
+                <i class="bi bi-box-seam"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">J${{ "{:,.2f}".format(total_value_goods) }}</div>
+                <div class="kpi-label">Total Donation Value - GOODS</div>
+            </div>
+        </div>
+        <div class="kpi-card-featured kpi-card-funds">
+            <div class="kpi-icon">
+                <i class="bi bi-cash-stack"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">J${{ "{:,.2f}".format(total_value_funds) }}</div>
+                <div class="kpi-label">Total Donation Value - FUNDS</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="kpi-grid-secondary">
+        <div class="kpi-card">
+            <div class="kpi-icon primary">
+                <i class="bi bi-gift"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ total_donations | default(0) }}</div>
+                <div class="kpi-label">Total Donations</div>
+            </div>
+        </div>
+        
+        <div class="kpi-card">
+            <div class="kpi-icon warning">
+                <i class="bi bi-people"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ unique_donors | default(0) }}</div>
+                <div class="kpi-label">Unique Donors</div>
+            </div>
+        </div>
+        
+        <div class="kpi-card">
+            <div class="kpi-icon info">
+                <i class="bi bi-globe"></i>
+            </div>
+            <div class="kpi-content">
+                <div class="kpi-value">{{ countries_count | default(0) }}</div>
+                <div class="kpi-label">Countries</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-bar-chart"></i>
+                Top Donors by Value
+            </h3>
+            <div class="chart-container">
+                {% if donor_chart_data.labels %}
+                <canvas id="donorChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-bar-chart"></i></div>
+                    <p>No donation data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-pie-chart"></i>
+                Donations by Country
+            </h3>
+            <div class="chart-container">
+                {% if country_chart_data.labels %}
+                <canvas id="countryChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-globe"></i></div>
+                    <p>No country data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-graph-up"></i>
+                Donations Over Time (Last 12 Months)
+            </h3>
+            <div class="chart-container chart-container-lg">
+                {% if timeline_data.labels %}
+                <canvas id="timelineChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-calendar3"></i></div>
+                    <p>No timeline data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-calendar-event"></i>
+                Donations by Disaster Event
+            </h3>
+            <div class="chart-container chart-container-lg">
+                {% if event_chart_data.labels %}
+                <canvas id="eventChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-calendar-event"></i></div>
+                    <p>No event distribution data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-clipboard-data"></i>
+                Donation Status Breakdown
+            </h3>
+            <div class="chart-container">
+                {% if status_chart_data.labels %}
+                <canvas id="statusChart"></canvas>
+                {% else %}
+                <div class="no-data-message">
+                    <div class="no-data-icon"><i class="bi bi-clipboard-data"></i></div>
+                    <p>No status data available yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-card-title">
+                <i class="bi bi-clock-history"></i>
+                Recent Donations
+            </h3>
+            {% if recent_donations %}
+            <ul class="recent-donations-list">
+                {% for donation in recent_donations %}
+                <li class="donation-item">
+                    <div class="donation-info">
+                        <div class="donation-donor">{{ donation.donor.donor_name if donation.donor else 'Unknown Donor' }}</div>
+                        <div class="donation-meta">
+                            <i class="bi bi-calendar3"></i> {{ donation.received_date.strftime('%d %b %Y') if donation.received_date else 'N/A' }}
+                            &nbsp;|&nbsp;
+                            <i class="bi bi-geo-alt"></i> {{ donation.origin_country.country_name if donation.origin_country else 'N/A' }}
+                        </div>
+                    </div>
+                    <div class="donation-amount">J${{ "{:,.2f}".format(donation.tot_item_cost) }}</div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="no-data-message">
+                <div class="no-data-icon"><i class="bi bi-inbox"></i></div>
+                <p>No recent donations</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Chart.js -->
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.color = '#6b7280';
+
+const colors = {
+    primary: '#3b82f6',
+    success: '#10b981',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+    info: '#06b6d4',
+    secondary: '#6b7280',
+    purple: '#8b5cf6',
+    pink: '#ec4899',
+    indigo: '#6366f1',
+    teal: '#14b8a6'
+};
+
+const chartColorPalette = [
+    colors.primary,
+    colors.success,
+    colors.warning,
+    colors.info,
+    colors.purple,
+    colors.pink,
+    colors.indigo,
+    colors.teal,
+    colors.danger,
+    colors.secondary
+];
+
+{% if donor_chart_data.labels %}
+const donorCtx = document.getElementById('donorChart').getContext('2d');
+new Chart(donorCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ donor_chart_data.labels | tojson }},
+        datasets: [{
+            label: 'Donation Value (JMD)',
+            data: {{ donor_chart_data.amounts | tojson }},
+            backgroundColor: colors.primary,
+            borderColor: colors.primary,
+            borderWidth: 1,
+            borderRadius: 4
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return 'J$' + context.parsed.x.toLocaleString('en-US', {minimumFractionDigits: 2});
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    callback: function(value) {
+                        if (value >= 1000000) {
+                            return 'J$' + (value / 1000000).toFixed(1) + 'M';
+                        } else if (value >= 1000) {
+                            return 'J$' + (value / 1000).toFixed(0) + 'K';
+                        }
+                        return 'J$' + value;
+                    }
+                }
+            },
+            y: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if country_chart_data.labels %}
+const countryCtx = document.getElementById('countryChart').getContext('2d');
+new Chart(countryCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ country_chart_data.labels | tojson }},
+        datasets: [{
+            data: {{ country_chart_data.amounts | tojson }},
+            backgroundColor: chartColorPalette,
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'right',
+                labels: {
+                    padding: 15,
+                    font: {
+                        size: 11
+                    },
+                    generateLabels: function(chart) {
+                        const data = chart.data;
+                        const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                        return data.labels.map((label, i) => {
+                            const value = data.datasets[0].data[i];
+                            const percentage = ((value / total) * 100).toFixed(1);
+                            return {
+                                text: label + ' (' + percentage + '%)',
+                                fillStyle: data.datasets[0].backgroundColor[i],
+                                hidden: false,
+                                index: i
+                            };
+                        });
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const value = context.parsed;
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = ((value / total) * 100).toFixed(1);
+                        return context.label + ': J$' + value.toLocaleString('en-US', {minimumFractionDigits: 2}) + ' (' + percentage + '%)';
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if timeline_data.labels %}
+const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+new Chart(timelineCtx, {
+    type: 'line',
+    data: {
+        labels: {{ timeline_data.labels | tojson }},
+        datasets: [{
+            label: 'Donation Value (JMD)',
+            data: {{ timeline_data.amounts | tojson }},
+            borderColor: colors.primary,
+            backgroundColor: colors.primary + '20',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: colors.primary,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            yAxisID: 'y'
+        }, {
+            label: 'Number of Donations',
+            data: {{ timeline_data.counts | tojson }},
+            borderColor: colors.success,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            tension: 0.4,
+            pointBackgroundColor: colors.success,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            yAxisID: 'y1'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
+                    padding: 15
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        if (context.datasetIndex === 0) {
+                            return 'Value: J$' + context.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2});
+                        }
+                        return 'Count: ' + context.parsed.y;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    callback: function(value) {
+                        if (value >= 1000000) {
+                            return 'J$' + (value / 1000000).toFixed(1) + 'M';
+                        } else if (value >= 1000) {
+                            return 'J$' + (value / 1000).toFixed(0) + 'K';
+                        }
+                        return 'J$' + value;
+                    }
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                beginAtZero: true,
+                grid: {
+                    drawOnChartArea: false
+                },
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if event_chart_data.labels %}
+const eventCtx = document.getElementById('eventChart').getContext('2d');
+new Chart(eventCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ event_chart_data.labels | tojson }},
+        datasets: [{
+            label: 'Donation Value (JMD)',
+            data: {{ event_chart_data.amounts | tojson }},
+            backgroundColor: chartColorPalette,
+            borderColor: chartColorPalette,
+            borderWidth: 1,
+            borderRadius: 4
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const counts = {{ event_chart_data.counts | tojson }};
+                        const amount = 'J$' + context.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2});
+                        const count = counts[context.dataIndex] + ' donation(s)';
+                        return [amount, count];
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                },
+                ticks: {
+                    callback: function(value) {
+                        if (value >= 1000000) {
+                            return 'J$' + (value / 1000000).toFixed(1) + 'M';
+                        } else if (value >= 1000) {
+                            return 'J$' + (value / 1000).toFixed(0) + 'K';
+                        }
+                        return 'J$' + value;
+                    }
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 45
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if status_chart_data.labels %}
+const statusCtx = document.getElementById('statusChart').getContext('2d');
+new Chart(statusCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ status_chart_data.labels | tojson }},
+        datasets: [{
+            data: {{ status_chart_data.counts | tojson }},
+            backgroundColor: [colors.warning, colors.success, colors.info],
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    padding: 20,
+                    font: {
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                        return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

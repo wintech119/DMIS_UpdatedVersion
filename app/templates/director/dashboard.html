@@ -1,0 +1,222 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}ODPEM Director Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="page-title">
+            <i class="bi bi-speedometer2 page-title-icon"></i>
+            <h1 class="page-title-text">Relief Request Management</h1>
+        </div>
+        <p class="page-subtitle">Unified dashboard for eligibility review and fulfillment oversight</p>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'clipboard-check',
+            'label': 'Pending Review',
+            'value': counts.get('pending_review', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Pending Fulfillment',
+            'value': counts.get('pending_fulfillment', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'hourglass-split',
+            'label': 'In Progress',
+            'value': counts.get('in_progress', 0),
+            'variant': 'primary'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Completed',
+            'value': counts.get('completed', 0),
+            'variant': 'success'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Relief request filters">
+        <a href="{{ url_for('director.dashboard', filter='pending_review') }}" 
+           class="filter-tab {% if current_filter == 'pending_review' %}active{% endif %}"
+           {% if current_filter == 'pending_review' %}aria-current="page"{% endif %}>
+            <i class="bi bi-clipboard-check"></i>
+            Pending Review
+            {% if counts.get('pending_review', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ counts.get('pending_review', 0) }} pending review">{{ counts.get('pending_review', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('director.dashboard', filter='pending_fulfillment') }}" 
+           class="filter-tab {% if current_filter == 'pending_fulfillment' %}active{% endif %}"
+           {% if current_filter == 'pending_fulfillment' %}aria-current="page"{% endif %}>
+            <i class="bi bi-box-seam"></i>
+            Pending Fulfillment
+            {% if counts.get('pending_fulfillment', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ counts.get('pending_fulfillment', 0) }} pending fulfillment">{{ counts.get('pending_fulfillment', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('director.dashboard', filter='in_progress') }}" 
+           class="filter-tab {% if current_filter == 'in_progress' %}active{% endif %}"
+           {% if current_filter == 'in_progress' %}aria-current="page"{% endif %}>
+            <i class="bi bi-hourglass-split"></i>
+            In Progress
+            {% if counts.get('in_progress', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ counts.get('in_progress', 0) }} in progress">{{ counts.get('in_progress', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('director.dashboard', filter='completed') }}" 
+           class="filter-tab {% if current_filter == 'completed' %}active{% endif %}"
+           {% if current_filter == 'completed' %}aria-current="page"{% endif %}>
+            <i class="bi bi-check-circle"></i>
+            Completed
+            {% if counts.get('completed', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ counts.get('completed', 0) }} completed">{{ counts.get('completed', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('director.dashboard', filter='all') }}" 
+           class="filter-tab {% if current_filter == 'all' %}active{% endif %}"
+           {% if current_filter == 'all' %}aria-current="page"{% endif %}>
+            <i class="bi bi-list-ul"></i>
+            All Requests
+            {% if counts.get('total', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ counts.get('total', 0) }} total">{{ counts.get('total', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <table class="relief-requests-table" role="table" aria-label="Relief requests">
+        <thead>
+            <tr>
+                <th scope="col">Request Number</th>
+                <th scope="col">Requesting Agency</th>
+                <th scope="col">Event</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Status</th>
+                <th scope="col">Items</th>
+                <th scope="col">Submitted</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                       class="table-link"
+                       aria-label="View request RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.eligible_event %}
+                    {{ req.eligible_event.event_name }}
+                    {% else %}
+                    <span class="text-muted">Not specified</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'C' or req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status_code == STATUS_DRAFT %}
+                    {{ status_badge('draft', 'Draft') }}
+                    {% elif req.status_code == STATUS_AWAITING_APPROVAL %}
+                    {{ status_badge('pending', 'Awaiting Review') }}
+                    {% elif req.status_code == STATUS_SUBMITTED %}
+                    {{ status_badge('approved', 'Approved') }}
+                    {% elif req.status_code == STATUS_PART_FILLED %}
+                    {{ status_badge('in_progress', 'Part Filled') }}
+                    {% elif req.status_code == STATUS_FILLED %}
+                    {{ status_badge('completed', 'Completed') }}
+                    {% elif req.status_code == STATUS_INELIGIBLE %}
+                    {{ status_badge('denied', 'Ineligible') }}
+                    {% elif req.status_code == STATUS_DENIED %}
+                    {{ status_badge('denied', 'Denied') }}
+                    {% elif req.status_code == STATUS_CANCELLED %}
+                    {{ status_badge('cancelled', 'Cancelled') }}
+                    {% elif req.status_code == STATUS_CLOSED %}
+                    {{ status_badge('completed', 'Closed') }}
+                    {% else %}
+                    <span class="text-muted">{{ req.status.status_desc if req.status else 'Unknown' }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%Y-%m-%d') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status_code == STATUS_AWAITING_APPROVAL and not req.review_by_id %}
+                    {# Pending eligibility review - directors can review #}
+                    <a href="{{ url_for('eligibility.review_request', request_id=req.reliefrqst_id) }}" 
+                       class="btn-relief-primary btn-sm"
+                       aria-label="Review eligibility for RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        <i class="bi bi-clipboard-check"></i>
+                        Review Eligibility
+                    </a>
+                    {% else %}
+                    {# All other statuses - directors view only (logistics handles fulfillment) #}
+                    <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                       class="btn-relief-secondary btn-sm"
+                       aria-label="View RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        <i class="bi bi-eye"></i>
+                        View
+                    </a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox" style="font-size: 3rem; color: #6c757d;"></i>
+        <p class="mt-3 text-muted">
+            {% if current_filter == 'pending_review' %}
+            No relief requests are currently pending eligibility review.
+            {% elif current_filter == 'pending_fulfillment' %}
+            No relief requests are currently pending fulfillment.
+            {% elif current_filter == 'completed' %}
+            No completed relief requests found.
+            {% else %}
+            No relief requests found.
+            {% endif %}
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

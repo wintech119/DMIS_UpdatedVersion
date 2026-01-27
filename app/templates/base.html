@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}DMIS{% endblock %} - Disaster Management Information System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" integrity="sha384-tViUnnbYAV00FLIhhi3v/dWt3Jxw4gZQcNoSCxCIFNJVCx7/D55/wXsrNIRANwdD" crossorigin="anonymous">
+    <!-- DMIS Modern UI Design System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modern-ui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/workflow-sidebar.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/notifications-ui.css') }}">
+    <style nonce="{{ csp_nonce() }}">
+        :root {
+            --goj-green: #009639;
+            --goj-gold: #FDB913;
+            --goj-black: #000000;
+            --goj-light-green: #E8F5E9;
+            --sidebar-width: 260px;
+            --sidebar-collapsed-width: 70px;
+            --header-height: 60px;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 0.9rem;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .top-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--header-height);
+            background: linear-gradient(135deg, var(--goj-green) 0%, #007d42 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 1030;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .hamburger-menu {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 8px 12px;
+            margin-right: 15px;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .hamburger-menu:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        
+        .hamburger-menu:active {
+            background-color: rgba(255,255,255,0.2);
+        }
+        
+        .hamburger-menu:focus-visible {
+            outline: 3px solid var(--goj-gold);
+            outline-offset: 2px;
+        }
+        
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            color: white;
+            text-decoration: none;
+            font-size: 1.5rem;
+            font-weight: bold;
+            gap: 12px;
+        }
+        
+        .brand-logo:hover {
+            color: var(--goj-gold);
+        }
+        
+        .brand-logo img {
+            height: 40px;
+            width: auto;
+            transition: transform 0.2s;
+        }
+        
+        .brand-logo:hover img {
+            transform: scale(1.05);
+        }
+        
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.2;
+        }
+        
+        .brand-text-main {
+            font-size: 1.3rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        
+        .brand-text-sub {
+            font-size: 0.65rem;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+        
+        .header-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .notification-bell {
+            position: relative;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 5px 10px;
+        }
+        
+        .notification-bell:hover {
+            background-color: rgba(255,255,255,0.1);
+            border-radius: 4px;
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: 0;
+            right: 5px;
+            background-color: #dc3545;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+        
+        .user-profile-dropdown {
+            color: white;
+            cursor: pointer;
+        }
+        
+        .user-profile-dropdown:hover {
+            color: var(--goj-gold);
+        }
+        
+        .sidebar {
+            position: fixed;
+            top: var(--header-height);
+            left: 0;
+            width: var(--sidebar-width);
+            height: calc(100vh - var(--header-height));
+            background-color: white;
+            border-right: 1px solid #dee2e6;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width 0.3s ease;
+            z-index: 1020;
+        }
+        
+        .sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+        
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .sidebar::-webkit-scrollbar-thumb {
+            background-color: #dee2e6;
+            border-radius: 3px;
+        }
+        
+        .sidebar-section-header {
+            padding: 20px 20px 8px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            margin-top: 10px;
+        }
+        
+        .sidebar-section-header:first-child {
+            margin-top: 0;
+        }
+        
+        .sidebar.collapsed .sidebar-section-header {
+            opacity: 0;
+            padding: 8px 0;
+        }
+        
+        .sidebar-nav-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: #5a5a5a;
+            text-decoration: none;
+            transition: all 0.2s;
+            position: relative;
+            font-size: 0.9rem;
+        }
+        
+        .sidebar-nav-item i {
+            font-size: 1.2rem;
+            width: 24px;
+            margin-right: 14px;
+            text-align: center;
+            color: #5a5a5a;
+        }
+        
+        .sidebar-nav-item span {
+            flex: 1;
+        }
+        
+        .sidebar.collapsed .sidebar-nav-item {
+            justify-content: center;
+            padding: 12px 0;
+        }
+        
+        .sidebar.collapsed .sidebar-nav-item span {
+            display: none;
+        }
+        
+        .sidebar-nav-item:hover {
+            background-color: #f0f0f0;
+            color: var(--goj-green);
+        }
+        
+        .sidebar-nav-item:hover i {
+            color: var(--goj-green);
+        }
+        
+        .sidebar-nav-item.active {
+            background-color: var(--goj-light-green);
+            color: var(--goj-green);
+            font-weight: 500;
+        }
+        
+        .sidebar-nav-item.active i {
+            color: var(--goj-green);
+        }
+        
+        .sidebar.collapsed .sidebar-nav-item.active {
+            border-left: none;
+            border-right: 4px solid var(--goj-green);
+        }
+        
+        .nav-section-header {
+            padding: 15px 20px 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        
+        .sidebar.collapsed .nav-section-header {
+            opacity: 0;
+            padding: 8px 0;
+        }
+        
+        .nav-item-link {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            color: #333;
+            text-decoration: none;
+            transition: all 0.2s;
+            position: relative;
+        }
+        
+        .nav-item-link i {
+            font-size: 1.2rem;
+            width: 24px;
+            margin-right: 12px;
+            text-align: center;
+        }
+        
+        .sidebar.collapsed .nav-item-link {
+            justify-content: center;
+            padding: 12px 0;
+        }
+        
+        .sidebar.collapsed .nav-label {
+            display: none;
+        }
+        
+        .nav-item-link:hover {
+            background-color: var(--goj-light-green);
+            color: var(--goj-green);
+        }
+        
+        .nav-item-link.active {
+            background-color: var(--goj-light-green);
+            color: var(--goj-green);
+            font-weight: 600;
+            border-left: 4px solid var(--goj-green);
+        }
+        
+        .sidebar.collapsed .nav-item-link.active {
+            border-left: none;
+            border-right: 4px solid var(--goj-green);
+        }
+        
+        .main-content {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--header-height);
+            padding: 30px;
+            padding-bottom: 120px;
+            transition: margin-left 0.3s ease;
+            min-height: calc(100vh - var(--header-height));
+        }
+        
+        .app-footer {
+            position: relative;
+            margin-left: var(--sidebar-width);
+            margin-top: var(--header-height);
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-top: 3px solid var(--goj-green);
+            padding: 25px 30px;
+            transition: margin-left 0.3s ease;
+        }
+        
+        .sidebar.collapsed ~ .app-footer {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+        
+        .footer-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .footer-logos {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .footer-logo {
+            height: 50px;
+            width: auto;
+            opacity: 0.9;
+        }
+        
+        .footer-text {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .footer-meta {
+            text-align: right;
+        }
+        
+        @media (max-width: 768px) {
+            .app-footer {
+                margin-left: var(--sidebar-collapsed-width);
+            }
+            
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .footer-logos {
+                justify-content: center;
+            }
+            
+            .footer-meta {
+                text-align: center;
+            }
+        }
+        
+        .sidebar.collapsed ~ .main-content {
+            margin-left: var(--sidebar-collapsed-width);
+        }
+        
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+        
+        .card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+        }
+        
+        .btn-primary {
+            background-color: var(--goj-green);
+            border-color: var(--goj-green);
+        }
+        
+        .btn-primary:hover {
+            background-color: #007d42;
+            border-color: #007d42;
+        }
+        
+        .btn-outline-primary {
+            color: var(--goj-green);
+            border-color: var(--goj-green);
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: var(--goj-green);
+            border-color: var(--goj-green);
+        }
+        
+        .text-primary {
+            color: var(--goj-green) !important;
+        }
+        
+        .bg-primary {
+            background-color: var(--goj-green) !important;
+        }
+        
+        .card-header-goj {
+            background-color: var(--goj-green);
+            color: white;
+            border-radius: 12px 12px 0 0 !important;
+        }
+        
+        /* Sidebar close button for mobile */
+        .sidebar-close {
+            display: none;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: #5a5a5a;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 8px;
+            min-width: 44px;
+            min-height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+            z-index: 10;
+        }
+        
+        .sidebar-close:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        
+        .sidebar-close:active {
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Sidebar overlay for mobile */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1040;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .sidebar-overlay.active {
+            display: block;
+            opacity: 1;
+        }
+        
+        @media (max-width: 992px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+                z-index: 1050;
+                width: var(--sidebar-width) !important;
+            }
+            
+            .sidebar.active {
+                transform: translateX(0);
+            }
+            
+            /* Always show full menu with text on mobile - never collapsed */
+            .sidebar.collapsed {
+                width: var(--sidebar-width) !important;
+            }
+            
+            .sidebar.collapsed .sidebar-section-header {
+                opacity: 1 !important;
+                padding: 20px 20px 8px !important;
+            }
+            
+            .sidebar.collapsed .sidebar-nav-item {
+                justify-content: flex-start !important;
+                padding: 12px 20px !important;
+            }
+            
+            .sidebar.collapsed .sidebar-nav-item span {
+                display: block !important;
+            }
+            
+            .sidebar.collapsed .sidebar-nav-item i {
+                margin-right: 14px !important;
+            }
+            
+            .sidebar.collapsed .nav-section-header {
+                opacity: 1 !important;
+                padding: 15px 20px 8px !important;
+            }
+            
+            .sidebar.collapsed .nav-item-link {
+                justify-content: flex-start !important;
+                padding: 12px 20px !important;
+            }
+            
+            .sidebar.collapsed .nav-item-link span {
+                display: block !important;
+            }
+            
+            .sidebar.collapsed .nav-item-link i {
+                margin-right: 14px !important;
+            }
+            
+            .sidebar-close {
+                display: flex;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+        }
+        
+        .drims-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+        
+        .drims-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+        }
+        
+        .drims-table {
+            margin-bottom: 0;
+        }
+        
+        .drims-table thead {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .drims-table thead th {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            color: #495057;
+            padding: 12px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .drims-table tbody tr {
+            transition: background-color 0.15s ease;
+        }
+        
+        .drims-table tbody tr:hover {
+            background-color: rgba(0, 150, 57, 0.05);
+        }
+        
+        .table-clickable tbody tr {
+            cursor: pointer;
+        }
+        
+        .table-clickable tbody tr:hover {
+            background-color: rgba(0, 150, 57, 0.08);
+        }
+        
+        .drims-table td {
+            vertical-align: middle;
+            padding: 12px;
+        }
+        
+        .drims-table .btn-sm {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.875rem;
+        }
+    </style>
+    
+    <!-- CSP-compliant utilities -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/csp-utilities.css') }}">
+    
+    {% block extra_styles %}{% endblock %}
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <div class="top-header">
+        <button class="hamburger-menu" id="sidebarToggle"
+                aria-controls="sidebar"
+                aria-expanded="false"
+                aria-label="Toggle navigation menu">
+            <i class="bi bi-list" aria-hidden="true"></i>
+            <span class="visually-hidden">Menu</span>
+        </button>
+        <a href="{{ url_for('dashboard.index') }}" class="brand-logo">
+            <img src="/static/images/odpem-logo.png" alt="ODPEM Logo">
+            <div class="brand-text">
+                <span class="brand-text-main">DMIS</span>
+                <span class="brand-text-sub">Disaster Management Information System</span>
+            </div>
+        </a>
+        <div class="header-right">
+            <button class="notification-bell" id="notificationBell" data-bs-toggle="offcanvas" data-bs-target="#notificationPanel" aria-controls="notificationPanel" aria-expanded="false" aria-label="Open notifications panel">
+                <i class="bi bi-bell"></i>
+                <span class="notification-badge" id="notificationCount" hidden>0</span>
+            </button>
+            <div class="dropdown">
+                <a class="user-profile-dropdown d-flex align-items-center" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown">
+                    <i class="bi bi-person-circle me-2 icon-lg"></i>
+                    <div class="d-flex flex-column align-items-start">
+                        <span class="fw-bold">{{ current_user.full_name }}</span>
+                        <small class="small opacity-90">{{ current_user.email }}</small>
+                    </div>
+                    <i class="bi bi-chevron-down ms-2"></i>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('profile.view_profile') }}"><i class="bi bi-person-circle"></i> My Profile</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile sidebar overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
+
+    {% from 'components/_dynamic_navigation.html' import render_dynamic_nav %}
+    <div class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+        <button class="sidebar-close" id="sidebarClose" aria-label="Close navigation menu">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+        {{ render_dynamic_nav(current_user, active_page) }}
+    </div>
+
+    <div class="offcanvas offcanvas-end offcanvas-width-400" tabindex="-1" id="notificationPanel">
+        <div class="offcanvas-header border-bottom p-3">
+            <h5 class="offcanvas-title mb-0">
+                <i class="bi bi-bell-fill me-2" aria-hidden="true"></i>Notifications
+            </h5>
+            <div class="d-flex align-items-center gap-2 ms-auto">
+                <button type="button" 
+                        class="btn btn-sm btn-outline-danger rounded-pill px-3 small fw-medium" 
+                        id="clearAllNotifications" 
+                        hidden 
+                        data-bs-toggle="modal" 
+                        data-bs-target="#clearAllBellModal"
+                        aria-label="Clear all notifications">
+                    <i class="bi bi-trash-fill me-1" aria-hidden="true"></i>Clear All
+                </button>
+                <button type="button" class="btn-close ms-2" data-bs-dismiss="offcanvas" aria-label="Close notifications panel"></button>
+            </div>
+        </div>
+        <div class="offcanvas-body p-0">
+            <div id="notificationList">
+                <div class="text-center p-3">
+                    <span class="spinner-border spinner-border-sm" role="status" aria-label="Loading notifications">
+                        <span class="visually-hidden">Loading...</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Clear All Confirmation Modal for Bell Dropdown -->
+    <div class="modal fade" id="clearAllBellModal" tabindex="-1" aria-labelledby="clearAllBellModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="clearAllBellModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill text-warning me-2" aria-hidden="true"></i>
+                        Clear All Notifications
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to clear all notifications? This action cannot be undone.</p>
+                    <div class="alert alert-warning mb-0" role="alert">
+                        <i class="bi bi-info-circle me-2" aria-hidden="true"></i>
+                        <span id="bellClearCount">All notifications</span> will be permanently deleted.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" data-action="confirm-clear-all-notifications" aria-label="Confirm clear all notifications">
+                        <i class="bi bi-trash-fill" aria-hidden="true"></i>
+                        Clear All Notifications
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if current_user.is_authenticated %}
+    <div class="main-content" id="main-content">
+    {% else %}
+    <main class="container mt-5" id="main-content">
+    {% endif %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    {% if current_user.is_authenticated %}
+    </div>
+    {% else %}
+    </main>
+    {% endif %}
+
+    <!-- Footer -->
+    {% if current_user.is_authenticated %}
+    <footer class="app-footer">
+        <div class="footer-content">
+            <div class="footer-logos">
+                <img src="/static/images/odpem-logo.png" alt="ODPEM" class="footer-logo">
+                <img src="/static/images/jamaica-coat-of-arms.png" alt="Government of Jamaica" class="footer-logo">
+            </div>
+            <div class="footer-text">
+                <p class="mb-1"><strong>Office of Disaster Preparedness and Emergency Management (ODPEM)</strong></p>
+                <p class="mb-0 small">Government of Jamaica • "Out of Many, One People"</p>
+            </div>
+            <div class="footer-meta">
+                <p class="mb-0 small text-muted">© {{ now.year }} ODPEM • All Rights Reserved</p>
+            </div>
+        </div>
+    </footer>
+    {% endif %}
+
+    <script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script nonce="{{ csp_nonce() }}">
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const desktopSidebarQuery = window.matchMedia('(min-width: 992px)');
+
+            function applyStoredSidebarState() {
+                if (!sidebar) return;
+                const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+
+                if (desktopSidebarQuery.matches && sidebarCollapsed) {
+                    sidebar.classList.add('collapsed');
+                    sidebarToggle?.setAttribute('aria-expanded', 'false');
+                } else {
+                    sidebar.classList.remove('collapsed');
+                    sidebarToggle?.setAttribute('aria-expanded', 'true');
+                }
+            }
+
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    if (!desktopSidebarQuery.matches) return;
+
+                    const isCollapsed = sidebar.classList.toggle('collapsed');
+                    localStorage.setItem('sidebarCollapsed', isCollapsed);
+                    sidebarToggle.setAttribute('aria-expanded', (!isCollapsed).toString());
+                });
+
+                applyStoredSidebarState();
+                desktopSidebarQuery.addEventListener('change', applyStoredSidebarState);
+            }
+            
+            {% if current_user.is_authenticated %}
+            loadNotifications();
+            setInterval(loadNotifications, 30000);
+            {% endif %}
+        });
+        
+        {% if current_user.is_authenticated %}
+        function loadNotifications() {
+            const badge = document.getElementById('notificationCount');
+            
+            fetch('/notifications/api/unread_count')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.count > 0) {
+                        badge.textContent = data.count;
+                        badge.hidden = false;
+                    } else {
+                        badge.hidden = true;
+                    }
+                })
+                .catch(error => console.error('Error loading notifications:', error));
+        }
+        
+        function loadNotificationList() {
+            const notificationList = document.getElementById('notificationList');
+            const clearAllBtn = document.getElementById('clearAllNotifications');
+            notificationList.innerHTML = '<div class="text-center p-3"><span class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></span></div>';
+            
+            fetch('{{ url_for("notifications.notification_list") }}')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.notifications && data.notifications.length > 0) {
+                        clearAllBtn.hidden = false;
+                        
+                        // Update the count in the modal
+                        const bellClearCount = document.getElementById('bellClearCount');
+                        if (bellClearCount) {
+                            bellClearCount.textContent = `All ${data.notifications.length} notification${data.notifications.length !== 1 ? 's' : ''}`;
+                        }
+                        
+                        let listHtml = '<div class="notification-bell-list">';
+                        
+                        data.notifications.forEach(notif => {
+                            const iconInfo = getNotificationIconInfo(notif.type);
+                            const unreadBadge = notif.is_unread ? '<span class="badge-new-bell">New</span>' : '';
+                            const unreadClass = notif.is_unread ? 'unread' : '';
+                            
+                            const safeTitle = escapeHtml(notif.title);
+                            const safeMessage = escapeHtml(notif.message);
+                            const safeCreatedAt = escapeHtml(notif.created_at);
+                            const safeLink = escapeHtml(notif.link_url);
+                            
+                            listHtml += `
+                                <div class="notification-bell-item ${unreadClass}" data-notification-id="${notif.id}">
+                                    <a href="${safeLink}" class="notification-bell-link">
+                                        <div class="notification-bell-icon ${iconInfo.variant}">
+                                            <i class="bi ${iconInfo.icon}"></i>
+                                        </div>
+                                        <div class="notification-bell-content">
+                                            <div class="notification-bell-header">
+                                                <h6 class="notification-bell-title">${safeTitle}</h6>
+                                                ${unreadBadge}
+                                            </div>
+                                            <p class="notification-bell-message">${safeMessage}</p>
+                                            <small class="notification-bell-time">
+                                                <i class="bi bi-clock"></i> ${safeCreatedAt}
+                                            </small>
+                                        </div>
+                                    </a>
+                                    <button class="btn-notification-bell-delete" 
+                                            data-action="delete-notification" data-notification-id="${notif.id}" 
+                                            title="Delete notification"
+                                            aria-label="Delete notification">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            `;
+                        });
+                        
+                        listHtml += '</div>';
+                        listHtml += `<div class="notification-bell-footer">
+                            <a href="{{ url_for("notifications.index") }}" class="btn-view-all">
+                                <i class="bi bi-eye"></i> View All Notifications
+                            </a>
+                        </div>`;
+                        notificationList.innerHTML = listHtml;
+                        
+                        // Add click handlers to notification links to mark as read
+                        attachNotificationClickHandlers();
+                    } else {
+                        clearAllBtn.hidden = true;
+                        notificationList.innerHTML = `
+                            <div class="notification-bell-empty">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <h6>All Clear!</h6>
+                                <p>No new notifications</p>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading notification list:', error);
+                    clearAllBtn.hidden = true;
+                    notificationList.innerHTML = '<div class="notification-bell-empty text-danger"><i class="bi bi-exclamation-circle"></i><p>Failed to load notifications</p></div>';
+                });
+        }
+        
+        function attachNotificationClickHandlers() {
+            // Use event delegation from the notification list container (stable element)
+            const notificationList = document.getElementById('notificationList');
+            if (!notificationList) return;
+            
+            // Remove any existing delegated listeners to avoid duplicates
+            const oldListener = notificationList._notificationClickHandler;
+            if (oldListener) {
+                notificationList.removeEventListener('click', oldListener);
+            }
+            
+            // Create new delegated click handler
+            const clickHandler = function(event) {
+                // Check if clicked element is a notification link or inside one
+                const link = event.target.closest('.notification-bell-link');
+                if (!link) return;
+                
+                event.preventDefault(); // Prevent immediate navigation
+                
+                const notificationItem = link.closest('.notification-bell-item');
+                const notificationId = notificationItem.dataset.notificationId;
+                const targetUrl = link.getAttribute('href');
+                
+                // Only mark as read if it's currently unread
+                if (notificationItem.classList.contains('unread')) {
+                    // Optimistically update UI immediately
+                    notificationItem.classList.remove('unread');
+                    const newBadge = notificationItem.querySelector('.badge-new-bell');
+                    if (newBadge) {
+                        newBadge.remove();
+                    }
+                    
+                    // Optimistically update badge count
+                    const badge = document.getElementById('notificationCount');
+                    if (badge && badge.textContent) {
+                        const currentCount = parseInt(badge.textContent);
+                        const newCount = Math.max(0, currentCount - 1);
+                        if (newCount > 0) {
+                            badge.textContent = newCount;
+                        } else {
+                            badge.hidden = true;
+                        }
+                    }
+                    
+                    // Mark notification as read via API (uses csrfFetch for CSRF protection)
+                    csrfFetch(`/notifications/api/mark-read/${notificationId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) {
+                            console.error('Failed to mark notification as read:', data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error marking notification as read:', error);
+                    })
+                    .finally(() => {
+                        // Navigate to the target URL
+                        window.location.href = targetUrl;
+                    });
+                } else {
+                    // Already read, just navigate
+                    window.location.href = targetUrl;
+                }
+            };
+            
+            // Attach the delegated listener
+            notificationList.addEventListener('click', clickHandler);
+            
+            // Store reference for cleanup on next render
+            notificationList._notificationClickHandler = clickHandler;
+        }
+        
+        // Event delegation for clear all notifications
+        document.addEventListener('click', function(e) {
+            const btn = e.target.closest('[data-action="confirm-clear-all-notifications"]');
+            if (!btn) return;
+            
+            // Close the modal first
+            const modal = bootstrap.Modal.getInstance(document.getElementById('clearAllBellModal'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            // Show loading state
+            const clearAllBtn = document.getElementById('clearAllNotifications');
+            const originalContent = clearAllBtn.innerHTML;
+            clearAllBtn.disabled = true;
+            clearAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Clearing...';
+            
+            // Uses csrfFetch for CSRF protection
+            csrfFetch('/notifications/api/clear-all', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload notification lists
+                    loadNotificationList();
+                    loadNotifications();
+                    
+                    // Show success message (optional - could use a toast notification)
+                    console.log(data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing notifications:', error);
+                alert('Failed to clear notifications. Please try again.');
+            })
+            .finally(() => {
+                // Reset button state
+                clearAllBtn.disabled = false;
+                clearAllBtn.innerHTML = originalContent;
+            });
+        });
+        
+        // Event delegation for delete notification
+        document.addEventListener('click', function(e) {
+            const btn = e.target.closest('[data-action="delete-notification"]');
+            if (!btn) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const notificationId = btn.dataset.notificationId;
+            
+            if (!confirm('Delete this notification?')) {
+                return;
+            }
+            
+            // Uses csrfFetch for CSRF protection
+            csrfFetch(`/notifications/api/delete/${notificationId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadNotificationList();
+                    loadNotifications();
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting notification:', error);
+                alert('Failed to delete notification. Please try again.');
+            });
+        });
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function getNotificationIconInfo(type) {
+            if (type.includes('denied') || type.includes('ineligible')) {
+                return { icon: 'bi-x-circle-fill', variant: 'danger' };
+            } else if (type.includes('approved') || type.includes('dispatched')) {
+                return { icon: 'bi-check-circle-fill', variant: 'success' };
+            } else if (type.includes('submitted') || type.includes('ready')) {
+                return { icon: 'bi-info-circle-fill', variant: 'info' };
+            } else if (type === 'low_stock') {
+                return { icon: 'bi-exclamation-triangle-fill', variant: 'warning' };
+            } else if (type.includes('package')) {
+                return { icon: 'bi-box-seam-fill', variant: 'primary' };
+            } else {
+                return { icon: 'bi-bell-fill', variant: 'primary' };
+            }
+        }
+        
+        const notificationPanel = document.getElementById('notificationPanel');
+        if (notificationPanel) {
+            notificationPanel.addEventListener('show.bs.offcanvas', function() {
+                document.getElementById('notificationBell')?.setAttribute('aria-expanded', 'true');
+                loadNotificationList();
+            });
+
+            notificationPanel.addEventListener('hidden.bs.offcanvas', function() {
+                document.getElementById('notificationBell')?.setAttribute('aria-expanded', 'false');
+            });
+        }
+        {% endif %}
+        
+        // Mobile Navigation Toggle
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        const sidebarClose = document.getElementById('sidebarClose');
+        const mobileSidebarQuery = window.matchMedia('(max-width: 991.98px)');
+
+        function openSidebar() {
+            if (!mobileSidebarQuery.matches || !sidebar || !sidebarOverlay) return;
+            sidebar.classList.add('active');
+            sidebarOverlay.classList.add('active');
+            sidebarToggle.setAttribute('aria-expanded', 'true');
+            sidebarOverlay.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('body-no-scroll');
+        }
+
+        function closeSidebar() {
+            if (!sidebar || !sidebarOverlay) return;
+            sidebar.classList.remove('active');
+            sidebarOverlay.classList.remove('active');
+            sidebarToggle.setAttribute('aria-expanded', 'false');
+            sidebarOverlay.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('body-no-scroll');
+        }
+        
+        // Toggle sidebar on button click
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', function() {
+                if (!mobileSidebarQuery.matches) return;
+
+                if (sidebar.classList.contains('active')) {
+                    closeSidebar();
+                } else {
+                    openSidebar();
+                }
+            });
+        }
+        
+        // Close sidebar on close button click
+        if (sidebarClose) {
+            sidebarClose.addEventListener('click', closeSidebar);
+        }
+        
+        // Close sidebar on overlay click
+        if (sidebarOverlay) {
+            sidebarOverlay.addEventListener('click', closeSidebar);
+        }
+        
+        // Close sidebar on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && sidebar && sidebar.classList.contains('active')) {
+                closeSidebar();
+            }
+        });
+        
+        // Close sidebar when clicking on a navigation link (mobile)
+        if (sidebar) {
+            sidebar.addEventListener('click', function(e) {
+                if (e.target.closest('a') && window.innerWidth < 992) {
+                    // Small delay to allow navigation to start
+                    setTimeout(closeSidebar, 150);
+                }
+            });
+        }
+        
+        document.querySelectorAll('.table-clickable tbody tr[data-href]').forEach(row => {
+            row.addEventListener('click', function(e) {
+                if (!e.target.closest('button') && !e.target.closest('a')) {
+                    window.location.href = this.dataset.href;
+                }
+            });
+        });
+    </script>
+    
+    <!-- Global scripts that MUST load on every page -->
+    {% block global_scripts %}
+    {% if current_user.is_authenticated %}
+    <script src="{{ url_for('static', filename='js/csrf-helper.js') }}" nonce="{{ csp_nonce() }}" defer></script>
+    <script src="{{ url_for('static', filename='js/form-utils.js') }}" nonce="{{ csp_nonce() }}" defer></script>
+    <script src="{{ url_for('static', filename='js/money-format.js') }}" nonce="{{ csp_nonce() }}" defer></script>
+    {% endif %}
+    {% endblock %}
+    
+    <!-- Page-specific scripts -->
+    {% block scripts %}
+    {% block extra_scripts %}{% endblock %}
+    {% endblock %}
+</body>
+</html>

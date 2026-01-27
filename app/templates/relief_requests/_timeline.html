@@ -1,0 +1,39 @@
+{# Workflow Timeline Component #}
+{% macro render_timeline(timeline_events) %}
+<div class="workflow-timeline">
+    <div class="timeline-header">
+        <i class="bi bi-clock-history"></i>
+        <h3>Workflow Timeline</h3>
+    </div>
+    
+    <div class="timeline-items">
+        {% for event in timeline_events %}
+        <div class="timeline-item">
+            <div class="timeline-icon">
+                <i class="bi bi-{{ event.icon or 'check-circle-fill' }}"></i>
+            </div>
+            <div class="timeline-content">
+                <div class="timeline-title">{{ event.title }}</div>
+                <div class="timeline-meta">
+                    {% if event.user %}
+                    <span class="timeline-meta-item">
+                        <i class="bi bi-person"></i>
+                        {{ event.user }}
+                    </span>
+                    {% endif %}
+                    {% if event.timestamp %}
+                    <span class="timeline-meta-item">
+                        <i class="bi bi-calendar"></i>
+                        {{ event.timestamp.strftime('%b %d, %Y %H:%M') if event.timestamp.strftime else event.timestamp }}
+                    </span>
+                    {% endif %}
+                </div>
+                {% if event.description %}
+                <p class="mt-2 mb-0 text-muted">{{ event.description }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endmacro %}

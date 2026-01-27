@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Custodians{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-person-badge page-title-icon"></i>
+                <h1 class="page-title-text">Warehouse Custodians</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('custodians.create') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create Custodian
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'person-badge',
+            'label': 'Total Custodians',
+            'value': counts.get('total', 0),
+            'variant': 'info'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Search Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('custodians.list_custodians') }}" class="d-flex gap-2">
+                <div class="input-group flex-grow-1">
+                    <span class="input-group-text bg-white">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" 
+                           class="form-control" 
+                           name="search" 
+                           value="{{ search_query }}" 
+                           placeholder="Search custodians by name, address, or contact..."
+                           aria-label="Search custodians">
+                </div>
+                <button type="submit" class="btn-relief-primary">
+                    <i class="bi bi-search"></i> Search
+                </button>
+                {% if search_query %}
+                <a href="{{ url_for('custodians.list_custodians') }}" class="btn-relief-secondary">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Custodians Table -->
+    {% if custodians %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Custodian Name</th>
+                            <th scope="col">Parish</th>
+                            <th scope="col">Contact Name</th>
+                            <th scope="col">Phone</th>
+                            <th scope="col">Email</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for custodian in custodians %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('custodians.view', custodian_id=custodian.custodian_id) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    {{ custodian.custodian_name }}
+                                </a>
+                            </td>
+                            <td>
+                                <small class="text-muted">{{ custodian.parish.parish_name if custodian.parish else custodian.parish_code }}</small>
+                            </td>
+                            <td>{{ custodian.contact_name }}</td>
+                            <td>{{ custodian.phone_no }}</td>
+                            <td>{{ custodian.email_text or '-' }}</td>
+                            <td class="text-end">
+                                <div class="btn-group" role="group" aria-label="Custodian actions">
+                                    <a href="{{ url_for('custodians.view', custodian_id=custodian.custodian_id) }}" 
+                                       class="btn btn-sm btn-outline-primary" 
+                                       title="View details"
+                                       aria-label="View {{ custodian.custodian_name }} details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('custodians.edit', custodian_id=custodian.custodian_id) }}" 
+                                       class="btn btn-sm btn-outline-secondary" 
+                                       title="Edit custodian"
+                                       aria-label="Edit {{ custodian.custodian_name }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="bi bi-person-badge"></i>
+        </div>
+        <h3 class="empty-state-title">
+            {% if search_query %}
+                No custodians found
+            {% else %}
+                No custodians yet
+            {% endif %}
+        </h3>
+        <p class="empty-state-text">
+            {% if search_query %}
+                Try adjusting your search terms or <a href="{{ url_for('custodians.list_custodians') }}">clear the search</a>.
+            {% else %}
+                Get started by creating your first custodian.
+            {% endif %}
+        </p>
+        {% if not search_query %}
+        <a href="{{ url_for('custodians.create') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create First Custodian
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

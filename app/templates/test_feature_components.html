@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% from 'components/dashboard/_feature_card.html' import feature_card, metric_card %}
+{% from 'components/dashboard/_feature_nav_item.html' import feature_nav_item, feature_link, quick_actions %}
+
+{% block title %}Feature Component Test{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2>Feature Registry Component Test</h2>
+            <p class="text-muted">Testing role-based feature access and components</p>
+            <div class="alert alert-info">
+                <strong>Your Role:</strong> {{ get_role_display_name(get_user_primary_role()) }}
+            </div>
+        </div>
+    </div>
+
+    {# Test Feature Cards #}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h4>Feature Cards (Only show if you have access)</h4>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            {{ feature_card('relief_request_creation', 
+                          metric_value=5, 
+                          metric_label='Draft Requests',
+                          action_label='Create New Request') }}
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            {{ feature_card('eligibility_review', 
+                          badge_text='Pending',
+                          badge_variant='warning',
+                          action_label='Review Requests') }}
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            {{ feature_card('package_preparation',
+                          metric_value=12,
+                          metric_label='Awaiting Fulfillment',
+                          action_label='Prepare Packages') }}
+        </div>
+    </div>
+
+    {# Test Metric Cards #}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h4>Metric Cards</h4>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            {{ metric_card('Total Requests', 42, 'bi-list-check', 'primary') }}
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            {{ metric_card('Pending Reviews', 8, 'bi-clipboard-check', 'warning') }}
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            {{ metric_card('In Progress', 15, 'bi-box-seam', 'info') }}
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            {{ metric_card('Completed', 19, 'bi-check-circle', 'success') }}
+        </div>
+    </div>
+
+    {# Test Navigation Items #}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h4>Navigation Items (Access-Controlled)</h4>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Your Accessible Features</h5>
+                </div>
+                <ul class="list-group list-group-flush">
+                    {{ feature_nav_item('relief_request_creation') }}
+                    {{ feature_nav_item('relief_request_tracking') }}
+                    {{ feature_nav_item('eligibility_review') }}
+                    {{ feature_nav_item('package_preparation') }}
+                    {{ feature_nav_item('package_approval') }}
+                    {{ feature_nav_item('inventory_view') }}
+                    {{ feature_nav_item('user_management') }}
+                </ul>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Feature Links</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-column gap-2">
+                        {{ feature_link('relief_request_creation', 'Create Request', 'btn btn-primary btn-sm') }}
+                        {{ feature_link('eligibility_review', 'Review Eligibility', 'btn btn-warning btn-sm') }}
+                        {{ feature_link('package_preparation', 'Prepare Packages', 'btn btn-info btn-sm') }}
+                        {{ feature_link('inventory_view', 'View Inventory', 'btn btn-secondary btn-sm') }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Test Access Checks #}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h4>Feature Access Checks</h4>
+        </div>
+        
+        <div class="col-md-12">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Access</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Create Relief Requests</td>
+                        <td>
+                            {% if has_feature('relief_request_creation') %}
+                                <span class="badge bg-success">✓ Granted</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Denied</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Review Eligibility</td>
+                        <td>
+                            {% if has_feature('eligibility_review') %}
+                                <span class="badge bg-success">✓ Granted</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Denied</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Prepare Packages</td>
+                        <td>
+                            {% if has_feature('package_preparation') %}
+                                <span class="badge bg-success">✓ Granted</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Denied</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Approve Packages</td>
+                        <td>
+                            {% if has_feature('package_approval') %}
+                                <span class="badge bg-success">✓ Granted</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Denied</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Manage Users</td>
+                        <td>
+                            {% if has_feature('user_management') %}
+                                <span class="badge bg-success">✓ Granted</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Denied</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

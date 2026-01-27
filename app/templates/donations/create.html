@@ -1,0 +1,957 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Accept Donation{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-gift page-title-icon"></i>
+                <h1 class="page-title-text">Accept New Donation</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('donations.list_donations') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Main Form -->
+    <form method="POST" action="{{ url_for('donations.create_donation') }}" enctype="multipart/form-data" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        
+        <!-- Donation Header Section Card -->
+        <div class="row">
+            <div class="col-lg-10 col-xl-8">
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-earmark-text"></i> Donation Header
+                        </h5>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- Donation Information Section -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Donation Information
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="donor_id" class="form-label">
+                                        Donor <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="donor_id" name="donor_id" required>
+                                        <option value="">-- Select Donor --</option>
+                                        {% for donor in donors %}
+                                        <option value="{{ donor.donor_id }}" {% if form_data and form_data.get('donor_id')|string == donor.donor_id|string %}selected{% endif %}>
+                                            {{ donor.donor_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="event_id" class="form-label">
+                                        Event <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="event_id" name="event_id" required>
+                                        <option value="">-- Select Event --</option>
+                                        {% for event in events %}
+                                        <option value="{{ event.event_id }}" {% if form_data and form_data.get('event_id')|string == event.event_id|string %}selected{% endif %}>
+                                            {{ event.event_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Description and Date Section -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-file-text"></i> Description and Details
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="donation_desc" class="form-label">
+                                        Donation Description <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="donation_desc" 
+                                              name="donation_desc" 
+                                              rows="3" 
+                                              required 
+                                              placeholder="Describe the donation contents and source..."
+                                              style="text-transform: uppercase;">{{ form_data.get('donation_desc') if form_data else '' }}</textarea>
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="received_date" class="form-label">
+                                        Received Date <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="date" 
+                                           class="form-control" 
+                                           id="received_date" 
+                                           name="received_date" 
+                                           max="{{ today }}" 
+                                           value="{{ form_data.get('received_date') if form_data else today }}"
+                                           required>
+                                    <small class="form-text text-muted">Cannot be a future date</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="custodian_id" class="form-label">
+                                        Custodian <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="custodian_id" name="custodian_id" required>
+                                        <option value="">-- Select Custodian --</option>
+                                        {% for custodian in custodians %}
+                                        <option value="{{ custodian.custodian_id }}" {% if form_data and form_data.get('custodian_id')|string == custodian.custodian_id|string %}selected{% endif %}>
+                                            {{ custodian.custodian_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Origin Information Section -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-geo-alt"></i> Origin Information
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="origin_country_id" class="form-label">
+                                        Origin Country *
+                                    </label>
+                                    <select class="form-select" id="origin_country_id" name="origin_country_id" required>
+                                        <option value="">-- Select Country --</option>
+                                        {% for country in countries %}
+                                        <option value="{{ country.country_id }}" 
+                                                data-currency="{{ country.currency_code }}"
+                                                {% if form_data and form_data.get('origin_country_id')|string == country.country_id|string %}selected{% endif %}>
+                                            {{ country.country_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="form-text text-muted">Currency will default based on country</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="origin_address1_text" class="form-label">
+                                        Address Line 1
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="origin_address1_text" 
+                                           name="origin_address1_text" 
+                                           placeholder="Street address..."
+                                           value="{{ form_data.get('origin_address1_text') if form_data else '' }}"
+                                           style="text-transform: uppercase;">
+                                </div>
+                                <div class="col-md-12">
+                                    <label for="origin_address2_text" class="form-label">
+                                        Address Line 2
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="origin_address2_text" 
+                                           name="origin_address2_text" 
+                                           placeholder="City, state/province, postal code..."
+                                           value="{{ form_data.get('origin_address2_text') if form_data else '' }}"
+                                           style="text-transform: uppercase;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cost Breakdown Section -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-currency-dollar"></i> Cost Breakdown (JMD)
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label for="tot_item_cost" class="form-label">
+                                        Total Donation Value
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="tot_item_cost" 
+                                           name="tot_item_cost" 
+                                           data-money-format="true"
+                                           value="{{ form_data.get('tot_item_cost') if form_data else '' }}"
+                                           placeholder="$0.00">
+                                    <small class="form-text text-muted">Enter total value of this donation</small>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="storage_cost" class="form-label">
+                                        Storage Cost
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="storage_cost" 
+                                           name="storage_cost" 
+                                           data-money-format="true"
+                                           value="{{ form_data.get('storage_cost') if form_data else '' }}"
+                                           placeholder="$0.00">
+                                    <small class="form-text text-muted">Warehousing costs</small>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="haulage_cost" class="form-label">
+                                        Haulage Cost
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="haulage_cost" 
+                                           name="haulage_cost" 
+                                           data-money-format="true"
+                                           value="{{ form_data.get('haulage_cost') if form_data else '' }}"
+                                           placeholder="$0.00">
+                                    <small class="form-text text-muted">Transportation costs</small>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="other_cost" class="form-label">
+                                        Other Cost
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="other_cost" 
+                                           name="other_cost" 
+                                           data-money-format="true"
+                                           value="{{ form_data.get('other_cost') if form_data else '' }}"
+                                           placeholder="$0.00">
+                                    <small class="form-text text-muted">Miscellaneous costs</small>
+                                </div>
+                                <div class="col-md-12">
+                                    <label for="other_cost_desc" class="form-label">
+                                        Other Cost Description
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control field-disabled-visual" 
+                                           id="other_cost_desc" 
+                                           name="other_cost_desc" 
+                                           placeholder="Describe other costs..."
+                                           value="{{ form_data.get('other_cost_desc') if form_data else '' }}"
+                                           style="text-transform: uppercase;">
+                                    <small class="form-text text-muted">Required when Other Cost > 0</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Comments Section -->
+                        <div class="mb-0">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-chat-left-text"></i> Additional Comments
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="comments_text" class="form-label">
+                                        Comments
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="comments_text" 
+                                              name="comments_text" 
+                                              rows="2"
+                                              placeholder="Optional comments about this donation..."
+                                              style="text-transform: uppercase;">{{ form_data.get('comments_text') if form_data else '' }}</textarea>
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Donation Items Section Card -->
+        <div class="row">
+            <div class="col-lg-10 col-xl-8">
+                <div class="card mb-4 border-primary">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-box-seam"></i> Donation Items
+                        </h5>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- Add Item Form -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-plus-circle"></i> Add Donation Item</h6>
+                            <div id="addItemForm">
+                                <!-- Row 1: Item, Type, Location -->
+                                <div class="row">
+                                    <div class="col-12 col-sm-6 col-md-5 mb-3">
+                                        <label for="new_item_id" class="form-label">Item *</label>
+                                        <select class="form-select" id="new_item_id">
+                                            <option value="">Select item...</option>
+                                            {% for item in items %}
+                                            <option value="{{ item.item_id }}" data-name="{{ item.item_name }}" data-uom="{{ item.default_uom_code }}">
+                                                {{ item.item_name }} ({{ item.sku_code }})
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-sm-3 col-md-3 mb-3">
+                                        <label for="new_donation_type" class="form-label">
+                                            Type * 
+                                            <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Auto-set based on item category"></i>
+                                        </label>
+                                        <input type="text" class="form-control field-disabled-visual" id="new_donation_type" value="" readonly placeholder="Select item first">
+                                        <small class="text-muted" id="category_hint">Auto-set</small>
+                                    </div>
+                                    <div class="col-6 col-sm-3 col-md-4 mb-3">
+                                        <label for="new_location_name" class="form-label">Location *</label>
+                                        <input type="text" class="form-control" id="new_location_name" value="DONATION RECEIVED" style="text-transform: uppercase;">
+                                    </div>
+                                </div>
+                                <!-- Row 2: Item Cost, Quantity, UOM -->
+                                <div class="row">
+                                    <div class="col-12 col-sm-4 col-md-4 mb-3">
+                                        <label for="new_item_cost" class="form-label">
+                                            Item Cost * 
+                                            <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Cost per unit"></i>
+                                        </label>
+                                        <input type="text" class="form-control" id="new_item_cost" data-money-format="true" value="" placeholder="$0.00">
+                                        <small class="text-muted" id="item_cost_hint">Cost per unit</small>
+                                    </div>
+                                    <div class="col-6 col-sm-4 col-md-4 mb-3">
+                                        <label for="new_quantity" class="form-label">Quantity *</label>
+                                        <input type="number" class="form-control" id="new_quantity" step="0.01" min="0" value="1.00" placeholder="1.00">
+                                        <small class="text-muted" id="quantity_hint">Default: 1.00</small>
+                                    </div>
+                                    <div class="col-6 col-sm-4 col-md-4 mb-3">
+                                        <label class="form-label" id="uom_currency_label">UOM *</label>
+                                        <select class="form-select field-disabled-visual" id="new_uom_code" disabled>
+                                            <option value="">Select item first</option>
+                                            {% for uom in uoms %}
+                                            <option value="{{ uom.uom_code }}" data-desc="{{ uom.uom_desc }}">
+                                                {{ uom.uom_desc }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <select class="form-select d-none" id="new_currency_code">
+                                            <option value="">Select currency...</option>
+                                            {% for currency in currencies %}
+                                            <option value="{{ currency.currency_code }}" data-desc="{{ currency.currency_name }} ({{ currency.currency_sign }})">
+                                                {{ currency.currency_code }} - {{ currency.currency_name }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <input type="hidden" id="new_uom_code_hidden" value="">
+                                        <input type="hidden" id="new_currency_code_hidden" value="">
+                                        <small class="text-muted" id="uom_hint"><span id="uom_currency_hint_text">Unit:</span> <span id="selected_uom">—</span></small>
+                                    </div>
+                                </div>
+                                <!-- Row 3: Item Comments -->
+                                <div class="row">
+                                    <div class="col-12 mb-3">
+                                        <label for="new_item_comments" class="form-label">Item Comments</label>
+                                        <input type="text" class="form-control" id="new_item_comments" placeholder="Optional comments about this item..." style="text-transform: uppercase;">
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-relief-primary" id="addItemBtn">
+                                    <i class="bi bi-plus-circle"></i> Add Item to Donation
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Current Items Table -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-list-ul"></i> Current Items (<span id="itemCount">0</span>)
+                            </h6>
+                            <div id="itemsTableContainer"></div>
+                            <div id="noItemsMessage" class="text-center py-4">
+                                <i class="bi bi-inbox empty-state-icon"></i>
+                                <p class="text-muted mt-2 mb-0">No items added yet. Use the form above to add items to this donation.</p>
+                            </div>
+                            <div id="itemsContainer" class="d-none">
+                                <!-- Hidden inputs for form submission -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Supporting Documents Section Card -->
+        <div class="row">
+            <div class="col-lg-10 col-xl-8">
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-earmark-pdf"></i> Supporting Documents <small class="text-muted">(Optional)</small>
+                        </h5>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> Upload receipts, manifests, delivery notices, or other supporting documents (PDF or JPEG only)
+                        </div>
+                        <div id="documentsContainer">
+                            <!-- Dynamic document rows will be added here -->
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="addDocumentBtn">
+                            <i class="bi bi-plus-circle"></i> Add Document
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="row">
+            <div class="col-lg-10 col-xl-8">
+                <div class="d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('donations.list_donations') }}" class="btn-relief-secondary">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </a>
+                    <button type="submit" class="btn-relief-primary" id="submitBtn">
+                        <i class="bi bi-check-circle"></i> Accept Donation
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+let itemCounter = 0;
+const donationItems = [];
+let currentCategoryType = null;
+
+// Restore items from form_data if page was re-rendered after validation error
+{% if form_data %}
+const restoredItems = [];
+{% for key, value in form_data.items() %}
+{% if key.startswith('item_id_') %}
+{% set num = key.split('_')[-1] %}
+restoredItems.push({
+    num: {{ num|tojson }},
+    item_id: {{ form_data.get("item_id_" ~ num, "")|tojson }},
+    donation_type: {{ form_data.get("donation_type_" ~ num, "GOODS")|tojson }},
+    quantity: parseFloat({{ form_data.get("quantity_" ~ num, "0")|tojson }}) || 0,
+    item_cost: parseFloat({{ form_data.get("item_cost_" ~ num, "0")|tojson }}) || 0,
+    addon_cost: parseFloat({{ form_data.get("addon_cost_" ~ num, "0")|tojson }}) || 0,
+    uom_code: {{ form_data.get("uom_id_" ~ num, "")|tojson }},
+    currency_code: {{ form_data.get("currency_code_" ~ num, "")|tojson }},
+    location_name: {{ form_data.get("location_name_" ~ num, "DONATION RECEIVED")|tojson }},
+    comments: {{ form_data.get("item_comments_" ~ num, "")|tojson }}
+});
+{% endif %}
+{% endfor %}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const itemsDropdown = document.getElementById('new_item_id');
+    restoredItems.forEach(function(item) {
+        const option = itemsDropdown.querySelector(`option[value="${item.item_id}"]`);
+        const itemName = option ? option.getAttribute('data-name') : 'Unknown Item';
+        const restoredType = (item.donation_type || 'GOODS').toUpperCase();
+
+        itemCounter++;
+        donationItems.push({
+            id: itemCounter,
+            item_id: item.item_id,
+            item_name: itemName,
+            donation_type: restoredType,
+            quantity: item.quantity,
+            item_cost: item.item_cost,
+            addon_cost: item.addon_cost,
+            uom_code: restoredType === 'GOODS' ? item.uom_code : null,
+            currency_code: restoredType === 'FUNDS' ? item.currency_code : null,
+            uom_desc: restoredType === 'FUNDS'
+                ? (item.currency_code || '')
+                : (item.uom_code || ''),
+            location_name: item.location_name,
+            comments: item.comments
+        });
+    });
+    
+    if (donationItems.length > 0) {
+        updateItemsTable();
+    }
+});
+{% endif %}
+
+// Fetch item category and adjust form fields dynamically
+document.getElementById('new_item_id').addEventListener('change', async function() {
+    const itemId = this.value;
+    const donationTypeInput = document.getElementById('new_donation_type');
+    const categoryHint = document.getElementById('category_hint');
+    const quantityHint = document.getElementById('quantity_hint');
+    const itemCostHint = document.getElementById('item_cost_hint');
+    const uomSelect = document.getElementById('new_uom_code');
+    const uomHidden = document.getElementById('new_uom_code_hidden');
+    const uomHint = document.getElementById('selected_uom');
+    
+    if (!itemId) {
+        resetFormFields();
+        return;
+    }
+    
+    try {
+        const response = await fetch(`{{ url_for('donations.get_item_category', item_id=0) }}`.replace('/0', `/${itemId}`));
+        if (!response.ok) {
+            throw new Error('Failed to fetch item category');
+        }
+        
+        const data = await response.json();
+        currentCategoryType = data.category_type;
+        
+        donationTypeInput.value = data.category_type;
+        categoryHint.textContent = `${data.category_desc} (${data.category_type})`;
+        
+        uomSelect.value = data.default_uom_code;
+        uomHidden.value = data.default_uom_code;
+        uomHint.textContent = data.default_uom_code;
+        
+        if (data.category_type === 'GOODS') {
+            enableFieldsForGoods();
+        } else if (data.category_type === 'FUNDS') {
+            enableFieldsForFunds();
+        }
+        
+    } catch (error) {
+        console.error('Error fetching category:', error);
+        alert('Error loading item category information. Please try again.');
+        resetFormFields();
+    }
+});
+
+function enableFieldsForGoods() {
+    const itemCostHint = document.getElementById('item_cost_hint');
+    const quantityHint = document.getElementById('quantity_hint');
+    const quantityInput = document.getElementById('new_quantity');
+    const uomSelect = document.getElementById('new_uom_code');
+    const currencySelect = document.getElementById('new_currency_code');
+    const uomCurrencyLabel = document.getElementById('uom_currency_label');
+    const uomCurrencyHintText = document.getElementById('uom_currency_hint_text');
+    const currencyHidden = document.getElementById('new_currency_code_hidden');
+    
+    itemCostHint.textContent = 'Cost per unit';
+    quantityHint.textContent = 'Quantity of goods';
+    uomCurrencyLabel.textContent = 'UOM *';
+    uomCurrencyHintText.textContent = 'Unit:';
+    
+    // GOODS: Quantity is fully editable
+    quantityInput.readOnly = false;
+    quantityInput.classList.remove('field-disabled-visual');
+    
+    uomSelect.classList.remove('d-none');
+    uomSelect.disabled = false;
+    uomSelect.classList.remove('field-disabled-visual');
+    currencySelect.classList.add('d-none');
+    currencySelect.value = '';
+    currencyHidden.value = '';
+}
+
+function enableFieldsForFunds() {
+    const itemCostHint = document.getElementById('item_cost_hint');
+    const quantityHint = document.getElementById('quantity_hint');
+    const quantityInput = document.getElementById('new_quantity');
+    const uomSelect = document.getElementById('new_uom_code');
+    const currencySelect = document.getElementById('new_currency_code');
+    const uomHidden = document.getElementById('new_uom_code_hidden');
+    const currencyHidden = document.getElementById('new_currency_code_hidden');
+    const uomHint = document.getElementById('selected_uom');
+    const uomCurrencyLabel = document.getElementById('uom_currency_label');
+    const uomCurrencyHintText = document.getElementById('uom_currency_hint_text');
+    
+    itemCostHint.textContent = 'Donated value';
+    quantityHint.textContent = 'Fixed at 1.00 for FUNDS';
+    uomCurrencyLabel.textContent = 'Currency *';
+    uomCurrencyHintText.textContent = 'Currency:';
+    
+    // FUNDS: Quantity is fixed at 1.00 and non-editable
+    quantityInput.value = '1.00';
+    quantityInput.readOnly = true;
+    quantityInput.classList.add('field-disabled-visual');
+    
+    uomSelect.classList.add('d-none');
+    uomSelect.value = '';
+    uomHidden.value = '';
+    currencySelect.classList.remove('d-none');
+    currencySelect.value = '';
+    currencyHidden.value = '';
+    uomHint.textContent = 'Select currency...';
+}
+
+function resetFormFields() {
+    currentCategoryType = null;
+    const donationTypeInput = document.getElementById('new_donation_type');
+    const categoryHint = document.getElementById('category_hint');
+    const quantityInput = document.getElementById('new_quantity');
+    const uomSelect = document.getElementById('new_uom_code');
+    const currencySelect = document.getElementById('new_currency_code');
+    const uomHidden = document.getElementById('new_uom_code_hidden');
+    const currencyHidden = document.getElementById('new_currency_code_hidden');
+    const uomHint = document.getElementById('selected_uom');
+    const uomCurrencyLabel = document.getElementById('uom_currency_label');
+    const uomCurrencyHintText = document.getElementById('uom_currency_hint_text');
+    
+    donationTypeInput.value = '';
+    categoryHint.textContent = 'Auto-set';
+    uomCurrencyLabel.textContent = 'UOM *';
+    uomCurrencyHintText.textContent = 'Unit:';
+    
+    // Reset quantity field to editable state
+    quantityInput.value = '1.00';
+    quantityInput.readOnly = false;
+    quantityInput.classList.remove('field-disabled-visual');
+    
+    uomSelect.value = '';
+    uomSelect.classList.remove('d-none');
+    uomSelect.disabled = true;
+    uomSelect.classList.add('field-disabled-visual');
+    currencySelect.classList.add('d-none');
+    currencySelect.value = '';
+    uomHidden.value = '';
+    currencyHidden.value = '';
+    uomHint.textContent = '—';
+    
+    document.getElementById('item_cost_hint').textContent = 'Cost per unit';
+    document.getElementById('quantity_hint').textContent = 'Default: 1.00';
+}
+
+document.getElementById('new_uom_code').addEventListener('change', function() {
+    const uomHidden = document.getElementById('new_uom_code_hidden');
+    const uomHint = document.getElementById('selected_uom');
+    const selectedOption = this.options[this.selectedIndex];
+    uomHidden.value = this.value;
+    uomHint.textContent = selectedOption ? selectedOption.getAttribute('data-desc') || this.value : '—';
+});
+
+document.getElementById('new_currency_code').addEventListener('change', function() {
+    const currencyHidden = document.getElementById('new_currency_code_hidden');
+    const uomHint = document.getElementById('selected_uom');
+    const selectedOption = this.options[this.selectedIndex];
+    currencyHidden.value = this.value;
+    uomHint.textContent = selectedOption ? (this.value + ' - ' + selectedOption.getAttribute('data-desc')) : 'Select currency...';
+});
+
+// Add item button click handler with GOODS/FUNDS validation
+document.getElementById('addItemBtn').addEventListener('click', function() {
+    const itemSelect = document.getElementById('new_item_id');
+    const donationTypeInput = document.getElementById('new_donation_type');
+    const quantityInput = document.getElementById('new_quantity');
+    const itemCostInput = document.getElementById('new_item_cost');
+    const uomHidden = document.getElementById('new_uom_code_hidden');
+    const currencyHidden = document.getElementById('new_currency_code_hidden');
+    const uomSelect = document.getElementById('new_uom_code');
+    const currencySelect = document.getElementById('new_currency_code');
+    const locationInput = document.getElementById('new_location_name');
+    const commentsInput = document.getElementById('new_item_comments');
+    
+    if (!itemSelect.value) {
+        alert('Please select an item');
+        itemSelect.focus();
+        return;
+    }
+    
+    if (!currentCategoryType) {
+        alert('Please wait for category information to load');
+        return;
+    }
+    
+    const qty = parseFloat(quantityInput.value);
+    const itemCost = window.DRIMS && window.DRIMS.money ? window.DRIMS.money.parse(itemCostInput.value) : parseFloat(itemCostInput.value.replace(/[$,]/g, ''));
+    
+    if (isNaN(qty) || qty < 0) {
+        alert('Please enter a valid quantity (must be >= 0)');
+        quantityInput.focus();
+        return;
+    }
+    
+    if (itemCost === null || isNaN(itemCost) || itemCost < 0) {
+        alert('Please enter a valid item cost (>= 0)');
+        itemCostInput.focus();
+        return;
+    }
+    
+    if (itemCost <= 0) {
+        alert('Item cost must be greater than 0');
+        itemCostInput.focus();
+        return;
+    }
+    
+    // Validate based on donation type
+    if (currentCategoryType === 'GOODS') {
+        if (!uomHidden.value) {
+            alert('Please select a unit of measure for goods.');
+            uomSelect.focus();
+            return;
+        }
+    } else if (currentCategoryType === 'FUNDS') {
+        if (!currencyHidden.value) {
+            alert('Please select a currency for funds.');
+            currencySelect.focus();
+            return;
+        }
+    }
+    
+    if (!locationInput.value.trim()) {
+        alert('Please enter a location');
+        locationInput.focus();
+        return;
+    }
+    
+    const selectedItemOption = itemSelect.options[itemSelect.selectedIndex];
+    
+    let uomDesc, uomCode, currencyCode;
+    if (currentCategoryType === 'FUNDS') {
+        const selectedCurrencyOption = currencySelect.options[currencySelect.selectedIndex];
+        uomDesc = selectedCurrencyOption ? (currencyHidden.value + ' - ' + selectedCurrencyOption.getAttribute('data-desc')) : currencyHidden.value;
+        uomCode = null;
+        currencyCode = currencyHidden.value;
+    } else {
+        const selectedUomOption = uomSelect.options[uomSelect.selectedIndex];
+        uomDesc = selectedUomOption ? selectedUomOption.getAttribute('data-desc') : uomHidden.value;
+        uomCode = uomHidden.value;
+        currencyCode = null;
+    }
+    
+    const item = {
+        id: ++itemCounter,
+        item_id: itemSelect.value,
+        item_name: selectedItemOption.getAttribute('data-name'),
+        donation_type: currentCategoryType,
+        quantity: qty,
+        item_cost: itemCost,
+        uom_code: uomCode,
+        currency_code: currencyCode,
+        uom_desc: uomDesc,
+        location_name: locationInput.value.trim().toUpperCase(),
+        comments: commentsInput.value.trim().toUpperCase()
+    };
+    
+    donationItems.push(item);
+    updateItemsTable();
+    
+    itemSelect.value = '';
+    resetFormFields();
+    quantityInput.value = '1.00';
+    itemCostInput.value = '';
+    locationInput.value = 'DONATION RECEIVED';
+    commentsInput.value = '';
+    
+    itemSelect.focus();
+});
+
+// Event delegation for remove item buttons
+document.addEventListener('click', function(e) {
+    const removeBtn = e.target.closest('[data-action="remove-donation-item"]');
+    if (removeBtn) {
+        const itemId = parseInt(removeBtn.dataset.itemId);
+        const index = donationItems.findIndex(item => item.id === itemId);
+        if (index > -1) {
+            if (confirm('Remove this item from the donation?')) {
+                donationItems.splice(index, 1);
+                updateItemsTable();
+            }
+        }
+    }
+});
+
+function updateItemsTable() {
+    const tableContainer = document.getElementById('itemsTableContainer');
+    const hiddenContainer = document.getElementById('itemsContainer');
+    const noItemsMsg = document.getElementById('noItemsMessage');
+    const itemCountSpan = document.getElementById('itemCount');
+    
+    itemCountSpan.textContent = donationItems.length;
+    
+    if (donationItems.length === 0) {
+        tableContainer.innerHTML = '';
+        hiddenContainer.innerHTML = '';
+        noItemsMsg.classList.remove('d-none');
+        noItemsMsg.classList.add('d-block');
+    } else {
+        noItemsMsg.classList.remove('d-block');
+        noItemsMsg.classList.add('d-none');
+        
+        let tableHtml = `
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Type</th>
+                            <th scope="col" class="text-end">Quantity</th>
+                            <th scope="col">UOM / Currency</th>
+                            <th scope="col" class="text-end">Item Cost</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        donationItems.forEach(item => {
+            const typeBadge = item.donation_type === 'GOODS' 
+                ? '<span class="badge bg-primary">GOODS</span>' 
+                : '<span class="badge bg-success">FUNDS</span>';
+            
+            tableHtml += `
+                <tr>
+                    <td>
+                        <strong>${item.item_name}</strong><br>
+                        <small class="text-muted">${item.location_name}</small>
+                    </td>
+                    <td>${typeBadge}</td>
+                    <td class="text-end">
+                        <strong>${item.quantity.toFixed(2)}</strong>
+                    </td>
+                    <td>${item.uom_desc}</td>
+                    <td class="text-end">${window.DRIMS.money.format(item.item_cost)}</td>
+                    <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-danger" data-action="remove-donation-item" data-item-id="${item.id}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        tableHtml += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        tableContainer.innerHTML = tableHtml;
+        
+        let hiddenHtml = '';
+        donationItems.forEach((item, index) => {
+            const num = index + 1;
+            hiddenHtml += `
+                <input type="hidden" name="item_id_${num}" value="${Number(item.item_id)}">
+                <input type="hidden" name="donation_type_${num}" value="${String(item.donation_type)}">
+                <input type="hidden" name="quantity_${num}" value="${Number(item.quantity).toFixed(2)}">
+                <input type="hidden" name="item_cost_${num}" value="${Number(item.item_cost).toFixed(2)}">
+            `;
+            if (item.donation_type === 'GOODS') {
+                hiddenHtml += `<input type="hidden" name="uom_id_${num}" value="${String(item.uom_code || '')}">`;
+            } else {
+                hiddenHtml += `<input type="hidden" name="currency_code_${num}" value="${String(item.currency_code || '')}">`;
+            }
+            hiddenHtml += `
+                <input type="hidden" name="location_name_${num}" value="${String(item.location_name)}">
+                <input type="hidden" name="item_comments_${num}" value="${String(item.comments)}">
+            `;
+        });
+        
+        hiddenContainer.innerHTML = hiddenHtml;
+    }
+}
+
+
+function handleOtherCostChange(clearDescOnZero) {
+    let otherCost = 0;
+    
+    const visibleInput = document.getElementById('other_cost');
+    const allOtherCostInputs = document.querySelectorAll('input[name="other_cost"]');
+    
+    allOtherCostInputs.forEach(function(input) {
+        if (input.type === 'hidden' && input.value) {
+            otherCost = parseFloat(input.value) || 0;
+        }
+    });
+    
+    if (otherCost === 0 && visibleInput && visibleInput.value) {
+        const rawValue = visibleInput.value;
+        const cleanValue = rawValue.replace(/[$,\s]/g, '');
+        if (cleanValue !== '' && !isNaN(parseFloat(cleanValue))) {
+            otherCost = parseFloat(cleanValue);
+        }
+    }
+    
+    const otherCostDescInput = document.getElementById('other_cost_desc');
+    
+    if (otherCost > 0) {
+        otherCostDescInput.disabled = false;
+        otherCostDescInput.classList.remove('field-disabled-visual');
+        otherCostDescInput.required = true;
+    } else {
+        otherCostDescInput.disabled = true;
+        otherCostDescInput.classList.add('field-disabled-visual');
+        if (clearDescOnZero) {
+            otherCostDescInput.value = '';
+        }
+        otherCostDescInput.required = false;
+    }
+}
+
+document.getElementById('other_cost').addEventListener('blur', function() {
+    handleOtherCostChange(true);
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+        handleOtherCostChange(false);
+    }, 50);
+});
+
+// Form submission validation
+document.querySelector('form').addEventListener('submit', function(e) {
+    if (donationItems.length === 0) {
+        e.preventDefault();
+        alert('Please add at least one donation item before submitting.');
+        return false;
+    }
+});
+
+// Document upload functionality
+let documentCounter = 0;
+
+document.getElementById('addDocumentBtn').addEventListener('click', function() {
+    documentCounter++;
+    const documentsContainer = document.getElementById('documentsContainer');
+    
+    const docRow = document.createElement('div');
+    docRow.className = 'card mb-2';
+    docRow.id = `doc-row-${documentCounter}`;
+    docRow.innerHTML = `
+        <div class="card-body p-3">
+            <div class="row align-items-end">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Document Type</label>
+                    <select class="form-select form-select-sm" name="document_type" required>
+                        <option value="RECEIPT">Receipt</option>
+                        <option value="MANIFEST">Manifest</option>
+                        <option value="BILL OF MATERIALS">Bill of Materials</option>
+                        <option value="DELIVERY NOTICE">Delivery Notice</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-5 mb-2">
+                    <label class="form-label small">Description *</label>
+                    <input type="text" class="form-control form-control-sm" name="document_desc" placeholder="e.g., Invoice #12345" class="text-uppercase-input">
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">File (PDF/JPEG) *</label>
+                    <input type="file" class="form-control form-control-sm" name="document_files" accept=".pdf,.jpg,.jpeg" required>
+                </div>
+                <div class="col-md-1 mb-2">
+                    <button type="button" class="btn btn-sm btn-danger w-100" data-action="remove-document" data-doc-id="${documentCounter}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    documentsContainer.appendChild(docRow);
+});
+
+document.addEventListener('click', function(e) {
+    const removeDocBtn = e.target.closest('[data-action="remove-document"]');
+    if (removeDocBtn) {
+        const docId = removeDocBtn.dataset.docId;
+        const docRow = document.getElementById(`doc-row-${docId}`);
+        if (docRow) {
+            docRow.remove();
+        }
+    }
+});
+</script>
+{% endblock %}

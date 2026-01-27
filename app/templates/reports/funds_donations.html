@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% set active_page = 'funds_donations_report' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+<style nonce="{{ csp_nonce() }}">
+    @media (max-width: 767.98px) {
+        .filter-buttons {
+            flex-direction: row;
+            width: 100%;
+        }
+        .filter-buttons .btn {
+            flex: 1;
+        }
+        .pagination-wrapper {
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .pagination-wrapper .pagination {
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .table-responsive-wrapper {
+            margin: 0 -0.75rem;
+        }
+    }
+    .table-responsive-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .date-input-wrapper {
+        position: relative;
+    }
+    .date-input-wrapper .form-control {
+        padding-right: 2.5rem;
+    }
+    .date-input-wrapper .calendar-icon {
+        position: absolute;
+        right: 0.75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #6c757d;
+        pointer-events: none;
+    }
+    .no-data-icon {
+        font-size: 3rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block title %}Funds Donations Report - DMIS{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3 py-md-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('reports.index') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Reports
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="page-title">
+            <i class="bi bi-currency-dollar page-title-icon"></i>
+            <h1 class="page-title-text">Funds Donations Report</h1>
+        </div>
+        <p class="page-subtitle">View all monetary donations received</p>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'cash-stack',
+            'label': 'Total Donations',
+            'value': total_donations,
+            'variant': 'success'
+        },
+        {
+            'icon': 'globe',
+            'label': 'Countries',
+            'value': unique_countries,
+            'variant': 'info'
+        },
+        {
+            'icon': 'currency-exchange',
+            'label': 'Currencies',
+            'value': unique_currencies,
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Filter options">
+        <button type="button" class="filter-tab active" data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="true" aria-controls="filterPanel">
+            <i class="bi bi-funnel"></i> Filters
+        </button>
+    </nav>
+
+    <!-- Collapsible Filter Panel -->
+    <div class="collapse show" id="filterPanel">
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <form method="get" action="{{ url_for('reports.funds_donations') }}" id="filterForm">
+                    <div class="row g-3">
+                        <!-- Origin Country -->
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <label for="country_id" class="form-label small fw-semibold">Origin Country</label>
+                            <select class="form-select" id="country_id" name="country_id">
+                                <option value="">All Countries</option>
+                                {% for country in countries %}
+                                <option value="{{ country.country_id }}" {% if filters.country_id == country.country_id|string %}selected{% endif %}>
+                                    {{ country.country_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <!-- Received From -->
+                        <div class="col-6 col-sm-6 col-lg-2">
+                            <label for="date_from" class="form-label small fw-semibold">Received From</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" class="form-control" id="date_from" name="date_from" 
+                                       value="{{ filters.date_from }}" placeholder="YYYY-MM-DD" autocomplete="off">
+                                <i class="bi bi-calendar3 calendar-icon"></i>
+                            </div>
+                        </div>
+                        <!-- Received To -->
+                        <div class="col-6 col-sm-6 col-lg-2">
+                            <label for="date_to" class="form-label small fw-semibold">Received To</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" class="form-control" id="date_to" name="date_to" 
+                                       value="{{ filters.date_to }}" placeholder="YYYY-MM-DD" autocomplete="off">
+                                <i class="bi bi-calendar3 calendar-icon"></i>
+                            </div>
+                        </div>
+                        <!-- Currency -->
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <label for="currency_code" class="form-label small fw-semibold">Currency</label>
+                            <select class="form-select" id="currency_code" name="currency_code">
+                                <option value="">All Currencies</option>
+                                {% for currency in currencies %}
+                                <option value="{{ currency.currency_code }}" {% if filters.currency_code == currency.currency_code %}selected{% endif %}>
+                                    {{ currency.currency_name }} ({{ currency.currency_code }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <!-- Filter Buttons -->
+                        <div class="col-12 col-lg-2 d-flex align-items-end gap-2 filter-buttons">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Filter
+                            </button>
+                            <a href="{{ url_for('reports.funds_donations') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Reset
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Donations Table -->
+    {% if donations %}
+    <div class="table-responsive-wrapper">
+        <table class="relief-requests-table" role="table" aria-label="Funds donations report">
+            <thead>
+                <tr>
+                    <th scope="col">Received Date</th>
+                    <th scope="col">Origin Country</th>
+                    <th scope="col" class="text-end">Donation Amount</th>
+                    <th scope="col">Currency</th>
+                    <th scope="col">Location (Account #)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for donation in donations %}
+                <tr>
+                    <td>
+                        <span class="text-nowrap">{{ donation.received_date.strftime('%d %b %Y') }}</span>
+                    </td>
+                    <td>{{ donation.origin_country }}</td>
+                    <td class="text-end">
+                        <strong class="text-success">{{ donation.currency_sign }}{{ "{:,.2f}".format(donation.donation_amount|float) }}</strong>
+                    </td>
+                    <td>
+                        <span class="badge bg-info text-dark">{{ donation.currency_code }}</span>
+                        <div class="table-sku">{{ donation.currency_name }}</div>
+                    </td>
+                    <td>
+                        {% if donation.location_name %}
+                        <span class="text-body">{{ donation.location_name }}</span>
+                        {% else %}
+                        <span class="text-muted fst-italic">Not specified</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    {% if pagination.pages > 1 %}
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mt-4 gap-3 pagination-wrapper">
+        <small class="text-muted text-center text-md-start">
+            Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} to 
+            {{ [pagination.page * pagination.per_page, pagination.total]|min }} of 
+            {{ pagination.total }} entries
+        </small>
+        <nav aria-label="Funds donations pagination">
+            <ul class="pagination pagination-sm mb-0 flex-wrap justify-content-center">
+                {% if pagination.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('reports.funds_donations', page=pagination.prev_num, country_id=filters.country_id, date_from=filters.date_from, date_to=filters.date_to, currency_code=filters.currency_code) }}">
+                        <i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline"> Prev</span>
+                    </a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link"><i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline"> Prev</span></span>
+                </li>
+                {% endif %}
+                
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=1) %}
+                    {% if page_num %}
+                        {% if page_num == pagination.page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_num }}</span>
+                        </li>
+                        {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('reports.funds_donations', page=page_num, country_id=filters.country_id, date_from=filters.date_from, date_to=filters.date_to, currency_code=filters.currency_code) }}">
+                                {{ page_num }}
+                            </a>
+                        </li>
+                        {% endif %}
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if pagination.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('reports.funds_donations', page=pagination.next_num, country_id=filters.country_id, date_from=filters.date_from, date_to=filters.date_to, currency_code=filters.currency_code) }}">
+                        <span class="d-none d-sm-inline">Next </span><i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link"><span class="d-none d-sm-inline">Next </span><i class="bi bi-chevron-right"></i></span>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox no-data-icon"></i>
+        <p class="mt-3 text-muted">No funds donations found matching the selected criteria.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    const dateConfig = {
+        dateFormat: "Y-m-d",
+        allowInput: true,
+        clickOpens: true,
+        disableMobile: false
+    };
+    
+    const dateFromPicker = flatpickr("#date_from", {
+        ...dateConfig,
+        onChange: function(selectedDates, dateStr) {
+            if (dateStr && dateToPicker.selectedDates.length > 0) {
+                dateToPicker.set('minDate', dateStr);
+            }
+        }
+    });
+    
+    const dateToPicker = flatpickr("#date_to", {
+        ...dateConfig,
+        onChange: function(selectedDates, dateStr) {
+            if (dateStr && dateFromPicker.selectedDates.length > 0) {
+                dateFromPicker.set('maxDate', dateStr);
+            }
+        }
+    });
+    
+    // Set initial constraints if dates are already selected
+    const dateFromValue = document.getElementById('date_from').value;
+    const dateToValue = document.getElementById('date_to').value;
+    
+    if (dateFromValue) {
+        dateToPicker.set('minDate', dateFromValue);
+    }
+    if (dateToValue) {
+        dateFromPicker.set('maxDate', dateToValue);
+    }
+});
+</script>
+{% endblock %}

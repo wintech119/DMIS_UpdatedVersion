@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Reports - DRIMS{% endblock %}
+
+{% block content %}
+<h2><i class="bi bi-file-earmark-bar-graph"></i> System Reports</h2>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-box-seam"></i> Inventory Summary</h5>
+                <p class="card-text">Comprehensive inventory report showing stock levels by warehouse and item.</p>
+                <a href="{{ url_for('reports.inventory_summary') }}" class="btn btn-primary">View Report</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-gift"></i> Donations Summary</h5>
+                <p class="card-text">Analyze donation patterns and donor contributions by value.</p>
+                <a href="{{ url_for('reports.donations_summary') }}" class="btn btn-primary">View Report</a>
+            </div>
+        </div>
+    </div>
+
+    {% if has_feature('funds_donations_report') %}
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-currency-dollar"></i> Funds Donations</h5>
+                <p class="card-text">Read-only monetary donations report with filters for country, date, and currency.</p>
+                <a href="{{ url_for('reports.funds_donations') }}" class="btn btn-primary">View Report</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

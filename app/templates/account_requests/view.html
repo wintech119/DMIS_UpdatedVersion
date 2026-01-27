@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}Request #{{ account_request.request_id }} - DRIMS{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('account_requests.list_requests') }}">Account Requests</a></li>
+                    <li class="breadcrumb-item active">Request #{{ account_request.request_id }}</li>
+                </ol>
+            </nav>
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="bi bi-file-earmark-text"></i> Request #{{ account_request.request_id }}</h2>
+                    <p class="text-muted mb-0">{{ account_request.agency_name }}</p>
+                </div>
+                <div>
+                    {% if account_request.status_code == 'S' %}
+                        <span class="badge bg-info fs-5">Submitted</span>
+                    {% elif account_request.status_code == 'R' %}
+                        <span class="badge bg-warning fs-5">In Review</span>
+                    {% elif account_request.status_code == 'A' %}
+                        <span class="badge bg-success fs-5">Approved</span>
+                    {% elif account_request.status_code == 'D' %}
+                        <span class="badge bg-danger fs-5">Denied</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="drims-card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Request Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-building text-primary"></i> Agency Name:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.agency_name }}
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-person text-primary"></i> Contact Person:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.contact_name }}
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-telephone text-primary"></i> Contact Phone:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.contact_phone }}
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-envelope text-primary"></i> Contact Email:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.contact_email }}
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-calendar text-primary"></i> Submitted:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <strong><i class="bi bi-clock-history text-primary"></i> Last Updated:</strong>
+                        </div>
+                        <div class="col-md-8">
+                            {{ account_request.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="mb-3">
+                        <strong><i class="bi bi-chat-left-text text-primary"></i> Reason for Request:</strong>
+                        <div class="mt-2 p-3 bg-light rounded">
+                            {{ account_request.reason_text }}
+                        </div>
+                    </div>
+
+                    {% if account_request.status_reason %}
+                    <div class="mb-3">
+                        <strong><i class="bi bi-sticky text-primary"></i> Status Notes:</strong>
+                        <div class="mt-2 p-3 bg-light rounded">
+                            {{ account_request.status_reason }}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="drims-card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Audit Log</h5>
+                </div>
+                <div class="card-body">
+                    {% if audit_log %}
+                        <div class="table-responsive">
+                            <table class="table drims-table">
+                                <thead>
+                                    <tr>
+                                        <th>Event</th>
+                                        <th>Notes</th>
+                                        <th>Actor</th>
+                                        <th>Timestamp</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in audit_log %}
+                                    <tr>
+                                        <td>
+                                            {% if event.event_type == 'submitted' %}
+                                                <span class="badge bg-secondary">Submitted</span>
+                                            {% elif event.event_type == 'moved_to_review' %}
+                                                <span class="badge bg-warning">Moved to Review</span>
+                                            {% elif event.event_type == 'approved' %}
+                                                <span class="badge bg-success">Approved</span>
+                                            {% elif event.event_type == 'denied' %}
+                                                <span class="badge bg-danger">Denied</span>
+                                            {% elif event.event_type == 'provisioned' %}
+                                                <span class="badge bg-primary">Provisioned</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">{{ event.event_type }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ event.event_notes or '-' }}</td>
+                                        <td>{{ event.actor.full_name if event.actor else 'System' }}</td>
+                                        <td>{{ event.event_dtime.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted">No audit events recorded.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="drims-card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-gear"></i> Actions</h5>
+                </div>
+                <div class="card-body">
+                    {% if account_request.status_code == 'S' %}
+                        <form method="POST" action="{{ url_for('account_requests.start_review', request_id=account_request.request_id) }}" class="mb-3">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="bi bi-hourglass-split"></i> Start Review
+                            </button>
+                        </form>
+                        
+                        <button type="button" class="btn btn-success w-100 mb-2" data-bs-toggle="modal" data-bs-target="#approveModal">
+                            <i class="bi bi-check-circle"></i> Approve Request
+                        </button>
+                        
+                        <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#denyModal">
+                            <i class="bi bi-x-circle"></i> Deny Request
+                        </button>
+
+                    {% elif account_request.status_code == 'R' %}
+                        <button type="button" class="btn btn-success w-100 mb-2" data-bs-toggle="modal" data-bs-target="#approveModal">
+                            <i class="bi bi-check-circle"></i> Approve Request
+                        </button>
+                        
+                        <button type="button" class="btn btn-danger w-100" data-bs-toggle="modal" data-bs-target="#denyModal">
+                            <i class="bi bi-x-circle"></i> Deny Request
+                        </button>
+
+                    {% elif account_request.status_code == 'A' %}
+                        <div class="alert alert-success mb-3">
+                            <i class="bi bi-check-circle"></i> Request approved. Ready to provision.
+                        </div>
+                        
+                        <form method="POST" action="{{ url_for('account_requests.provision_account', request_id=account_request.request_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-person-plus"></i> Provision Account
+                            </button>
+                        </form>
+
+                    {% elif account_request.status_code == 'D' %}
+                        <div class="alert alert-danger">
+                            <i class="bi bi-x-circle"></i> This request has been denied.
+                        </div>
+
+                    {% endif %}
+
+                    <hr class="my-3">
+
+                    <a href="{{ url_for('account_requests.list_requests') }}" class="btn btn-outline-secondary w-100">
+                        <i class="bi bi-arrow-left"></i> Back to List
+                    </a>
+                </div>
+            </div>
+
+            <div class="drims-card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Workflow Info</h5>
+                </div>
+                <div class="card-body">
+                    <small class="text-muted">
+                        <strong>Version:</strong> {{ account_request.version_nbr }}<br>
+                        {% if account_request.agency_id %}
+                        <strong>Agency ID:</strong> {{ account_request.agency_id }}<br>
+                        {% endif %}
+                        {% if account_request.user_id %}
+                        <strong>User ID:</strong> {{ account_request.user_id }}<br>
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="approveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-check-circle"></i> Approve Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('account_requests.approve_request', request_id=account_request.request_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="approve_notes" class="form-label">Approval Notes (Optional)</label>
+                        <textarea class="form-control" id="approve_notes" name="notes" rows="3" 
+                                  placeholder="Add any notes about this approval..."></textarea>
+                    </div>
+                    <div class="alert alert-success">
+                        <i class="bi bi-info-circle"></i> This will approve the request. You can then provision the account.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-circle"></i> Approve
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="denyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-x-circle"></i> Deny Request</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('account_requests.deny_request', request_id=account_request.request_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="deny_reason" class="form-label">Reason for Denial <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="deny_reason" name="reason" rows="3" 
+                                  placeholder="Explain why this request is being denied..." required></textarea>
+                    </div>
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i> This will permanently deny the request.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Deny Request
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

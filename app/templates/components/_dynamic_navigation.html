@@ -1,0 +1,67 @@
+{#
+Dynamic Navigation Macro
+Uses FeatureRegistry to show only features the user has access to
+Renders clean sidebar with MAIN, INVENTORY, OPERATIONS, MANAGEMENT sections
+#}
+
+{% macro render_dynamic_nav(current_user, active_page='') %}
+{# Get user's features #}
+{% set features = get_user_features() %}
+
+{# Map navigation groups to display categories #}
+{% set category_map = {
+    'dashboard': 'MAIN',
+    'inventory': 'INVENTORY',
+    'relief_requests': 'OPERATIONS',
+    'eligibility': 'OPERATIONS',
+    'packaging': 'OPERATIONS',
+    'master_data': 'MANAGEMENT',
+    'admin': 'MANAGEMENT',
+    'reports': 'MANAGEMENT',
+    'notifications': 'MANAGEMENT',
+    'user': 'MANAGEMENT'
+} %}
+
+{# Define category display order #}
+{% set category_order = ['MAIN', 'INVENTORY', 'OPERATIONS', 'MANAGEMENT'] %}
+
+{# Organize features by display category #}
+{% set features_by_display_category = {'MAIN': [], 'INVENTORY': [], 'OPERATIONS': [], 'MANAGEMENT': []} %}
+{% set uncategorized_features = [] %}
+
+{% for feature in features %}
+    {% if feature.route %}
+        {# Check if it's a dashboard feature #}
+        {% if feature.get('is_dashboard', False) %}
+            {% set _ = features_by_display_category['MAIN'].append(feature) %}
+        {% else %}
+            {% set nav_group = feature.get('navigation_group', 'other') %}
+            {% set display_category = category_map.get(nav_group, None) %}
+            
+            {% if display_category %}
+                {% set _ = features_by_display_category[display_category].append(feature) %}
+            {% else %}
+                {% set _ = uncategorized_features.append(feature) %}
+            {% endif %}
+        {% endif %}
+    {% endif %}
+{% endfor %}
+
+{# Render navigation sections by category #}
+{% for category_name in category_order %}
+    {% set category_features = features_by_display_category[category_name] %}
+    {% if category_features|length > 0 %}
+        <div class="sidebar-section-header">{{ category_name }}</div>
+        
+        {% for feature in category_features %}
+            <a href="{{ url_for(feature.route) }}" 
+               class="sidebar-nav-item {% if active_page == feature.key or request.endpoint == feature.route %}active{% endif %}"
+               title="{{ feature.description }}">
+                <i class="bi {{ feature.icon }}"></i>
+                <span>{{ feature.name }}</span>
+            </a>
+        {% endfor %}
+    {% endif %}
+{% endfor %}
+
+{% endmacro %}

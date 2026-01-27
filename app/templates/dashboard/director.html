@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Director Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-clipboard-check page-title-icon"></i>
+                <h1 class="page-title-text">Director Dashboard</h1>
+            </div>
+            <p class="page-subtitle">Welcome back, {{ role_display_name }}! Oversee relief operations</p>
+        </div>
+        {% if has_feature('eligibility_review') %}
+        <a href="{{ url_for('eligibility.pending_list') }}" class="btn btn-relief-primary">
+            <i class="bi bi-clipboard-check me-2"></i>
+            Review Eligibility
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'hourglass-split',
+            'label': 'Pending Review',
+            'value': counts.get('pending', 0),
+            'variant': 'warning'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Approved',
+            'value': counts.get('approved', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'In Progress',
+            'value': counts.get('in_progress', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'clipboard-check',
+            'label': 'Completed',
+            'value': counts.get('completed', 0),
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Request filters">
+        <a href="{{ url_for('dashboard.director_dashboard', filter='pending') }}" 
+           class="filter-tab {% if current_filter == 'pending' %}active{% endif %}">
+            Pending Review
+            {% if global_counts.get('pending', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('pending', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.director_dashboard', filter='approved') }}" 
+           class="filter-tab {% if current_filter == 'approved' %}active{% endif %}">
+            Approved
+            {% if global_counts.get('approved', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('approved', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.director_dashboard', filter='in_progress') }}" 
+           class="filter-tab {% if current_filter == 'in_progress' %}active{% endif %}">
+            In Progress
+            {% if global_counts.get('in_progress', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('in_progress', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.director_dashboard', filter='completed') }}" 
+           class="filter-tab {% if current_filter == 'completed' %}active{% endif %}">
+            Completed
+            {% if global_counts.get('completed', 0) > 0 %}
+            <span class="filter-tab-count">{{ global_counts.get('completed', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('dashboard.director_dashboard', filter='all') }}" 
+           class="filter-tab {% if current_filter == 'all' %}active{% endif %}">
+            All
+        </a>
+    </nav>
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <div class="table-responsive-mobile">
+        <table class="relief-requests-table">
+        <thead>
+            <tr>
+                <th>Request Number</th>
+                <th>Agency</th>
+                <th>Event</th>
+                <th>Priority</th>
+                <th>Items</th>
+                <th>Request Date</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" class="table-link">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {{ req.event.event_name if req.event else 'N/A' }}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%B %d, %Y') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status %}
+                    {{ status_badge(req.status.status_code|string, req.status.status_desc) }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.status_code == 1 and has_feature('eligibility_review') %}
+                        <a href="{{ url_for('eligibility.review_request', request_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-primary btn-sm">
+                            <i class="bi bi-clipboard-check me-1"></i> Review
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('requests.view_request', request_id=req.reliefrqst_id) }}" 
+                           class="btn btn-relief-secondary btn-sm">
+                            <i class="bi bi-eye me-1"></i> View
+                        </a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="bi bi-inbox empty-state-icon"></i>
+        <p class="empty-state-text">No requests found for this filter</p>
+        <p class="empty-state-subtext">Check back later or try selecting a different filter</p>
+    </div>
+    {% endif %}
+
+    <!-- Quick Actions -->
+    {% if quick_actions %}
+    <div class="mt-4">
+        <h5 class="mb-3">Quick Actions</h5>
+        <div class="d-flex flex-wrap gap-2">
+            {% for action in quick_actions %}
+            <a href="{{ action.url }}" class="btn btn-{{ action.variant }}">
+                <i class="{{ action.icon }} me-1"></i>
+                {{ action.label }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

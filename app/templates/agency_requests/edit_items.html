@@ -1,0 +1,297 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+{% endblock %}
+
+{% block title %}Edit Items - Request #{{ request.reliefrqst_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-12">
+            <h2 class="text-goj-green mb-1">
+                <i class="bi bi-pencil-square"></i> Edit Request Items
+            </h2>
+            <p class="text-muted mb-0">Request #{{ request.reliefrqst_id }} - {{ request.agency.agency_name }}</p>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                <strong>Step 2 of 2:</strong> Add items to your request with quantities and justifications. You can submit the request to ODPEM after adding all required items.
+            </div>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ url_for('requests.view_request', request_id=request.reliefrqst_id) }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Request
+            </a>
+        </div>
+    </div>
+
+    <div class="drims-card">
+        <h5 class="mb-3"><i class="bi bi-plus-circle"></i> Add New Item</h5>
+        <form method="POST" action="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" id="addItemForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="item_id" class="form-label">Item *</label>
+                    <select class="form-select" id="item_id" name="item_id" required>
+                        <option value="">Select item...</option>
+                        {% for item in active_items %}
+                        <option value="{{ item.item_id }}" data-sku="{{ item.sku_code }}" data-uom="{{ item.uom_code }}">
+                            {{ item.item_name }} ({{ item.sku_code }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="request_qty" class="form-label">Quantity *</label>
+                    <input type="number" class="form-control" id="request_qty" name="request_qty" step="0.01" min="0.01" required>
+                    <small class="text-muted" id="uom_hint">Unit: <span id="selected_uom">—</span></small>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="urgency_ind" class="form-label">Urgency *</label>
+                    <select class="form-select" id="urgency_ind" name="urgency_ind" required>
+                        <option value="">Select...</option>
+                        <option value="H">High</option>
+                        <option value="M">Medium</option>
+                        <option value="L">Low</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="rqst_reason_desc" class="form-label">Justification / Notes <span id="justification_required_indicator" class="text-danger d-none">*</span></label>
+                    <textarea class="form-control" id="rqst_reason_desc" name="rqst_reason_desc" rows="2" placeholder="Explain why this item is needed and how it will be used..."></textarea>
+                    <small class="text-muted" id="justification_hint">Required for High urgency items only</small>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="required_by_date" class="form-label">Required By Date</label>
+                    <div class="input-group">
+                        <input type="text" 
+                               class="form-control datepicker-required-by" 
+                               id="required_by_date" 
+                               name="required_by_date" 
+                               placeholder="YYYY-MM-DD"
+                               readonly>
+                        <span class="input-group-text cursor-pointer" id="required-by-calendar-icon-agency">
+                            <i class="bi bi-calendar3"></i>
+                        </span>
+                    </div>
+                    <small class="text-muted">Click to select date when this item must be delivered</small>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-goj">
+                <i class="bi bi-plus-circle"></i> Add Item to Request
+            </button>
+        </form>
+    </div>
+
+    <div class="drims-card mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-list-ul"></i> Current Items ({{ request.items|length }})</h5>
+            {% if request.items|length > 0 %}
+                <form method="POST" action="{{ url_for('requests.submit_request', request_id=request.reliefrqst_id) }}" class="d-inline" id="submitRequestForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-goj">
+                        <i class="bi bi-send"></i> Submit Request to ODPEM
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+
+        {% if request.items %}
+        <div class="table-responsive">
+            <table class="table drims-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>SKU</th>
+                        <th class="text-end">Quantity</th>
+                        <th>Urgency</th>
+                        <th>Required By</th>
+                        <th>Justification</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in request.items %}
+                    <tr>
+                        <td>{{ item.item.item_name }}</td>
+                        <td><code>{{ item.item.sku_code }}</code></td>
+                        <td class="text-end">
+                            <strong>{{ "%.2f"|format(item.request_qty) }}</strong>
+                            {{ item.item.default_uom_code }}
+                        </td>
+                        <td>
+                            {% if item.urgency_ind == 'H' %}
+                                <span class="badge bg-danger">High</span>
+                            {% elif item.urgency_ind == 'M' %}
+                                <span class="badge bg-warning text-dark">Medium</span>
+                            {% elif item.urgency_ind == 'L' %}
+                                <span class="badge bg-info text-dark">Low</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.required_by_date %}
+                                <span class="text-muted"><i class="bi bi-calendar-event"></i> {{ item.required_by_date|format_date }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.rqst_reason_desc %}
+                                {{ item.rqst_reason_desc[:100] }}{% if item.rqst_reason_desc|length > 100 %}...{% endif %}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <form method="POST" action="{{ url_for('requests.delete_item', request_id=request.reliefrqst_id, item_id=item.item_id) }}" class="d-inline" data-confirm="Remove this item from the request?">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-danger">
+                                    <i class="bi bi-trash"></i> Remove
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-inbox text-muted icon-lg"></i>
+            <p class="text-muted mt-2 mb-0">No items added yet. Use the form above to add items to this request.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Flatpickr for required_by_date
+    const requiredByPicker = flatpickr("#required_by_date", {
+        dateFormat: "Y-m-d",
+        minDate: "today",
+        allowInput: false,
+        clickOpens: true
+    });
+    
+    // Make calendar icon clickable
+    const calendarIcon = document.getElementById('required-by-calendar-icon-agency');
+    if (calendarIcon) {
+        calendarIcon.addEventListener('click', function() {
+            requiredByPicker.open();
+        });
+    }
+});
+
+// Update UOM hint when item is selected
+document.getElementById('item_id').addEventListener('change', function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const uomCode = selectedOption.getAttribute('data-uom');
+    const uomHint = document.getElementById('selected_uom');
+    if (uomCode) {
+        uomHint.textContent = uomCode;
+    } else {
+        uomHint.textContent = '—';
+    }
+});
+
+// Toggle justification requirement based on urgency selection
+document.getElementById('urgency_ind').addEventListener('change', function() {
+    const justificationField = document.getElementById('rqst_reason_desc');
+    const requiredIndicator = document.getElementById('justification_required_indicator');
+    const hint = document.getElementById('justification_hint');
+    
+    if (this.value === 'H') {
+        // High urgency - justification required
+        justificationField.setAttribute('required', 'required');
+        requiredIndicator.classList.remove('d-none');
+        hint.textContent = 'Required for High urgency items';
+        hint.classList.remove('text-muted');
+        hint.classList.add('text-danger');
+    } else {
+        // Medium or Low urgency - justification optional
+        justificationField.removeAttribute('required');
+        requiredIndicator.classList.add('d-none');
+        hint.textContent = 'Optional for Medium/Low urgency items';
+        hint.classList.remove('text-danger');
+        hint.classList.add('text-muted');
+    }
+});
+
+// Submit form confirmation modal - proper handling without preventDefault issues
+let submitHandler;
+document.addEventListener('DOMContentLoaded', function() {
+    const submitRequestForm = document.getElementById('submitRequestForm');
+    if (submitRequestForm) {
+        submitHandler = function(e) {
+            e.preventDefault();
+            const modal = new bootstrap.Modal(document.getElementById('submitRequestModal'));
+            modal.show();
+            return false;
+        };
+        submitRequestForm.addEventListener('submit', submitHandler);
+    }
+});
+
+</script>
+
+<!-- Submit Request Confirmation Modal -->
+<div class="modal fade" id="submitRequestModal" tabindex="-1" aria-labelledby="submitRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="submitRequestModalLabel">
+                    <i class="bi bi-send-fill me-2"></i>
+                    Submit Request to ODPEM
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Submit this request to ODPEM for eligibility review?</strong></p>
+                <p class="mb-2">After submission:</p>
+                <ul class="mb-3">
+                    <li>You will not be able to edit items</li>
+                    <li>The request will be sent to ODPEM for eligibility review</li>
+                    <li>You can track the status in your requests list</li>
+                </ul>
+                <p class="text-muted mb-0"><small>You can still add notes or communicate about the request after submission.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" id="confirmSubmitBtn">
+                    <i class="bi bi-send-fill"></i>
+                    Yes, Submit Request
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+// Confirmation button handler - properly removes handler and submits
+const confirmBtn = document.getElementById('confirmSubmitBtn');
+if (confirmBtn) {
+    confirmBtn.addEventListener('click', function() {
+        const form = document.getElementById('submitRequestForm');
+        if (form && submitHandler) {
+            form.removeEventListener('submit', submitHandler);
+            form.submit();
+        }
+    });
+}
+</script>
+
+{% endblock %}

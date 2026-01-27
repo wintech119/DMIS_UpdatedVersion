@@ -1,0 +1,489 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+{% endblock %}
+
+{% block title %}Edit Items - Request #{{ request.tracking_no }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Success Message -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert-banner alert-banner-{{ 'success' if category == 'success' else 'info' }}" role="alert">
+                <i class="bi bi-{{ 'check-circle-fill' if category == 'success' else 'info-circle-fill' }}"></i>
+                <div class="alert-banner-content">{{ message }}</div>
+                <button type="button" class="alert-banner-close" data-action="close-alert" aria-label="Close">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('requests.view_request', request_id=request.reliefrqst_id) }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Request
+        </a>
+    </div>
+
+    <div class="row">
+        <!-- Main Content Column -->
+        <div class="col-lg-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-title">
+                    <i class="bi bi-pencil-square page-title-icon"></i>
+                    <h1 class="page-title-text">Edit Relief Request Items</h1>
+                    <span class="page-title-badge">
+                        {% if request.status_code == 0 %}
+                        {{ status_badge('draft', 'Draft') }}
+                        {% elif request.status_code == 3 %}
+                        {{ status_badge('approved', 'Submitted') }}
+                        {% elif request.status_code == 7 %}
+                        {{ status_badge('completed', 'Filled') }}
+                        {% else %}
+                        <span class="status-badge">{{ request.status.status_desc if request.status else 'Unknown' }}</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <p class="page-subtitle">Request #{{ request.tracking_no }}</p>
+            </div>
+
+            <!-- Request Summary Card -->
+            <div class="card mb-3">
+                <div class="card-body" style="background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); border-left: 4px solid #009639;">
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <small class="text-uppercase text-muted d-block" style="font-size: 0.75rem; font-weight: 600;">Agency</small>
+                            <span style="font-size: 1rem; font-weight: 500;">{{ request.agency.agency_name }}</span>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <small class="text-uppercase text-muted d-block" style="font-size: 0.75rem; font-weight: 600;">Request Date</small>
+                            <span style="font-size: 1rem; font-weight: 500;">{{ request.request_date.strftime('%Y-%m-%d') if request.request_date else 'N/A' }}</span>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <small class="text-uppercase text-muted d-block" style="font-size: 0.75rem; font-weight: 600;">Tracking No.</small>
+                            <span style="font-size: 1rem; font-weight: 500;"><strong>{{ request.tracking_no }}</strong></span>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <small class="text-uppercase text-muted d-block" style="font-size: 0.75rem; font-weight: 600;">Items</small>
+                            <span style="font-size: 1rem; font-weight: 500;"><strong>{{ request.items|length }}</strong> added</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add New Item Form -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Add New Item</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('requests.edit_items', request_id=request.reliefrqst_id) }}" id="addItemForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="item_id" class="form-label">Item <span class="text-danger">*</span></label>
+                                <select class="form-select" id="item_id" name="item_id" required>
+                                    <option value="">Select item...</option>
+                                    {% for item in active_items %}
+                                    <option value="{{ item.item_id }}" data-sku="{{ item.sku_code }}" data-uom="{{ item.default_uom_code }}">
+                                        {{ item.item_name }} ({{ item.sku_code }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label for="request_qty" class="form-label">Quantity <span class="text-danger">*</span></label>
+                                <input type="number" class="form-control" id="request_qty" name="request_qty" step="0.01" min="0.01" required>
+                                <small class="text-muted" id="uom_hint">Unit: <span id="selected_uom">—</span></small>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label for="urgency_ind" class="form-label">Urgency <span class="text-danger">*</span></label>
+                                <select class="form-select" id="urgency_ind" name="urgency_ind" required>
+                                    <option value="">Select...</option>
+                                    <option value="H">High</option>
+                                    <option value="M">Medium</option>
+                                    <option value="L">Low</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="rqst_reason_desc" class="form-label">
+                                    Justification / Notes 
+                                    <span id="justification_required_indicator" class="text-danger" style="display: none;">*</span>
+                                </label>
+                                <textarea class="form-control" id="rqst_reason_desc" name="rqst_reason_desc" rows="3" placeholder="Explain why this item is needed and how it will be used..."></textarea>
+                                <small class="text-muted" id="justification_hint">Required for High urgency items only</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="required_by_date" class="form-label">
+                                    Required By Date
+                                </label>
+                                <div class="input-group">
+                                    <input type="text" 
+                                           class="form-control datepicker-required-by" 
+                                           id="required_by_date" 
+                                           name="required_by_date" 
+                                           placeholder="YYYY-MM-DD"
+                                           readonly>
+                                    <span class="input-group-text" id="required-by-calendar-icon" style="cursor: pointer;">
+                                        <i class="bi bi-calendar3"></i>
+                                    </span>
+                                </div>
+                                <small class="text-muted">Click to select date when this item must be delivered</small>
+                            </div>
+                        </div>
+                        <div class="pt-3 border-top">
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-plus-circle"></i>
+                                Add Item to Request
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Current Items List -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-ul"></i> Current Items 
+                        <span class="badge bg-secondary">{{ request.items|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if request.items %}
+                    <table class="relief-requests-table mb-0" role="table" aria-label="Current request items">
+                        <thead>
+                            <tr>
+                                <th scope="col">Item</th>
+                                <th scope="col">Requested</th>
+                                <th scope="col">Urgency</th>
+                                <th scope="col">Required By</th>
+                                <th scope="col">Justification</th>
+                                <th scope="col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in request.items %}
+                            <tr>
+                                <td>
+                                    <strong>{{ item.item.item_name }}</strong>
+                                    {% if item.item and item.item.sku_code %}
+                                    <div class="table-sku">SKU: {{ item.item.sku_code }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ "%.2f"|format(item.request_qty) }}</strong>
+                                    {{ item.item.default_uom_code if item.item else '' }}
+                                </td>
+                                <td>
+                                    {% if item.urgency_ind == 'H' or item.urgency_ind == 'C' %}
+                                    {{ status_badge('high', 'High') }}
+                                    {% elif item.urgency_ind == 'M' %}
+                                    {{ status_badge('medium', 'Medium') }}
+                                    {% elif item.urgency_ind == 'L' %}
+                                    {{ status_badge('low', 'Low') }}
+                                    {% else %}
+                                    <span class="text-muted">N/A</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.required_by_date %}
+                                    <span class="text-muted">
+                                        <i class="bi bi-calendar-event"></i> 
+                                        {{ item.required_by_date.strftime('%Y-%m-%d') }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.rqst_reason_desc %}
+                                    <span class="text-truncate d-inline-block" style="max-width: 200px;" title="{{ item.rqst_reason_desc }}">
+                                        {{ item.rqst_reason_desc }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('requests.delete_item', request_id=request.reliefrqst_id, item_id=item.item_id) }}" style="display: inline;" onsubmit="return confirm('Remove this item from the request?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox" style="font-size: 3rem; color: #dee2e6;"></i>
+                        <p class="text-muted mt-3 mb-0">No items added yet.</p>
+                        <p class="text-muted">Use the form above to add items to this request.</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="card-body border-top">
+                    <div class="d-flex gap-2 flex-wrap">
+                        {% if request.items and request.status_code == 0 %}
+                        <form method="POST" action="{{ url_for('requests.submit_request', request_id=request.reliefrqst_id) }}" style="display: inline;" id="submitForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="version_nbr" value="{{ request.version_nbr }}">
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-send"></i>
+                                Submit to ODPEM
+                            </button>
+                        </form>
+                        {% endif %}
+                        <a href="{{ url_for('requests.view_request', request_id=request.reliefrqst_id) }}" class="btn-relief-secondary">
+                            <i class="bi bi-eye"></i>
+                            View Request
+                        </a>
+                        {% if request.status_code == 0 %}
+                        <form method="POST" action="{{ url_for('requests.cancel_request', request_id=request.reliefrqst_id) }}" style="display: inline;" id="cancelForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn-relief-secondary">
+                                <i class="bi bi-trash"></i>
+                                Delete Draft
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workflow Sidebar Column -->
+        <div class="col-lg-3">
+            {{ render_workflow_progress([
+                {'title': 'Create Request', 'description': 'Provide basic request details and disaster event information', 'status': 'completed'},
+                {'title': 'Add Items', 'description': 'Add items with quantities, urgency levels, and justifications', 'status': 
+                    'completed' if request.items|length > 0 and request.status_code >= 1 else 
+                    ('active' if request.status_code == 0 else 'completed' if request.items|length > 0 else 'pending')},
+                {'title': 'Review & Submit', 'description': 'Review your request and submit to ODPEM for processing', 'status': 
+                    'completed' if request.status_code >= 1 else 'pending'},
+                {'title': 'Eligibility Review', 'description': 'ODPEM reviews eligibility and makes approval decision', 'status': 
+                    'completed' if request.status_code >= 3 and request.status_code != 2 else 
+                    ('active' if request.status_code == 1 else 'pending')},
+                {'title': 'Fulfillment & Delivery', 'description': 'ODPEM logistics prepares and delivers approved items', 'status': 
+                    'completed' if request.status_code in [6, 7] else 
+                    ('active' if request.status_code in [3, 5] else 'pending')}
+            ]) }}
+        </div>
+    </div>
+</div>
+
+<!-- Submit to ODPEM Confirmation Modal -->
+<div class="modal fade" id="submitRequestModal" tabindex="-1" aria-labelledby="submitRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="submitRequestModalLabel">
+                    <i class="bi bi-send-fill me-2"></i>
+                    Submit Request to ODPEM
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Submit this request to ODPEM for eligibility review?</strong></p>
+                <p class="mb-2">After submission:</p>
+                <ul class="mb-3">
+                    <li>You will not be able to edit items</li>
+                    <li>The request will be sent to ODPEM for eligibility review</li>
+                    <li>You can track the status in your requests list</li>
+                </ul>
+                <p class="text-muted mb-0"><small>You can still add notes or communicate about the request after submission.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" data-action="confirm-submit-request">
+                    <i class="bi bi-send-fill"></i>
+                    Yes, Submit Request
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Draft Confirmation Modal -->
+<div class="modal fade" id="deleteDraftModal" tabindex="-1" aria-labelledby="deleteDraftModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteDraftModalLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Delete Draft Request
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Delete this draft request?</strong></p>
+                <p class="mb-2">This action will:</p>
+                <ul class="mb-3">
+                    <li>Permanently delete the request</li>
+                    <li>Remove all items you've added</li>
+                    <li>Cannot be undone</li>
+                </ul>
+                <p class="text-danger mb-0"><strong>This action cannot be undone.</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger" data-action="confirm-delete-draft">
+                    <i class="bi bi-trash"></i>
+                    Yes, Delete Draft
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Flatpickr for required_by_date
+    const requiredByPicker = flatpickr("#required_by_date", {
+        dateFormat: "Y-m-d",
+        minDate: "today",
+        allowInput: false,
+        clickOpens: true
+    });
+    
+    // Make calendar icon clickable
+    const calendarIcon = document.getElementById('required-by-calendar-icon');
+    if (calendarIcon) {
+        calendarIcon.addEventListener('click', function() {
+            requiredByPicker.open();
+        });
+    }
+});
+
+// Update UOM hint when item is selected
+const itemSelect = document.getElementById('item_id');
+if (itemSelect) {
+    itemSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        const uomCode = selectedOption.getAttribute('data-uom');
+        const uomHint = document.getElementById('selected_uom');
+        if (uomCode) {
+            uomHint.textContent = uomCode;
+        } else {
+            uomHint.textContent = '—';
+        }
+    });
+}
+
+// Toggle justification and required date requirement based on urgency selection
+const urgencySelect = document.getElementById('urgency_ind');
+if (urgencySelect) {
+    urgencySelect.addEventListener('change', function() {
+        const justificationField = document.getElementById('rqst_reason_desc');
+        const requiredIndicator = document.getElementById('justification_required_indicator');
+        const hint = document.getElementById('justification_hint');
+        const requiredByDateField = document.getElementById('required_by_date');
+        const requiredByDateLabel = requiredByDateField.closest('.col-md-6').querySelector('.form-label');
+        
+        if (this.value === 'H') {
+            // HIGH priority: Both justification and required date are REQUIRED
+            justificationField.setAttribute('required', 'required');
+            requiredIndicator.style.display = 'inline';
+            hint.textContent = 'Required for High priority items';
+            hint.classList.remove('text-muted');
+            hint.classList.add('text-danger');
+            
+            // Make required_by_date required
+            requiredByDateField.setAttribute('required', 'required');
+            if (requiredByDateLabel && !requiredByDateLabel.querySelector('.text-danger')) {
+                requiredByDateLabel.innerHTML = 'Required By Date <span class="text-danger">*</span>';
+            }
+        } else {
+            // MEDIUM/LOW priority: Both are OPTIONAL
+            justificationField.removeAttribute('required');
+            requiredIndicator.style.display = 'none';
+            hint.textContent = 'Optional for Medium/Low priority items';
+            hint.classList.remove('text-danger');
+            hint.classList.add('text-muted');
+            
+            // Make required_by_date optional
+            requiredByDateField.removeAttribute('required');
+            if (requiredByDateLabel) {
+                requiredByDateLabel.innerHTML = 'Required By Date';
+            }
+        }
+    });
+}
+
+// Submit form - show modal instead of native confirm
+const submitForm = document.getElementById('submitForm');
+if (submitForm) {
+    submitForm.addEventListener('submit', function handleSubmit(e) {
+        if (submitForm.dataset.confirmed === 'true') {
+            return;
+        }
+
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('submitRequestModal'));
+        modal.show();
+    });
+}
+
+// Delete form - show modal instead of native confirm
+const cancelForm = document.getElementById('cancelForm');
+if (cancelForm) {
+    cancelForm.addEventListener('submit', function handleDelete(e) {
+        if (cancelForm.dataset.confirmed === 'true') {
+            return;
+        }
+
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('deleteDraftModal'));
+        modal.show();
+    });
+}
+
+// Confirmation handlers for modal buttons
+document.addEventListener('click', function(e) {
+    const confirmSubmit = e.target.closest('[data-action="confirm-submit-request"]');
+    if (confirmSubmit) {
+        const form = document.getElementById('submitForm');
+        if (form) {
+            form.dataset.confirmed = 'true';
+            form.submit();
+        }
+    }
+
+    const confirmDelete = e.target.closest('[data-action="confirm-delete-draft"]');
+    if (confirmDelete) {
+        const form = document.getElementById('cancelForm');
+        if (form) {
+            form.dataset.confirmed = 'true';
+            form.submit();
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Agencies Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-shop page-title-icon"></i>
+                <h1 class="page-title-text">Relief Agencies</h1>
+            </div>
+            <p class="page-subtitle">Manage agencies (distributors and shelters) for disaster relief operations</p>
+        </div>
+        <a href="{{ url_for('agencies.create_agency') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create Agency
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'shop',
+            'label': 'Total Agencies',
+            'value': metrics.get('total_agencies', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Active',
+            'value': metrics.get('active_agencies', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'house',
+            'label': 'Shelters',
+            'value': metrics.get('shelter_agencies', 0),
+            'variant': 'primary'
+        },
+        {
+            'icon': 'truck',
+            'label': 'Distributors',
+            'value': metrics.get('distributor_agencies', 0),
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Agency status filters">
+        <a href="{{ url_for('agencies.list_agencies', filter='all') }}" 
+           class="filter-tab {% if filter_type == 'all' or not filter_type %}active{% endif %}"
+           aria-current="{% if filter_type == 'all' or not filter_type %}page{% endif %}">
+            All Agencies
+            {% if metrics.get('total_agencies', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('total_agencies', 0) }} total">{{ metrics.get('total_agencies', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('agencies.list_agencies', filter='active') }}" 
+           class="filter-tab {% if filter_type == 'active' %}active{% endif %}"
+           aria-current="{% if filter_type == 'active' %}page{% endif %}">
+            Active
+            {% if metrics.get('active_agencies', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('active_agencies', 0) }} active">{{ metrics.get('active_agencies', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('agencies.list_agencies', filter='inactive') }}" 
+           class="filter-tab {% if filter_type == 'inactive' %}active{% endif %}"
+           aria-current="{% if filter_type == 'inactive' %}page{% endif %}">
+            Inactive
+            {% if metrics.get('inactive_agencies', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('inactive_agencies', 0) }} inactive">{{ metrics.get('inactive_agencies', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Search and Filter Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('agencies.list_agencies') }}" class="row g-2">
+                <input type="hidden" name="filter" value="{{ filter_type }}">
+                
+                <!-- Search Input -->
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" 
+                               class="form-control" 
+                               name="search" 
+                               value="{{ search_query }}" 
+                               placeholder="Search by name, contact, or phone..."
+                               aria-label="Search agencies">
+                    </div>
+                </div>
+                
+                <!-- Agency Type Filter -->
+                <div class="col-md-3">
+                    <select name="agency_type" class="form-select">
+                        <option value="">All Types</option>
+                        <option value="SHELTER" {% if agency_type_filter == 'SHELTER' %}selected{% endif %}>Shelter</option>
+                        <option value="DISTRIBUTOR" {% if agency_type_filter == 'DISTRIBUTOR' %}selected{% endif %}>Distributor</option>
+                    </select>
+                </div>
+                
+                <!-- Parish Filter -->
+                <div class="col-md-3">
+                    <select name="parish" class="form-select">
+                        <option value="">All Parishes</option>
+                        {% for parish in parishes %}
+                        <option value="{{ parish.parish_code }}" {% if parish_filter == parish.parish_code %}selected{% endif %}>
+                            {{ parish.parish_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- Actions -->
+                <div class="col-md-2 d-flex gap-2">
+                    <button type="submit" class="btn-relief-primary flex-grow-1">
+                        <i class="bi bi-funnel"></i> Filter
+                    </button>
+                    {% if search_query or agency_type_filter or parish_filter %}
+                    <a href="{{ url_for('agencies.list_agencies', filter=filter_type) }}" class="btn-relief-secondary">
+                        <i class="bi bi-x-circle"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Agencies Table -->
+    {% if agencies %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Agency Name</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Parish</th>
+                            <th scope="col">Contact Person</th>
+                            <th scope="col">Phone</th>
+                            <th scope="col" class="text-center">Status</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for agency in agencies %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('agencies.view_agency', agency_id=agency.agency_id) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    {{ agency.agency_name }}
+                                </a>
+                                {% if agency.warehouse %}
+                                <div class="text-muted small">
+                                    <i class="bi bi-building"></i> {{ agency.warehouse.warehouse_name }}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if agency.agency_type == 'DISTRIBUTOR' %}
+                                <span class="badge bg-warning text-dark">
+                                    <i class="bi bi-truck"></i> Distributor
+                                </span>
+                                {% elif agency.agency_type == 'SHELTER' %}
+                                <span class="badge bg-primary">
+                                    <i class="bi bi-house"></i> Shelter
+                                </span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ agency.agency_type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if agency.parish %}
+                                    {{ agency.parish.parish_name }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ agency.contact_name }}</td>
+                            <td>
+                                <a href="tel:{{ agency.phone_no }}" class="text-decoration-none">
+                                    <i class="bi bi-telephone"></i> {{ agency.phone_no }}
+                                </a>
+                            </td>
+                            <td class="text-center">
+                                {% if agency.status_code == 'A' %}
+                                <span class="badge bg-success">Active</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <a href="{{ url_for('agencies.view_agency', agency_id=agency.agency_id) }}" 
+                                   class="btn btn-sm btn-outline-primary"
+                                   title="View Details">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{{ url_for('agencies.edit_agency', agency_id=agency.agency_id) }}" 
+                                   class="btn btn-sm btn-warning"
+                                   title="Edit Agency">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-shop text-muted icon-xl"></i>
+            <p class="text-muted mt-3 mb-0">
+                {% if search_query or agency_type_filter or parish_filter %}
+                    No agencies match your search criteria.
+                {% else %}
+                    No agencies found. <a href="{{ url_for('agencies.create_agency') }}">Create the first agency</a>
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

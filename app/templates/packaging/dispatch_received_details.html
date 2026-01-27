@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Dispatch Details - PKG-{{ '%06d'|format(relief_pkg.reliefpkg_id) }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Action Buttons -->
+    <div class="mb-4">
+        <a href="{{ url_for('packaging.dispatch_received') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Dispatch Received
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header mb-4">
+        <div class="page-title">
+            <i class="bi bi-file-earmark-check page-title-icon"></i>
+            <h1 class="page-title-text">Completed Dispatch Details</h1>
+        </div>
+        <p class="page-subtitle">Package ID: PKG-{{ '%06d'|format(relief_pkg.reliefpkg_id) }} | Request ID: RR-{{ '%06d'|format(relief_request.reliefrqst_id) }}</p>
+    </div>
+
+    <!-- Status Banner -->
+    <div class="alert alert-success" role="alert">
+        <div class="d-flex align-items-center">
+            <i class="bi bi-check-circle-fill me-3" style="font-size: 1.5rem;"></i>
+            <div>
+                <h5 class="alert-heading mb-1">Package Handed Over</h5>
+                <p class="mb-0">
+                    This package was handed over to the agency on 
+                    <strong>{{ relief_pkg.received_dtime.strftime('%Y-%m-%d at %I:%M %p') }}</strong>
+                    by <strong>{{ relief_pkg.received_by_id }}</strong>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Package Information Card -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-3">Agency Information</h6>
+                    <p class="mb-2"><strong>Agency Name:</strong> {{ relief_request.agency.agency_name if relief_request.agency else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Contact Person:</strong> {{ relief_request.agency.contact_name if relief_request.agency else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Contact Phone:</strong> {{ relief_request.agency.contact_phone if relief_request.agency else 'N/A' }}</p>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-3">Timeline</h6>
+                    <p class="mb-2"><strong>Request Date:</strong> {{ relief_request.request_date.strftime('%Y-%m-%d') if relief_request.request_date else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Approved By:</strong> {{ relief_pkg.verify_by_id if relief_pkg.verify_by_id else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Approval Date:</strong> {{ relief_pkg.verify_dtime.strftime('%Y-%m-%d %I:%M %p') if relief_pkg.verify_dtime else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Dispatched Date:</strong> {{ relief_pkg.dispatch_dtime.strftime('%Y-%m-%d %I:%M %p') if relief_pkg.dispatch_dtime else 'N/A' }}</p>
+                    <p class="mb-2"><strong>Handover Date:</strong> <span class="badge bg-success">{{ relief_pkg.received_dtime.strftime('%Y-%m-%d %I:%M %p') }}</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Items by Warehouse -->
+    {% for warehouse_id, items in items_by_warehouse.items() %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">
+                <i class="bi bi-building"></i> Warehouse: {{ warehouses[warehouse_id].warehouse_name if warehouse_id in warehouses else 'Unknown' }}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Item Name</th>
+                            <th>Batch/Lot</th>
+                            <th>Expiry Date</th>
+                            <th>Requested Qty</th>
+                            <th>Issued Qty</th>
+                            <th>UOM</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pkg_item in items %}
+                        {% set rqst_item = relief_request.items|selectattr('item_id', 'equalto', pkg_item.item_id)|first %}
+                        <tr>
+                            <td>{{ pkg_item.item.item_name if pkg_item.item else 'N/A' }}</td>
+                            <td>
+                                {% if pkg_item.batch %}
+                                    {{ pkg_item.batch.lot_no or 'N/A' }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if pkg_item.batch and pkg_item.batch.expiry_date %}
+                                    {{ pkg_item.batch.expiry_date.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td>{{ rqst_item.qty_req|round(2) if rqst_item and rqst_item.qty_req else 'N/A' }}</td>
+                            <td><strong>{{ pkg_item.item_qty|round(2) if pkg_item.item_qty else '0' }}</strong></td>
+                            <td>{{ pkg_item.uom_code or 'N/A' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <td colspan="4" class="text-end"><strong>Total Items:</strong></td>
+                            <td colspan="2"><strong>{{ items|length }} item(s)</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Audit Trail -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h6 class="mb-0"><i class="bi bi-clock-history"></i> Audit Trail</h6>
+        </div>
+        <div class="card-body">
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-marker bg-primary"></div>
+                    <div class="timeline-content">
+                        <p class="mb-1"><strong>Package Created</strong></p>
+                        <small class="text-muted">{{ relief_pkg.create_dtime.strftime('%Y-%m-%d %I:%M %p') if relief_pkg.create_dtime else 'N/A' }} by {{ relief_pkg.create_by_id if relief_pkg.create_by_id else 'N/A' }}</small>
+                    </div>
+                </div>
+                {% if relief_pkg.verify_dtime %}
+                <div class="timeline-item">
+                    <div class="timeline-marker bg-info"></div>
+                    <div class="timeline-content">
+                        <p class="mb-1"><strong>Package Approved</strong></p>
+                        <small class="text-muted">{{ relief_pkg.verify_dtime.strftime('%Y-%m-%d %I:%M %p') }} by {{ relief_pkg.verify_by_id }}</small>
+                    </div>
+                </div>
+                {% endif %}
+                {% if relief_pkg.dispatch_dtime %}
+                <div class="timeline-item">
+                    <div class="timeline-marker bg-warning"></div>
+                    <div class="timeline-content">
+                        <p class="mb-1"><strong>Package Dispatched</strong></p>
+                        <small class="text-muted">{{ relief_pkg.dispatch_dtime.strftime('%Y-%m-%d %I:%M %p') }}</small>
+                    </div>
+                </div>
+                {% endif %}
+                {% if relief_pkg.received_dtime %}
+                <div class="timeline-item">
+                    <div class="timeline-marker bg-success"></div>
+                    <div class="timeline-content">
+                        <p class="mb-1"><strong>Package Handed Over</strong></p>
+                        <small class="text-muted">{{ relief_pkg.received_dtime.strftime('%Y-%m-%d %I:%M %p') }} by {{ relief_pkg.received_by_id }}</small>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style nonce="{{ csp_nonce() }}">
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+.timeline-item {
+    position: relative;
+    padding-bottom: 1.5rem;
+}
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+.timeline-marker {
+    position: absolute;
+    left: -2rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid white;
+}
+.timeline-item:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: -1.688rem;
+    top: 12px;
+    width: 2px;
+    height: calc(100% - 12px);
+    background: #dee2e6;
+}
+</style>
+{% endblock %}

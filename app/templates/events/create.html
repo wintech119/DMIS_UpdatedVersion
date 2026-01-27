@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+{% endblock %}
+
+{% block title %}Create Event{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-exclamation-triangle page-title-icon"></i>
+                <h1 class="page-title-text">Create New Disaster Event</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('events.list_events') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('events.create_event') }}" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <!-- Basic Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Basic Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="event_type" class="form-label">
+                                        Event Type <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="event_type" name="event_type" required>
+                                        <option value="">-- Select Type --</option>
+                                        {% for type in event_types %}
+                                        <option value="{{ type }}" {% if form_data and form_data.get('event_type') == type %}selected{% endif %}>
+                                            {{ type }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if errors and errors.get('event_type') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('event_type') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="start_date" class="form-label">
+                                        Start Date <span class="text-danger">*</span>
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="text" 
+                                               class="form-control datepicker" 
+                                               id="start_date" 
+                                               name="start_date" 
+                                               placeholder="YYYY-MM-DD"
+                                               value="{{ form_data.get('start_date') if form_data else '' }}"
+                                               required
+                                               readonly>
+                                        <span class="input-group-text cursor-pointer" id="calendar-icon">
+                                            <i class="bi bi-calendar3"></i>
+                                        </span>
+                                    </div>
+                                    <small class="form-text text-muted">Click to select date (cannot be in the future)</small>
+                                    {% if errors and errors.get('start_date') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('start_date') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Event Details Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-file-text"></i> Event Details
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="event_name" class="form-label">
+                                        Event Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="event_name" 
+                                           name="event_name" 
+                                           maxlength="60" 
+                                           value="{{ form_data.get('event_name') if form_data else '' }}"
+                                           required 
+                                           placeholder="e.g., Hurricane Gilbert 1988"
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted"><span id="event_name_count">0</span>/60 characters, auto-converted to uppercase</small>
+                                    {% if errors and errors.get('event_name') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('event_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-12">
+                                    <label for="event_desc" class="form-label">
+                                        Event Description <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="event_desc" 
+                                              name="event_desc" 
+                                              rows="3" 
+                                              maxlength="255" 
+                                              required 
+                                              placeholder="Brief description of the event">{{ form_data.get('event_desc') if form_data else '' }}</textarea>
+                                    <small class="form-text text-muted"><span id="event_desc_count">0</span>/255 characters</small>
+                                    {% if errors and errors.get('event_desc') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('event_desc') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Impact Assessment Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-bar-chart"></i> Impact Assessment
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="impact_desc" class="form-label">
+                                        Impact Description <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control" 
+                                              id="impact_desc" 
+                                              name="impact_desc" 
+                                              rows="6" 
+                                              required 
+                                              placeholder="Describe the impact of this disaster event on affected communities, infrastructure, and resources...">{{ form_data.get('impact_desc') if form_data else '' }}</textarea>
+                                    <small class="form-text text-muted">Provide a detailed description of the disaster's impact</small>
+                                    {% if errors and errors.get('impact_desc') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('impact_desc') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <a href="{{ url_for('events.list_events') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Create Event
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+// Character counter function
+function updateCharCount(fieldId, counterId, maxLength) {
+    const field = document.getElementById(fieldId);
+    const counter = document.getElementById(counterId);
+    if (!field || !counter) return;
+    
+    const currentLength = field.value.length;
+    counter.textContent = currentLength;
+    
+    // Change color when approaching limit
+    counter.classList.remove('char-count-danger', 'char-count-warning', 'char-count-normal');
+    if (currentLength > maxLength * 0.9) {
+        counter.classList.add('char-count-danger');
+    } else if (currentLength > maxLength * 0.75) {
+        counter.classList.add('char-count-warning');
+    } else {
+        counter.classList.add('char-count-normal');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Flatpickr for date picker
+    const datePicker = flatpickr("#start_date", {
+        dateFormat: "Y-m-d",
+        maxDate: "{{ today }}",
+        allowInput: false,
+        clickOpens: true
+    });
+    
+    // Make calendar icon clickable
+    const calendarIcon = document.getElementById('calendar-icon');
+    if (calendarIcon) {
+        calendarIcon.addEventListener('click', function() {
+            datePicker.open();
+        });
+    }
+    
+    // Character counters
+    const eventNameField = document.getElementById('event_name');
+    const eventDescField = document.getElementById('event_desc');
+    
+    if (eventNameField) {
+        eventNameField.addEventListener('input', function() {
+            updateCharCount('event_name', 'event_name_count', 60);
+        });
+        updateCharCount('event_name', 'event_name_count', 60);
+    }
+    
+    if (eventDescField) {
+        eventDescField.addEventListener('input', function() {
+            updateCharCount('event_desc', 'event_desc_count', 255);
+        });
+        updateCharCount('event_desc', 'event_desc_count', 255);
+    }
+});
+</script>
+{% endblock %}

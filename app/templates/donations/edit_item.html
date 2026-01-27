@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Edit Donation Item{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-pencil page-title-icon"></i>
+                <h1 class="page-title-text">Edit Donation Item</h1>
+            </div>
+            <p class="page-subtitle">Donation #{{ donation_item.donation_id }} - {{ donation_item.item.item_name if donation_item.item else 'Unknown Item' }}</p>
+        </div>
+        <a href="{{ url_for('donations.view_donation', donation_id=donation_item.donation_id) }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Donation
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('donations.edit_donation_item', donation_id=donation_item.donation_id, item_id=donation_item.item_id) }}" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="version_nbr" value="{{ donation_item.version_nbr }}">
+                        
+                        <!-- Item Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-box-seam"></i> Item Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label">Item</label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           value="{{ donation_item.item.item_name if donation_item.item else 'Unknown' }} {% if donation_item.item and donation_item.item.item_code %}({{ donation_item.item.item_code }}){% endif %}" 
+                                           disabled>
+                                    <small class="form-text text-muted">Item cannot be changed. Delete and create a new item if needed.</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="item_qty" class="form-label">
+                                        Quantity <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number" 
+                                           step="0.0001" 
+                                           class="form-control" 
+                                           id="item_qty" 
+                                           name="item_qty" 
+                                           value="{{ donation_item.item_qty }}" 
+                                           min="0.0001" 
+                                           required
+                                           placeholder="0.0000">
+                                    <small class="form-text text-muted">Up to 4 decimal places</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="uom_code" class="form-label">
+                                        Unit of Measure <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="uom_code" name="uom_code" required>
+                                        <option value="">-- Select UOM --</option>
+                                        {% for uom in uoms %}
+                                        <option value="{{ uom.uom_code }}" {% if uom.uom_code == donation_item.uom_code %}selected{% endif %}>
+                                            {{ uom.uom_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="status_code" class="form-label">
+                                        Status <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="status_code" name="status_code" required>
+                                        <option value="P" {% if donation_item.status_code == 'P' %}selected{% endif %}>Pending</option>
+                                        <option value="V" {% if donation_item.status_code == 'V' %}selected{% endif %}>Verified</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Location Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-geo-alt"></i> Location Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="location_name" class="form-label">
+                                        Storage Location <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control text-uppercase" 
+                                           id="location_name" 
+                                           name="location_name" 
+                                           value="{{ donation_item.location_name }}" 
+                                           maxlength="50" 
+                                           required
+                                           placeholder="e.g., WAREHOUSE A - SHELF 12">
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Comments Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-chat-left-text"></i> Additional Comments
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="comments_text" class="form-label">
+                                        Comments
+                                    </label>
+                                    <textarea class="form-control text-uppercase" 
+                                              id="comments_text" 
+                                              name="comments_text" 
+                                              rows="2"
+                                              placeholder="Optional comments about this item...">{{ donation_item.comments_text or '' }}</textarea>
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <a href="{{ url_for('donations.view_donation', donation_id=donation_item.donation_id) }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,185 @@
+/*
+ * WCAG 2.1 AA Accessible Styles for DRIMS
+ * Shared across all relief request pages
+ */
+
+/* Skip link for keyboard navigation */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #000;
+    color: white;
+    padding: 8px;
+    text-decoration: none;
+    z-index: 100;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* WCAG AA compliant badges with improved contrast (4.5:1 minimum) */
+.badge-danger-accessible {
+    background-color: #c82333;
+    color: #fff;
+    padding: 0.25em 0.4em;
+    font-size: 85%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    display: inline-block;
+}
+
+.badge-warning-accessible {
+    background-color: #856404;
+    color: #fff;
+    padding: 0.25em 0.4em;
+    font-size: 85%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    display: inline-block;
+}
+
+.badge-info-accessible {
+    background-color: #0c5460;
+    color: #fff;
+    padding: 0.25em 0.4em;
+    font-size: 85%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    display: inline-block;
+}
+
+.badge-primary-accessible {
+    background-color: #004085;
+    color: #fff;
+    padding: 0.25em 0.4em;
+    font-size: 85%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    display: inline-block;
+}
+
+.badge-success-accessible {
+    background-color: #155724;
+    color: #fff;
+    padding: 0.25em 0.4em;
+    font-size: 85%;
+    font-weight: 700;
+    line-height: 1;
+    border-radius: 0.25rem;
+    display: inline-block;
+}
+
+.bg-warning-accessible {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.btn-warning-accessible {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #212529;
+}
+
+.btn-warning-accessible:hover,
+.btn-warning-accessible:focus {
+    background-color: #e0a800;
+    border-color: #d39e00;
+    color: #212529;
+}
+
+.btn-success-accessible {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: #fff;
+}
+
+.btn-success-accessible:hover,
+.btn-success-accessible:focus {
+    background-color: #218838;
+    border-color: #1e7e34;
+    color: #fff;
+}
+
+.btn-primary-accessible {
+    background-color: #004085;
+    border-color: #004085;
+    color: #fff;
+}
+
+.btn-primary-accessible:hover,
+.btn-primary-accessible:focus {
+    background-color: #003066;
+    border-color: #002752;
+    color: #fff;
+}
+
+/* Enhanced focus indicators for accessibility (WCAG 2.4.7) */
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus,
+a:focus,
+button:focus {
+    outline: 3px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.btn:focus {
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Responsive table improvements - ACCESSIBLE VERSION */
+@media (max-width: 768px) {
+    /* Hide thead visually but keep for screen readers */
+    .drims-table thead th {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+    }
+    
+    .drims-table tr {
+        display: block;
+        margin-bottom: 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+    }
+    
+    .drims-table td {
+        display: block;
+        text-align: right;
+        padding-left: 50%;
+        position: relative;
+    }
+    
+    .drims-table td::before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 45%;
+        padding-left: 15px;
+        font-weight: bold;
+        text-align: left;
+    }
+}
+
+/* Breadcrumb accessibility */
+.breadcrumb {
+    background-color: transparent;
+    padding: 0.75rem 0;
+}
+
+.breadcrumb-item + .breadcrumb-item::before {
+    content: "›";
+    padding: 0 0.5rem;
+}

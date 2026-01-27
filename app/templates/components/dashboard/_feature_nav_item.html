@@ -1,0 +1,143 @@
+{#
+Feature Navigation Item Component
+
+Renders navigation items with access control based on Feature Registry.
+
+Usage:
+    {% from 'components/dashboard/_feature_nav_item.html' import feature_nav_item, feature_nav_group %}
+    {{ feature_nav_item('relief_request_creation') }}
+
+Parameters:
+    feature_key: Feature key from FeatureRegistry
+    custom_label: Override feature name (optional)
+    custom_icon: Override feature icon (optional)
+    active: Whether this item is currently active (optional)
+#}
+
+{% macro feature_nav_item(feature_key, custom_label=None, custom_icon=None, active=False) %}
+    {% if has_feature(feature_key) %}
+        {% set feature = get_feature_details(feature_key) %}
+        {% set label = custom_label or feature.name %}
+        {% set icon = custom_icon or feature.icon %}
+        {% set nav_url = url_for(feature.route) if feature.route else feature.url %}
+        
+        <li class="nav-item">
+            <a class="nav-link {% if active %}active{% endif %}" href="{{ nav_url }}">
+                <i class="{{ icon }} me-2"></i>
+                {{ label }}
+            </a>
+        </li>
+    {% endif %}
+{% endmacro %}
+
+
+{#
+Feature Navigation Group
+
+Renders a group of navigation items for a specific feature category.
+
+Usage:
+    {% from 'components/dashboard/_feature_nav_item.html' import feature_nav_group %}
+    {{ feature_nav_group('relief_requests', 'Relief Requests') }}
+
+Parameters:
+    group: Navigation group name
+    title: Group title
+    collapsible: Whether group is collapsible (default: False)
+#}
+
+{% macro feature_nav_group(group, title, collapsible=False) %}
+    {% set nav_features = get_navigation_features(group) %}
+    
+    {% if nav_features %}
+        <div class="nav-group mb-3">
+            {% if collapsible %}
+                <div class="accordion accordion-flush" id="navGroup{{ group }}">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#collapse{{ group }}">
+                                {{ title }}
+                            </button>
+                        </h2>
+                        <div id="collapse{{ group }}" class="accordion-collapse collapse" 
+                             data-bs-parent="#navGroup{{ group }}">
+                            <div class="accordion-body p-0">
+                                <ul class="nav flex-column">
+                                    {% for feature in nav_features %}
+                                        {{ feature_nav_item(feature.key) }}
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <h6 class="nav-group-title text-uppercase text-muted small fw-bold px-3 mb-2">
+                    {{ title }}
+                </h6>
+                <ul class="nav flex-column">
+                    {% for feature in nav_features %}
+                        {{ feature_nav_item(feature.key) }}
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endmacro %}
+
+
+{#
+Quick Actions Component
+
+Renders quick action buttons from dashboard service.
+
+Usage:
+    {% from 'components/dashboard/_feature_nav_item.html' import quick_actions %}
+    {{ quick_actions(actions_list) }}
+
+Parameters:
+    actions: List of action dictionaries from DashboardService
+#}
+
+{% macro quick_actions(actions) %}
+    {% if actions %}
+        <div class="quick-actions mb-4">
+            <div class="d-flex flex-wrap gap-2">
+                {% for action in actions %}
+                    <a href="{{ action.url }}" class="btn btn-{{ action.variant }} btn-sm">
+                        <i class="{{ action.icon }} me-1"></i>
+                        {{ action.label }}
+                    </a>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+
+{#
+Feature Link Component
+
+Simple link with access control.
+
+Usage:
+    {% from 'components/dashboard/_feature_nav_item.html' import feature_link %}
+    {{ feature_link('inventory_view', 'View Stock Levels') }}
+#}
+
+{% macro feature_link(feature_key, label=None, class='', icon=None) %}
+    {% if has_feature(feature_key) %}
+        {% set feature = get_feature_details(feature_key) %}
+        {% set link_url = url_for(feature.route) if feature.route else feature.url %}
+        {% set display_label = label or feature.name %}
+        {% set display_icon = icon or feature.icon %}
+        
+        <a href="{{ link_url }}" class="{{ class }}">
+            {% if display_icon %}
+                <i class="{{ display_icon }} me-1"></i>
+            {% endif %}
+            {{ display_label }}
+        </a>
+    {% endif %}
+{% endmacro %}

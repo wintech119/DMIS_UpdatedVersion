@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Notification Preferences{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-bell page-title-icon"></i>
+                <h1 class="page-title-text">Notification Preferences</h1>
+            </div>
+            <p class="page-subtitle">Manage how you receive notifications</p>
+        </div>
+        <a href="{{ url_for('profile.view_profile') }}" class="btn btn-relief-secondary">
+            <i class="bi bi-arrow-left me-2"></i>
+            Back to Profile
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="drims-card">
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('profile.preferences') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <h5 class="card-title mb-4">
+                            <i class="bi bi-envelope me-2"></i>
+                            Notification Channels
+                        </h5>
+
+                        <div class="mb-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       id="email_notifications" 
+                                       name="email_notifications"
+                                       {% if preferences.get('email', True) %}checked{% endif %}>
+                                <label class="form-check-label" for="email_notifications">
+                                    <strong>Email Notifications</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        Receive email alerts for relief requests, approvals, and system updates
+                                    </small>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       id="sms_notifications" 
+                                       name="sms_notifications"
+                                       {% if preferences.get('sms', False) %}checked{% endif %}>
+                                <label class="form-check-label" for="sms_notifications">
+                                    <strong>SMS Notifications</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        Receive text message alerts for urgent updates and critical events
+                                    </small>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       id="push_notifications" 
+                                       name="push_notifications"
+                                       {% if preferences.get('push', False) %}checked{% endif %}>
+                                <label class="form-check-label" for="push_notifications">
+                                    <strong>Push Notifications</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        Receive browser push notifications while using the system
+                                    </small>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                            <a href="{{ url_for('profile.view_profile') }}" class="btn btn-relief-secondary">
+                                <i class="bi bi-x-circle me-2"></i>
+                                Cancel
+                            </a>
+                            <button type="submit" class="btn btn-relief-primary">
+                                <i class="bi bi-check-circle me-2"></i>
+                                Save Preferences
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info Sidebar -->
+        <div class="col-lg-4">
+            <div class="drims-card">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        About Notifications
+                    </h6>
+                    
+                    <p class="small text-muted mb-3">
+                        DRIMS sends notifications for important events like:
+                    </p>
+
+                    <ul class="small text-muted mb-0">
+                        <li class="mb-2">New relief requests requiring your attention</li>
+                        <li class="mb-2">Approval or rejection of your requests</li>
+                        <li class="mb-2">Package preparation assignments</li>
+                        <li class="mb-2">Inventory low stock alerts</li>
+                        <li class="mb-2">System announcements and updates</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="drims-card mt-3">
+                <div class="card-body">
+                    <h6 class="card-title mb-3">
+                        <i class="bi bi-question-circle me-2"></i>
+                        Need Help?
+                    </h6>
+                    
+                    <p class="small text-muted mb-3">
+                        If you're not receiving notifications, check:
+                    </p>
+
+                    <ul class="small text-muted mb-0">
+                        <li class="mb-2">Your email address is correct in your profile</li>
+                        <li class="mb-2">Your phone number is up to date</li>
+                        <li class="mb-2">Spam/junk folder for email notifications</li>
+                        <li>Browser permissions for push notifications</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

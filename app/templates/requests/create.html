@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% from 'components/_workflow_progress.html' import render_workflow_progress %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Create Relief Request{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('requests.list_requests') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to My Requests
+        </a>
+    </div>
+
+    <div class="row">
+        <!-- Main Content Column -->
+        <div class="col-lg-9">
+            <!-- Page Header -->
+            <div class="page-header">
+                <div class="page-title">
+                    <i class="bi bi-plus-circle page-title-icon"></i>
+                    <h1 class="page-title-text">Create Relief Request</h1>
+                </div>
+                <p class="page-subtitle">Step 1 of 5: Provide request details</p>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="info-panel" role="region" aria-label="Next steps information">
+                <div class="info-panel-title">
+                    <i class="bi bi-info-circle-fill"></i>
+                    What Happens Next
+                </div>
+                <div class="info-panel-content">
+                    <p class="mb-0">After creating this request, you'll be able to add items with quantities and justifications before submitting to ODPEM for eligibility review.</p>
+                </div>
+            </div>
+
+            <!-- Request Details Form -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Request Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('requests.create_request') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="agency_name" class="form-label">Requesting Agency</label>
+                                <input type="text" class="form-control" id="agency_name" value="{{ current_user.agency.agency_name }}" readonly disabled>
+                                <small class="text-muted">Your agency</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="request_date" class="form-label">Request Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="request_date" name="request_date" value="{{ today }}" max="{{ today }}" required>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="eligible_event_id" class="form-label">Disaster Event <span class="text-danger">*</span></label>
+                                <select class="form-select" id="eligible_event_id" name="eligible_event_id" required>
+                                    <option value="">Select event...</option>
+                                    {% for event in events %}
+                                    <option value="{{ event.event_id }}">{{ event.event_name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <small class="text-muted">Select the disaster event this request is for</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="urgency_ind" class="form-label">Urgency Level <span class="text-danger">*</span></label>
+                                <select class="form-select" id="urgency_ind" name="urgency_ind" required>
+                                    <option value="">Select urgency...</option>
+                                    <option value="H">High - Emergency response required</option>
+                                    <option value="M">Medium - Urgent action needed</option>
+                                    <option value="L">Low - Standard processing</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="rqst_notes_text" class="form-label">Request Notes</label>
+                            <textarea class="form-control" id="rqst_notes_text" name="rqst_notes_text" rows="4" placeholder="Provide additional details about this relief request..."></textarea>
+                            <small class="text-muted">Optional: Add context, special requirements, or delivery instructions</small>
+                        </div>
+
+                        <div class="d-flex gap-2 pt-3 border-top">
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i>
+                                Create Request
+                            </button>
+                            <a href="{{ url_for('requests.list_requests') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i>
+                                Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workflow Sidebar Column -->
+        <div class="col-lg-3">
+            {{ render_workflow_progress([
+                {'title': 'Create Request', 'description': 'Provide basic request details and disaster event information', 'status': 'active'},
+                {'title': 'Add Items', 'description': 'Add items with quantities, urgency levels, and justifications', 'status': 'pending'},
+                {'title': 'Review & Submit', 'description': 'Review your request and submit to ODPEM for processing', 'status': 'pending'},
+                {'title': 'Eligibility Review', 'description': 'ODPEM reviews eligibility and makes approval decision', 'status': 'pending'},
+                {'title': 'Fulfillment & Delivery', 'description': 'ODPEM logistics prepares and delivers approved items', 'status': 'pending'}
+            ]) }}
+        </div>
+    </div>
+</div>
+{% endblock %}

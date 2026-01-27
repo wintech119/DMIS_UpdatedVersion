@@ -1,0 +1,282 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block extra_scripts %}
+<script  nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/phone-mask.js') }}"></script>
+{% endblock %}
+
+{% block title %}Create Warehouse{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-building page-title-icon"></i>
+                <h1 class="page-title-text">Create New Warehouse</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('warehouses.list_warehouses', filter='all') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('warehouses.create_warehouse') }}" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <!-- Basic Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Basic Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="warehouse_name" class="form-label">
+                                        Warehouse Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="warehouse_name" 
+                                           name="warehouse_name" 
+                                           value="{{ form_data.get('warehouse_name') if form_data else '' }}"
+                                           required 
+                                           placeholder="e.g., Kingston Central Warehouse"
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                    {% if errors and errors.get('warehouse_name') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('warehouse_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="warehouse_type" class="form-label">
+                                        Warehouse Type <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="warehouse_type" name="warehouse_type" required>
+                                        <option value="">-- Select Type --</option>
+                                        {% for type in warehouse_types %}
+                                        <option value="{{ type }}" {% if form_data and form_data.get('warehouse_type') == type %}selected{% endif %}>
+                                            {{ type }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if errors and errors.get('warehouse_type') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('warehouse_type') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Address Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-geo-alt"></i> Address Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="address1_text" class="form-label">
+                                        Address Line 1 <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="address1_text" 
+                                           name="address1_text" 
+                                           maxlength="255" 
+                                           value="{{ form_data.get('address1_text') if form_data else '' }}"
+                                           required 
+                                           placeholder="Street address, P.O. Box, Company Name">
+                                    {% if errors and errors.get('address1_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('address1_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-12">
+                                    <label for="address2_text" class="form-label">
+                                        Address Line 2
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="address2_text" 
+                                           name="address2_text" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('address2_text') if form_data else '' }}"
+                                           placeholder="Apartment, Suite, Unit, Building, Floor">
+                                    {% if errors and errors.get('address2_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('address2_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="parish_code" class="form-label">
+                                        Parish <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="parish_code" name="parish_code" required>
+                                        <option value="">-- Select Parish --</option>
+                                        {% for parish in parishes %}
+                                        <option value="{{ parish.parish_code }}" {% if form_data and form_data.get('parish_code') == parish.parish_code %}selected{% endif %}>
+                                            {{ parish.parish_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if errors and errors.get('parish_code') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('parish_code') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="custodian_id" class="form-label">
+                                        Custodian <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="custodian_id" name="custodian_id" required>
+                                        <option value="">-- Select Custodian --</option>
+                                        {% for custodian in custodians %}
+                                        <option value="{{ custodian.custodian_id }}" {% if form_data and form_data.get('custodian_id')|string == custodian.custodian_id|string %}selected{% endif %}>
+                                            {{ custodian.custodian_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if errors and errors.get('custodian_id') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('custodian_id') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Contact Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-person-badge"></i> Contact Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="contact_name" class="form-label">
+                                        Contact Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="contact_name" 
+                                           name="contact_name" 
+                                           maxlength="50"
+                                           value="{{ form_data.get('contact_name') if form_data else '' }}"
+                                           required 
+                                           placeholder="Contact person name"
+                                           class="text-uppercase-input">
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                    {% if errors and errors.get('contact_name') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('contact_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="phone_no" class="form-label">
+                                        Phone Number <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="tel" 
+                                           class="form-control phone-mask" 
+                                           id="phone_no" 
+                                           name="phone_no" 
+                                           value="{{ form_data.get('phone_no') if form_data else '' }}"
+                                           required
+                                           placeholder="+1 (876) XXX-XXXX">
+                                    <small class="form-text text-muted">Format: +1 (XXX) XXX-XXXX</small>
+                                    {% if errors and errors.get('phone_no') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('phone_no') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="email_text" class="form-label">
+                                        Email Address
+                                    </label>
+                                    <input type="email" 
+                                           class="form-control" 
+                                           id="email_text" 
+                                           name="email_text" 
+                                           maxlength="100"
+                                           value="{{ form_data.get('email_text') if form_data else '' }}"
+                                           placeholder="email@example.com">
+                                    {% if errors and errors.get('email_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('email_text') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Status Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-check-circle"></i> Status
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="status_code" class="form-label">
+                                        Status <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="status_code" name="status_code" required data-action="toggle-reason-field">
+                                        <option value="A" {% if not form_data or form_data.get('status_code') == 'A' %}selected{% endif %}>Active</option>
+                                        <option value="I" {% if form_data and form_data.get('status_code') == 'I' %}selected{% endif %}>Inactive</option>
+                                    </select>
+                                    {% if errors and errors.get('status_code') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('status_code') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6" id="reason_container" class="d-none">
+                                    <label for="reason_desc" class="form-label">
+                                        Reason for Inactivation <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="reason_desc" 
+                                           name="reason_desc" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('reason_desc') if form_data else '' }}"
+                                           placeholder="Explain why this warehouse is inactive">
+                                    {% if errors and errors.get('reason_desc') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('reason_desc') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <a href="{{ url_for('warehouses.list_warehouses', filter='all') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Create Warehouse
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+function toggleReasonField() {
+    const status = document.getElementById('status_code').value;
+    const reasonContainer = document.getElementById('reason_container');
+    const reasonInput = document.getElementById('reason_desc');
+    
+    if (status === 'I') {
+        reasonContainer.classList.remove('d-none');
+        reasonContainer.classList.add('d-block');
+        reasonInput.required = true;
+    } else {
+        reasonContainer.classList.remove('d-block');
+        reasonContainer.classList.add('d-none');
+        reasonInput.required = false;
+        reasonInput.value = '';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    toggleReasonField();
+});
+</script>
+{% endblock %}

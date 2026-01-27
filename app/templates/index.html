@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <!-- Page Header -->
+    <div class="page-header-modern">
+        <div class="page-title-group">
+            <h1>
+                <i class="bi bi-speedometer2"></i>
+                Dashboard
+            </h1>
+            <p class="subtitle">Disaster Relief Inventory Management System</p>
+        </div>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div class="metrics-grid">
+        <div class="metric-card metric-card-success">
+            <div class="metric-icon">
+                <i class="bi bi-building"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-value">{{ total_warehouses }}</div>
+                <div class="metric-label">Active Warehouses</div>
+            </div>
+        </div>
+
+        <div class="metric-card metric-card-info">
+            <div class="metric-icon">
+                <i class="bi bi-box-seam"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-value">{{ total_items }}</div>
+                <div class="metric-label">Active Items</div>
+            </div>
+        </div>
+
+        <div class="metric-card metric-card-warning">
+            <div class="metric-icon">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-value">{{ active_events }}</div>
+                <div class="metric-label">Active Events</div>
+            </div>
+        </div>
+
+        <div class="metric-card metric-card-total">
+            <div class="metric-icon">
+                <i class="bi bi-file-text"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-value">{{ pending_requests }}</div>
+                <div class="metric-label">Pending Requests</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Secondary Metrics -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="metric-card metric-card-success">
+                <div class="metric-icon">
+                    <i class="bi bi-boxes"></i>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-value">{{ "%.0f"|format(total_stock_value) }}</div>
+                    <div class="metric-label">Total Stock Units</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="metric-card metric-card-danger">
+                <div class="metric-icon">
+                    <i class="bi bi-exclamation-circle"></i>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-value">{{ low_stock_items }}</div>
+                    <div class="metric-label">Low Stock Items</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="table-container">
+        <div class="p-4">
+            <h5 class="section-header mb-4">
+                <i class="bi bi-lightning me-2"></i>
+                Quick Actions
+            </h5>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <a href="{{ url_for('events.create_event') }}" class="btn btn-modern btn-outline w-100">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        New Event
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a href="{{ url_for('warehouses.create_warehouse') }}" class="btn btn-modern btn-outline w-100">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        New Warehouse
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a href="{{ url_for('items.create_item') }}" class="btn btn-modern btn-outline w-100">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        New Item
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a href="{{ url_for('requests.create_request') }}" class="btn btn-modern btn-outline w-100">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        New Request
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

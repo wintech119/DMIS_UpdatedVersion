@@ -1,0 +1,443 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.chart-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.5rem;
+}
+
+.chart-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 1rem;
+}
+
+.recent-activity-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.activity-item {
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-info {
+    flex: 1;
+}
+
+.activity-agency {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+}
+
+.activity-id {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.activity-status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.activity-status.being-prepared {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.activity-status.approved {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.activity-status.completed {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+.no-data-message {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6b7280;
+}
+
+.no-data-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.3;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .chart-container {
+        height: 250px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block title %}Logistics Officer Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="page-header mb-4">
+        <div class="page-title">
+            <i class="bi bi-speedometer2 page-title-icon"></i>
+            <h1 class="page-title-text">My Dashboard</h1>
+        </div>
+        <p class="page-subtitle">Your activity overview and performance metrics</p>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    {% set summary_metrics = [
+        {
+            'icon': 'clipboard-check',
+            'label': 'Relief Requests',
+            'value': total_requests_worked,
+            'variant': 'info'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Total Packages',
+            'value': total_packages,
+            'variant': 'primary'
+        },
+        {
+            'icon': 'calendar-week',
+            'label': 'Last 7 Days',
+            'value': requests_last_7_days,
+            'variant': 'warning'
+        },
+        {
+            'icon': 'calendar-range',
+            'label': 'Last 30 Days',
+            'value': requests_last_30_days,
+            'variant': 'secondary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Charts Grid -->
+    <div class="dashboard-grid">
+        <!-- Package Status Breakdown (Pie Chart) -->
+        <div class="chart-card">
+            <div class="chart-card-title">
+                <i class="bi bi-pie-chart"></i> Package Status Breakdown
+            </div>
+            {% if status_breakdown.total > 0 %}
+            <div class="chart-container">
+                <canvas id="statusChart"></canvas>
+            </div>
+            {% else %}
+            <div class="no-data-message">
+                <div class="no-data-icon"><i class="bi bi-inbox"></i></div>
+                <p>No package data available yet</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Activity Timeline (Line Chart) -->
+        <div class="chart-card">
+            <div class="chart-card-title">
+                <i class="bi bi-graph-up"></i> Activity Timeline (Last 14 Days)
+            </div>
+            {% if timeline_values and timeline_values|sum > 0 %}
+            <div class="chart-container">
+                <canvas id="timelineChart"></canvas>
+            </div>
+            {% else %}
+            <div class="no-data-message">
+                <div class="no-data-icon"><i class="bi bi-calendar-x"></i></div>
+                <p>No recent activity in the last 14 days</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Top Items Allocated (Bar Chart) -->
+        <div class="chart-card">
+            <div class="chart-card-title">
+                <i class="bi bi-bar-chart"></i> Top Items Allocated
+            </div>
+            {% if top_items.labels %}
+            <div class="chart-container">
+                <canvas id="topItemsChart"></canvas>
+            </div>
+            {% else %}
+            <div class="no-data-message">
+                <div class="no-data-icon"><i class="bi bi-box"></i></div>
+                <p>No items allocated yet</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="chart-card">
+            <div class="chart-card-title">
+                <i class="bi bi-clock-history"></i> Recent Activity
+            </div>
+            {% if recent_packages %}
+            <ul class="recent-activity-list">
+                {% for pkg in recent_packages %}
+                <li class="activity-item">
+                    <div class="activity-info">
+                        <div class="activity-agency">
+                            {{ pkg.relief_request.agency.agency_name if pkg.relief_request and pkg.relief_request.agency else 'Unknown Agency' }}
+                        </div>
+                        <div class="activity-id">
+                            Package #{{ pkg.reliefpkg_id }} • 
+                            {{ pkg.create_dtime.strftime('%b %d, %Y') if pkg.create_dtime else 'N/A' }}
+                        </div>
+                    </div>
+                    <div>
+                        {% if pkg.status_code == PKG_STATUS_PENDING %}
+                        <span class="activity-status being-prepared">Being Prepared</span>
+                        {% elif pkg.status_code == PKG_STATUS_DISPATCHED %}
+                        <span class="activity-status approved">Approved</span>
+                        {% elif pkg.status_code == PKG_STATUS_CLOSED %}
+                        <span class="activity-status completed">Completed</span>
+                        {% else %}
+                        <span class="activity-status">{{ status_labels_map.get(pkg.status_code, pkg.status_code) }}</span>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="no-data-message">
+                <div class="no-data-icon"><i class="bi bi-activity"></i></div>
+                <p>No recent package activity</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="chart-card">
+        <div class="chart-card-title">
+            <i class="bi bi-lightning"></i> Quick Actions
+        </div>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <a href="{{ url_for('packaging.pending_fulfillment') }}" class="btn-relief-primary">
+                <i class="bi bi-list-check"></i> View Pending Requests
+            </a>
+            <a href="{{ url_for('packaging.pending_fulfillment', filter='pending_approval') }}" class="btn btn-outline-primary">
+                <i class="bi bi-hourglass-split"></i> Awaiting Approval
+            </a>
+            <a href="{{ url_for('packaging.create_request_on_behalf') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-plus-circle"></i> Create New Request
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Chart.js -->
+<script  nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+
+<script nonce="{{ csp_nonce() }}">
+// Chart.js default configuration
+Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.color = '#6b7280';
+
+// Color palette matching DRIMS theme
+const colors = {
+    primary: '#3b82f6',
+    success: '#10b981',
+    warning: '#f59e0b',
+    danger: '#ef4444',
+    info: '#06b6d4',
+    secondary: '#6b7280'
+};
+
+const chartColors = [
+    colors.warning,  // Being Prepared
+    colors.success,  // Approved for Dispatch
+    colors.info,     // Completed
+    colors.secondary // Cancelled
+];
+
+{% if status_breakdown.total > 0 %}
+// Package Status Breakdown Pie Chart
+const statusCtx = document.getElementById('statusChart').getContext('2d');
+new Chart(statusCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ status_breakdown.labels | tojson }},
+        datasets: [{
+            data: {{ status_breakdown.data | tojson }},
+            backgroundColor: chartColors,
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: {
+                    padding: 15,
+                    font: {
+                        size: 12
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        const total = {{ status_breakdown.total }};
+                        const percentage = ((value / total) * 100).toFixed(1);
+                        return `${label}: ${value} (${percentage}%)`;
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if timeline_values and timeline_values|sum > 0 %}
+// Activity Timeline Line Chart
+const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+new Chart(timelineCtx, {
+    type: 'line',
+    data: {
+        labels: {{ timeline_labels | tojson }},
+        datasets: [{
+            label: 'Packages Created',
+            data: {{ timeline_values | tojson }},
+            borderColor: colors.primary,
+            backgroundColor: colors.primary + '20',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: colors.primary,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
+                },
+                grid: {
+                    color: '#f3f4f6'
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if top_items.labels %}
+// Top Items Allocated Horizontal Bar Chart
+const topItemsCtx = document.getElementById('topItemsChart').getContext('2d');
+new Chart(topItemsCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ top_items.labels | tojson }},
+        datasets: [{
+            label: 'Quantity Allocated',
+            data: {{ top_items.data | tojson }},
+            backgroundColor: colors.success,
+            borderColor: colors.success,
+            borderWidth: 1
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return `Quantity: ${context.parsed.x.toLocaleString()}`;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                grid: {
+                    color: '#f3f4f6'
+                }
+            },
+            y: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

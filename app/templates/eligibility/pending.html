@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_status_badge.html' import status_badge %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Relief Requests Pending Review{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Back Button -->
+    <div class="mb-3">
+        <a href="{{ url_for('index') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="page-header">
+        <div class="page-title">
+            <i class="bi bi-clipboard-check page-title-icon"></i>
+            <h1 class="page-title-text">Relief Requests Pending Review</h1>
+        </div>
+        <p class="page-subtitle">Review and approve/deny relief requests from agencies</p>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'hourglass-split',
+            'label': 'Pending Review',
+            'value': total_pending,
+            'variant': 'warning'
+        },
+        {
+            'icon': 'exclamation-triangle',
+            'label': 'High Priority',
+            'value': high_priority,
+            'variant': 'danger'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'Total Items',
+            'value': total_items,
+            'variant': 'info'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Priority filters">
+        <a href="{{ url_for('eligibility.pending_list') }}" 
+           class="filter-tab {% if not current_filter or current_filter == 'all' %}active{% endif %}"
+           {% if not current_filter or current_filter == 'all' %}aria-current="page"{% endif %}>
+            All Pending
+            {% if total_pending > 0 %}
+            <span class="filter-tab-count" aria-label="{{ total_pending }} pending">{{ total_pending }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('eligibility.pending_list', priority='high') }}" 
+           class="filter-tab {% if current_filter == 'high' %}active{% endif %}"
+           {% if current_filter == 'high' %}aria-current="page"{% endif %}>
+            High Priority
+            {% if high_priority > 0 %}
+            <span class="filter-tab-count" aria-label="{{ high_priority }} high priority">{{ high_priority }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Requests Table -->
+    {% if requests %}
+    <table class="relief-requests-table" role="table" aria-label="Pending relief requests awaiting eligibility review">
+        <thead>
+            <tr>
+                <th scope="col">Request Number</th>
+                <th scope="col">Requesting Agency</th>
+                <th scope="col">Event</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Items</th>
+                <th scope="col">Submitted</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('eligibility.review_request', request_id=req.reliefrqst_id) }}" 
+                       class="table-link"
+                       aria-label="View request RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        RR-{{ '%06d'|format(req.reliefrqst_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ req.agency.agency_name if req.agency else 'Unknown' }}
+                    {% if req.agency and req.agency.contact_name %}
+                    <div class="table-sku">{{ req.agency.contact_name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.eligible_event %}
+                    {{ req.eligible_event.event_name }}
+                    {% else %}
+                    <span class="text-muted">Not specified</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if req.urgency_ind == 'C' or req.urgency_ind == 'H' %}
+                    {{ status_badge('high', 'High') }}
+                    {% elif req.urgency_ind == 'M' %}
+                    {{ status_badge('medium', 'Medium') }}
+                    {% elif req.urgency_ind == 'L' %}
+                    {{ status_badge('low', 'Low') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <strong>{{ req.items|length if req.items else 0 }}</strong> items
+                </td>
+                <td>
+                    {% if req.request_date %}
+                    {{ req.request_date.strftime('%Y-%m-%d') }}
+                    {% else %}
+                    <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ url_for('eligibility.review_request', request_id=req.reliefrqst_id) }}" 
+                       class="btn-relief-primary btn-sm"
+                       aria-label="Review request RR-{{ '%06d'|format(req.reliefrqst_id) }}">
+                        <i class="bi bi-clipboard-check"></i>
+                        Review
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox" style="font-size: 3rem; color: #6c757d;"></i>
+        <p class="mt-3 text-muted">No relief requests are currently pending eligibility review{% if current_filter == 'high' %} with high priority{% endif %}.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

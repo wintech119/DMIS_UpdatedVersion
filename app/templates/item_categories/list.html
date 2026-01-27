@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block title %}Item Categories{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header with Action Button -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-grid-3x3 page-title-icon"></i>
+                <h1 class="page-title-text">Item Categories</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('item_categories.create_category') }}" class="btn-relief-primary">
+            <i class="bi bi-plus-circle"></i>
+            Create Category
+        </a>
+    </div>
+
+    <!-- Summary Metrics -->
+    {% set summary_metrics = [
+        {
+            'icon': 'grid-3x3',
+            'label': 'Total Categories',
+            'value': metrics.get('total_categories', 0),
+            'variant': 'info'
+        },
+        {
+            'icon': 'check-circle',
+            'label': 'Active',
+            'value': metrics.get('active_categories', 0),
+            'variant': 'success'
+        },
+        {
+            'icon': 'x-circle',
+            'label': 'Inactive',
+            'value': metrics.get('inactive_categories', 0),
+            'variant': 'warning'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs" role="navigation" aria-label="Category status filters">
+        <a href="{{ url_for('item_categories.list_categories', filter='all') }}" 
+           class="filter-tab {% if filter_type == 'all' or not filter_type %}active{% endif %}"
+           aria-current="{% if filter_type == 'all' or not filter_type %}page{% endif %}">
+            All Categories
+            {% if metrics.get('total_categories', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('total_categories', 0) }} total">{{ metrics.get('total_categories', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('item_categories.list_categories', filter='active') }}" 
+           class="filter-tab {% if filter_type == 'active' %}active{% endif %}"
+           aria-current="{% if filter_type == 'active' %}page{% endif %}">
+            Active
+            {% if metrics.get('active_categories', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('active_categories', 0) }} active">{{ metrics.get('active_categories', 0) }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('item_categories.list_categories', filter='inactive') }}" 
+           class="filter-tab {% if filter_type == 'inactive' %}active{% endif %}"
+           aria-current="{% if filter_type == 'inactive' %}page{% endif %}">
+            Inactive
+            {% if metrics.get('inactive_categories', 0) > 0 %}
+            <span class="filter-tab-count" aria-label="{{ metrics.get('inactive_categories', 0) }} inactive">{{ metrics.get('inactive_categories', 0) }}</span>
+            {% endif %}
+        </a>
+    </nav>
+
+    <!-- Search Bar -->
+    <div class="card mb-3">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('item_categories.list_categories') }}" class="d-flex gap-2">
+                <input type="hidden" name="filter" value="{{ filter_type }}">
+                <div class="input-group flex-grow-1">
+                    <span class="input-group-text bg-white">
+                        <i class="bi bi-search"></i>
+                    </span>
+                    <input type="text" 
+                           class="form-control" 
+                           name="search" 
+                           value="{{ search_query }}" 
+                           placeholder="Search categories by code or description..."
+                           aria-label="Search categories">
+                </div>
+                <button type="submit" class="btn-relief-primary">
+                    <i class="bi bi-search"></i> Search
+                </button>
+                {% if search_query %}
+                <a href="{{ url_for('item_categories.list_categories', filter=filter_type) }}" class="btn-relief-secondary">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Categories Table -->
+    {% if categories %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Category Code</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Comments</th>
+                            <th scope="col" class="text-center">Status</th>
+                            <th scope="col" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for category in categories %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('item_categories.view_category', category_id=category.category_id) }}" 
+                                   class="text-decoration-none fw-medium">
+                                    <span class="code-pill">{{ category.category_code }}</span>
+                                </a>
+                            </td>
+                            <td>{{ category.category_desc }}</td>
+                            <td>
+                                {% if category.comments_text %}
+                                    <div class="text-truncate" style="max-width: 300px;" title="{{ category.comments_text }}">
+                                        {{ category.comments_text }}
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if category.status_code == 'A' %}
+                                    <span class="status-badge status-badge-success">
+                                        <i class="bi bi-check-circle"></i> Active
+                                    </span>
+                                {% elif category.status_code == 'I' %}
+                                    <span class="status-badge status-badge-warning">
+                                        <i class="bi bi-x-circle"></i> Inactive
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <div class="btn-group" role="group" aria-label="Category actions">
+                                    <a href="{{ url_for('item_categories.view_category', category_id=category.category_id) }}" 
+                                       class="btn btn-sm btn-outline-primary" 
+                                       title="View details"
+                                       aria-label="View {{ category.category_code }} details">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('item_categories.edit_category', category_id=category.category_id) }}" 
+                                       class="btn btn-sm btn-outline-secondary" 
+                                       title="Edit category"
+                                       aria-label="Edit {{ category.category_code }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-grid-3x3 text-muted" style="font-size: 4rem;"></i>
+            <h5 class="mt-3">No Item Categories Found</h5>
+            <p class="text-muted">
+                {% if search_query %}
+                    No categories match your search criteria. Try adjusting your search.
+                {% else %}
+                    Get started by creating your first item category.
+                {% endif %}
+            </p>
+            {% if not search_query %}
+            <a href="{{ url_for('item_categories.create_category') }}" class="btn-relief-primary mt-2">
+                <i class="bi bi-plus-circle"></i> Create Category
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

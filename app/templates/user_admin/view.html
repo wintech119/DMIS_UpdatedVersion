@@ -1,0 +1,529 @@
+{% extends "base.html" %}
+{% from 'user_admin/_macros.html' import status_badge, role_badges, mfa_status_badge, info_row, security_item, audit_event, compliance_alert %}
+
+{% block title %}{{ user.full_name or user.email }} - User Profile{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/user-management-ui.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="user-management-container">
+    <!-- Page Header -->
+    <div class="page-header-modern">
+        <div class="page-title-group">
+            <h1>
+                <i class="bi bi-person-circle"></i>
+                User Profile
+            </h1>
+            <p class="subtitle">{{ user.email }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('user_admin.edit', user_id=user.user_id) }}" class="btn-user-action warning">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a href="{{ url_for('user_admin.index') }}" class="btn-user-action">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Security Panel (if issues detected) -->
+    {% set security_issues = [] %}
+    {% if not user.mfa_enabled %}
+        {% set _ = security_issues.append('MFA not enabled') %}
+    {% endif %}
+    {% if user.is_locked %}
+        {% set _ = security_issues.append('Account locked') %}
+    {% endif %}
+    {% if not user.is_active %}
+        {% set _ = security_issues.append('Account inactive') %}
+    {% endif %}
+    
+    {% if security_issues %}
+    <div class="security-panel">
+        <div class="security-panel-header">
+            <div class="security-icon">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+            </div>
+            <div>
+                <h3 class="security-panel-title">Security Attention Required</h3>
+                <p class="mb-0 small text-muted">{{ security_issues|length }} issue{{ 's' if security_issues|length != 1 else '' }} detected</p>
+            </div>
+        </div>
+        <div class="security-items">
+            {% if not user.mfa_enabled %}
+            <div class="security-item">
+                <div class="security-item-header">
+                    <span class="security-item-label">Multi-Factor Authentication</span>
+                    {{ mfa_status_badge(False, False) }}
+                </div>
+                <div class="security-item-value text-warning">Enable MFA to improve account security</div>
+            </div>
+            {% endif %}
+            {% if user.is_locked %}
+            <div class="security-item">
+                <div class="security-item-header">
+                    <span class="security-item-label">Account Status</span>
+                    {{ status_badge('locked') }}
+                </div>
+                <div class="security-item-value text-danger">Account is currently locked</div>
+            </div>
+            {% endif %}
+            {% if not user.is_active %}
+            <div class="security-item">
+                <div class="security-item-header">
+                    <span class="security-item-label">Account Activation</span>
+                    {{ status_badge('inactive', False) }}
+                </div>
+                <div class="security-item-value text-danger">Account is deactivated</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Tabbed Content -->
+    <div class="profile-tabs-container">
+        <!-- Tab Headers -->
+        <div class="profile-tabs" role="tablist">
+            <button class="profile-tab active" 
+                    data-tab="identity" 
+                    role="tab" 
+                    aria-selected="true" 
+                    aria-controls="identity-panel">
+                <i class="bi bi-person-badge"></i> Identity Summary
+            </button>
+            <button class="profile-tab" 
+                    data-tab="roles" 
+                    role="tab" 
+                    aria-selected="false" 
+                    aria-controls="roles-panel">
+                <i class="bi bi-shield-lock"></i> Roles & Privileges
+            </button>
+            <button class="profile-tab" 
+                    data-tab="security" 
+                    role="tab" 
+                    aria-selected="false" 
+                    aria-controls="security-panel">
+                <i class="bi bi-shield-check"></i> Security Controls
+            </button>
+            <button class="profile-tab" 
+                    data-tab="activity" 
+                    role="tab" 
+                    aria-selected="false" 
+                    aria-controls="activity-panel">
+                <i class="bi bi-clock-history"></i> Activity Timeline
+            </button>
+        </div>
+
+        <!-- Tab Content: Identity Summary -->
+        <div class="profile-tab-content" id="identity-panel" role="tabpanel">
+            <div class="row g-4">
+                <div class="col-md-8">
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Personal Information</h3>
+                        </div>
+                        {{ info_row('Full Name', user.full_name or '-', icon='person') }}
+                        {{ info_row('Email Address', user.email, icon='envelope') }}
+                        {{ info_row('Job Title', user.job_title or '-', icon='briefcase') }}
+                        {{ info_row('Phone Number', user.phone or '-', icon='telephone') }}
+                        {{ info_row('Organization', user.organization or '-', icon='building') }}
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Account Status</h3>
+                        </div>
+                        {{ info_row('Status', badge=status_badge('active' if user.is_active else ('locked' if user.is_locked else 'inactive'), user.is_active), icon='toggle-on') }}
+                        {{ info_row('User ID', user.user_id, icon='hash') }}
+                        {{ info_row('Created', user.create_dtime.strftime('%Y-%m-%d %H:%M') if user.create_dtime else '-', icon='calendar-plus') }}
+                        {{ info_row('Last Login', user.last_login_dtime.strftime('%Y-%m-%d %H:%M') if user.last_login_dtime else 'Never', icon='box-arrow-in-right') }}
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <!-- Quick Actions -->
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Quick Actions</h3>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <a href="{{ url_for('user_admin.edit', user_id=user.user_id) }}" class="btn-user-action primary">
+                                <i class="bi bi-pencil"></i> Edit Profile
+                            </a>
+                            {% if user.is_active %}
+                            <form method="POST" action="{{ url_for('user_admin.deactivate', user_id=user.user_id) }}" id="deactivateUserForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn-user-action danger w-100">
+                                    <i class="bi bi-person-x"></i> Deactivate Account
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('user_admin.activate', user_id=user.user_id) }}" id="activateUserForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn-user-action primary w-100">
+                                    <i class="bi bi-person-check"></i> Activate Account
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Roles & Privileges -->
+        <div class="profile-tab-content d-none" id="roles-panel" role="tabpanel">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Assigned Roles</h3>
+                            <span class="badge bg-primary">{{ user.roles|length }}</span>
+                        </div>
+                        {% if user.roles %}
+                            {% for role in user.roles %}
+                                <div class="info-row">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-shield-fill-check text-success"></i>
+                                        <div>
+                                            <div class="fw-bold">{{ role.name }}</div>
+                                            {% if role.role_desc %}
+                                                <small class="text-muted">{{ role.role_desc }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted text-center py-4">
+                                <i class="bi bi-inbox icon-lg d-block mb-3"></i>
+                                No roles assigned to this user
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Warehouse Access</h3>
+                            <span class="badge bg-info">{{ user.warehouses|length if user.warehouses else 'All' }}</span>
+                        </div>
+                        {% if user.warehouses %}
+                            {% for warehouse in user.warehouses %}
+                                <div class="info-row">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-building text-primary"></i>
+                                        <div>
+                                            <div class="fw-bold">{{ warehouse.warehouse_name }}</div>
+                                            <small class="text-muted">{{ warehouse.physical_addr or 'No address specified' }}</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted text-center py-4">
+                                <i class="bi bi-building-check icon-lg d-block mb-3 text-success"></i>
+                                Access to all warehouses
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Security Controls -->
+        <div class="profile-tab-content d-none" id="security-panel" role="tabpanel">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Authentication & Access</h3>
+                        </div>
+                        {{ info_row('Multi-Factor Authentication', badge=mfa_status_badge(user.mfa_enabled, user.mfa_secret is not none), icon='shield-check') }}
+                        {{ info_row('Account Lock Status', badge=status_badge('locked' if user.is_locked else 'unlocked'), icon='lock') }}
+                        {{ info_row('Failed Login Attempts', user.failed_login_attempts or '0', icon='exclamation-triangle') }}
+                        {{ info_row('Last Password Change', user.password_changed_dtime.strftime('%Y-%m-%d') if user.password_changed_dtime else 'Never', icon='key') }}
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="info-card">
+                        <div class="info-card-header">
+                            <h3 class="info-card-title">Session Information</h3>
+                        </div>
+                        {{ info_row('Current Session', 'Active' if user.user_id == current_user.user_id else 'No active session', icon='broadcast') }}
+                        {{ info_row('Last Login IP', user.last_login_ip or '-', icon='geo-alt') }}
+                        {{ info_row('Last Login Time', user.last_login_dtime.strftime('%Y-%m-%d %H:%M:%S') if user.last_login_dtime else 'Never', icon='clock') }}
+                        {{ info_row('Login Count', user.login_count or '0', icon='arrow-repeat') }}
+                    </div>
+
+                    {{ compliance_alert(
+                        type='info',
+                        title='GDPR Compliance',
+                        message='Personal data is stored securely and used only for system access management.',
+                        icon='shield-check'
+                    ) }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Activity Timeline -->
+        <div class="profile-tab-content d-none" id="activity-panel" role="tabpanel">
+            <div class="info-card">
+                <div class="info-card-header">
+                    <h3 class="info-card-title">Recent Activity</h3>
+                </div>
+                <div class="audit-timeline">
+                    {% if user.create_dtime %}
+                        {{ audit_event(
+                            title='Account Created',
+                            details='User account was created in the system',
+                            timestamp=user.create_dtime.strftime('%Y-%m-%d %H:%M') if user.create_dtime else '',
+                            event_type='success',
+                            icon='person-plus-fill',
+                            meta='Created by: System Administrator'
+                        ) }}
+                    {% endif %}
+                    
+                    {% if user.last_login_dtime %}
+                        {{ audit_event(
+                            title='Last Login',
+                            details='User successfully logged into the system',
+                            timestamp=user.last_login_dtime.strftime('%Y-%m-%d %H:%M') if user.last_login_dtime else '',
+                            event_type='success',
+                            icon='box-arrow-in-right',
+                            meta='IP Address: ' + (user.last_login_ip or 'Unknown')
+                        ) }}
+                    {% endif %}
+                    
+                    {% if user.password_changed_dtime %}
+                        {{ audit_event(
+                            title='Password Changed',
+                            details='User password was updated',
+                            timestamp=user.password_changed_dtime.strftime('%Y-%m-%d %H:%M') if user.password_changed_dtime else '',
+                            event_type='info',
+                            icon='key-fill'
+                        ) }}
+                    {% endif %}
+                    
+                    {% if user.is_locked %}
+                        {{ audit_event(
+                            title='Account Locked',
+                            details='Account was locked due to security policy',
+                            timestamp='Recent',
+                            event_type='critical',
+                            icon='lock-fill',
+                            meta='Reason: ' + (user.lockout_reason or 'Multiple failed login attempts')
+                        ) }}
+                    {% endif %}
+                    
+                    {% if not user.last_login_dtime and user.create_dtime %}
+                        {{ audit_event(
+                            title='Account Never Accessed',
+                            details='This user has never logged into the system',
+                            timestamp='N/A',
+                            event_type='warning',
+                            icon='exclamation-triangle-fill'
+                        ) }}
+                    {% endif %}
+                </div>
+                
+                <div class="text-center mt-4">
+                    <p class="text-muted small">
+                        <i class="bi bi-info-circle"></i>
+                        Detailed audit logs are available in the system audit trail
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    // Tab switching functionality
+    const tabs = document.querySelectorAll('.profile-tab');
+    const panels = document.querySelectorAll('.profile-tab-content');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            const targetTab = this.dataset.tab;
+
+            // Update tab states
+            tabs.forEach(t => {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+            });
+            this.classList.add('active');
+            this.setAttribute('aria-selected', 'true');
+
+            // Update panel visibility
+            panels.forEach(panel => {
+                panel.classList.add('d-none');
+                panel.classList.remove('d-block');
+            });
+            const targetPanel = document.getElementById(`${targetTab}-panel`);
+            if (targetPanel) {
+                targetPanel.classList.remove('d-none');
+                targetPanel.classList.add('d-block');
+            }
+        });
+    });
+
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        const activeTab = document.querySelector('.profile-tab.active');
+        if (!activeTab) return;
+
+        let targetTab = null;
+
+        if (e.key === 'ArrowRight') {
+            targetTab = activeTab.nextElementSibling;
+        } else if (e.key === 'ArrowLeft') {
+            targetTab = activeTab.previousElementSibling;
+        }
+
+        if (targetTab && targetTab.classList.contains('profile-tab')) {
+            targetTab.click();
+            targetTab.focus();
+        }
+    });
+
+    // Deactivate user confirmation modal
+    const deactivateUserForm = document.getElementById('deactivateUserForm');
+    const deactivateConfirmBtn = document.querySelector('[data-action="confirm-deactivate-user"]');
+
+    function handleDeactivateSubmit(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('deactivateUserModal'));
+        modal.show();
+    }
+
+    function confirmDeactivateUser() {
+        if (deactivateUserForm) {
+            deactivateUserForm.removeEventListener('submit', handleDeactivateSubmit);
+            deactivateUserForm.submit();
+        }
+    }
+
+    if (deactivateUserForm) {
+        deactivateUserForm.addEventListener('submit', handleDeactivateSubmit);
+    }
+    if (deactivateConfirmBtn) {
+        deactivateConfirmBtn.addEventListener('click', confirmDeactivateUser);
+    }
+
+    // Activate user confirmation modal
+    const activateUserForm = document.getElementById('activateUserForm');
+    const activateConfirmBtn = document.querySelector('[data-action="confirm-activate-user"]');
+
+    function handleActivateSubmit(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('activateUserModal'));
+        modal.show();
+    }
+
+    function confirmActivateUser() {
+        if (activateUserForm) {
+            activateUserForm.removeEventListener('submit', handleActivateSubmit);
+            activateUserForm.submit();
+        }
+    }
+
+    if (activateUserForm) {
+        activateUserForm.addEventListener('submit', handleActivateSubmit);
+    }
+    if (activateConfirmBtn) {
+        activateConfirmBtn.addEventListener('click', confirmActivateUser);
+    }
+});
+</script>
+
+<!-- Deactivate User Confirmation Modal -->
+<div class="modal fade" id="deactivateUserModal" tabindex="-1" aria-labelledby="deactivateUserModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deactivateUserModalLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Deactivate User Account
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Deactivate this user account?</strong></p>
+                <p class="mb-2">After deactivation:</p>
+                <ul class="mb-3">
+                    <li>User will no longer be able to log in</li>
+                    <li>User's access to all features will be revoked</li>
+                    <li>User's data and history will be preserved</li>
+                </ul>
+                <p class="text-muted mb-0"><small>You can reactivate the account later if needed.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger" data-action="confirm-deactivate-user">
+                    <i class="bi bi-person-x"></i>
+                    Yes, Deactivate Account
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Activate User Confirmation Modal -->
+<div class="modal fade" id="activateUserModal" tabindex="-1" aria-labelledby="activateUserModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="activateUserModalLabel">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    Activate User Account
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Activate this user account?</strong></p>
+                <p class="mb-2">After activation:</p>
+                <ul class="mb-3">
+                    <li>User will be able to log in to the system</li>
+                    <li>User's assigned roles and permissions will be enabled</li>
+                    <li>User can access all authorized features</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" data-action="confirm-activate-user">
+                    <i class="bi bi-person-check"></i>
+                    Yes, Activate Account
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

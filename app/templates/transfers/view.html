@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Transfer Details - DRIMS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-arrow-left-right"></i> Transfer #{{ transfer.transfer_id }}</h2>
+    <div>
+        {% if transfer.status_code == 'P' %}
+        <form method="POST" action="{{ url_for('transfers.execute', transfer_id=transfer.transfer_id) }}" class="d-inline" id="executeTransferForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check-circle"></i> Execute Transfer
+            </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('transfers.list_transfers') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header card-header-goj">
+        <h5 class="mb-0">Transfer Information</h5>
+    </div>
+    <div class="card-body">
+        <table class="table table-borderless">
+            <tr>
+                <th width="30%">Transfer ID:</th>
+                <td>{{ transfer.transfer_id }}</td>
+            </tr>
+            <tr>
+                <th>Transfer Date:</th>
+                <td>{{ transfer.transfer_date.strftime('%Y-%m-%d') if transfer.transfer_date }}</td>
+            </tr>
+            <tr>
+                <th>From Warehouse:</th>
+                <td>{{ transfer.from_inventory.warehouse.warehouse_name if transfer.from_inventory and transfer.from_inventory.warehouse }}</td>
+            </tr>
+            <tr>
+                <th>To Warehouse:</th>
+                <td>{{ transfer.to_inventory.warehouse.warehouse_name if transfer.to_inventory and transfer.to_inventory.warehouse }}</td>
+            </tr>
+            <tr>
+                <th>Transport Mode:</th>
+                <td>{{ transfer.transport_mode or '-' }}</td>
+            </tr>
+            <tr>
+                <th>Comments:</th>
+                <td>{{ transfer.comments_text or '-' }}</td>
+            </tr>
+            <tr>
+                <th>Status:</th>
+                <td>
+                    {% if transfer.status_code == 'C' %}
+                        <span class="badge bg-success">Completed</span>
+                    {% elif transfer.status_code == 'V' %}
+                        <span class="badge bg-info">Verified</span>
+                    {% elif transfer.status_code == 'D' %}
+                        <span class="badge bg-primary">Dispatched</span>
+                    {% else %}
+                        <span class="badge bg-warning">Processing</span>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+{% if transfer.items %}
+<div class="card mt-3">
+    <div class="card-header card-header-goj">
+        <h5 class="mb-0">Transfer Items</h5>
+    </div>
+    <div class="card-body">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th class="text-end">Quantity</th>
+                    <th>Unit</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in transfer.items %}
+                <tr>
+                    <td>{{ item.item.item_name if item.item }}</td>
+                    <td class="text-end">{{ "%.2f"|format(item.item_qty) }}</td>
+                    <td>{{ item.uom_code }}</td>
+                    <td>{{ item.reason_text or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Execute Transfer Confirmation Modal -->
+<div class="modal fade" id="executeTransferModal" tabindex="-1" aria-labelledby="executeTransferModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="executeTransferModalLabel">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    Execute Transfer
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Execute this inventory transfer?</strong></p>
+                <p class="mb-2">This action will:</p>
+                <ul class="mb-3">
+                    <li>Immediately move inventory between warehouses</li>
+                    <li>Update inventory quantities</li>
+                    <li>Mark the transfer as completed</li>
+                </ul>
+                <p class="text-warning mb-0"><strong>Note:</strong> This action cannot be undone after execution.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i>
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-success" id="confirmExecuteBtn">
+                    <i class="bi bi-check-circle"></i>
+                    Yes, Execute Transfer
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+// Execute transfer confirmation modal - proper handler management
+let executeTransferHandler;
+const executeTransferForm = document.getElementById('executeTransferForm');
+if (executeTransferForm) {
+    executeTransferHandler = function(e) {
+        e.preventDefault();
+        const modal = new bootstrap.Modal(document.getElementById('executeTransferModal'));
+        modal.show();
+        return false;
+    };
+    executeTransferForm.addEventListener('submit', executeTransferHandler);
+}
+
+// Confirm execute button
+const confirmExecuteBtn = document.getElementById('confirmExecuteBtn');
+if (confirmExecuteBtn) {
+    confirmExecuteBtn.addEventListener('click', function() {
+        const form = document.getElementById('executeTransferForm');
+        if (form && executeTransferHandler) {
+            form.removeEventListener('submit', executeTransferHandler);
+            form.submit();
+        }
+    });
+}
+</script>
+{% endblock %}

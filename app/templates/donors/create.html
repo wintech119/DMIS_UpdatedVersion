@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+{% endblock %}
+
+{% block extra_scripts %}
+<script  nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/phone-mask.js') }}"></script>
+{% endblock %}
+
+{% block title %}Create Donor{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-people page-title-icon"></i>
+                <h1 class="page-title-text">Create New Donor</h1>
+            </div>
+        </div>
+        <a href="{{ url_for('donors.list_donors') }}" class="btn-relief-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="row">
+        <div class="col-lg-10 col-xl-8">
+            <div class="card">
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('donors.create') }}" novalidate>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <!-- Basic Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-info-circle"></i> Basic Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="donor_code" class="form-label">
+                                        Donor Code <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="donor_code" 
+                                           name="donor_code" 
+                                           maxlength="16"
+                                           value="{{ form_data.get('donor_code') if form_data else '' }}"
+                                           required 
+                                           placeholder="e.g., ORG-00001"
+                                           style="text-transform: uppercase;">
+                                    <small class="form-text text-muted">Auto-converted to uppercase, max 16 characters</small>
+                                    {% if errors and errors.get('donor_code') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('donor_code') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="donor_name" class="form-label">
+                                        Donor Name <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="donor_name" 
+                                           name="donor_name" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('donor_name') if form_data else '' }}"
+                                           required 
+                                           placeholder="Organization or individual name"
+                                           style="text-transform: uppercase;">
+                                    <small class="form-text text-muted">Auto-converted to uppercase</small>
+                                    {% if errors and errors.get('donor_name') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('donor_name') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-12">
+                                    <label for="org_type_desc" class="form-label">
+                                        Organization Type
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="org_type_desc" 
+                                           name="org_type_desc" 
+                                           maxlength="30"
+                                           value="{{ form_data.get('org_type_desc') if form_data else '' }}"
+                                           placeholder="e.g., CHURCH, BANK, INTL AID, LION'S CLUB">
+                                    <small class="form-text text-muted">Optional, max 30 characters</small>
+                                    {% if errors and errors.get('org_type_desc') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('org_type_desc') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Address Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-geo-alt"></i> Address Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="address1_text" class="form-label">
+                                        Address Line 1 <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="address1_text" 
+                                           name="address1_text" 
+                                           maxlength="255" 
+                                           value="{{ form_data.get('address1_text') if form_data else '' }}"
+                                           required 
+                                           placeholder="Street address, P.O. Box, Company Name">
+                                    {% if errors and errors.get('address1_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('address1_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-12">
+                                    <label for="address2_text" class="form-label">
+                                        Address Line 2
+                                    </label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="address2_text" 
+                                           name="address2_text" 
+                                           maxlength="255"
+                                           value="{{ form_data.get('address2_text') if form_data else '' }}"
+                                           placeholder="Apartment, Suite, Unit, Building, Floor">
+                                    {% if errors and errors.get('address2_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('address2_text') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="country_id" class="form-label">
+                                        Country <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="country_id" name="country_id" required>
+                                        {% for country in countries %}
+                                        <option value="{{ country.country_id }}" 
+                                                {% if (form_data and form_data.get('country_id')|string == country.country_id|string) or (not form_data and country.country_id == 388) %}selected{% endif %}>
+                                            {{ country.country_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <small class="form-text text-muted">Defaults to Jamaica if not selected</small>
+                                    {% if errors and errors.get('country_id') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('country_id') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Contact Information Section -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2 mb-3">
+                                <i class="bi bi-telephone"></i> Contact Information
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="phone_no" class="form-label">
+                                        Phone Number <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="tel" 
+                                           class="form-control phone-mask" 
+                                           id="phone_no" 
+                                           name="phone_no" 
+                                           maxlength="20"
+                                           value="{{ form_data.get('phone_no') if form_data else '' }}"
+                                           required
+                                           placeholder="+1 (876) XXX-XXXX">
+                                    <small class="form-text text-muted">Format: +1 (XXX) XXX-XXXX</small>
+                                    {% if errors and errors.get('phone_no') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('phone_no') }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="email_text" class="form-label">
+                                        Email Address
+                                    </label>
+                                    <input type="email" 
+                                           class="form-control" 
+                                           id="email_text" 
+                                           name="email_text" 
+                                           maxlength="100"
+                                           value="{{ form_data.get('email_text') if form_data else '' }}"
+                                           placeholder="email@example.com">
+                                    <small class="form-text text-muted">Optional</small>
+                                    {% if errors and errors.get('email_text') %}
+                                    <div class="text-danger small mt-1">{{ errors.get('email_text') }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                            <a href="{{ url_for('donors.list_donors') }}" class="btn-relief-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn-relief-primary">
+                                <i class="bi bi-check-circle"></i> Create Donor
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

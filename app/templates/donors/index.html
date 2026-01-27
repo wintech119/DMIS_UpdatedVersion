@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Donors - DRIMS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-people"></i> Donor Management</h2>
+    <a href="{{ url_for('donors.create') }}" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Add New Donor
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive-mobile">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Code</th>
+                        <th>Donor Name</th>
+                        <th>Organization Type</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for donor in donors %}
+                    <tr>
+                        <td>{{ donor.donor_id }}</td>
+                        <td><span class="badge bg-secondary">{{ donor.donor_code }}</span></td>
+                        <td>{{ donor.donor_name }}</td>
+                        <td>{{ donor.org_type_desc or '-' }}</td>
+                        <td>{{ donor.phone_no }}</td>
+                        <td>{{ donor.email_text or '-' }}</td>
+                        <td>
+                            <a href="{{ url_for('donors.view', donor_id=donor.donor_id) }}" class="btn btn-sm btn-primary">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                            <a href="{{ url_for('donors.edit', donor_id=donor.donor_id) }}" class="btn btn-sm btn-warning">
+                                <i class="bi bi-pencil"></i> Edit
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">
+                            No donors found. <a href="{{ url_for('donors.create') }}">Add the first donor</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

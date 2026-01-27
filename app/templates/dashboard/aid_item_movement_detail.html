@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+{% set active_page = 'aid_item_movement_detail' %}
+{% from 'relief_requests/_summary_cards.html' import render_summary_cards %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/relief-requests-ui.css') }}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+<style nonce="{{ csp_nonce() }}">
+    @media (max-width: 767.98px) {
+        .filter-buttons {
+            flex-direction: row;
+            width: 100%;
+        }
+        .filter-buttons .btn {
+            flex: 1;
+        }
+        .table-responsive-wrapper {
+            margin: 0 -0.75rem;
+        }
+    }
+    .table-responsive-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .date-input-wrapper {
+        position: relative;
+    }
+    .date-input-wrapper .form-control {
+        padding-right: 2.5rem;
+    }
+    .date-input-wrapper .calendar-icon {
+        position: absolute;
+        right: 0.75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #6c757d;
+        pointer-events: none;
+    }
+    .no-data-icon {
+        font-size: 3rem;
+        color: #6c757d;
+    }
+    .kpi-positive {
+        color: #198754;
+    }
+    .kpi-negative {
+        color: #dc3545;
+    }
+    .selected-item-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background-color: #e9ecef;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        font-weight: 500;
+    }
+    .breadcrumb-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.875rem;
+    }
+    .breadcrumb-nav a {
+        color: #0d6efd;
+        text-decoration: none;
+    }
+    .breadcrumb-nav a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb-nav .separator {
+        color: #6c757d;
+    }
+    .breadcrumb-nav .current {
+        color: #6c757d;
+    }
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .chart-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        padding: 1.5rem;
+    }
+    .chart-card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid #e5e7eb;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .chart-card-title i {
+        color: #6b7280;
+    }
+    .chart-container {
+        position: relative;
+        height: 280px;
+    }
+    .chart-no-data {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 280px;
+        color: #6b7280;
+    }
+    .chart-no-data i {
+        font-size: 2.5rem;
+        margin-bottom: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block title %}Item Distribution Dashboard - DMIS{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3 py-md-4">
+    <div class="mb-3">
+        <div class="breadcrumb-nav">
+            <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
+            <span class="separator"><i class="bi bi-chevron-right"></i></span>
+            <a href="{{ url_for('dashboard.aid_movement_dashboard') }}">Aid Movement Dashboard</a>
+            <span class="separator"><i class="bi bi-chevron-right"></i></span>
+            <span class="current">Item Distribution Dashboard</span>
+        </div>
+        <a href="{{ url_for('dashboard.aid_movement_dashboard') }}" class="btn-back">
+            <i class="bi bi-arrow-left"></i>
+            Back to Aid Movement Dashboard
+        </a>
+    </div>
+
+    <div class="page-header">
+        <div class="page-title">
+            <i class="bi bi-box-arrow-in-down-right page-title-icon"></i>
+            <h1 class="page-title-text">Item Distribution Dashboard</h1>
+        </div>
+        <p class="page-subtitle">Drill-down view of aid movement for a specific item across warehouses</p>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12 col-lg-8 mx-auto">
+            <div class="chart-card">
+                <h3 class="chart-card-title">
+                    <i class="bi bi-pie-chart"></i>
+                    Movement Breakdown{% if selected_category %} - {{ selected_category.category_desc }}{% endif %}
+                </h3>
+                <div class="chart-container" style="height: 350px;">
+                    {% if category_chart_data.labels %}
+                    <canvas id="categoryChart" role="img" aria-label="Pie chart showing movement totals for the selected item"></canvas>
+                    {% else %}
+                    <div class="chart-no-data">
+                        <i class="bi bi-pie-chart" aria-hidden="true"></i>
+                        <p>No category data available</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="filter-tabs" role="navigation" aria-label="Filter options">
+        <button type="button" class="filter-tab active" data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="true" aria-controls="filterPanel">
+            <i class="bi bi-funnel"></i> Filters
+        </button>
+    </nav>
+
+    <div class="collapse show" id="filterPanel">
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <form method="get" action="{{ url_for('dashboard.aid_item_movement_detail') }}" id="filterForm">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <label for="category_id" class="form-label small fw-semibold">Category</label>
+                            <select class="form-select" id="category_id" name="category_id">
+                                <option value="">All Categories</option>
+                                {% for category in categories %}
+                                <option value="{{ category.category_id }}" {% if filters.category_id == category.category_id|string %}selected{% endif %}>
+                                    {{ category.category_desc }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <label for="item_id" class="form-label small fw-semibold">Item</label>
+                            <select class="form-select" id="item_id" name="item_id">
+                                <option value="">-- Select an Item --</option>
+                                {% for item in items %}
+                                <option value="{{ item.item_id }}" data-category="{{ item.category_id }}" {% if filters.item_id == item.item_id|string %}selected{% endif %}>
+                                    {{ item.item_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                            <label for="warehouse_id" class="form-label small fw-semibold">Warehouse</label>
+                            <select class="form-select" id="warehouse_id" name="warehouse_id">
+                                <option value="">All Warehouses</option>
+                                {% for warehouse in warehouses %}
+                                <option value="{{ warehouse.warehouse_id }}" {% if filters.warehouse_id == warehouse.warehouse_id|string %}selected{% endif %}>
+                                    {{ warehouse.warehouse_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                            <label for="movement_type" class="form-label small fw-semibold">Movement Type</label>
+                            <select class="form-select" id="movement_type" name="movement_type">
+                                <option value="">Received & Issued</option>
+                                <option value="R" {% if filters.movement_type == 'R' %}selected{% endif %}>Received Only</option>
+                                <option value="I" {% if filters.movement_type == 'I' %}selected{% endif %}>Issued Only</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6 col-md-4 col-lg-2">
+                            <label for="data_source" class="form-label small fw-semibold">Data Source</label>
+                            <select class="form-select" id="data_source" name="data_source">
+                                <option value="">All Sources</option>
+                                <option value="JDF" {% if filters.data_source == 'JDF' %}selected{% endif %}>JDF</option>
+                                <option value="MLSS" {% if filters.data_source == 'MLSS' %}selected{% endif %}>MLSS</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-sm-4 col-md-2 col-lg-2">
+                            <label for="start_date" class="form-label small fw-semibold">Date From</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" class="form-control" id="start_date" name="start_date" 
+                                       value="{{ filters.start_date }}" placeholder="YYYY-MM-DD" autocomplete="off">
+                                <i class="bi bi-calendar3 calendar-icon"></i>
+                            </div>
+                        </div>
+                        <div class="col-6 col-sm-4 col-md-2 col-lg-2">
+                            <label for="end_date" class="form-label small fw-semibold">Date To</label>
+                            <div class="date-input-wrapper">
+                                <input type="text" class="form-control" id="end_date" name="end_date" 
+                                       value="{{ filters.end_date }}" placeholder="YYYY-MM-DD" autocomplete="off">
+                                <i class="bi bi-calendar3 calendar-icon"></i>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-4 col-md-4 col-lg-2 d-flex gap-2 align-items-end filter-buttons">
+                            <button type="submit" class="btn btn-primary flex-shrink-0">
+                                <i class="bi bi-search"></i> Filter
+                            </button>
+                            <a href="{{ url_for('dashboard.aid_item_movement_detail') }}" class="btn btn-outline-secondary flex-shrink-0">
+                                <i class="bi bi-x-circle"></i> Reset
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {% if has_filter %}
+    <div class="mb-4 d-flex flex-wrap gap-2">
+        {% if selected_category %}
+        <span class="selected-item-badge">
+            <i class="bi bi-tag"></i>
+            Category: <strong>{{ selected_category.category_desc }}</strong>
+        </span>
+        {% endif %}
+        {% if selected_item %}
+        <span class="selected-item-badge">
+            <i class="bi bi-box-seam"></i>
+            Item: <strong>{{ selected_item.item_name }}</strong>
+        </span>
+        {% endif %}
+        {% if selected_warehouse %}
+        <span class="selected-item-badge">
+            <i class="bi bi-house"></i>
+            Warehouse: <strong>{{ selected_warehouse.warehouse_name }}</strong>
+        </span>
+        {% endif %}
+        {% if movement_type_label %}
+        <span class="selected-item-badge">
+            <i class="bi bi-arrow-left-right"></i>
+            Movement: <strong>{{ movement_type_label }}</strong>
+        </span>
+        {% endif %}
+        {% if data_source_label %}
+        <span class="selected-item-badge">
+            <i class="bi bi-database"></i>
+            Data Source: <strong>{{ data_source_label }}</strong>
+        </span>
+        {% endif %}
+        {% if filters.start_date %}
+        <span class="selected-item-badge">
+            <i class="bi bi-calendar3"></i>
+            From: <strong>{{ filters.start_date }}</strong>
+        </span>
+        {% endif %}
+        {% if filters.end_date %}
+        <span class="selected-item-badge">
+            <i class="bi bi-calendar2-check"></i>
+            To: <strong>{{ filters.end_date }}</strong>
+        </span>
+        {% endif %}
+    </div>
+
+    {% set summary_metrics = [
+        {
+            'icon': 'box-arrow-in-down',
+            'label': 'Total Received',
+            'value': "{:,.0f}".format(summary_totals.total_received),
+            'variant': 'success'
+        },
+        {
+            'icon': 'box-arrow-up-right',
+            'label': 'Total Issued',
+            'value': "{:,.0f}".format(summary_totals.total_issued),
+            'variant': 'danger'
+        },
+        {
+            'icon': 'box-seam',
+            'label': 'In Store',
+            'value': "{:,.0f}".format(summary_totals.in_store),
+            'variant': 'primary'
+        }
+    ] %}
+    {{ render_summary_cards(summary_metrics) }}
+
+    {% if detail_rows %}
+    <div class="table-responsive-wrapper">
+        <table class="relief-requests-table" role="table" aria-label="Item movement by warehouse">
+            <caption class="visually-hidden">Summary of received, issued, and in-store quantities by warehouse or location</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Warehouse / Location</th>
+                    <th scope="col">Type</th>
+                    <th scope="col" class="text-end">Total Received</th>
+                    <th scope="col" class="text-end">Total Issued</th>
+                    <th scope="col" class="text-end">In Store</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in detail_rows %}
+                <tr>
+                    <td>
+                        <strong>{{ row.warehouse_name }}</strong>
+                        {% if row.warehouse_type %}
+                        <div class="table-sku">{{ row.warehouse_type }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary">{{ row.warehouse_type or 'Warehouse' }}</span>
+                    </td>
+                    <td class="text-end">
+                        <strong class="kpi-positive">{{ "{:,.2f}".format(row.total_received) }}</strong>
+                    </td>
+                    <td class="text-end">
+                        <strong class="kpi-negative">{{ "{:,.2f}".format(row.total_issued) }}</strong>
+                    </td>
+                    <td class="text-end">
+                        <strong class="{% if row.in_store >= 0 %}kpi-positive{% else %}kpi-negative{% endif %}">
+                            {{ "{:,.2f}".format(row.in_store) }}
+                        </strong>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="fw-bold bg-light">
+                    <td colspan="2"><strong>Overall Total</strong></td>
+                    <td class="text-end">
+                        <strong class="kpi-positive">{{ "{:,.2f}".format(summary_totals.total_received) }}</strong>
+                    </td>
+                    <td class="text-end">
+                        <strong class="kpi-negative">{{ "{:,.2f}".format(summary_totals.total_issued) }}</strong>
+                    </td>
+                    <td class="text-end">
+                        <strong class="{% if summary_totals.in_store >= 0 %}kpi-positive{% else %}kpi-negative{% endif %}">
+                            {{ "{:,.2f}".format(summary_totals.in_store) }}
+                        </strong>
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox no-data-icon"></i>
+        <p class="mt-3 text-muted">No movement data found with the selected filters.</p>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-5">
+        <i class="bi bi-box-seam no-data-icon"></i>
+        <h4 class="mt-3 text-muted">Select a Category or Item</h4>
+        <p class="text-muted">Please select a category or item from the dropdown above to view movement details across warehouses.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+<script nonce="{{ csp_nonce() }}">
+document.addEventListener('DOMContentLoaded', function() {
+    Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    Chart.defaults.color = '#6b7280';
+    
+    const chartColors = {
+        primary: '#3b82f6',
+        success: '#10b981',
+        warning: '#f59e0b',
+        danger: '#ef4444',
+        info: '#06b6d4',
+        purple: '#8b5cf6',
+        pink: '#ec4899',
+        indigo: '#6366f1',
+        teal: '#14b8a6',
+        secondary: '#6b7280'
+    };
+    
+    const colorPalette = [
+        chartColors.primary,
+        chartColors.success,
+        chartColors.warning,
+        chartColors.info,
+        chartColors.purple,
+        chartColors.pink,
+        chartColors.indigo,
+        chartColors.teal,
+        chartColors.danger,
+        chartColors.secondary
+    ];
+    
+    {% if category_chart_data.labels %}
+    const totalReceived = {{ category_chart_data.received | sum }};
+    const totalIssued = {{ category_chart_data.issued | sum }};
+    const totalInStore = {{ category_chart_data.in_store | sum }};
+    
+    const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+    new Chart(categoryCtx, {
+        type: 'pie',
+        data: {
+            labels: ['Total Received', 'Total Issued', 'In Store'],
+            datasets: [{
+                data: [totalReceived, totalIssued, totalInStore],
+                backgroundColor: [chartColors.success, chartColors.danger, chartColors.primary],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        padding: 15,
+                        font: { size: 13 },
+                        boxWidth: 16,
+                        generateLabels: function(chart) {
+                            const data = chart.data;
+                            const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                            return data.labels.map((label, i) => {
+                                const value = data.datasets[0].data[i];
+                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return {
+                                    text: label + ': ' + value.toLocaleString() + ' (' + pct + '%)',
+                                    fillStyle: data.datasets[0].backgroundColor[i],
+                                    hidden: false,
+                                    index: i
+                                };
+                            });
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                            return ctx.label + ': ' + ctx.parsed.toLocaleString() + ' units (' + pct + '%)';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    {% endif %}
+    
+    const dateConfig = {
+        dateFormat: "Y-m-d",
+        allowInput: true,
+        clickOpens: true,
+        disableMobile: false
+    };
+    
+    const startDatePicker = flatpickr("#start_date", {
+        ...dateConfig,
+        onChange: function(selectedDates, dateStr) {
+            if (dateStr && endDatePicker.selectedDates.length > 0) {
+                endDatePicker.set('minDate', dateStr);
+            }
+        }
+    });
+    
+    const endDatePicker = flatpickr("#end_date", {
+        ...dateConfig,
+        onChange: function(selectedDates, dateStr) {
+            if (dateStr && startDatePicker.selectedDates.length > 0) {
+                startDatePicker.set('maxDate', dateStr);
+            }
+        }
+    });
+    
+    const startDateValue = document.getElementById('start_date').value;
+    const endDateValue = document.getElementById('end_date').value;
+    
+    if (startDateValue) {
+        endDatePicker.set('minDate', startDateValue);
+    }
+    if (endDateValue) {
+        startDatePicker.set('maxDate', endDateValue);
+    }
+    
+    const categorySelect = document.getElementById('category_id');
+    const itemSelect = document.getElementById('item_id');
+    const allItemOptions = Array.from(itemSelect.querySelectorAll('option[data-category]'));
+    const defaultOption = itemSelect.querySelector('option[value=""]');
+    
+    function filterItemsByCategory() {
+        const selectedCategoryId = categorySelect.value;
+        const currentItemValue = itemSelect.value;
+        
+        while (itemSelect.options.length > 1) {
+            itemSelect.remove(1);
+        }
+        
+        let itemFound = false;
+        allItemOptions.forEach(function(option) {
+            if (!selectedCategoryId || option.getAttribute('data-category') === selectedCategoryId) {
+                const newOption = option.cloneNode(true);
+                itemSelect.appendChild(newOption);
+                if (newOption.value === currentItemValue) {
+                    newOption.selected = true;
+                    itemFound = true;
+                }
+            }
+        });
+        
+        if (!itemFound && currentItemValue) {
+            itemSelect.value = '';
+        }
+    }
+    
+    categorySelect.addEventListener('change', filterItemsByCategory);
+    
+    filterItemsByCategory();
+});
+</script>
+{% endblock %}

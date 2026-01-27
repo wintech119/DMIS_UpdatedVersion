@@ -1,0 +1,571 @@
+{% extends "base.html" %}
+{% from 'user_admin/_macros.html' import status_badge, mfa_status_badge, password_strength_indicator %}
+
+{% block title %}Edit User - {{ user.full_name or user.email }}{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modern-ui.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/user-management-ui.css') }}">
+<style nonce="{{ csp_nonce() }}">
+    /* Modern Card Styling */
+    .card {
+        border-radius: 0.5rem;
+        transition: all 0.2s ease-in-out;
+    }
+    
+    .card-header {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #f1f3f5;
+    }
+    
+    .card-title {
+        font-weight: 600;
+        color: #212529;
+        font-size: 1rem;
+    }
+    
+    /* Form Modern Styling */
+    .form-label {
+        font-weight: 500;
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+    
+    .form-control:focus, .form-select:focus {
+        border-color: #009639;
+        box-shadow: 0 0 0 0.2rem rgba(0, 150, 57, 0.1);
+    }
+    
+    /* Button Consistency */
+    .btn {
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        transition: all 0.2s;
+    }
+    
+    .btn-success {
+        background-color: #009639;
+        border-color: #009639;
+    }
+    
+    .btn-success:hover {
+        background-color: #007a2e;
+        border-color: #007a2e;
+    }
+    
+    /* Page Header Modern Style */
+    .page-header {
+        margin-bottom: 0;
+    }
+    
+    .page-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .page-title-icon {
+        font-size: 1.75rem;
+        color: #009639;
+    }
+    
+    .page-title-text {
+        font-size: 1.875rem;
+        font-weight: 700;
+        color: #212529;
+        margin: 0;
+    }
+    
+    .page-subtitle {
+        font-size: 1rem;
+        color: #6c757d;
+        margin: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="page-header mb-0">
+            <div class="page-title">
+                <i class="bi bi-pencil-square page-title-icon"></i>
+                <h1 class="page-title-text">Edit User</h1>
+            </div>
+            <p class="page-subtitle">{{ user.email }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('user_admin.view', user_id=user.user_id) }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Profile
+            </a>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" class="needs-validation" novalidate id="editUserForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-4">
+            <!-- Main Form Column -->
+            <div class="col-lg-8">
+                <!-- Account Information -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-person-badge text-success"></i> Account Information
+                        </h6>
+                        {{ status_badge('active' if user.is_active else ('locked' if user.is_locked else 'inactive')) }}
+                    </div>
+                    <div class="card-body">
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Email Address</label>
+                            <div class="alert alert-light mb-0">
+                                <i class="bi bi-envelope-fill"></i> {{ user.email }}
+                                <small class="d-block text-muted mt-1">
+                                    <i class="bi bi-lock-fill"></i> Email cannot be changed for security reasons
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="user_name" class="form-label fw-bold">
+                                User Name <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-person-badge"></i></span>
+                                <input type="text" 
+                                       name="user_name" 
+                                       id="user_name" 
+                                       class="form-control" 
+                                       required
+                                       maxlength="20"
+                                       value="{{ user.user_name or '' }}"
+                                       oninput="updateUserNameCount()">
+                            </div>
+                            <small class="form-text text-muted">
+                                <i class="bi bi-info-circle"></i> <span id="userNameCount">{{ user.user_name|length if user.user_name else 0 }}</span>/20 characters - Used for audit tracking
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="first_name" class="form-label">First Name</label>
+                            <input type="text" 
+                                   name="first_name" 
+                                   id="first_name" 
+                                   class="form-control" 
+                                   value="{{ user.first_name or '' }}"
+                                   placeholder="First name">
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="last_name" class="form-label">Last Name</label>
+                            <input type="text" 
+                                   name="last_name" 
+                                   id="last_name" 
+                                   class="form-control" 
+                                   value="{{ user.last_name or '' }}"
+                                   placeholder="Last name">
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="job_title" class="form-label">Job Title</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-briefcase"></i></span>
+                                <input type="text" 
+                                       name="job_title" 
+                                       id="job_title" 
+                                       class="form-control" 
+                                       value="{{ user.job_title or '' }}"
+                                       placeholder="e.g., Logistics Coordinator">
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="phone" class="form-label">Phone Number</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-telephone"></i></span>
+                                <input type="tel" 
+                                       name="phone" 
+                                       id="phone" 
+                                       class="form-control phone-mask" 
+                                       maxlength="20"
+                                       value="{{ user.phone or '' }}"
+                                       placeholder="+1 (___) ___-____">
+                            </div>
+                        </div>
+                        
+                        <div class="col-12">
+                            <label for="organization" class="form-label">Organization</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-building"></i></span>
+                                <select name="organization" id="organization" class="form-select">
+                                    <option value="">-- Select Organization --</option>
+                                    <optgroup label="Agencies">
+                                        {% for agency in agencies %}
+                                        <option value="AGENCY:{{ agency.agency_id }}" 
+                                                {% if current_org_value == 'AGENCY:' ~ agency.agency_id %}selected{% endif %}>
+                                            {{ agency.agency_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </optgroup>
+                                    <optgroup label="Custodians">
+                                        {% for custodian in custodians %}
+                                        <option value="CUSTODIAN:{{ custodian.custodian_id }}"
+                                                {% if current_org_value == 'CUSTODIAN:' ~ custodian.custodian_id %}selected{% endif %}>
+                                            {{ custodian.custodian_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Password Reset -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-key text-warning"></i> Password Management
+                        </h6>
+                        <span class="badge bg-warning">Optional</span>
+                    </div>
+                    <div class="card-body">
+                    
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Password Change</strong>
+                        <p class="mb-0 small">Only fill this field if you want to reset the user's password</p>
+                    </div>
+                    
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label for="password" class="form-label">New Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-key"></i></span>
+                                <input type="password" 
+                                       name="password" 
+                                       id="password" 
+                                       class="form-control" 
+                                       minlength="8"
+                                       autocomplete="new-password"
+                                       placeholder="Leave blank to keep current password"
+                                       aria-describedby="passwordHelp">
+                                <button class="btn btn-outline-secondary" 
+                                        type="button" 
+                                        id="togglePassword"
+                                        aria-label="Toggle password visibility">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <small id="passwordHelp" class="form-text text-muted">
+                                <i class="bi bi-info-circle"></i> Leave blank to keep existing password
+                            </small>
+                            <div id="passwordStrength" class="mt-2 d-none">
+                                {{ password_strength_indicator() }}
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Role Assignment -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-shield-lock text-primary"></i> Role Assignment
+                        </h6>
+                        <span class="badge bg-info" id="roleCount">{{ user_role_ids|length }} selected</span>
+                    </div>
+                    <div class="card-body">
+                    <p class="text-muted mb-3">
+                        <i class="bi bi-info-circle"></i> Modify user permissions by selecting or deselecting roles
+                    </p>
+                    
+                    <div class="role-selection-grid">
+                        {% for role in roles %}
+                        <div class="role-option">
+                            <input type="checkbox" 
+                                   name="roles" 
+                                   value="{{ role.id }}" 
+                                   id="role_{{ role.id }}" 
+                                   class="role-checkbox"
+                                   {% if role.id in user_role_ids %}checked{% endif %}>
+                            <label for="role_{{ role.id }}" class="role-label">
+                                <div class="role-header">
+                                    <i class="bi bi-shield-fill-check"></i>
+                                    <strong>{{ role.name }}</strong>
+                                </div>
+                                {% if role.role_desc %}
+                                <small class="role-description">{{ role.role_desc }}</small>
+                                {% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Warehouse Access -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-building-check text-info"></i> Warehouse Access
+                        </h6>
+                        <span class="badge bg-secondary" id="warehouseCount">
+                            {% if user_warehouse_ids|length == 0 %}All warehouses{% else %}{{ user_warehouse_ids|length }} selected{% endif %}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                    <p class="text-muted mb-3">
+                        <i class="bi bi-info-circle"></i> Leave empty to grant access to all warehouses
+                    </p>
+                    
+                    <div class="warehouse-selection-grid">
+                        {% for warehouse in warehouses %}
+                        <div class="warehouse-option">
+                            <input type="checkbox" 
+                                   name="warehouses" 
+                                   value="{{ warehouse.warehouse_id }}" 
+                                   id="warehouse_{{ warehouse.warehouse_id }}" 
+                                   class="warehouse-checkbox"
+                                   {% if warehouse.warehouse_id in user_warehouse_ids %}checked{% endif %}>
+                            <label for="warehouse_{{ warehouse.warehouse_id }}" class="warehouse-label">
+                                <i class="bi bi-building"></i>
+                                <span>{{ warehouse.warehouse_name }}</span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <!-- Account Status -->
+                <div class="card shadow-sm border-0 mb-3 sticky-top sticky-top-1">
+                    <div class="card-header bg-white border-0 pb-0">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-toggle-on text-success"></i> Account Status
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input type="checkbox" 
+                               name="is_active" 
+                               id="is_active" 
+                               class="form-check-input" 
+                               {% if user.is_active %}checked{% endif %}
+                               role="switch"
+                               aria-describedby="activeHelp">
+                        <label for="is_active" class="form-check-label">
+                            <strong>Active Account</strong>
+                        </label>
+                    </div>
+                    <small id="activeHelp" class="form-text text-muted d-block mb-3">
+                        {% if user.is_active %}
+                            Deactivate to prevent user login
+                        {% else %}
+                            Activate to allow user login
+                        {% endif %}
+                    </small>
+
+                        {% if user.is_locked %}
+                        <div class="alert alert-danger">
+                            <i class="bi bi-lock-fill"></i>
+                            <strong>Account Locked</strong>
+                            <p class="mb-0 small">This account is currently locked due to security policy</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-check-circle"></i> Save Changes
+                            </button>
+                            <a href="{{ url_for('user_admin.view', user_id=user.user_id) }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Info -->
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-header bg-white border-0 pb-0">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-info-circle text-primary"></i> Account Info
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="small text-muted">
+                        <div class="mb-2">
+                            <i class="bi bi-calendar-plus"></i>
+                            <strong>Created:</strong><br>
+                            {{ user.create_dtime.strftime('%Y-%m-%d %H:%M') if user.create_dtime else 'Unknown' }}
+                        </div>
+                        <div class="mb-2">
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            <strong>Last Login:</strong><br>
+                            {{ user.last_login_dtime.strftime('%Y-%m-%d %H:%M') if user.last_login_dtime else 'Never' }}
+                        </div>
+                            <div>
+                                {{ mfa_status_badge(user.mfa_enabled, user.mfa_secret is not none) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/phone-mask.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+// Update user_name character count
+function updateUserNameCount() {
+    const userNameInput = document.getElementById('user_name');
+    const countSpan = document.getElementById('userNameCount');
+    const currentLength = userNameInput.value.length;
+    countSpan.textContent = currentLength;
+    
+    // Color coding
+    countSpan.classList.remove('char-count-danger', 'char-count-warning', 'char-count-normal');
+    if (currentLength > 18) {
+        countSpan.classList.add('char-count-danger');
+    } else if (currentLength > 15) {
+        countSpan.classList.add('char-count-warning');
+    } else {
+        countSpan.classList.add('char-count-normal');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize user_name counter
+    updateUserNameCount();
+    
+    const form = document.getElementById('editUserForm');
+    const passwordInput = document.getElementById('password');
+    const togglePasswordBtn = document.getElementById('togglePassword');
+    const roleCheckboxes = document.querySelectorAll('.role-checkbox');
+    const warehouseCheckboxes = document.querySelectorAll('.warehouse-checkbox');
+    const roleCountBadge = document.getElementById('roleCount');
+    const warehouseCountBadge = document.getElementById('warehouseCount');
+    
+    // Toggle password visibility
+    if (togglePasswordBtn) {
+        togglePasswordBtn.addEventListener('click', function() {
+            const type = passwordInput.type === 'password' ? 'text' : 'password';
+            passwordInput.type = type;
+            const icon = this.querySelector('i');
+            icon.classList.toggle('bi-eye');
+            icon.classList.toggle('bi-eye-slash');
+        });
+    }
+    
+    // Password strength indicator
+    if (passwordInput) {
+        passwordInput.addEventListener('input', function() {
+            const strengthDiv = document.getElementById('passwordStrength');
+            if (this.value.length > 0) {
+                strengthDiv.classList.remove('d-none');
+                strengthDiv.classList.add('d-block');
+                const strength = calculatePasswordStrength(this.value);
+                updatePasswordStrength(strength);
+            } else {
+                strengthDiv.classList.remove('d-block');
+                strengthDiv.classList.add('d-none');
+            }
+        });
+    }
+    
+    function calculatePasswordStrength(password) {
+        let strength = 0;
+        if (password.length >= 8) strength++;
+        if (password.length >= 12) strength++;
+        if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+        if (/\d/.test(password)) strength++;
+        if (/[^a-zA-Z0-9]/.test(password)) strength++;
+        return strength;
+    }
+    
+    function updatePasswordStrength(strength) {
+        const bar = document.querySelector('.password-strength-bar');
+        const text = document.querySelector('.password-strength-text');
+        if (!bar || !text) return;
+        
+        bar.className = 'password-strength-bar';
+        bar.classList.remove('strength-0', 'strength-20', 'strength-40', 'strength-60', 'strength-80', 'strength-100');
+        if (strength <= 2) {
+            bar.classList.add('weak');
+            text.textContent = 'Weak';
+        } else if (strength <= 3) {
+            bar.classList.add('fair');
+            text.textContent = 'Fair';
+        } else if (strength <= 4) {
+            bar.classList.add('good');
+            text.textContent = 'Good';
+        } else {
+            bar.classList.add('strong');
+            text.textContent = 'Strong';
+        }
+        bar.classList.add('strength-' + (strength * 20));
+    }
+    
+    // Update role count
+    function updateRoleCount() {
+        const count = document.querySelectorAll('.role-checkbox:checked').length;
+        roleCountBadge.textContent = count + ' selected';
+    }
+    
+    roleCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateRoleCount);
+    });
+    
+    // Update warehouse count
+    function updateWarehouseCount() {
+        const count = document.querySelectorAll('.warehouse-checkbox:checked').length;
+        warehouseCountBadge.textContent = count === 0 ? 'All warehouses' : count + ' selected';
+    }
+    
+    warehouseCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateWarehouseCount);
+    });
+    
+    // Form validation
+    form.addEventListener('submit', function(e) {
+        if (!form.checkValidity()) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
+});
+</script>
+{% endblock %}
