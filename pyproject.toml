@@ -1,0 +1,34 @@
+[project]
+name = "goj_dmis"
+dynamic = ["version", "readme", "dependencies"]
+
+requires-python = ">=3.11"
+keywords = ["webapp", "flask"]
+# license = "GPL3"
+description = "Disaster Management Information System for the Office of Disaster Preparedness and Emergency Management (ODPEM)"
+classifiers = [
+    "Framework :: Flask",
+    "Programming Language :: Python :: 3",
+]
+
+authors = [
+    {name = "ICT Authority, Jamaica", email = "support@icta.gov.jm" },
+    {name = "Winston Bowen", email = "winston.bowen@icta.gov.jm" },
+    {name = "Lincoln Brown", email = "lincoln.brown@icta.gov.jm" },
+]
+
+[build-system]
+requires = ["setuptools"]  # , "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+
+[tool.setuptools.dynamic]
+version = {attr = "app.__version__"}  # any module attribute compatible with ast.literal_eval
+readme = {file = ["README.md", "replit.md"], content-type = "text/x-markdown"}
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*",]  # alternatively: `exclude = ["additional*"]`
+namespaces = false

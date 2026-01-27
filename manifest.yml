@@ -1,0 +1,16 @@
+project_name: goj-dmis
+group_id: com.goj.DMIS
+application_name: goj-dmis-main
+artifact_id:  goj_dmis_main
+version: {APP_VERSION}
+application_version: {PACKAGE_FILENAME}
+
+python: 3.11
+services:
+  - S0
+  - MAIL
+  - LDAP
+
+databases:
+  - name: dmisdb
+    type: postgresql

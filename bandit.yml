@@ -1,0 +1,104 @@
+# Bandit Security Scanner Configuration for DMIS (Flask/Python)
+# This configuration is tuned for a Flask web application with PostgreSQL
+
+# Directories and files to skip scanning
+exclude_dirs:
+  - .git
+  - .github
+  - __pycache__
+  - .pytest_cache
+  - venv
+  - .venv
+  - node_modules
+  - attached_assets
+  - docs
+  - migrations
+  - tests
+
+# Test IDs to skip (false positives for this project)
+skips:
+  # B101: Use of assert detected - acceptable in non-production code paths
+  - B101
+  # B104: Binding to all interfaces (0.0.0.0) - required for Replit deployment
+  - B104
+  # B105: Hardcoded password string - false positives on form field names
+  # Only skip if explicitly reviewed as false positives
+  # - B105
+
+# Tests to run - focus on high-impact security issues
+# See: https://bandit.readthedocs.io/en/latest/plugins/index.html
+tests:
+  # SQL Injection
+  - B608  # SQL injection via string formatting
+  - B609  # Wildcard injection
+  - B610  # Django extra
+  - B611  # Django raw SQL
+  
+  # Command Injection
+  - B602  # subprocess with shell=True
+  - B603  # subprocess without shell
+  - B604  # Function calls with shell
+  - B605  # os.system
+  - B606  # os.popen
+  - B607  # start_process_with_partial_path
+  
+  # Code Injection
+  - B307  # eval usage
+  - B102  # exec usage
+  
+  # Cryptography Issues
+  - B303  # MD5/SHA1 for security
+  - B304  # Insecure cipher use
+  - B305  # Insecure cipher mode
+  - B306  # mktemp usage
+  - B324  # Insecure hash functions
+  
+  # Dangerous Functions
+  - B301  # pickle usage
+  - B302  # marshal usage
+  - B310  # urllib_urlopen
+  - B311  # random for crypto
+  - B312  # telnetlib usage
+  - B313  # xml with no defused
+  - B314  # xml.etree
+  - B315  # xml.sax
+  - B316  # xml.expat
+  - B317  # xml.dom
+  - B318  # xml.dom.minidom
+  - B319  # xml.dom.pulldom
+  - B320  # xml.etree.cElementTree
+  - B321  # ftplib
+  - B322  # input on Python 2
+  - B323  # unverified SSL context
+  
+  # Flask-Specific
+  - B201  # flask debug mode
+  
+  # Secrets Detection
+  - B105  # Hardcoded password string
+  - B106  # Hardcoded password function arg
+  - B107  # Hardcoded password default
+
+  # File Permissions
+  - B103  # Setting permissive file permissions
+  
+  # Try/Except Issues
+  - B110  # try_except_pass
+  - B112  # try_except_continue
+
+# Confidence level filter (LOW, MEDIUM, HIGH)
+# Only report issues with confidence >= this level
+confidence: MEDIUM
+
+# Severity level filter (LOW, MEDIUM, HIGH)
+# Only report issues with severity >= this level  
+severity: LOW
+
+# Output format options
+format: txt
+
+# Recursively scan directories
+recursive: true
+
+# Number of lines of context to show
+context_lines: 3
