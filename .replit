@@ -1,0 +1,101 @@
+modules = ["python-3.11", "postgresql-16"]
+[agent]
+expertMode = true
+integrations = ["python_database:1.0.0"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["glibcLocales"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "drims_app"
+
+[[workflows.workflow]]
+name = "drims_app"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python drims_app.py"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 35643
+externalPort = 8099
+
+[[ports]]
+localPort = 36627
+externalPort = 4200
+
+[[ports]]
+localPort = 36873
+externalPort = 3000
+
+[[ports]]
+localPort = 37393
+externalPort = 3002
+
+[[ports]]
+localPort = 37907
+externalPort = 8081
+
+[[ports]]
+localPort = 38705
+externalPort = 8080
+
+[[ports]]
+localPort = 40191
+externalPort = 9000
+
+[[ports]]
+localPort = 40255
+externalPort = 3003
+
+[[ports]]
+localPort = 41775
+externalPort = 8008
+
+[[ports]]
+localPort = 42267
+externalPort = 8000
+
+[[ports]]
+localPort = 43493
+externalPort = 3001
+
+[[ports]]
+localPort = 45117
+externalPort = 6000
+
+[[ports]]
+localPort = 46121
+externalPort = 6800
+
+[[ports]]
+localPort = 46527
+externalPort = 5000
+
+[[ports]]
+localPort = 46651
+externalPort = 5173
+
+[userenv]
+
+[userenv.development]
+DMIS_DEBUG = "true"

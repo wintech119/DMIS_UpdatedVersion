@@ -1,0 +1,123 @@
+include:
+  - template: DAST-API.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+variables:
+  GIT_STRATEGY: fetch
+  SAST_EXCLUDED_PATHS:  docs, fixes, migrations
+  SAST_SEMGREP_METRICS: false
+
+sast:
+  variables:
+    SECURE_LOG_LEVEL: debug
+  stage: test
+secret_detection:
+  before_script:
+    - echo ''
+  stage: test
+dependency_scanning:
+  before_script: ''
+  stage: test
+#----- DAST SCAN
+dast_api:
+  stage: dast
+  script:
+    - echo 'dast running'
+  artifacts:
+    reports:
+      dast: gl-dast-api-report.json
+stages:
+  - build  # no build stage. Maybe we could build the JS
+  - test
+  - upload
+  - deploy
+  - dast
+
+default:
+  tags: 
+    - docker
+  image: python:3.12-slim
+
+# -- do not run pipeline on a new branch ---
+workflow:
+  rules:
+      - if: $CI_PIPELINE_SOURCE == 'push' && $CI_COMMIT_BEFORE_SHA != "0000000000000000000000000000000000000000"
+        when: always
+      - when: never 
+
+# -- include in jobs run on protected branches
+.release_cond:
+  only:
+    - develop
+    - staging
+    - /^release-.*$/
+
+# -- use this when we run artify - upload+deploy jobs
+.artify_opts:
+  image: zonaldev/artify:1.10.9
+
+# -- add version number to manifest.yml ---
+.patch_manifest:
+  before_script:
+    - export PKGF_=$(basename dist/*.tar.gz|tail -1)
+    - >
+      python3 -c "import os;from app import __version__ as _v;_fn=os.getenv('PKGF_');
+      mf_=open('manifest.yml', 'rt').read().format(APP_VERSION=_v, PACKAGE_FILENAME=_fn);
+      print(f'Patching manifest.yml with version {_v}');open('manifest.yml', 'wt').write(mf_)"
+
+build-package:
+  stage: build
+  script:
+    - pip install -U build
+    - echo "Packaging application"
+    - test -d dist && rm -f dist/*.tar.gz
+    - test -f pyproject.toml && python3 -m build -s
+  artifacts:
+    paths:
+      - dist/*.tar.gz
+    untracked: false
+    when: on_success
+    access: all
+    expire_in: 2 hour
+
+publish-package:
+  stage: upload
+  dependencies:
+    - build-package
+  extends:
+    - .artify_opts
+    - .release_cond
+    - .patch_manifest
+  script:
+    - export ARTIFACT_NAME="$(basename dist/*.tar.gz|tail -1)
+    - |-
+      if [[ $CI_COMMIT_BRANCH =~ ^release-.*$ ]]; then
+        NEX_REPO="releases";
+      elif [ "$CI_COMMIT_BRANCH" == "staging" ]; then
+        NEX_REPO="staging";
+      else
+        NEX_REPO="snapshots";
+      fi
+    - mv dist/$ARTIFACT_NAME .
+    - >
+      python3 -m artify -c nexus -r egov-$NEX_REPO -f maven -n $ARTIFACT_NAME
+      -w ./ -h https://bizdevnex.egovja.com
+    - mv $ARTIFACT_NAME dist/
+
+awx-deploy:
+  stage: deploy
+  dependencies:
+    - build-package
+  extends:
+    - .artify_opts
+    - .release_cond
+    - .patch_manifest
+  script:
+    - echo "Calling the ansible web-hook to deploy"
+    - echo "Sending Deployment Data to ${DEPLOY_HOOK_URL_:'no_url_found'}"
+    # - >
+    #   wget --header "Content-Type: application/json"
+    #   --post-data '{"version":"'${APP_VERSION_}'", "branch":"'${CI_COMMIT_REF_NAME}'", "deploy_as":"backend", "name":"'${CI_PROJECT_NAME}'"}'
+    #   -O - "$DEPLOY_HOOK_URL_"

@@ -1,0 +1,266 @@
+# Semgrep Security Rules Configuration for DMIS (Flask/Python)
+# Custom and curated rules for Flask web application security scanning
+
+rules:
+  # ============================================
+  # SQL Injection Prevention
+  # ============================================
+  - id: flask-sqli-format-string
+    patterns:
+      - pattern-either:
+          - pattern: $DB.execute($QUERY % ...)
+          - pattern: $DB.execute($QUERY.format(...))
+          - pattern: $DB.execute(f"..." + ...)
+          - pattern: db.session.execute($QUERY % ...)
+          - pattern: db.session.execute($QUERY.format(...))
+          - pattern: text($QUERY % ...)
+          - pattern: text($QUERY.format(...))
+    message: "Potential SQL injection via string formatting. Use parameterized queries instead."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+      category: security
+
+  - id: flask-raw-sql-concatenation
+    patterns:
+      - pattern: |
+          $QUERY = "..." + $VAR + "..."
+          ...
+          $DB.execute($QUERY)
+    message: "SQL query built via string concatenation. Use parameterized queries."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  # ============================================
+  # Command Injection Prevention
+  # ============================================
+  - id: dangerous-subprocess-shell
+    patterns:
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+    message: "Subprocess with shell=True is dangerous. Use shell=False with argument list."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021 - Injection"
+
+  - id: dangerous-os-system
+    pattern: os.system(...)
+    message: "os.system() is vulnerable to command injection. Use subprocess with shell=False."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+
+  - id: dangerous-os-popen
+    pattern: os.popen(...)
+    message: "os.popen() is vulnerable to command injection. Use subprocess with shell=False."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+
+  # ============================================
+  # XSS Prevention (Flask/Jinja2)
+  # ============================================
+  - id: flask-markup-unescaped
+    patterns:
+      - pattern: Markup($USER_INPUT)
+      - pattern: Markup(request.$METHOD.get(...))
+    message: "Markup() with user input may cause XSS. Ensure input is sanitized."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+      owasp: "A03:2021 - Injection"
+
+  - id: jinja2-autoescape-disabled
+    pattern: |
+      Environment(..., autoescape=False, ...)
+    message: "Jinja2 autoescape disabled. This may lead to XSS vulnerabilities."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+
+  # ============================================
+  # Dangerous Function Usage
+  # ============================================
+  - id: dangerous-eval
+    pattern: eval(...)
+    message: "eval() is dangerous and can execute arbitrary code. Avoid using it."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-94: Code Injection"
+
+  - id: dangerous-exec
+    pattern: exec(...)
+    message: "exec() is dangerous and can execute arbitrary code. Avoid using it."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-94: Code Injection"
+
+  - id: dangerous-pickle-load
+    patterns:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: cPickle.load(...)
+      - pattern: cPickle.loads(...)
+    message: "Pickle deserialization is unsafe with untrusted data. Can lead to RCE."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+
+  - id: dangerous-yaml-load
+    pattern: yaml.load(..., Loader=yaml.Loader, ...)
+    message: "yaml.load() with unsafe Loader. Use yaml.safe_load() instead."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+
+  # ============================================
+  # Weak Cryptography
+  # ============================================
+  - id: weak-hash-md5
+    patterns:
+      - pattern: hashlib.md5(...)
+      - pattern: MD5.new(...)
+    message: "MD5 is cryptographically weak. Use SHA-256 or stronger for security purposes."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-328: Weak Hash"
+
+  - id: weak-hash-sha1
+    patterns:
+      - pattern: hashlib.sha1(...)
+      - pattern: SHA.new(...)
+      - pattern: SHA1.new(...)
+    message: "SHA1 is cryptographically weak. Use SHA-256 or stronger for security purposes."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-328: Weak Hash"
+
+  - id: insecure-random
+    patterns:
+      - pattern: random.random()
+      - pattern: random.randint(...)
+      - pattern: random.choice(...)
+    message: "random module is not cryptographically secure. Use secrets module for security."
+    languages: [python]
+    severity: INFO
+    metadata:
+      cwe: "CWE-330: Insufficient Random Values"
+
+  # ============================================
+  # Flask Security Best Practices
+  # ============================================
+  - id: flask-debug-true
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+      - pattern: app.debug = True
+    message: "Flask debug mode should be disabled in production."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-489: Active Debug Code"
+
+  - id: flask-secret-key-hardcoded
+    patterns:
+      - pattern: app.secret_key = "..."
+      - pattern: app.config['SECRET_KEY'] = "..."
+      - pattern: SECRET_KEY = "..."
+    message: "Hardcoded secret key detected. Use environment variables for secrets."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798: Hardcoded Credentials"
+
+  - id: flask-send-file-path-traversal
+    pattern: send_file($PATH, ...)
+    message: "Ensure send_file() path is validated to prevent path traversal attacks."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-22: Path Traversal"
+
+  # ============================================
+  # Open Redirect Prevention
+  # ============================================
+  - id: flask-open-redirect
+    patterns:
+      - pattern: redirect(request.args.get(...))
+      - pattern: redirect(request.form.get(...))
+      - pattern: redirect($URL)
+    message: "Potential open redirect. Validate redirect URLs against a whitelist."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-601: Open Redirect"
+      owasp: "A01:2021 - Broken Access Control"
+
+  # ============================================
+  # Sensitive Data Exposure
+  # ============================================
+  - id: logging-sensitive-data
+    patterns:
+      - pattern: $LOG.info(..., password=..., ...)
+      - pattern: $LOG.debug(..., password=..., ...)
+      - pattern: $LOG.error(..., password=..., ...)
+      - pattern: print(..., password=..., ...)
+    message: "Sensitive data may be logged. Avoid logging passwords and secrets."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-532: Information Exposure Through Log Files"
+
+  - id: flask-exception-in-response
+    patterns:
+      - pattern: return str($EXCEPTION)
+      - pattern: jsonify({"error": str($EXCEPTION)})
+      - pattern: flash(str($EXCEPTION), ...)
+    message: "Exception details exposed to user. Use generic error messages."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-209: Information Exposure Through Error Messages"
+
+  # ============================================
+  # SSRF Prevention
+  # ============================================
+  - id: ssrf-requests
+    patterns:
+      - pattern: requests.get(request.args.get(...), ...)
+      - pattern: requests.post(request.form.get(...), ...)
+      - pattern: urllib.request.urlopen(request.args.get(...))
+    message: "Potential SSRF. Validate and whitelist URLs before making requests."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-918: Server-Side Request Forgery"
+
+  # ============================================
+  # Path Traversal Prevention
+  # ============================================
+  - id: path-traversal-open
+    patterns:
+      - pattern: open(request.args.get(...), ...)
+      - pattern: open(request.form.get(...), ...)
+      - pattern: open($PATH + $USER_INPUT, ...)
+    message: "Potential path traversal. Validate and sanitize file paths."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-22: Path Traversal"
