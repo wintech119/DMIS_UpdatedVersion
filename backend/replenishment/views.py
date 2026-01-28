@@ -46,9 +46,6 @@ def needs_list_preview(request):
 
     event_id = _parse_positive_int(payload.get("event_id"), "event_id", errors)
     warehouse_id = _parse_positive_int(payload.get("warehouse_id"), "warehouse_id", errors)
-    planning_window_days = _parse_positive_int(
-        payload.get("planning_window_days"), "planning_window_days", errors
-    )
 
     phase = payload.get("phase")
     warnings_phase: list[str] = []

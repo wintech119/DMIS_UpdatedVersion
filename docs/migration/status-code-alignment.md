@@ -1,4 +1,4 @@
-﻿# Status Code Alignment
+# Status Code Alignment
 
 This document locks the status-code vocabulary used during migration.
 

@@ -71,7 +71,7 @@ Warning: `DEV_AUTH_ENABLED` must never be enabled in production.
 
 ## Needs List Preview (API)
 Endpoint:
-```
+```text
 POST /api/v1/replenishment/needs-list/preview
 ```
 
@@ -83,11 +83,13 @@ $env:DEV_AUTH_ROLES = "LOGISTICS"
 
 curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/preview `
   -ContentType "application/json" `
-  -Body '{ "event_id": 1, "warehouse_id": 1, "planning_window_days": 14 }'
+  -Body '{ "event_id": 1, "warehouse_id": 1, "phase": "BASELINE" }'
 ```
 
+Note: `planning_window_days` is computed from the phase windows (v4.1 default) and is returned in the response; client-provided `planning_window_days` is ignored.
+
 Configuration knobs (TBD finalize from PRD/appendices):
-```
+```ini
 NEEDS_SAFETY_FACTOR=1.25
 NEEDS_HORIZON_A_DAYS=7
 NEEDS_HORIZON_B_DAYS=
@@ -102,13 +104,13 @@ Note: donation status model is E/V/P only; do not use A/P/C.
 
 ## Needs List Ruleset (Doc-Backed)
 v4.1 is authoritative. v4.0 is retained only for back-compat validation. Choose the ruleset version via:
-```
+```ini
 NEEDS_WINDOWS_VERSION=v41  # Gap Updates v4.1 + Appendix D Technical (default)
 NEEDS_WINDOWS_VERSION=v40  # PRD/Reqs v4.0 + Appendix H (legacy)
 ```
 
 Status code mappings (legacy code -> conceptual inbound):
-```
+```ini
 TRANSFER_DISPATCHED_CODES=D
 DONATION_CONFIRMED_CODES=V
 DONATION_IN_TRANSIT_CODES=V
