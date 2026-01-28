@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "api",
+    "replenishment",
 ]
 
 MIDDLEWARE = [
@@ -102,3 +103,25 @@ else:
 DEV_AUTH_ENABLED = os.getenv("DEV_AUTH_ENABLED", "0") == "1"
 DEV_AUTH_USER_ID = os.getenv("DEV_AUTH_USER_ID", "dev-user")
 DEV_AUTH_ROLES = [role.strip() for role in os.getenv("DEV_AUTH_ROLES", "").split(",") if role.strip()]
+
+# Needs List Preview settings (TBD finalize from PRD/appendices).
+def _get_csv_env(name: str, default: list[str]) -> list[str]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+NEEDS_SAFETY_FACTOR = float(os.getenv("NEEDS_SAFETY_FACTOR", "1.0"))
+NEEDS_HORIZON_A_DAYS = int(os.getenv("NEEDS_HORIZON_A_DAYS", "7"))
+_horizon_b_raw = os.getenv("NEEDS_HORIZON_B_DAYS")
+NEEDS_HORIZON_B_DAYS = int(_horizon_b_raw) if _horizon_b_raw is not None else None
+NEEDS_STRICT_INBOUND_DONATION_STATUSES = _get_csv_env(
+    "NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"]
+)
+NEEDS_STRICT_INBOUND_TRANSFER_STATUSES = _get_csv_env(
+    "NEEDS_STRICT_INBOUND_TRANSFER_STATUSES", ["V", "P"]
+)
+NEEDS_INVENTORY_ACTIVE_STATUS = os.getenv("NEEDS_INVENTORY_ACTIVE_STATUS", "A")
+NEEDS_BURN_SOURCE = os.getenv("NEEDS_BURN_SOURCE", "reliefpkg")
+NEEDS_BURN_FALLBACK = os.getenv("NEEDS_BURN_FALLBACK", "reliefrqst")
