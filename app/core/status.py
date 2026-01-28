@@ -23,9 +23,9 @@ INVENTORY_STATUS = {
 }
 
 DONATION_STATUS = {
-    'A': 'Accepted',
-    'P': 'Pending',
-    'C': 'Completed'
+    'E': 'Entered',
+    'V': 'Verified',
+    'P': 'Processed'
 }
 
 RELIEFRQST_STATUS = {
@@ -113,7 +113,7 @@ STATUS_BADGE_MAP = {
     'warehouse': {'A': 'success', 'I': 'secondary'},
     'item': {'A': 'success', 'I': 'secondary'},
     'inventory': {'A': 'success', 'I': 'secondary'},
-    'donation': {'A': 'success', 'P': 'warning', 'C': 'secondary'},
+    'donation': {'E': 'info', 'V': 'success', 'P': 'primary'},
     'reliefpkg': {'P': 'warning', 'D': 'primary', 'C': 'success'},
     'reliefrqst': {0: 'secondary', 1: 'warning', 2: 'secondary', 3: 'info', 4: 'danger', 5: 'warning', 6: 'secondary', 7: 'success', 8: 'danger'},
     'reliefrqst_item': {'R': 'info', 'U': 'danger', 'W': 'warning', 'D': 'danger', 'P': 'warning', 'L': 'info', 'F': 'success'},
