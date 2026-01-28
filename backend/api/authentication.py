@@ -1,12 +1,17 @@
 import base64
+import binascii
 import json
+import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+import jwt
+from jwt import InvalidTokenError, PyJWKClient, PyJWKClientError
 from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Principal:
@@ -18,17 +23,63 @@ class Principal:
 
 def _decode_base64url(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(value + padding)
+    try:
+        return base64.urlsafe_b64decode(value + padding)
+    except binascii.Error as exc:
+        raise ValueError(f"Invalid JWT payload: {exc}") from exc
 
 
 def _decode_jwt_unverified(token: str) -> dict:
     parts = token.split(".")
     if len(parts) != 3:
         raise ValueError("Token is not a JWT")
-    payload = json.loads(_decode_base64url(parts[1]).decode("utf-8"))
+    try:
+        payload_text = _decode_base64url(parts[1]).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Invalid JWT payload: {exc}") from exc
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JWT payload: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Invalid token payload")
     return payload
+
+
+def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
+    if not jwks_url:
+        raise AuthenticationFailed("JWKS URL is not configured.")
+    try:
+        header = jwt.get_unverified_header(token)
+        alg = header.get("alg")
+        if not alg:
+            raise AuthenticationFailed("JWT alg is missing.")
+
+        jwk_client = PyJWKClient(jwks_url)
+        signing_key = jwk_client.get_signing_key_from_jwt(token)
+
+        options = {
+            "verify_aud": bool(settings.AUTH_AUDIENCE),
+            "verify_iss": bool(settings.AUTH_ISSUER),
+        }
+        kwargs = {
+            "algorithms": [alg],
+            "options": options,
+        }
+        if settings.AUTH_ISSUER:
+            kwargs["issuer"] = settings.AUTH_ISSUER
+        if settings.AUTH_AUDIENCE:
+            kwargs["audience"] = settings.AUTH_AUDIENCE
+
+        payload = jwt.decode(token, signing_key.key, **kwargs)
+        if not isinstance(payload, dict):
+            raise AuthenticationFailed("Invalid JWT payload.")
+        return payload
+    except (PyJWKClientError, InvalidTokenError, AuthenticationFailed, ValueError) as exc:
+        logger.warning("JWT verification failed: %s", exc)
+        if isinstance(exc, AuthenticationFailed):
+            raise
+        raise AuthenticationFailed("Invalid bearer token.") from exc
 
 
 def _parse_roles(value) -> list[str]:
@@ -69,10 +120,7 @@ class LegacyCompatAuthentication(BaseAuthentication):
         if not token:
             raise AuthenticationFailed("Missing bearer token.")
 
-        try:
-            payload = _decode_jwt_unverified(token)
-        except ValueError as exc:
-            raise AuthenticationFailed("Invalid bearer token.") from exc
+        payload = _verify_jwt_with_jwks(token, settings.AUTH_JWKS_URL)
 
         user_id = None
         username = None

@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Iterable, Tuple
 
 from django.conf import settings
-from django.db import connection
+from django.db import DatabaseError, connection
+import logging
 
 from api.authentication import Principal
 
+logger = logging.getLogger(__name__)
 
 REQUIRED_PERMISSION = "replenishment.needs_list.preview"
 
@@ -25,6 +27,7 @@ def resolve_roles_and_permissions(
 
     roles: list[str] = list(principal.roles or [])
     permissions: set[str] = set()
+    db_error = False
 
     if _db_rbac_enabled():
         try:
@@ -32,10 +35,12 @@ def resolve_roles_and_permissions(
             if user_id is not None:
                 roles = _fetch_roles(user_id)
                 permissions = _fetch_permissions(user_id)
-        except Exception:
+        except DatabaseError as exc:
+            db_error = True
             permissions = set()
+            logger.warning("RBAC DB lookup failed: %s", exc)
 
-    if not permissions:
+    if not permissions and not db_error:
         permissions = _permissions_for_roles(roles)
 
     request._rbac_cache = {"roles": roles, "permissions": permissions}
