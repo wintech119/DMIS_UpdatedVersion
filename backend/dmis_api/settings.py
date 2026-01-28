@@ -112,7 +112,7 @@ def _get_csv_env(name: str, default: list[str]) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-NEEDS_SAFETY_FACTOR = float(os.getenv("NEEDS_SAFETY_FACTOR", "1.0"))
+NEEDS_SAFETY_FACTOR = float(os.getenv("NEEDS_SAFETY_FACTOR", "1.25"))
 NEEDS_HORIZON_A_DAYS = int(os.getenv("NEEDS_HORIZON_A_DAYS", "7"))
 _horizon_b_raw = os.getenv("NEEDS_HORIZON_B_DAYS")
 NEEDS_HORIZON_B_DAYS = int(_horizon_b_raw) if _horizon_b_raw is not None else None

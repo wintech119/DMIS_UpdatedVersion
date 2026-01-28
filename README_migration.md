@@ -88,7 +88,7 @@ curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/preview 
 
 Configuration knobs (TBD finalize from PRD/appendices):
 ```
-NEEDS_SAFETY_FACTOR=1.0
+NEEDS_SAFETY_FACTOR=1.25
 NEEDS_HORIZON_A_DAYS=7
 NEEDS_HORIZON_B_DAYS=
 NEEDS_STRICT_INBOUND_DONATION_STATUSES=V,P
@@ -99,3 +99,19 @@ NEEDS_BURN_FALLBACK=reliefrqst
 ```
 
 Note: donation status model is E/V/P only; do not use A/P/C.
+
+## Needs List Ruleset (Doc-Backed)
+v4.1 is authoritative. v4.0 is retained only for back-compat validation. Choose the ruleset version via:
+```
+NEEDS_WINDOWS_VERSION=v41  # Gap Updates v4.1 + Appendix D Technical (default)
+NEEDS_WINDOWS_VERSION=v40  # PRD/Reqs v4.0 + Appendix H (legacy)
+```
+
+Status code mappings (legacy code -> conceptual inbound):
+```
+TRANSFER_DISPATCHED_CODES=D
+DONATION_CONFIRMED_CODES=V
+DONATION_IN_TRANSIT_CODES=V
+```
+
+Mappings are best-effort until schema/docs align; no DB changes are introduced.

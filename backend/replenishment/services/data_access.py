@@ -8,6 +8,8 @@ from django.conf import settings
 from django.db import DatabaseError, connection
 from django.utils import timezone
 
+from replenishment import rules
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,13 +35,14 @@ def _normalize_datetime(dt):
 
 def get_available_by_item(
     warehouse_id: int, as_of_dt
-) -> Tuple[Dict[int, float], List[str]]:
+) -> Tuple[Dict[int, float], List[str], object | None]:
     if _is_sqlite():
-        return {}, ["db_unavailable_preview_stub"]
+        return {}, ["db_unavailable_preview_stub"], None
 
     warnings: List[str] = []
     available: Dict[int, float] = {}
     status = getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")
+    inventory_as_of = None
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -73,24 +76,32 @@ def get_available_by_item(
                 item_id = int(item_id)
                 if item_id not in available:
                     available[item_id] = _to_float(qty)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT MAX(update_dtime)
+                FROM inventory
+                WHERE inventory_id = %s
+                """,
+                [warehouse_id],
+            )
+            row = cursor.fetchone()
+            inventory_as_of = row[0] if row else None
     except DatabaseError as exc:
         logger.warning("Available inventory query failed: %s", exc)
         warnings.append("db_unavailable_preview_stub")
-        return {}, warnings
+        return {}, warnings, None
 
-    return available, warnings
+    return available, warnings, inventory_as_of
 
 
 def get_inbound_donations_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
+    statuses, warnings = rules.resolve_strict_inbound_donation_codes()
     if _is_sqlite():
-        return {}, ["db_unavailable_preview_stub"]
-
-    warnings: List[str] = []
-    statuses = getattr(
-        settings, "NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"]
-    )
+        warnings.append("db_unavailable_preview_stub")
+        return {}, warnings
     if not statuses:
         return {}, warnings
 
@@ -129,14 +140,10 @@ def get_inbound_donations_by_item(
 def get_inbound_transfers_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
-    warnings: List[str] = ["transfer_status_semantics_tbd"]
+    statuses, warnings = rules.resolve_strict_inbound_transfer_codes()
     if _is_sqlite():
         warnings.append("db_unavailable_preview_stub")
         return {}, warnings
-
-    statuses = getattr(
-        settings, "NEEDS_STRICT_INBOUND_TRANSFER_STATUSES", ["V", "P"]
-    )
     if not statuses:
         return {}, warnings
 
@@ -168,14 +175,16 @@ def get_inbound_transfers_by_item(
 
 
 def get_burn_by_item(
-    event_id: int, warehouse_id: int, window_days: int, as_of_dt
+    event_id: int, warehouse_id: int, demand_window_hours: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str], str]:
     if _is_sqlite():
         return {}, ["db_unavailable_preview_stub"], "none"
 
     warnings: List[str] = []
-    start_dt = _normalize_datetime(as_of_dt) - timedelta(days=window_days)
+    start_dt = _normalize_datetime(as_of_dt) - timedelta(hours=demand_window_hours)
     end_dt = _normalize_datetime(as_of_dt)
+    start_date = start_dt.date()
+    end_date = end_dt.date()
     burn: Dict[int, float] = {}
 
     primary = getattr(settings, "NEEDS_BURN_SOURCE", "reliefpkg")
@@ -195,7 +204,7 @@ def get_burn_by_item(
                           BETWEEN %s AND %s
                     GROUP BY rpi.item_id
                     """,
-                    [warehouse_id, event_id, start_dt, end_dt],
+                    [warehouse_id, event_id, start_date, end_date],
                 )
                 for item_id, qty in cursor.fetchall():
                     burn[int(item_id)] = _to_float(qty)
@@ -221,7 +230,7 @@ def get_burn_by_item(
                       AND rr.request_date BETWEEN %s AND %s
                     GROUP BY rri.item_id
                     """,
-                    [event_id, warehouse_id, start_dt.date(), end_dt.date()],
+                    [event_id, warehouse_id, start_date, end_date],
                 )
                 for item_id, qty in cursor.fetchall():
                     burn[int(item_id)] = _to_float(qty)
