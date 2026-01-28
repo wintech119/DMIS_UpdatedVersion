@@ -42,6 +42,7 @@ def get_available_by_item(
     warnings: List[str] = []
     available: Dict[int, float] = {}
     status = getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")
+    as_of_dt = _normalize_datetime(as_of_dt)
     inventory_as_of = None
     try:
         with connection.cursor() as cursor:
@@ -54,9 +55,11 @@ def get_available_by_item(
                 WHERE ib.inventory_id = %s
                   AND ib.status_code = %s
                   AND i.status_code = %s
+                  AND ib.update_dtime <= %s
+                  AND i.update_dtime <= %s
                 GROUP BY ib.item_id
                 """,
-                [warehouse_id, status, status],
+                [warehouse_id, status, status, as_of_dt, as_of_dt],
             )
             for item_id, qty in cursor.fetchall():
                 available[int(item_id)] = _to_float(qty)
@@ -68,9 +71,10 @@ def get_available_by_item(
                 FROM inventory
                 WHERE inventory_id = %s
                   AND status_code = %s
+                  AND update_dtime <= %s
                 GROUP BY item_id
                 """,
-                [warehouse_id, status],
+                [warehouse_id, status, as_of_dt],
             )
             for item_id, qty in cursor.fetchall():
                 item_id = int(item_id)
@@ -82,8 +86,9 @@ def get_available_by_item(
                 SELECT MAX(update_dtime)
                 FROM inventory
                 WHERE inventory_id = %s
+                  AND update_dtime <= %s
                 """,
-                [warehouse_id],
+                [warehouse_id, as_of_dt],
             )
             row = cursor.fetchone()
             inventory_as_of = row[0] if row else None

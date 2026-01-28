@@ -1,4 +1,4 @@
-﻿# Recon Summary
+# Recon Summary
 
 Continuity notes from initial reconnaissance.
 

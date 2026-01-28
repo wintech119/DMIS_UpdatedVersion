@@ -111,11 +111,29 @@ def _get_csv_env(name: str, default: list[str]) -> list[str]:
         return default
     return [item.strip() for item in value.split(",") if item.strip()]
 
+def _get_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
 
-NEEDS_SAFETY_FACTOR = float(os.getenv("NEEDS_SAFETY_FACTOR", "1.25"))
-NEEDS_HORIZON_A_DAYS = int(os.getenv("NEEDS_HORIZON_A_DAYS", "7"))
-_horizon_b_raw = os.getenv("NEEDS_HORIZON_B_DAYS")
-NEEDS_HORIZON_B_DAYS = int(_horizon_b_raw) if _horizon_b_raw is not None else None
+
+def _get_int_env(name: str, default: int | None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
+
+
+NEEDS_SAFETY_FACTOR = _get_float_env("NEEDS_SAFETY_FACTOR", 1.25)
+NEEDS_HORIZON_A_DAYS = _get_int_env("NEEDS_HORIZON_A_DAYS", 7)
+NEEDS_HORIZON_B_DAYS = _get_int_env("NEEDS_HORIZON_B_DAYS", None)
 NEEDS_STRICT_INBOUND_DONATION_STATUSES = _get_csv_env(
     "NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"]
 )

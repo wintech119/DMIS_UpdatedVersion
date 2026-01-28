@@ -1,6 +1,3 @@
-import base64
-import binascii
-import json
 import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -19,31 +16,6 @@ class Principal:
     username: Optional[str]
     roles: list[str]
     is_authenticated: bool = True
-
-
-def _decode_base64url(value: str) -> bytes:
-    padding = "=" * (-len(value) % 4)
-    try:
-        return base64.urlsafe_b64decode(value + padding)
-    except binascii.Error as exc:
-        raise ValueError(f"Invalid JWT payload: {exc}") from exc
-
-
-def _decode_jwt_unverified(token: str) -> dict:
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise ValueError("Token is not a JWT")
-    try:
-        payload_text = _decode_base64url(parts[1]).decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"Invalid JWT payload: {exc}") from exc
-    try:
-        payload = json.loads(payload_text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JWT payload: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("Invalid token payload")
-    return payload
 
 
 def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
@@ -100,6 +72,11 @@ class LegacyCompatAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request) -> Optional[Tuple[Principal, None]]:
+        if settings.DEV_AUTH_ENABLED and settings.AUTH_ENABLED:
+            raise AuthenticationFailed(
+                "Invalid auth configuration: DEV_AUTH_ENABLED cannot be true when AUTH_ENABLED is true."
+            )
+
         if settings.DEV_AUTH_ENABLED:
             roles = [role for role in settings.DEV_AUTH_ROLES]
             principal = Principal(
