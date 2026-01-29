@@ -129,6 +129,12 @@
   color: #475569;
 }
 
+.chip-estimated {
+  margin-left: 0.35rem;
+  background: rgba(226, 232, 240, 0.9);
+  color: #475569;
+}
+
 .warnings {
   background: #f8fafc;
 }
@@ -150,4 +156,14 @@
   font-size: 0.85rem;
   color: #334155;
   margin-bottom: 0.25rem;
+}
+
+details.item-warning summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+details.item-warning summary::-webkit-details-marker {
+  display: none;
 }
