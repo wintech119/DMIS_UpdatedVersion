@@ -121,28 +121,9 @@ curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/preview 
   -Body '{ "event_id": 1, "warehouse_id": 1, "phase": "BASELINE" }'
 ```
 
-Note: `planning_window_days` is computed from the phase windows (v4.1 default) and is returned in the response; client-provided `planning_window_days` is ignored.
+Note: `planning_window_days` is computed from the phase windows configured by `NEEDS_WINDOWS_VERSION` and is returned in the response; client-provided `planning_window_days` is ignored.
 
 Configuration knobs (TBD finalize from PRD/appendices):
-```ini
-NEEDS_SAFETY_FACTOR=1.25
-NEEDS_HORIZON_A_DAYS=7
-NEEDS_HORIZON_B_DAYS=
-NEEDS_STRICT_INBOUND_DONATION_STATUSES=V,P
-NEEDS_STRICT_INBOUND_TRANSFER_STATUSES=V,P
-NEEDS_INVENTORY_ACTIVE_STATUS=A
-NEEDS_BURN_SOURCE=reliefpkg
-NEEDS_BURN_FALLBACK=reliefrqst
-```
-
-Note: donation status model is E/V/P only; do not use A/P/C.
-
-## Needs List Ruleset (Doc-Backed)
-Default windows use v4.0 timings (v40). v4.1 remains available for comparison/override. Choose the ruleset version via:
-```ini
-NEEDS_WINDOWS_VERSION=v40  # PRD/Reqs v4.0 + Appendix H (default)
-NEEDS_WINDOWS_VERSION=v41  # Gap Updates v4.1 + Appendix D Technical
-```
 
 Status code mappings (legacy code -> conceptual inbound):
 ```ini
