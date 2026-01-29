@@ -241,5 +241,7 @@ def get_burn_by_item(
         if burn:
             return burn, warnings, "reliefpkg", debug
 
+    # TODO: Implement fallback to NEEDS_BURN_FALLBACK (e.g., reliefrqst)
+    # when reliefpkg returns no data
     warnings.append("burn_data_missing")
     return {}, warnings, "none", debug
