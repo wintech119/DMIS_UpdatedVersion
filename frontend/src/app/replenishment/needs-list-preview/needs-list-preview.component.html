@@ -1,0 +1,172 @@
+<section class="page-grid">
+  <mat-card class="panel">
+    <div class="panel-header">
+      <div>
+        <h1>Needs List Preview</h1>
+        <p>Read-only preview derived from inventory, transfer, and relief package data.</p>
+      </div>
+    </div>
+
+    <form class="form-grid" [formGroup]="form" (ngSubmit)="generatePreview()">
+      <mat-form-field appearance="outline">
+        <mat-label>Event ID</mat-label>
+        <input matInput type="number" min="1" formControlName="event_id" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Warehouse ID</mat-label>
+        <input matInput type="number" min="1" formControlName="warehouse_id" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Phase</mat-label>
+        <mat-select formControlName="phase">
+          <mat-option *ngFor="let phase of phaseOptions" [value]="phase">{{ phase }}</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>As Of (optional)</mat-label>
+        <input matInput type="datetime-local" formControlName="as_of_datetime" />
+      </mat-form-field>
+
+      <div class="form-actions">
+        <button mat-flat-button color="primary" type="submit" [disabled]="loading">
+          Generate Preview
+        </button>
+      </div>
+    </form>
+
+    <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
+
+    <div class="errors" *ngIf="errors.length">
+      <div class="error-title">Request errors</div>
+      <div class="error-item" *ngFor="let err of errors">{{ err }}</div>
+    </div>
+
+    <div class="data-note" *ngIf="dataNotes().length">
+      <div class="note-title">Data note</div>
+      <div class="note-item" *ngFor="let note of dataNotes()">{{ note }}</div>
+    </div>
+  </mat-card>
+
+  <mat-card class="panel" *ngIf="response">
+    <div class="summary-grid">
+      <div>
+        <div class="summary-label">As of</div>
+        <div class="summary-value">{{ response.as_of_datetime }}</div>
+      </div>
+      <div>
+        <div class="summary-label">Planning window (days)</div>
+        <div class="summary-value">{{ response.planning_window_days }}</div>
+      </div>
+      <div>
+        <div class="summary-label">Event / Warehouse</div>
+        <div class="summary-value">
+          {{ response.event_id }} / {{ response.warehouse_id }}
+        </div>
+      </div>
+      <div>
+        <div class="summary-label">Phase</div>
+        <div class="summary-value">{{ response.phase }}</div>
+      </div>
+    </div>
+  </mat-card>
+
+  <mat-card class="panel" *ngIf="response">
+    <h2>Preview Results</h2>
+    <div class="table-wrapper">
+      <table mat-table [dataSource]="items" class="preview-table">
+        <ng-container matColumnDef="item">
+          <th mat-header-cell *matHeaderCellDef>Item</th>
+          <td mat-cell *matCellDef="let item">{{ item.item_id }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="available">
+          <th mat-header-cell *matHeaderCellDef>Available</th>
+          <td mat-cell *matCellDef="let item">{{ item.available_qty | number : '1.0-2' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="inbound">
+          <th mat-header-cell *matHeaderCellDef>Inbound (Strict)</th>
+          <td mat-cell *matCellDef="let item">
+            {{ item.inbound_strict_qty | number : '1.0-2' }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="burn">
+          <th mat-header-cell *matHeaderCellDef>Burn Rate / hr</th>
+          <td mat-cell *matCellDef="let item">{{ item.burn_rate_per_hour | number : '1.0-4' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="required">
+          <th mat-header-cell *matHeaderCellDef>Required Qty</th>
+          <td mat-cell *matCellDef="let item">{{ requiredQty(item) | number : '1.0-2' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="gap">
+          <th mat-header-cell *matHeaderCellDef>Gap Qty</th>
+          <td mat-cell *matCellDef="let item">{{ item.gap_qty | number : '1.0-2' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="horizonA">
+          <th mat-header-cell *matHeaderCellDef>Horizon A</th>
+          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.A) }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="horizonB">
+          <th mat-header-cell *matHeaderCellDef>Horizon B</th>
+          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.B) }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="horizonC">
+          <th mat-header-cell *matHeaderCellDef>Horizon C</th>
+          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.C) }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="confidence">
+          <th mat-header-cell *matHeaderCellDef>Confidence</th>
+          <td mat-cell *matCellDef="let item">
+            <mat-chip class="chip" [ngClass]="'chip-' + confidenceLevel(item)">
+              {{ confidenceLevel(item) }}
+            </mat-chip>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="freshness">
+          <th mat-header-cell *matHeaderCellDef>Freshness</th>
+          <td mat-cell *matCellDef="let item">
+            <mat-chip class="chip" [ngClass]="'chip-' + freshnessState(item)">
+              {{ freshnessState(item) }}
+            </mat-chip>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+      </table>
+    </div>
+  </mat-card>
+
+  <mat-card class="panel warnings" *ngIf="response">
+    <h2>Warnings</h2>
+    <div class="warnings-section" *ngIf="topWarnings.length">
+      <div class="section-label">Top-level warnings</div>
+      <mat-chip-listbox>
+        <mat-chip-option *ngFor="let warn of topWarnings">{{ warn }}</mat-chip-option>
+      </mat-chip-listbox>
+    </div>
+
+    <mat-divider *ngIf="topWarnings.length && perItemWarnings.length"></mat-divider>
+
+    <div class="warnings-section" *ngIf="perItemWarnings.length">
+      <div class="section-label">Per-item warnings</div>
+      <div class="item-warning" *ngFor="let entry of perItemWarnings">
+        <div class="item-label">Item {{ entry.item_id }}</div>
+        <mat-chip-listbox>
+          <mat-chip-option *ngFor="let warn of entry.warnings">{{ warn }}</mat-chip-option>
+        </mat-chip-listbox>
+      </div>
+    </div>
+  </mat-card>
+</section>

@@ -151,6 +151,21 @@ server {
         alias /var/www/dmis/uploads/;
         internal;  # Only accessible via X-Accel-Redirect from application
     }
+
+    # -----------------------------------------------------------------------
+    # Strangler slice: route ONLY the Needs List Preview SPA path
+    # -----------------------------------------------------------------------
+    # Assumes Angular build deployed to /var/www/dmis/spa with base-href:
+    #   /replenishment/needs-list-preview/
+    location = /replenishment/needs-list-preview {
+        return 302 /replenishment/needs-list-preview/;
+    }
+
+    location ^~ /replenishment/needs-list-preview/ {
+        alias /var/www/dmis/spa/;
+        try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
+        add_header Cache-Control "no-cache";
+    }
     
     # Block access to sensitive files
     location ~ /\. {
