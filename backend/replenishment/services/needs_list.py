@@ -156,7 +156,7 @@ def build_preview_items(
     inbound_transfers_by_item: Dict[int, float],
     burn_by_item: Dict[int, float],
     item_categories: Dict[int, int],
-    baseline_burn_rates: Dict[int, float],
+    category_burn_rates: Dict[int, float],
     demand_window_hours: int,
     planning_window_hours: int,
     safety_factor: float,
@@ -179,47 +179,28 @@ def build_preview_items(
             burn_total / demand_window_hours if demand_window_hours else 0.0
         )
 
-    category_totals: Dict[int, float] = {}
-    category_counts: Dict[int, int] = {}
-    for item_id, rate in raw_burn_rates.items():
-        if rate <= 0:
-            continue
-        category_id = item_categories.get(item_id)
-        if category_id is None:
-            continue
-        category_totals[category_id] = category_totals.get(category_id, 0.0) + rate
-        category_counts[category_id] = category_counts.get(category_id, 0) + 1
-
-    category_avg: Dict[int, float] = {}
-    for category_id, total in category_totals.items():
-        count = category_counts.get(category_id, 0)
-        if count:
-            category_avg[category_id] = total / count
-
-    fallback_counts = {"baseline": 0, "category_avg": 0, "none": 0}
+    fallback_counts = {"category_avg": 0, "none": 0}
 
     for item_id in item_ids:
         available = float(available_by_item.get(item_id, 0.0))
         inbound_strict = compute_inbound_strict(
             item_id, inbound_donations_by_item, inbound_transfers_by_item
         )
+        item_base_warnings = list(base_warnings)
         burn_rate_per_hour = raw_burn_rates.get(item_id, 0.0)
         burn_rate_estimated = False
         if burn_rate_per_hour <= 0:
-            baseline_rate = baseline_burn_rates.get(item_id)
-            if baseline_rate:
-                burn_rate_per_hour = baseline_rate
+            category_id = item_categories.get(item_id)
+            category_rate = category_burn_rates.get(category_id, 0.0)
+            if category_rate > 0:
+                burn_rate_per_hour = category_rate
                 burn_rate_estimated = True
-                fallback_counts["baseline"] += 1
+                fallback_counts["category_avg"] += 1
             else:
-                category_id = item_categories.get(item_id)
-                category_rate = category_avg.get(category_id, 0.0)
-                if category_rate > 0:
-                    burn_rate_per_hour = category_rate
-                    burn_rate_estimated = True
-                    fallback_counts["category_avg"] += 1
-                else:
-                    fallback_counts["none"] += 1
+                item_base_warnings = merge_warnings(
+                    item_base_warnings, ["burn_fallback_unavailable"]
+                )
+                fallback_counts["none"] += 1
 
         gap = compute_gap(
             burn_rate_per_hour,
@@ -235,7 +216,7 @@ def build_preview_items(
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
-            warnings=base_warnings
+            warnings=item_base_warnings
             + horizon_warnings
             + (["burn_rate_estimated"] if burn_rate_estimated else []),
             procurement_available=False,

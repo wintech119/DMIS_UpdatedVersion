@@ -81,7 +81,7 @@ class NeedsListServiceTests(SimpleTestCase):
             inbound_transfers_by_item={},
             burn_by_item={},
             item_categories={1: 10, 2: 10},
-            baseline_burn_rates={1: 2.0},
+            category_burn_rates={10: 2.0},
             demand_window_hours=2,
             planning_window_hours=2,
             safety_factor=1.0,
@@ -96,7 +96,14 @@ class NeedsListServiceTests(SimpleTestCase):
         item_one = items[0]
         self.assertEqual(item_one["confidence"]["level"], "low")
         self.assertIn("burn_rate_estimated", item_one["warnings"])
-        self.assertEqual(fallback_counts["baseline"], 1)
+        self.assertEqual(fallback_counts["category_avg"], 2)
+
+    def test_freshness_unknown_without_timestamp(self) -> None:
+        state, warnings, _ = needs_list.compute_freshness_state(
+            "BASELINE", None, timezone.now()
+        )
+        self.assertEqual(state, "unknown")
+        self.assertIn("inventory_timestamp_unavailable", warnings)
 
     def test_windows_version_switch(self) -> None:
         with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
@@ -153,3 +160,8 @@ class NeedsListPreviewApiTests(TestCase):
         self.assertIn("items", body)
         self.assertIn("warnings", body)
         self.assertIn("db_unavailable_preview_stub", body["warnings"])
+        self.assertIn("debug_summary", body)
+        self.assertEqual(
+            body["debug_summary"]["burn"].get("filter"),
+            "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+        )

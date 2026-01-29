@@ -167,35 +167,9 @@ def _get_int_env(name: str, default: int | None) -> int | None:
         raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
 
 
-def _get_kv_float_map(name: str) -> dict[int, float]:
-    raw = os.getenv(name, "")
-    if not raw:
-        return {}
-    mapping: dict[int, float] = {}
-    for pair in raw.split(","):
-        if not pair.strip():
-            continue
-        if ":" not in pair:
-            raise RuntimeError(f"Invalid {name} entry {pair!r}; expected item_id:rate.")
-        key_raw, value_raw = pair.split(":", 1)
-        key_raw = key_raw.strip()
-        value_raw = value_raw.strip()
-        try:
-            item_id = int(key_raw)
-        except ValueError as exc:
-            raise RuntimeError(f"Invalid {name} item id {key_raw!r}.") from exc
-        try:
-            rate = float(value_raw)
-        except ValueError as exc:
-            raise RuntimeError(f"Invalid {name} rate {value_raw!r}.") from exc
-        mapping[item_id] = rate
-    return mapping
-
-
 NEEDS_SAFETY_FACTOR = _get_float_env("NEEDS_SAFETY_FACTOR", 1.25)
 NEEDS_HORIZON_A_DAYS = _get_int_env("NEEDS_HORIZON_A_DAYS", 7)
 NEEDS_HORIZON_B_DAYS = _get_int_env("NEEDS_HORIZON_B_DAYS", None)
-NEEDS_BASELINE_BURN_RATES = _get_kv_float_map("NEEDS_BASELINE_BURN_RATES")
 NEEDS_STRICT_INBOUND_DONATION_STATUSES = _get_csv_env(
     "NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"]
 )
