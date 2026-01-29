@@ -163,7 +163,7 @@ server {
 
     location ^~ /replenishment/needs-list-preview/ {
         alias /var/www/dmis/spa/;
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
         add_header Cache-Control "no-cache";
     }
     
