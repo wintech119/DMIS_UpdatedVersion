@@ -15,7 +15,7 @@ if not apps.ready:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmis_api.settings")
     django.setup()
 
-from replenishment.services import data_access  # noqa: E402
+from replenishment.services import data_access
 
 
 @unittest.skipUnless(
