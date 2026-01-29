@@ -166,9 +166,11 @@ server {
         alias /var/www/dmis/spa/;
         try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
         add_header Cache-Control "no-cache";
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-        add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+     location ^~ /replenishment/needs-list-preview/ {
+         alias /var/www/dmis/spa/;
+         try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
+         add_header Cache-Control "no-cache";
+     }
     }
     
     # Block access to sensitive files
