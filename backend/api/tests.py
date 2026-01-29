@@ -26,6 +26,8 @@ class AuthWhoAmITests(TestCase):
         DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["VIEWER"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
     def test_whoami_forbidden_without_permission(self) -> None:
@@ -38,6 +40,8 @@ class AuthWhoAmITests(TestCase):
         DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
     def test_whoami_allows_with_permission(self) -> None:

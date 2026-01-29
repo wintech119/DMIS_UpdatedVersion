@@ -26,7 +26,7 @@ def resolve_roles_and_permissions(
         return cached["roles"], cached["permissions"]
 
     roles: list[str] = list(principal.roles or [])
-    permissions: set[str] = set()
+    permissions: set[str] = set(getattr(principal, "permissions", []) or [])
     db_error = False
 
     if _db_rbac_enabled():
@@ -34,10 +34,9 @@ def resolve_roles_and_permissions(
             user_id = _resolve_user_id(principal)
             if user_id is not None:
                 roles = _fetch_roles(user_id)
-                permissions = _fetch_permissions(user_id)
+                permissions |= _fetch_permissions(user_id)
         except DatabaseError as exc:
             db_error = True
-            permissions = set()
             logger.warning("RBAC DB lookup failed: %s", exc)
 
     if not permissions and not db_error:

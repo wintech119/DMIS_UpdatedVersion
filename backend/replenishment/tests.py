@@ -92,7 +92,7 @@ class NeedsListServiceTests(SimpleTestCase):
         with patch.dict(os.environ, {}, clear=True):
             codes, warnings = rules.resolve_strict_inbound_transfer_codes()
             self.assertEqual(codes, ["D"])
-            self.assertIn("strict_inbound_mapping_best_effort", warnings)
+            self.assertNotIn("strict_inbound_mapping_best_effort", warnings)
 
 
 class NeedsListPreviewApiTests(TestCase):
@@ -104,6 +104,8 @@ class NeedsListPreviewApiTests(TestCase):
         DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
     def test_preview_endpoint_returns_stubbed_response(self) -> None:

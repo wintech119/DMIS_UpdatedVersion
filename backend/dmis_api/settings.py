@@ -103,6 +103,13 @@ else:
 DEV_AUTH_ENABLED = os.getenv("DEV_AUTH_ENABLED", "0") == "1"
 DEV_AUTH_USER_ID = os.getenv("DEV_AUTH_USER_ID", "dev-user")
 DEV_AUTH_ROLES = [role.strip() for role in os.getenv("DEV_AUTH_ROLES", "").split(",") if role.strip()]
+DEV_AUTH_PERMISSIONS = [
+    perm.strip()
+    for perm in os.getenv(
+        "DEV_AUTH_PERMISSIONS", "replenishment.needs_list.preview"
+    ).split(",")
+    if perm.strip()
+]
 
 # Needs List Preview settings (TBD finalize from PRD/appendices).
 def _get_csv_env(name: str, default: list[str]) -> list[str]:
