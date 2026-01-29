@@ -240,7 +240,6 @@ def build_preview_items(
         time_to_stockout = compute_time_to_stockout_hours(
             burn_rate_per_hour, available, inbound_strict
         )
-        horizon_a_qty = horizon["A"]["recommended_qty"] or 0.0
         horizon_b_qty = horizon["B"]["recommended_qty"] or 0.0
         horizon_c_qty = horizon["C"]["recommended_qty"]
         triggers = {
