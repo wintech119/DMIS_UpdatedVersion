@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import jwt
@@ -15,6 +15,7 @@ class Principal:
     user_id: Optional[str]
     username: Optional[str]
     roles: list[str]
+    permissions: list[str] = field(default_factory=list)
     is_authenticated: bool = True
 
 
@@ -78,11 +79,17 @@ class LegacyCompatAuthentication(BaseAuthentication):
             )
 
         if settings.DEV_AUTH_ENABLED:
+            if not settings.DEBUG:
+                raise AuthenticationFailed(
+                    "DEV_AUTH_ENABLED requires DEBUG=1 to prevent unsafe production use."
+                )
             roles = [role for role in settings.DEV_AUTH_ROLES]
+            permissions = [perm for perm in settings.DEV_AUTH_PERMISSIONS]
             principal = Principal(
                 user_id=str(settings.DEV_AUTH_USER_ID),
                 username=str(settings.DEV_AUTH_USER_ID),
                 roles=roles,
+                permissions=permissions,
             )
             return principal, None
 
