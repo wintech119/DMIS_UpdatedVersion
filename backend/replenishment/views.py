@@ -108,7 +108,7 @@ def needs_list_preview(request):
     transfers_by_item, warnings_transfers = data_access.get_inbound_transfers_by_item(
         warehouse_id, as_of_dt
     )
-    burn_by_item, warnings_burn, burn_source = data_access.get_burn_by_item(
+    burn_by_item, warnings_burn, burn_source, burn_debug = data_access.get_burn_by_item(
         event_id, warehouse_id, demand_window_hours, as_of_dt
     )
 
@@ -123,15 +123,20 @@ def needs_list_preview(request):
     item_ids = needs_list.collect_item_ids(
         available_by_item, donations_by_item, transfers_by_item, burn_by_item
     )
+    item_categories, warnings_categories = data_access.get_item_categories(item_ids)
+    base_warnings = needs_list.merge_warnings(base_warnings, warnings_categories)
 
     safety_factor = rules.SAFETY_STOCK_FACTOR
+    baseline_burn_rates = getattr(settings, "NEEDS_BASELINE_BURN_RATES", {})
 
-    items, item_warnings = needs_list.build_preview_items(
+    items, item_warnings, fallback_counts = needs_list.build_preview_items(
         item_ids=item_ids,
         available_by_item=available_by_item,
         inbound_donations_by_item=donations_by_item,
         inbound_transfers_by_item=transfers_by_item,
         burn_by_item=burn_by_item,
+        item_categories=item_categories,
+        baseline_burn_rates=baseline_burn_rates,
         demand_window_hours=demand_window_hours,
         planning_window_hours=planning_window_hours,
         safety_factor=safety_factor,
@@ -170,4 +175,9 @@ def needs_list_preview(request):
         "items": items,
         "warnings": warnings,
     }
+    if settings.DEBUG:
+        response["debug_summary"] = {
+            "burn": burn_debug,
+            "burn_fallback": fallback_counts,
+        }
     return Response(response)

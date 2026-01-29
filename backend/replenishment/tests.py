@@ -2,9 +2,11 @@ import os
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from replenishment import rules
+from replenishment.services import needs_list
 from replenishment.services.needs_list import (
     allocate_horizons,
     compute_confidence_and_warnings,
@@ -67,7 +69,34 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(level_present, "high")
 
     def test_time_to_stockout_handles_zero_burn(self) -> None:
-        self.assertIsNone(compute_time_to_stockout_hours(0.0, 10.0, 0.0))
+        self.assertEqual(
+            compute_time_to_stockout_hours(0.0, 10.0, 0.0), "N/A - No current demand"
+        )
+
+    def test_burn_rate_fallback_sets_low_confidence(self) -> None:
+        items, _, fallback_counts = needs_list.build_preview_items(
+            item_ids=[1, 2],
+            available_by_item={1: 0.0, 2: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={},
+            item_categories={1: 10, 2: 10},
+            baseline_burn_rates={1: 2.0},
+            demand_window_hours=2,
+            planning_window_hours=2,
+            safety_factor=1.0,
+            horizon_a_hours=0,
+            horizon_b_hours=0,
+            burn_source="none",
+            as_of_dt=timezone.now(),
+            phase="BASELINE",
+            inventory_as_of=timezone.now(),
+            base_warnings=["burn_data_missing"],
+        )
+        item_one = items[0]
+        self.assertEqual(item_one["confidence"]["level"], "low")
+        self.assertIn("burn_rate_estimated", item_one["warnings"])
+        self.assertEqual(fallback_counts["baseline"], 1)
 
     def test_windows_version_switch(self) -> None:
         with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
