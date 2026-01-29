@@ -36,6 +36,12 @@ def compute_gap(
     return max(0.0, float(gap))
 
 
+def compute_required_qty(
+    burn_rate_per_hour: float, planning_window_hours: int, safety_factor: float
+) -> float:
+    return max(0.0, float(burn_rate_per_hour * planning_window_hours * safety_factor))
+
+
 def allocate_horizons(
     gap_qty: float,
     horizon_a_hours: int,
@@ -209,6 +215,9 @@ def build_preview_items(
             available,
             inbound_strict,
         )
+        required_qty = compute_required_qty(
+            burn_rate_per_hour, planning_window_hours, safety_factor
+        )
 
         horizon, horizon_warnings = allocate_horizons(
             gap, horizon_a_hours, horizon_b_hours, procurement_available=False
@@ -231,6 +240,14 @@ def build_preview_items(
         time_to_stockout = compute_time_to_stockout_hours(
             burn_rate_per_hour, available, inbound_strict
         )
+        horizon_a_qty = horizon["A"]["recommended_qty"] or 0.0
+        horizon_b_qty = horizon["B"]["recommended_qty"] or 0.0
+        horizon_c_qty = horizon["C"]["recommended_qty"]
+        triggers = {
+            "activate_B": horizon_b_qty > 0,
+            "activate_C": horizon_c_qty is not None and horizon_c_qty > 0,
+            "activate_all": gap > 0,
+        }
 
         items.append(
             {
@@ -238,13 +255,19 @@ def build_preview_items(
                 "available_qty": round(available, 2),
                 "inbound_strict_qty": round(inbound_strict, 2),
                 "burn_rate_per_hour": round(burn_rate_per_hour, 4),
+                "required_qty": round(required_qty, 2),
                 "gap_qty": round(gap, 2),
+                "time_to_stockout": time_to_stockout
+                if isinstance(time_to_stockout, str)
+                else round(time_to_stockout, 2),
                 "time_to_stockout_hours": time_to_stockout
                 if isinstance(time_to_stockout, str)
                 else round(time_to_stockout, 2),
                 "horizon": horizon,
+                "triggers": triggers,
                 "confidence": {"level": confidence_level, "reasons": reasons},
                 "warnings": item_warnings,
+                "freshness_state": freshness_state.capitalize(),
                 "freshness": {
                     "state": freshness_state,
                     "inventory_as_of": inventory_as_of.isoformat()
