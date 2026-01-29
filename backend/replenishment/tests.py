@@ -105,6 +105,30 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(state, "unknown")
         self.assertIn("inventory_timestamp_unavailable", warnings)
 
+    def test_horizon_b_recommended_with_zero_inbound(self) -> None:
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 24.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=24,
+            planning_window_hours=48,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=timezone.now(),
+            phase="BASELINE",
+            inventory_as_of=timezone.now(),
+            base_warnings=["donation_in_transit_unmodeled"],
+        )
+        horizon_b = items[0]["horizon"]["B"]["recommended_qty"]
+        self.assertIsNotNone(horizon_b)
+        self.assertGreater(horizon_b or 0.0, 0.0)
+
     def test_windows_version_switch(self) -> None:
         with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
             windows = rules.get_phase_windows("SURGE")
@@ -165,3 +189,56 @@ class NeedsListPreviewApiTests(TestCase):
             body["debug_summary"]["burn"].get("filter"),
             "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
         )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_preview_endpoint_includes_required_fields(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, ["donation_in_transit_unmodeled"])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = (
+            {1: 24.0},
+            [],
+            "reliefpkg",
+            {"filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window"},
+        )
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview",
+            {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("warnings", body)
+        self.assertIn("donation_in_transit_unmodeled", body["warnings"])
+        self.assertEqual(len(body["items"]), 1)
+        item = body["items"][0]
+        self.assertIn("required_qty", item)
+        self.assertIn("time_to_stockout", item)
+        self.assertEqual(item.get("freshness_state"), "Unknown")
+        self.assertIn("donation_in_transit_unmodeled", item.get("warnings", []))
