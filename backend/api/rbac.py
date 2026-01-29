@@ -18,29 +18,37 @@ _DEV_ROLE_PERMISSION_MAP = {
 }
 
 
+def _dedupe_preserve_order(items: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(items))
+
+
 def resolve_roles_and_permissions(
     request, principal: Principal
-) -> Tuple[list[str], set[str]]:
+) -> Tuple[list[str], list[str]]:
     if hasattr(request, "_rbac_cache"):
         cached = request._rbac_cache
         return cached["roles"], cached["permissions"]
 
     roles: list[str] = list(principal.roles or [])
-    permissions: set[str] = set(getattr(principal, "permissions", []) or [])
+    permissions: list[str] = list(getattr(principal, "permissions", []) or [])
     db_error = False
 
     if _db_rbac_enabled():
         try:
             user_id = _resolve_user_id(principal)
             if user_id is not None:
-                roles = _fetch_roles(user_id)
-                permissions |= _fetch_permissions(user_id)
+                roles = _dedupe_preserve_order(list(roles) + _fetch_roles(user_id))
+                permissions = _dedupe_preserve_order(
+                    list(permissions) + list(_fetch_permissions(user_id))
+                )
         except DatabaseError as exc:
             db_error = True
             logger.warning("RBAC DB lookup failed: %s", exc)
 
     if not permissions and not db_error:
-        permissions = _permissions_for_roles(roles)
+        permissions = _dedupe_preserve_order(
+            list(permissions) + list(_permissions_for_roles(roles))
+        )
 
     request._rbac_cache = {"roles": roles, "permissions": permissions}
     return roles, permissions
