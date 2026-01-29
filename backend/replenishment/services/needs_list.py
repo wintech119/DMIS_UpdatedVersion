@@ -267,7 +267,7 @@ def build_preview_items(
                 "freshness": {
                     "state": freshness_state,
                     "inventory_as_of": inventory_as_of.isoformat()
-                    if inventory_as_of
+                    if inventory_as_of and hasattr(inventory_as_of, "isoformat")
                     else None,
                     "age_hours": None if age_hours is None else round(age_hours, 2),
                     "demand_window_hours": demand_window_hours,

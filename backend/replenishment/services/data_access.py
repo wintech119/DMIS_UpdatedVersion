@@ -100,6 +100,7 @@ def get_available_by_item(
 def get_inbound_donations_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
+    _ = (warehouse_id, as_of_dt)
     warnings = ["donation_in_transit_unmodeled"]
     if _is_sqlite():
         warnings.append("db_unavailable_preview_stub")

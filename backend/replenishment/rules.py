@@ -35,6 +35,8 @@ def get_windows_version() -> str:
 def get_phase_windows(phase: str) -> Dict[str, int]:
     version = get_windows_version()
     windows = WINDOWS_V41 if version == "v41" else WINDOWS_V40
+    if phase not in windows:
+        raise ValueError(f"invalid phase, expected one of: {list(windows.keys())}")
     return windows[phase]
 
 
@@ -56,8 +58,10 @@ def resolve_strict_inbound_transfer_codes() -> Tuple[List[str], List[str]]:
 
 def resolve_strict_inbound_donation_codes() -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
-    confirmed = _parse_codes_env("DONATION_CONFIRMED_CODES", ["V"])
-    in_transit = _parse_codes_env("DONATION_IN_TRANSIT_CODES", ["V"])
+    # Prefer NEEDS_* config as the documented primary, but allow explicit override.
+    strict_default = _parse_codes_env("NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"])
+    confirmed = _parse_codes_env("DONATION_CONFIRMED_CODES", strict_default)
+    in_transit = _parse_codes_env("DONATION_IN_TRANSIT_CODES", strict_default)
 
     allowed = {"E", "V", "P"}
     confirmed_filtered = [code for code in confirmed if code in allowed]
