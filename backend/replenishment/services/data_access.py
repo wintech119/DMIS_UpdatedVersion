@@ -150,16 +150,56 @@ def get_inbound_transfers_by_item(
     return inbound, warnings
 
 
+def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]:
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"]
+    if not item_ids:
+        return {}, []
+
+    schema = _schema_name()
+    categories: Dict[int, int] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(item_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT item_id, category_id
+                FROM {schema}.item
+                WHERE item_id IN ({placeholders})
+                """,
+                [*item_ids],
+            )
+            for item_id, category_id in cursor.fetchall():
+                categories[int(item_id)] = int(category_id)
+    except DatabaseError as exc:
+        logger.warning("Item category lookup failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after item category error: %s", rollback_exc)
+        warnings.append("db_unavailable_preview_stub")
+        return {}, warnings
+
+    return categories, warnings
+
+
 def get_burn_by_item(
     event_id: int, warehouse_id: int, demand_window_hours: int, as_of_dt
-) -> Tuple[Dict[int, float], List[str], str]:
+) -> Tuple[Dict[int, float], List[str], str, Dict[str, object]]:
     if _is_sqlite():
-        return {}, ["db_unavailable_preview_stub"], "none"
+        return {}, ["db_unavailable_preview_stub"], "none", {}
 
     warnings: List[str] = []
     start_dt = _normalize_datetime(as_of_dt) - timedelta(hours=demand_window_hours)
     end_dt = _normalize_datetime(as_of_dt)
     burn: Dict[int, float] = {}
+    debug: Dict[str, object] = {
+        "window_start": start_dt.isoformat(),
+        "window_end": end_dt.isoformat(),
+        "row_count": 0,
+        "filter": "reliefrqst_status.status_desc = 'Submitted'",
+    }
 
     primary = getattr(settings, "NEEDS_BURN_SOURCE", "reliefpkg")
     schema = _schema_name()
@@ -167,21 +207,27 @@ def get_burn_by_item(
     if primary == "reliefpkg":
         try:
             with connection.cursor() as cursor:
+                # Doc mapping: "validated fulfillment" -> reliefpkg_item quantities
+                # joined to reliefrqst with status_desc = 'Submitted'.
                 cursor.execute(
                     f"""
                     SELECT rpi.item_id, SUM(rpi.item_qty) AS qty
                     FROM {schema}.reliefpkg_item rpi
                     JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
+                    JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
+                    JOIN {schema}.reliefrqst_status rs ON rs.status_code = rr.status_code
                     WHERE rp.to_inventory_id = %s
-                      AND rp.eligible_event_id = %s
-                      AND rp.status_code = 'D'
+                      AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
+                      AND rs.status_desc = 'Submitted'
                       AND COALESCE(rp.dispatch_dtime, rp.start_date)
                           BETWEEN %s AND %s
                     GROUP BY rpi.item_id
                     """,
-                    [warehouse_id, event_id, start_dt, end_dt],
+                    [warehouse_id, event_id, event_id, start_dt, end_dt],
                 )
-                for item_id, qty in cursor.fetchall():
+                rows = cursor.fetchall()
+                debug["row_count"] = len(rows)
+                for item_id, qty in rows:
                     burn[int(item_id)] = _to_float(qty)
         except DatabaseError as exc:
             logger.warning("Burn query (reliefpkg) failed: %s", exc)
@@ -190,10 +236,10 @@ def get_burn_by_item(
             except Exception as rollback_exc:
                 logger.warning("DB rollback failed after burn query error: %s", rollback_exc)
             warnings.append("db_unavailable_preview_stub")
-            return {}, warnings, "none"
+            return {}, warnings, "none", debug
 
         if burn:
-            return burn, warnings, "reliefpkg"
+            return burn, warnings, "reliefpkg", debug
 
     warnings.append("burn_data_missing")
-    return {}, warnings, "none"
+    return {}, warnings, "none", debug
