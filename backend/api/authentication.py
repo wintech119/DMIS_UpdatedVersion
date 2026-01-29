@@ -24,9 +24,12 @@ def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
         raise AuthenticationFailed("JWKS URL is not configured.")
     try:
         header = jwt.get_unverified_header(token)
+        allowed_algs = getattr(settings, "AUTH_ALGORITHMS", None) or ["RS256"]
         alg = header.get("alg")
         if not alg:
             raise AuthenticationFailed("JWT alg is missing.")
+        if alg not in allowed_algs:
+            raise AuthenticationFailed("JWT alg is not allowed.")
 
         jwk_client = PyJWKClient(jwks_url)
         signing_key = jwk_client.get_signing_key_from_jwt(token)
@@ -36,7 +39,7 @@ def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
             "verify_iss": bool(settings.AUTH_ISSUER),
         }
         kwargs = {
-            "algorithms": [alg],
+            "algorithms": allowed_algs,
             "options": options,
         }
         if settings.AUTH_ISSUER:

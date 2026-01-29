@@ -68,6 +68,11 @@ def resolve_strict_inbound_donation_codes() -> Tuple[List[str], List[str]]:
     ):
         warnings.append("donation_status_code_invalid_filtered")
 
+    if not confirmed_filtered:
+        confirmed_filtered = ["V"]
+    if not in_transit_filtered:
+        in_transit_filtered = ["V"]
+
     intersection = [code for code in confirmed_filtered if code in in_transit_filtered]
     if intersection:
         codes = intersection
@@ -75,6 +80,4 @@ def resolve_strict_inbound_donation_codes() -> Tuple[List[str], List[str]]:
         codes = sorted(set(confirmed_filtered + in_transit_filtered))
         warnings.append("strict_inbound_mapping_best_effort")
 
-    if "strict_inbound_mapping_best_effort" not in warnings:
-        warnings.append("strict_inbound_mapping_best_effort")
     return codes, warnings

@@ -6,7 +6,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = [host for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",") if host]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if host.strip()
+]
 
 if not DEBUG:
     if SECRET_KEY == "dev-only-insecure-key":
@@ -91,6 +95,11 @@ AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
 AUTH_ISSUER = os.getenv("AUTH_ISSUER", "")
 AUTH_AUDIENCE = os.getenv("AUTH_AUDIENCE", "")
 AUTH_JWKS_URL = os.getenv("AUTH_JWKS_URL", "")
+AUTH_ALGORITHMS = [
+    alg.strip()
+    for alg in os.getenv("AUTH_ALGORITHMS", "RS256").split(",")
+    if alg.strip()
+]
 AUTH_USER_ID_CLAIM = os.getenv("AUTH_USER_ID_CLAIM", "")
 AUTH_USERNAME_CLAIM = os.getenv("AUTH_USERNAME_CLAIM", "")
 AUTH_ROLES_CLAIM = os.getenv("AUTH_ROLES_CLAIM", "")
@@ -99,6 +108,26 @@ if "AUTH_USE_DB_RBAC" in os.environ:
     AUTH_USE_DB_RBAC = os.getenv("AUTH_USE_DB_RBAC", "0") == "1"
 else:
     AUTH_USE_DB_RBAC = DATABASES["default"]["ENGINE"].endswith("postgresql")
+
+if AUTH_ENABLED:
+    missing = []
+    if not AUTH_ISSUER:
+        missing.append("AUTH_ISSUER")
+    if not AUTH_AUDIENCE:
+        missing.append("AUTH_AUDIENCE")
+    if not AUTH_JWKS_URL:
+        missing.append("AUTH_JWKS_URL")
+    if not AUTH_USER_ID_CLAIM:
+        missing.append("AUTH_USER_ID_CLAIM")
+    if not AUTH_ALGORITHMS:
+        missing.append("AUTH_ALGORITHMS")
+    if not AUTH_USE_DB_RBAC and not AUTH_ROLES_CLAIM:
+        missing.append("AUTH_ROLES_CLAIM")
+    if missing:
+        raise RuntimeError(
+            "AUTH_ENABLED is true but required settings are missing: "
+            + ", ".join(missing)
+        )
 
 DEV_AUTH_ENABLED = os.getenv("DEV_AUTH_ENABLED", "0") == "1"
 DEV_AUTH_USER_ID = os.getenv("DEV_AUTH_USER_ID", "dev-user")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Tuple
 
+from django.utils import timezone
+
 from replenishment import rules
 
 
@@ -125,6 +127,11 @@ def compute_freshness_state(
         inventory_dt = inventory_as_of
     else:
         return "unknown", ["inventory_timestamp_unavailable"], None
+
+    if timezone.is_naive(inventory_dt):
+        inventory_dt = timezone.make_aware(
+            inventory_dt, timezone.get_current_timezone() or timezone.utc
+        )
 
     age_seconds = (as_of_dt - inventory_dt).total_seconds()
     age_hours = max(age_seconds / 3600.0, 0.0)
