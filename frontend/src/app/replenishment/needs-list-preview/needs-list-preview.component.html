@@ -96,7 +96,10 @@
 
         <ng-container matColumnDef="burn">
           <th mat-header-cell *matHeaderCellDef>Burn Rate / hr</th>
-          <td mat-cell *matCellDef="let item">{{ item.burn_rate_per_hour | number : '1.0-4' }}</td>
+          <td mat-cell *matCellDef="let item">
+            {{ item.burn_rate_per_hour | number : '1.0-4' }}
+            <mat-chip class="chip chip-estimated" *ngIf="isEstimated(item)">Estimated</mat-chip>
+          </td>
         </ng-container>
 
         <ng-container matColumnDef="required">
@@ -107,6 +110,11 @@
         <ng-container matColumnDef="gap">
           <th mat-header-cell *matHeaderCellDef>Gap Qty</th>
           <td mat-cell *matCellDef="let item">{{ item.gap_qty | number : '1.0-2' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="stockout">
+          <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
+          <td mat-cell *matCellDef="let item">{{ timeToStockout(item) }}</td>
         </ng-container>
 
         <ng-container matColumnDef="horizonA">
@@ -137,7 +145,7 @@
           <th mat-header-cell *matHeaderCellDef>Freshness</th>
           <td mat-cell *matCellDef="let item">
             <mat-chip class="chip" [ngClass]="'chip-' + freshnessState(item)">
-              {{ freshnessState(item) }}
+              {{ freshnessLabel(item) }}
             </mat-chip>
           </td>
         </ng-container>
@@ -161,12 +169,12 @@
 
     <div class="warnings-section" *ngIf="perItemWarnings.length">
       <div class="section-label">Per-item warnings</div>
-      <div class="item-warning" *ngFor="let entry of perItemWarnings">
-        <div class="item-label">Item {{ entry.item_id }}</div>
+      <details class="item-warning" *ngFor="let entry of perItemWarnings">
+        <summary class="item-label">Item {{ entry.item_id }}</summary>
         <mat-chip-listbox>
           <mat-chip-option *ngFor="let warn of entry.warnings">{{ warn }}</mat-chip-option>
         </mat-chip-listbox>
-      </div>
+      </details>
     </div>
   </mat-card>
 </section>

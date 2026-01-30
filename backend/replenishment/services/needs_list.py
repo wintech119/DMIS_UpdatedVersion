@@ -36,6 +36,12 @@ def compute_gap(
     return max(0.0, float(gap))
 
 
+def compute_required_qty(
+    burn_rate_per_hour: float, planning_window_hours: int, safety_factor: float
+) -> float:
+    return max(0.0, float(burn_rate_per_hour * planning_window_hours * safety_factor))
+
+
 def allocate_horizons(
     gap_qty: float,
     horizon_a_hours: int,
@@ -156,7 +162,7 @@ def build_preview_items(
     inbound_transfers_by_item: Dict[int, float],
     burn_by_item: Dict[int, float],
     item_categories: Dict[int, int],
-    baseline_burn_rates: Dict[int, float],
+    category_burn_rates: Dict[int, float],
     demand_window_hours: int,
     planning_window_hours: int,
     safety_factor: float,
@@ -179,47 +185,28 @@ def build_preview_items(
             burn_total / demand_window_hours if demand_window_hours else 0.0
         )
 
-    category_totals: Dict[int, float] = {}
-    category_counts: Dict[int, int] = {}
-    for item_id, rate in raw_burn_rates.items():
-        if rate <= 0:
-            continue
-        category_id = item_categories.get(item_id)
-        if category_id is None:
-            continue
-        category_totals[category_id] = category_totals.get(category_id, 0.0) + rate
-        category_counts[category_id] = category_counts.get(category_id, 0) + 1
-
-    category_avg: Dict[int, float] = {}
-    for category_id, total in category_totals.items():
-        count = category_counts.get(category_id, 0)
-        if count:
-            category_avg[category_id] = total / count
-
-    fallback_counts = {"baseline": 0, "category_avg": 0, "none": 0}
+    fallback_counts = {"category_avg": 0, "none": 0}
 
     for item_id in item_ids:
         available = float(available_by_item.get(item_id, 0.0))
         inbound_strict = compute_inbound_strict(
             item_id, inbound_donations_by_item, inbound_transfers_by_item
         )
+        item_base_warnings = list(base_warnings)
         burn_rate_per_hour = raw_burn_rates.get(item_id, 0.0)
         burn_rate_estimated = False
         if burn_rate_per_hour <= 0:
-            baseline_rate = baseline_burn_rates.get(item_id)
-            if baseline_rate:
-                burn_rate_per_hour = baseline_rate
+            category_id = item_categories.get(item_id)
+            category_rate = category_burn_rates.get(category_id, 0.0)
+            if category_rate > 0:
+                burn_rate_per_hour = category_rate
                 burn_rate_estimated = True
-                fallback_counts["baseline"] += 1
+                fallback_counts["category_avg"] += 1
             else:
-                category_id = item_categories.get(item_id)
-                category_rate = category_avg.get(category_id, 0.0)
-                if category_rate > 0:
-                    burn_rate_per_hour = category_rate
-                    burn_rate_estimated = True
-                    fallback_counts["category_avg"] += 1
-                else:
-                    fallback_counts["none"] += 1
+                item_base_warnings = merge_warnings(
+                    item_base_warnings, ["burn_fallback_unavailable"]
+                )
+                fallback_counts["none"] += 1
 
         gap = compute_gap(
             burn_rate_per_hour,
@@ -228,6 +215,9 @@ def build_preview_items(
             available,
             inbound_strict,
         )
+        required_qty = compute_required_qty(
+            burn_rate_per_hour, planning_window_hours, safety_factor
+        )
 
         horizon, horizon_warnings = allocate_horizons(
             gap, horizon_a_hours, horizon_b_hours, procurement_available=False
@@ -235,7 +225,7 @@ def build_preview_items(
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
-            warnings=base_warnings
+            warnings=item_base_warnings
             + horizon_warnings
             + (["burn_rate_estimated"] if burn_rate_estimated else []),
             procurement_available=False,
@@ -250,6 +240,13 @@ def build_preview_items(
         time_to_stockout = compute_time_to_stockout_hours(
             burn_rate_per_hour, available, inbound_strict
         )
+        horizon_b_qty = horizon["B"]["recommended_qty"] or 0.0
+        horizon_c_qty = horizon["C"]["recommended_qty"]
+        triggers = {
+            "activate_B": horizon_b_qty > 0,
+            "activate_C": horizon_c_qty is not None and horizon_c_qty > 0,
+            "activate_all": gap > 0,
+        }
 
         items.append(
             {
@@ -257,13 +254,19 @@ def build_preview_items(
                 "available_qty": round(available, 2),
                 "inbound_strict_qty": round(inbound_strict, 2),
                 "burn_rate_per_hour": round(burn_rate_per_hour, 4),
+                "required_qty": round(required_qty, 2),
                 "gap_qty": round(gap, 2),
+                "time_to_stockout": time_to_stockout
+                if isinstance(time_to_stockout, str)
+                else round(time_to_stockout, 2),
                 "time_to_stockout_hours": time_to_stockout
                 if isinstance(time_to_stockout, str)
                 else round(time_to_stockout, 2),
                 "horizon": horizon,
+                "triggers": triggers,
                 "confidence": {"level": confidence_level, "reasons": reasons},
                 "warnings": item_warnings,
+                "freshness_state": freshness_state.capitalize(),
                 "freshness": {
                     "state": freshness_state,
                     "inventory_as_of": inventory_as_of.isoformat()
