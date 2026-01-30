@@ -294,6 +294,7 @@ def build_preview_items(
                 horizon_c_qty = 0.0
 
         horizon["B"]["recommended_qty"] = round(horizon_b_qty, 2)
+        horizon["C"]["recommended_qty"] = round(horizon_c_qty, 2)
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
