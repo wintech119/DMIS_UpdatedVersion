@@ -3,16 +3,23 @@ from typing import Dict, List, Tuple
 
 SAFETY_STOCK_FACTOR = 1.25
 
-WINDOWS_V40: Dict[str, Dict[str, int]] = {
+PHASES = ("SURGE", "STABILIZED", "BASELINE")
+
+WINDOWS_V40_LEGACY: Dict[str, Dict[str, int]] = {
     "SURGE": {"demand_hours": 6, "planning_hours": 24},
     "STABILIZED": {"demand_hours": 24, "planning_hours": 72},
     "BASELINE": {"demand_hours": 72, "planning_hours": 168},
 }
 
-WINDOWS_V41: Dict[str, Dict[str, int]] = {
+WINDOWS_DEFAULT: Dict[str, Dict[str, int]] = {
     "SURGE": {"demand_hours": 6, "planning_hours": 72},
     "STABILIZED": {"demand_hours": 72, "planning_hours": 168},
     "BASELINE": {"demand_hours": 720, "planning_hours": 720},
+}
+
+WINDOWS_BY_VERSION: Dict[str, Dict[str, Dict[str, int]]] = {
+    "v41": WINDOWS_DEFAULT,
+    "v40": WINDOWS_V40_LEGACY,
 }
 
 FRESHNESS_THRESHOLDS: Dict[str, Dict[str, int]] = {
@@ -21,7 +28,7 @@ FRESHNESS_THRESHOLDS: Dict[str, Dict[str, int]] = {
     "BASELINE": {"fresh_max_hours": 24, "warn_max_hours": 48},
 }
 
-DEFAULT_WINDOWS_VERSION = os.getenv("NEEDS_WINDOWS_VERSION", "v40").lower()
+DEFAULT_WINDOWS_VERSION = "v41"
 
 STRICT_INBOUND_TRANSFER_RULE = "INBOUND_WHEN_DISPATCHED_OR_LATER"
 STRICT_INBOUND_DONATION_RULE = "CONFIRMED_AND_IN_TRANSIT_OR_SHIPPED"
@@ -29,12 +36,12 @@ STRICT_INBOUND_PROCUREMENT_RULE = "APPROVED_AND_SHIPMENT_SHIPPED_OR_IN_TRANSIT"
 
 
 def get_windows_version() -> str:
-    return os.getenv("NEEDS_WINDOWS_VERSION", "v40").lower()
+    return os.getenv("NEEDS_WINDOWS_VERSION", DEFAULT_WINDOWS_VERSION).lower()
 
 
 def get_phase_windows(phase: str) -> Dict[str, int]:
     version = get_windows_version()
-    windows = WINDOWS_V41 if version == "v41" else WINDOWS_V40
+    windows = WINDOWS_BY_VERSION.get(version, WINDOWS_DEFAULT)
     if phase not in windows:
         raise ValueError(f"invalid phase, expected one of: {list(windows.keys())}")
     return windows[phase]

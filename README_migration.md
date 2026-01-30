@@ -138,9 +138,32 @@ curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/preview 
   -Body '{ "event_id": 1, "warehouse_id": 1, "phase": "BASELINE" }'
 ```
 
-Note: `planning_window_days` is computed from the phase windows configured by `NEEDS_WINDOWS_VERSION` and is returned in the response; client-provided `planning_window_days` is ignored.
+Windows + thresholds follow v4.1 + Appendix D Technical Specifications.
 
-Configuration knobs (TBD finalize from PRD/appendices):
+Default phase windows (hours):
+
+| Phase | Demand window | Planning window |
+| --- | --- | --- |
+| SURGE | 6 | 72 |
+| STABILIZED | 72 | 168 |
+| BASELINE | 720 | 720 |
+
+Freshness thresholds (hours since inventory timestamp):
+
+| Phase | High <= | Warning <= | Stale > |
+| --- | --- | --- | --- |
+| SURGE | 2 | 4 | 4 |
+| STABILIZED | 6 | 12 | 12 |
+| BASELINE | 24 | 48 | 48 |
+
+Optional override (legacy v4.0 windows only):
+```ini
+NEEDS_WINDOWS_VERSION=v40
+```
+
+Note: `planning_window_days` is computed from the phase windows above and is returned in the response; client-provided `planning_window_days` is ignored.
+
+Configuration knobs:
 
 ```ini
 NEEDS_SAFETY_FACTOR=1.25
