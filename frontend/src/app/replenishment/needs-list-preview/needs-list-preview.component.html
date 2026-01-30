@@ -64,45 +64,46 @@
     </div>
   </mat-card>
 
-  <mat-card class="panel" *ngIf="response">
+  <mat-card class="panel" *ngIf="response as draft">
     <div class="summary-grid">
       <div>
         <div class="summary-label">As of</div>
-        <div class="summary-value">{{ response.as_of_datetime }}</div>
+        <div class="summary-value">{{ draft.as_of_datetime }}</div>
       </div>
       <div>
         <div class="summary-label">Planning window (days)</div>
-        <div class="summary-value">{{ response.planning_window_days }}</div>
+        <div class="summary-value">{{ draft.planning_window_days }}</div>
       </div>
       <div>
         <div class="summary-label">Event / Warehouse</div>
         <div class="summary-value">
-          {{ response.event_id }} / {{ response.warehouse_id }}
+          {{ draft.event_id }} / {{ draft.warehouse_id }}
         </div>
       </div>
       <div>
         <div class="summary-label">Phase</div>
-        <div class="summary-value">{{ response.phase }}</div>
+        <div class="summary-value">{{ draft.phase }}</div>
       </div>
-      <div *ngIf="response.needs_list_id">
+      <div *ngIf="draft.needs_list_id">
         <div class="summary-label">Status</div>
         <div class="summary-value">
-          <span class="status-pill" [ngClass]="'status-' + (response.status || 'draft').toLowerCase()">
-            {{ response.status || 'DRAFT' }}
+          <span class="status-pill" [ngClass]="'status-' + statusValue().toLowerCase()">
+            {{ statusValue() }}
           </span>
         </div>
       </div>
     </div>
   </mat-card>
 
-  <mat-card class="panel workflow" *ngIf="response?.needs_list_id">
+  <mat-card class="panel workflow" *ngIf="response as draft">
+    <ng-container *ngIf="draft.needs_list_id">
     <div class="workflow-header">
       <div>
         <h2>Needs List Workflow</h2>
         <p>Drafts are stored locally for dev-only workflow testing.</p>
       </div>
-      <div class="status-pill" [ngClass]="'status-' + (response.status || 'draft').toLowerCase()">
-        {{ response.status || 'DRAFT' }}
+      <div class="status-pill" [ngClass]="'status-' + statusValue().toLowerCase()">
+        {{ statusValue() }}
       </div>
     </div>
     <div class="workflow-actions">
@@ -130,7 +131,7 @@
           mat-stroked-button
           color="primary"
           type="button"
-          [disabled]="response.status !== 'SUBMITTED' || !can('replenishment.needs_list.review_start')"
+          [disabled]="!isStatus('SUBMITTED') || !can('replenishment.needs_list.review_start')"
           (click)="startReview()"
         >
           Start Review
@@ -138,7 +139,7 @@
         <button
           mat-stroked-button
           type="button"
-          [disabled]="response.status !== 'UNDER_REVIEW' || !can('replenishment.needs_list.return')"
+          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.return')"
           (click)="returnDraft()"
         >
           Return
@@ -147,13 +148,14 @@
           mat-stroked-button
           color="warn"
           type="button"
-          [disabled]="response.status !== 'UNDER_REVIEW' || !can('replenishment.needs_list.reject')"
+          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.reject')"
           (click)="rejectDraft()"
         >
           Reject
         </button>
       </div>
     </div>
+    </ng-container>
   </mat-card>
 
   <mat-card class="panel" *ngIf="response">
@@ -201,7 +203,7 @@
                   matInput
                   type="number"
                   class="qty-input"
-                  [value]="overrideEdits[item.item_id]?.overridden_qty ?? item.required_qty"
+                  [value]="overrideQty(item) ?? item.required_qty"
                   (input)="updateOverrideQty(item, $any($event.target).value)"
                 />
               </div>
@@ -211,7 +213,7 @@
                   matInput
                   type="text"
                   class="qty-input"
-                  [value]="overrideEdits[item.item_id]?.reason || ''"
+                  [value]="overrideReason(item)"
                   (input)="updateOverrideReason(item, $any($event.target).value)"
                 />
               </div>
