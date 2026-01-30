@@ -9,8 +9,16 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from api.permissions import NeedsListPreviewPermission
-from replenishment import rules
+from api.permissions import NeedsListPermission, NeedsListPreviewPermission
+from api.rbac import (
+    PERM_NEEDS_LIST_CREATE_DRAFT,
+    PERM_NEEDS_LIST_EDIT_LINES,
+    PERM_NEEDS_LIST_REJECT,
+    PERM_NEEDS_LIST_RETURN,
+    PERM_NEEDS_LIST_REVIEW_START,
+    PERM_NEEDS_LIST_SUBMIT,
+)
+from replenishment import rules, workflow_store
 from replenishment.services import data_access, needs_list
 
 logger = logging.getLogger("dmis.audit")
@@ -37,11 +45,11 @@ def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> 
     return parsed
 
 
-@api_view(["POST"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([NeedsListPreviewPermission])
-def needs_list_preview(request):
-    payload = request.data or {}
+def _actor_id(request) -> str | None:
+    return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, str]]:
     errors: Dict[str, str] = {}
 
     event_id = _parse_positive_int(payload.get("event_id"), "event_id", errors)
@@ -61,14 +69,14 @@ def needs_list_preview(request):
             as_of_dt = parsed
 
     if errors:
-        return Response({"errors": errors}, status=400)
+        return {}, errors
 
     if not phase:
         phase = "BASELINE"
         warnings_phase.append("phase_defaulted_to_baseline")
     phase = str(phase).upper()
     if phase not in rules.PHASES:
-        return Response({"errors": {"phase": "Must be SURGE, STABILIZED, or BASELINE."}}, status=400)
+        return {}, {"phase": "Must be SURGE, STABILIZED, or BASELINE."}
 
     windows = rules.get_phase_windows(phase)
     demand_window_hours = int(windows["demand_hours"])
@@ -153,21 +161,6 @@ def needs_list_preview(request):
 
     warnings = needs_list.merge_warnings(base_warnings, item_warnings)
 
-    logger.info(
-        "needs_list_preview",
-        extra={
-            "event_type": "READ",
-            "user_id": getattr(request.user, "user_id", None),
-            "username": getattr(request.user, "username", None),
-            "event_id": event_id,
-            "warehouse_id": warehouse_id,
-            "as_of_datetime": as_of_dt.isoformat(),
-            "planning_window_days": planning_window_days,
-            "item_count": len(items),
-            "warnings": warnings,
-        },
-    )
-
     response = {
         "as_of_datetime": as_of_dt.isoformat(),
         "planning_window_days": planning_window_days,
@@ -185,4 +178,398 @@ def needs_list_preview(request):
                 "counts": fallback_counts,
             },
         }
+    return response, {}
+
+
+def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool = True) -> Dict[str, Any]:
+    snapshot = (
+        workflow_store.apply_overrides(record)
+        if include_overrides
+        else dict(record.get("snapshot") or {})
+    )
+    response = dict(snapshot)
+    response.update(
+        {
+            "needs_list_id": record.get("needs_list_id"),
+            "status": record.get("status"),
+            "event_id": record.get("event_id"),
+            "warehouse_id": record.get("warehouse_id"),
+            "phase": record.get("phase"),
+            "planning_window_days": record.get("planning_window_days"),
+            "as_of_datetime": record.get("as_of_datetime"),
+            "created_by": record.get("created_by"),
+            "created_at": record.get("created_at"),
+            "updated_by": record.get("updated_by"),
+            "updated_at": record.get("updated_at"),
+            "submitted_by": record.get("submitted_by"),
+            "submitted_at": record.get("submitted_at"),
+            "reviewer_by": record.get("reviewer_by"),
+            "review_started_at": record.get("review_started_at"),
+            "return_reason": record.get("return_reason"),
+            "reject_reason": record.get("reject_reason"),
+        }
+    )
+    return response
+
+
+def _workflow_disabled_response() -> Response:
+    return Response(
+        {"errors": {"workflow": "Workflow dev store is disabled."}},
+        status=501,
+    )
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_preview(request):
+    payload = request.data or {}
+    response, errors = _build_preview_response(payload)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    logger.info(
+        "needs_list_preview",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "event_id": response.get("event_id"),
+            "warehouse_id": response.get("warehouse_id"),
+            "as_of_datetime": response.get("as_of_datetime"),
+            "planning_window_days": response.get("planning_window_days"),
+            "item_count": len(response.get("items", [])),
+            "warnings": response.get("warnings", []),
+        },
+    )
+
     return Response(response)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_draft(request):
+    payload = request.data or {}
+    response, errors = _build_preview_response(payload)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record_payload = {
+        "event_id": response.get("event_id"),
+        "warehouse_id": response.get("warehouse_id"),
+        "phase": response.get("phase"),
+        "as_of_datetime": response.get("as_of_datetime"),
+        "planning_window_days": response.get("planning_window_days"),
+        "filters": payload.get("filters"),
+    }
+    record = workflow_store.create_draft(
+        record_payload,
+        response.get("items", []),
+        response.get("warnings", []),
+        _actor_id(request),
+    )
+
+    logger.info(
+        "needs_list_draft_created",
+        extra={
+            "event_type": "CREATE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": record.get("needs_list_id"),
+            "event_id": response.get("event_id"),
+            "warehouse_id": response.get("warehouse_id"),
+            "item_count": len(response.get("items", [])),
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=False))
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_get(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    response = _serialize_workflow_record(record, include_overrides=True)
+    logger.info(
+        "needs_list_get",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "item_count": len(response.get("items", [])),
+        },
+    )
+    return Response(response)
+
+
+@api_view(["PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_edit_lines(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "DRAFT":
+        return Response({"errors": {"status": "Drafts only."}}, status=409)
+
+    overrides_raw = request.data
+    if not isinstance(overrides_raw, list):
+        return Response({"errors": {"lines": "Expected a list of overrides."}}, status=400)
+
+    overrides: list[Dict[str, object]] = []
+    parse_errors: list[str] = []
+    for entry in overrides_raw:
+        if not isinstance(entry, dict):
+            parse_errors.append("Each override must be an object.")
+            continue
+        item_id = entry.get("item_id")
+        reason = entry.get("reason")
+        overridden_qty = entry.get("overridden_qty")
+        if item_id is None:
+            parse_errors.append("item_id is required.")
+            continue
+        if overridden_qty is None:
+            parse_errors.append(f"overridden_qty is required for item_id {item_id}.")
+            continue
+        try:
+            overridden_qty = float(overridden_qty)
+        except (TypeError, ValueError):
+            parse_errors.append(f"overridden_qty must be numeric for item_id {item_id}.")
+            continue
+        overrides.append(
+            {
+                "item_id": item_id,
+                "overridden_qty": overridden_qty,
+                "reason": reason,
+            }
+        )
+
+    if parse_errors:
+        return Response({"errors": {"lines": parse_errors}}, status=400)
+
+    record, errors = workflow_store.add_line_overrides(record, overrides, _actor_id(request))
+    if errors:
+        return Response({"errors": {"lines": errors}}, status=400)
+    workflow_store.update_record(needs_list_id, record)
+
+    response = _serialize_workflow_record(record, include_overrides=True)
+    logger.info(
+        "needs_list_lines_updated",
+        extra={
+            "event_type": "UPDATE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "line_count": len(overrides),
+        },
+    )
+    return Response(response)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_submit(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "DRAFT":
+        return Response({"errors": {"status": "Only drafts can be submitted."}}, status=409)
+
+    submit_empty_allowed = bool((request.data or {}).get("submit_empty_allowed", False))
+    item_count = len(record.get("snapshot", {}).get("items") or [])
+    if item_count == 0 and not submit_empty_allowed:
+        return Response({"errors": {"items": "Cannot submit an empty needs list."}}, status=409)
+
+    record = workflow_store.transition_status(record, "SUBMITTED", _actor_id(request))
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_submitted",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "DRAFT",
+            "to_status": "SUBMITTED",
+            "item_count": item_count,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_review_start(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "SUBMITTED":
+        return Response({"errors": {"status": "Needs list must be submitted first."}}, status=409)
+
+    actor = _actor_id(request)
+    if not record.get("submitted_by") or record.get("submitted_by") == actor:
+        return Response(
+            {"errors": {"review": "Reviewer must be different from submitter."}},
+            status=409,
+        )
+
+    record = workflow_store.transition_status(record, "UNDER_REVIEW", actor)
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_review_started",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "SUBMITTED",
+            "to_status": "UNDER_REVIEW",
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_return(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "UNDER_REVIEW":
+        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+
+    reason = (request.data or {}).get("reason")
+    if not reason:
+        return Response({"errors": {"reason": "Reason is required."}}, status=400)
+
+    record = workflow_store.transition_status(record, "DRAFT", _actor_id(request))
+    record["return_reason"] = reason
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_returned",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "UNDER_REVIEW",
+            "to_status": "DRAFT",
+            "reason": reason,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_reject(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "UNDER_REVIEW":
+        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+
+    reason = (request.data or {}).get("reason")
+    if not reason:
+        return Response({"errors": {"reason": "Reason is required."}}, status=400)
+
+    record = workflow_store.transition_status(record, "REJECTED", _actor_id(request), reason=reason)
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_rejected",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "UNDER_REVIEW",
+            "to_status": "REJECTED",
+            "reason": reason,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT
+needs_list_get.required_permission = [
+    PERM_NEEDS_LIST_CREATE_DRAFT,
+    PERM_NEEDS_LIST_SUBMIT,
+    PERM_NEEDS_LIST_REVIEW_START,
+    PERM_NEEDS_LIST_RETURN,
+    PERM_NEEDS_LIST_REJECT,
+]
+needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
+needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
+needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
+needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
+needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT
+
+for view_func in (
+    needs_list_draft,
+    needs_list_get,
+    needs_list_edit_lines,
+    needs_list_submit,
+    needs_list_review_start,
+    needs_list_return,
+    needs_list_reject,
+):
+    if hasattr(view_func, "cls"):
+        view_func.cls.required_permission = view_func.required_permission

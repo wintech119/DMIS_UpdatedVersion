@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -20,6 +20,10 @@ interface NeedsListItem {
   inbound_strict_qty: number;
   burn_rate_per_hour: number;
   required_qty?: number;
+  computed_required_qty?: number;
+  override_reason?: string;
+  override_updated_by?: string;
+  override_updated_at?: string;
   gap_qty: number;
   time_to_stockout?: string | number;
   horizon?: { A: HorizonBlock; B: HorizonBlock; C: HorizonBlock };
@@ -47,6 +51,18 @@ interface NeedsListResponse {
   phase: string;
   items: NeedsListItem[];
   warnings: string[];
+  needs_list_id?: string;
+  status?: string;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+  submitted_by?: string | null;
+  submitted_at?: string | null;
+  reviewer_by?: string | null;
+  review_started_at?: string | null;
+  return_reason?: string | null;
+  reject_reason?: string | null;
 }
 
 @Component({
@@ -68,7 +84,7 @@ interface NeedsListResponse {
   templateUrl: './needs-list-preview.component.html',
   styleUrl: './needs-list-preview.component.scss'
 })
-export class NeedsListPreviewComponent {
+export class NeedsListPreviewComponent implements OnInit {
   readonly phaseOptions = ['SURGE', 'STABILIZED', 'BASELINE'] as const;
 
   readonly form: FormGroup;
@@ -96,6 +112,9 @@ export class NeedsListPreviewComponent {
   topWarnings: string[] = [];
   perItemWarnings: { item_id: number; warnings: string[] }[] = [];
   errors: string[] = [];
+  workflowErrors: string[] = [];
+  permissions: string[] = [];
+  overrideEdits: Record<number, { overridden_qty?: number; reason?: string }> = {};
 
   displayedColumns = [
     'item',
@@ -121,26 +140,24 @@ export class NeedsListPreviewComponent {
     });
   }
 
+  ngOnInit(): void {
+    this.loadPermissions();
+  }
+
   generatePreview(): void {
     this.errors = [];
+    this.workflowErrors = [];
     if (this.form.invalid) {
       this.errors = ['Please provide valid event_id, warehouse_id, and phase.'];
       return;
     }
 
-    const payload: Record<string, unknown> = {
-      event_id: Number(this.form.value.event_id),
-      warehouse_id: Number(this.form.value.warehouse_id),
-      phase: this.form.value.phase
-    };
-
-    if (this.form.value.as_of_datetime) {
-      payload['as_of_datetime'] = this.form.value.as_of_datetime;
-    }
+    const payload = this.buildPayload();
 
     this.loading = true;
     this.http.post<NeedsListResponse>('/api/v1/replenishment/needs-list/preview', payload).subscribe({
       next: (data) => {
+        this.resetWorkflowState();
         this.response = data;
         this.items = data.items ?? [];
         this.topWarnings = data.warnings ?? [];
@@ -151,14 +168,182 @@ export class NeedsListPreviewComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.loading = false;
-        if (error.error?.errors) {
-          const errors = error.error.errors;
-          this.errors = Object.entries(errors).map(([field, message]) => `${field}: ${message}`);
-          return;
-        }
-        this.errors = [error.message || 'Preview request failed.'];
+        this.errors = this.extractErrors(error, 'Preview request failed.');
       }
     });
+  }
+
+  createDraft(): void {
+    this.workflowErrors = [];
+    if (this.form.invalid) {
+      this.workflowErrors = ['Please provide valid event_id, warehouse_id, and phase.'];
+      return;
+    }
+
+    const payload = this.buildPayload();
+    this.loading = true;
+    this.http.post<NeedsListResponse>('/api/v1/replenishment/needs-list/draft', payload).subscribe({
+      next: (data) => {
+        this.loading = false;
+        this.response = data;
+        this.items = data.items ?? [];
+        this.topWarnings = data.warnings ?? [];
+        this.perItemWarnings = this.items
+          .filter((item) => item.warnings && item.warnings.length)
+          .map((item) => ({ item_id: item.item_id, warnings: item.warnings ?? [] }));
+        this.overrideEdits = {};
+      },
+      error: (error: HttpErrorResponse) => {
+        this.loading = false;
+        this.workflowErrors = this.extractErrors(error, 'Draft creation failed.');
+      }
+    });
+  }
+
+  applyOverride(item: NeedsListItem): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    const edit = this.overrideEdits[item.item_id] || {};
+    if (edit.overridden_qty === undefined || edit.overridden_qty === null) {
+      this.workflowErrors = ['Override quantity is required.'];
+      return;
+    }
+    if (!edit.reason) {
+      this.workflowErrors = ['Reason is required for overrides.'];
+      return;
+    }
+    this.loading = true;
+    this.http
+      .patch<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/lines`, [
+        {
+          item_id: item.item_id,
+          overridden_qty: edit.overridden_qty,
+          reason: edit.reason
+        }
+      ])
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+          this.items = data.items ?? [];
+          this.topWarnings = data.warnings ?? [];
+          this.perItemWarnings = this.items
+            .filter((entry) => entry.warnings && entry.warnings.length)
+            .map((entry) => ({ item_id: entry.item_id, warnings: entry.warnings ?? [] }));
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Line update failed.');
+        }
+      });
+  }
+
+  submitDraft(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http.post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/submit`, {}).subscribe({
+      next: (data) => {
+        this.loading = false;
+        this.response = data;
+      },
+      error: (error: HttpErrorResponse) => {
+        this.loading = false;
+        this.workflowErrors = this.extractErrors(error, 'Submit failed.');
+      }
+    });
+  }
+
+  startReview(): void {
+    this.workflowErrors = [];
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/review/start`, {})
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Start review failed.');
+        }
+      });
+  }
+
+  returnDraft(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const reason = window.prompt('Reason for return:');
+    if (!reason) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/return`, { reason })
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Return failed.');
+        }
+      });
+  }
+
+  rejectDraft(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const reason = window.prompt('Reason for rejection:');
+    if (!reason) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/reject`, { reason })
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Reject failed.');
+        }
+      });
+  }
+
+  updateOverrideQty(item: NeedsListItem, value: string): void {
+    const qty = value === '' ? undefined : Number(value);
+    this.overrideEdits[item.item_id] = {
+      ...this.overrideEdits[item.item_id],
+      overridden_qty: Number.isFinite(qty) ? qty : undefined
+    };
+  }
+
+  updateOverrideReason(item: NeedsListItem, value: string): void {
+    this.overrideEdits[item.item_id] = {
+      ...this.overrideEdits[item.item_id],
+      reason: value
+    };
+  }
+
+  can(permission: string): boolean {
+    return this.permissions.includes(permission);
   }
 
   requiredQty(item: NeedsListItem): number {
@@ -169,6 +354,13 @@ export class NeedsListPreviewComponent {
     const inbound = item.inbound_strict_qty ?? 0;
     const gap = item.gap_qty ?? 0;
     return Number((available + inbound + gap).toFixed(2));
+  }
+
+  recommendedQty(item: NeedsListItem): number {
+    if (typeof item.computed_required_qty === 'number') {
+      return Number(item.computed_required_qty.toFixed(2));
+    }
+    return this.requiredQty(item);
   }
 
   horizonValue(block?: HorizonBlock): string {
@@ -238,5 +430,61 @@ export class NeedsListPreviewComponent {
     return [
       'Burn rate and/or inbound may be zero because relief package, transfer, or donation in-transit data is missing or not modeled yet.'
     ];
+  }
+
+  isDraft(): boolean {
+    return Boolean(this.response?.needs_list_id);
+  }
+
+  isDraftEditable(): boolean {
+    return this.response?.status === 'DRAFT';
+  }
+
+  private buildPayload(): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      event_id: Number(this.form.value.event_id),
+      warehouse_id: Number(this.form.value.warehouse_id),
+      phase: this.form.value.phase
+    };
+
+    if (this.form.value.as_of_datetime) {
+      payload['as_of_datetime'] = this.form.value.as_of_datetime;
+    }
+
+    return payload;
+  }
+
+  private resetWorkflowState(): void {
+    this.overrideEdits = {};
+  }
+
+  private loadPermissions(): void {
+    this.http.get<{ permissions: string[] }>('/api/v1/auth/whoami/').subscribe({
+      next: (data) => {
+        this.permissions = data.permissions ?? [];
+      },
+      error: () => {
+        this.permissions = [];
+      }
+    });
+  }
+
+  private extractErrors(error: HttpErrorResponse, fallback: string): string[] {
+    if (error.status === 403) {
+      return ['You do not have permission to perform this action.'];
+    }
+    if (error.error?.errors) {
+      const errors = error.error.errors;
+      if (Array.isArray(errors)) {
+        return errors;
+      }
+      return Object.entries(errors).flatMap(([field, message]) => {
+        if (Array.isArray(message)) {
+          return message.map((entry) => `${field}: ${entry}`);
+        }
+        return [`${field}: ${message}`];
+      });
+    }
+    return [error.message || fallback];
   }
 }
