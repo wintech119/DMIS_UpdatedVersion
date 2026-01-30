@@ -1,3 +1,4 @@
+import math
 import os
 from typing import Dict, List, Tuple
 
@@ -253,10 +254,17 @@ def get_procurement_approval(
         cost = 0.0
     else:
         try:
-            cost = float(est_total_cost_jmd)
+            parsed_cost = float(est_total_cost_jmd)
+            if not math.isfinite(parsed_cost) or parsed_cost < 0:
+                raise ValueError("invalid cost")
+            cost = parsed_cost
         except (TypeError, ValueError):
             warnings.append("procurement_cost_invalid")
             cost = 0.0
+
+    if phase_upper not in {"SURGE", "BASELINE"}:
+        warnings.append("procurement_phase_invalid")
+        phase_upper = "BASELINE"
 
     category_key = (category or DEFAULT_PROCUREMENT_CATEGORY).lower()
     if category is None:
