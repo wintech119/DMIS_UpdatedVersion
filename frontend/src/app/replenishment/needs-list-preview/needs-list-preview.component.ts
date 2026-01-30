@@ -28,6 +28,15 @@ interface NeedsListItem {
   warnings?: string[];
   freshness_state?: string;
   freshness?: { state: string; age_hours: number | null; inventory_as_of: string | null };
+  procurement_status?: string | null;
+  procurement?: {
+    recommended_qty: number;
+    est_unit_cost?: number | null;
+    est_total_cost?: number | null;
+    lead_time_hours_default: number;
+    approval?: { tier: string; approver_role: string; methods_allowed: string[] };
+    gojep_note?: { label: string; url: string };
+  };
 }
 
 interface NeedsListResponse {

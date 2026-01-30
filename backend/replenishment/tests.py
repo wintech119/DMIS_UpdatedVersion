@@ -182,11 +182,18 @@ class NeedsListServiceTests(SimpleTestCase):
         item = items[0]
         self.assertTrue(item["triggers"]["activate_C"])
         self.assertIn("procurement_recommendation_qty", item)
-        self.assertEqual(item.get("procurement_status"), "PLANNED")
+        self.assertEqual(item.get("procurement_status"), "RECOMMENDED")
+        self.assertIn("procurement", item)
+        procurement = item["procurement"]
+        self.assertEqual(procurement.get("lead_time_hours_default"), 336)
+        self.assertIn("approval", procurement)
+        self.assertIn("gojep_note", procurement)
         self.assertEqual(item.get("external_procurement_system"), "GOJEP")
         self.assertIsNone(item.get("external_reference"))
         self.assertNotIn("procurement_method", item)
         self.assertNotIn("procurement_id", item)
+        self.assertIn("procurement_cost_unavailable", item.get("warnings", []))
+        self.assertIn("procurement_category_unavailable", item.get("warnings", []))
 
     def test_surge_critical_activates_all(self) -> None:
         as_of_dt = timezone.now()
@@ -323,6 +330,27 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertIn("burn_no_rows_in_window", item["warnings"])
         self.assertIn("inventory_timestamp_unavailable", item["warnings"])
         self.assertNotIn("burn_rate_estimated", item["warnings"])
+
+    def test_procurement_approval_band_low_baseline(self) -> None:
+        approval, warnings = rules.get_procurement_approval(2_000_000, "BASELINE")
+        self.assertEqual(approval["tier"], "Below Tier 1")
+        self.assertEqual(approval["approver_role"], "Logistics Manager (Kemar)")
+        self.assertIn("Single-Source", approval["methods_allowed"])
+        self.assertIn("procurement_category_unavailable", warnings)
+
+    def test_procurement_approval_band_mid_surge(self) -> None:
+        approval, warnings = rules.get_procurement_approval(20_000_000, "SURGE")
+        self.assertEqual(approval["tier"], "Below Tier 1")
+        self.assertEqual(approval["approver_role"], "Senior Director (Andrea)")
+        self.assertIn("Open National Competitive Bidding", approval["methods_allowed"])
+        self.assertIn("procurement_category_unavailable", warnings)
+
+    def test_procurement_approval_band_high_baseline(self) -> None:
+        approval, warnings = rules.get_procurement_approval(80_000_000, "BASELINE")
+        self.assertEqual(approval["tier"], "Tier 2")
+        self.assertEqual(approval["approver_role"], "DG + PPC Endorsement")
+        self.assertIn("Open International Competitive Bidding", approval["methods_allowed"])
+        self.assertIn("procurement_category_unavailable", warnings)
     def test_default_windows_are_v41(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(rules.get_windows_version(), "v41")

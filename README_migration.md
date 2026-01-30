@@ -163,12 +163,20 @@ NEEDS_WINDOWS_VERSION=v40
 
 Note: `planning_window_days` is computed from the phase windows above and is returned in the response; client-provided `planning_window_days` is ignored.
 
+Horizon C is status-only in the preview: procurement workflow steps remain in GOJEP, but the API returns
+approval tier, suggested approver, and allowed method(s) per the v4.1 threshold matrix, plus a GOJEP note.
+Procurement inbound counts only after shipment status is eligible (SHIPPED / IN_TRANSIT / PARTIALLY_RECEIVED),
+but procurement tables are not yet modeled so inbound remains 0 with warnings.
+
 Configuration knobs:
 
 ```ini
 NEEDS_SAFETY_FACTOR=1.25
 NEEDS_HORIZON_A_DAYS=7
 NEEDS_HORIZON_B_DAYS=
+NEEDS_DONATION_LEAD_TIME_HOURS=24
+NEEDS_PROCUREMENT_LEAD_TIME_HOURS=336
+NEEDS_GOJEP_URL=https://gojep.gov.jm
 NEEDS_STRICT_INBOUND_DONATION_STATUSES=V,P
 NEEDS_STRICT_INBOUND_TRANSFER_STATUSES=V,P
 NEEDS_INVENTORY_ACTIVE_STATUS=A

@@ -129,7 +129,31 @@
 
         <ng-container matColumnDef="horizonC">
           <th mat-header-cell *matHeaderCellDef>Horizon C</th>
-          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.C) }}</td>
+          <td mat-cell *matCellDef="let item">
+            {{ horizonValue(item.horizon?.C) }}
+            <div class="procurement-block" *ngIf="item.procurement">
+              <div class="procurement-title">Procurement (GOJEP)</div>
+              <div class="procurement-row">
+                <span class="procurement-label">Status</span>
+                <span>{{ item.procurement_status || 'RECOMMENDED' }}</span>
+              </div>
+              <div class="procurement-row" *ngIf="item.procurement?.approval">
+                <span class="procurement-label">Approver</span>
+                <span>{{ item.procurement?.approval?.approver_role }}</span>
+              </div>
+              <div class="procurement-row" *ngIf="item.procurement?.approval">
+                <span class="procurement-label">Methods</span>
+                <span>{{ item.procurement?.approval?.methods_allowed?.join(', ') }}</span>
+              </div>
+              <div class="procurement-row">
+                <span class="procurement-label">Lead time</span>
+                <span>{{ item.procurement?.lead_time_hours_default }}h</span>
+              </div>
+              <div class="procurement-note" *ngIf="item.procurement?.gojep_note">
+                {{ item.procurement?.gojep_note?.label }} ({{ item.procurement?.gojep_note?.url }})
+              </div>
+            </div>
+          </td>
         </ng-container>
 
         <ng-container matColumnDef="confidence">
