@@ -184,9 +184,15 @@
     <h2>Warnings</h2>
     <div class="warnings-section" *ngIf="topWarnings.length">
       <div class="section-label">Top-level warnings</div>
-      <mat-chip-listbox>
-        <mat-chip-option *ngFor="let warn of topWarnings">{{ warn }}</mat-chip-option>
-      </mat-chip-listbox>
+      <div class="warnings-summary" role="status" aria-live="polite">
+        <div class="warning-item" *ngFor="let warn of topWarnings">
+          <span class="warning-icon" aria-hidden="true">!</span>
+          <div class="warning-text">
+            <div class="warning-title">{{ warningLabel(warn) }}</div>
+            <div class="warning-code">Code: {{ warn }}</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <mat-divider *ngIf="topWarnings.length && perItemWarnings.length"></mat-divider>
