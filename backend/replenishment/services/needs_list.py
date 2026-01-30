@@ -297,6 +297,28 @@ def build_preview_items(
 
         horizon["B"]["recommended_qty"] = round(horizon_b_qty, 2)
         horizon["C"]["recommended_qty"] = round(horizon_c_qty, 2)
+
+        procurement_payload: Dict[str, object] | None = None
+        procurement_status = None
+        if activate_c:
+            est_unit_cost = None
+            est_total_cost = None
+            approval, approval_warnings = rules.get_procurement_approval(
+                est_total_cost, phase
+            )
+            item_base_warnings = merge_warnings(item_base_warnings, approval_warnings)
+            procurement_status = "RECOMMENDED"
+            procurement_payload = {
+                "recommended_qty": round(horizon_c_qty, 2),
+                "est_unit_cost": est_unit_cost,
+                "est_total_cost": est_total_cost,
+                "lead_time_hours_default": rules.PROCUREMENT_LEAD_TIME_HOURS,
+                "approval": approval,
+                "gojep_note": {
+                    "label": rules.GOJEP_NOTE_LABEL,
+                    "url": rules.GOJEP_URL,
+                },
+            }
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
@@ -347,7 +369,8 @@ def build_preview_items(
             item_payload.update(
                 {
                     "procurement_recommendation_qty": round(horizon_c_qty, 2),
-                    "procurement_status": "PLANNED",
+                    "procurement_status": procurement_status,
+                    "procurement": procurement_payload,
                     "external_procurement_system": "GOJEP",
                     "external_reference": None,
                 }
