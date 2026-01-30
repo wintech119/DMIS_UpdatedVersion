@@ -29,8 +29,10 @@ def _parse_int_list_env(name: str) -> List[int]:
         trimmed = entry.strip()
         if not trimmed:
             continue
-        if trimmed.lstrip("+-").isdigit():
+        try:
             values.append(int(trimmed))
+        except ValueError:
+            continue
     return values
 
 PHASES = ("SURGE", "STABILIZED", "BASELINE")
