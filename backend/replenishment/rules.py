@@ -3,6 +3,14 @@ from typing import Dict, List, Tuple
 
 SAFETY_STOCK_FACTOR = 1.25
 
+
+def _get_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
 PHASES = ("SURGE", "STABILIZED", "BASELINE")
 
 WINDOWS_V40_LEGACY: Dict[str, Dict[str, int]] = {
@@ -26,6 +34,15 @@ FRESHNESS_THRESHOLDS: Dict[str, Dict[str, int]] = {
     "SURGE": {"fresh_max_hours": 2, "warn_max_hours": 4},
     "STABILIZED": {"fresh_max_hours": 6, "warn_max_hours": 12},
     "BASELINE": {"fresh_max_hours": 24, "warn_max_hours": 48},
+}
+
+DONATION_LEAD_TIME_HOURS = _get_int_env("NEEDS_DONATION_LEAD_TIME_HOURS", 24)
+PROCUREMENT_LEAD_TIME_HOURS = _get_int_env("NEEDS_PROCUREMENT_LEAD_TIME_HOURS", 336)
+
+SAFETY_BUFFER_MULTIPLIERS: Dict[str, float] = {
+    "SURGE": 0.5,
+    "STABILIZED": 0.25,
+    "BASELINE": 0.1,
 }
 
 DEFAULT_WINDOWS_VERSION = "v41"
