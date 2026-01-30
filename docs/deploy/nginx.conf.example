@@ -1,6 +1,8 @@
 # =============================================================================
 # DMIS NGINX Production Configuration Template
+# =============================================================================
 # DMIS NGINX Production Configuration Template
+# =============================================================================
 # =============================================================================
 # This configuration template is designed for production deployment of DMIS
 # behind NGINX as a reverse proxy.
