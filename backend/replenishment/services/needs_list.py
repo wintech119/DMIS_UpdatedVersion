@@ -182,7 +182,9 @@ def build_preview_items(
     fallback_counts = {"category_avg": 0, "none": 0}
 
     critical_item_ids_set = (
-        {int(item_id) for item_id in critical_item_ids} if critical_item_ids else None
+        {int(item_id) for item_id in critical_item_ids if str(item_id).isdigit()}
+        if critical_item_ids
+        else None
     )
 
     for item_id in item_ids:
