@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -74,6 +75,8 @@ class NeedsListServiceTests(SimpleTestCase):
         )
 
     def test_burn_rate_fallback_sets_low_confidence(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=72)
         items, _, fallback_counts = needs_list.build_preview_items(
             item_ids=[1, 2],
             available_by_item={1: 0.0, 2: 0.0},
@@ -88,9 +91,9 @@ class NeedsListServiceTests(SimpleTestCase):
             horizon_a_hours=0,
             horizon_b_hours=0,
             burn_source="none",
-            as_of_dt=timezone.now(),
+            as_of_dt=as_of_dt,
             phase="BASELINE",
-            inventory_as_of=timezone.now(),
+            inventory_as_of=inventory_as_of,
             base_warnings=["burn_data_missing"],
         )
         item_one = items[0]
@@ -129,6 +132,197 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertIsNotNone(horizon_b)
         self.assertGreater(horizon_b or 0.0, 0.0)
 
+    def test_activate_b_when_gap_remains_after_a(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 24.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=24,
+            planning_window_hours=48,
+            safety_factor=1.0,
+            horizon_a_hours=48,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="STABILIZED",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+        )
+        triggers = items[0]["triggers"]
+        self.assertTrue(triggers["activate_B"])
+
+    def test_activate_c_when_time_to_stockout_below_lead_time(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 10.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 24.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="SURGE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+        )
+        item = items[0]
+        self.assertTrue(item["triggers"]["activate_C"])
+        self.assertIn("procurement_recommendation_qty", item)
+        self.assertEqual(item.get("procurement_status"), "PLANNED")
+        self.assertEqual(item.get("external_procurement_system"), "GOJEP")
+        self.assertIsNone(item.get("external_reference"))
+        self.assertNotIn("procurement_method", item)
+        self.assertNotIn("procurement_id", item)
+
+    def test_surge_critical_activates_all(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 60.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="SURGE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+            critical_item_ids=[1],
+        )
+        triggers = items[0]["triggers"]
+        self.assertTrue(triggers["activate_all"])
+        self.assertTrue(triggers["activate_B"])
+        self.assertTrue(triggers["activate_C"])
+
+    def test_surge_missing_critical_warns(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 60.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="SURGE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+        )
+        self.assertIn("critical_flag_unavailable", items[0]["warnings"])
+
+    def test_burn_zero_freshness_high_no_estimate(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 5.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={},
+            item_categories={1: 10},
+            category_burn_rates={10: 2.0},
+            demand_window_hours=24,
+            planning_window_hours=24,
+            safety_factor=1.0,
+            horizon_a_hours=0,
+            horizon_b_hours=0,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="BASELINE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+        )
+        item = items[0]
+        self.assertEqual(item["burn_rate_per_hour"], 0.0)
+        self.assertEqual(item["time_to_stockout"], "N/A - No current demand")
+        self.assertIn("burn_no_rows_in_window", item["warnings"])
+        self.assertNotIn("burn_rate_estimated", item["warnings"])
+
+    def test_burn_zero_freshness_stale_estimated_low_confidence(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=72)
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 5.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={},
+            item_categories={1: 10},
+            category_burn_rates={10: 1.5},
+            demand_window_hours=24,
+            planning_window_hours=24,
+            safety_factor=1.0,
+            horizon_a_hours=0,
+            horizon_b_hours=0,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="BASELINE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+        )
+        item = items[0]
+        self.assertEqual(item["burn_rate_per_hour"], 1.5)
+        self.assertIn("burn_rate_estimated", item["warnings"])
+        self.assertEqual(item["confidence"]["level"], "low")
+        self.assertNotIn("burn_no_rows_in_window", item["warnings"])
+
+    def test_burn_zero_freshness_unknown_no_estimate(self) -> None:
+        as_of_dt = timezone.now()
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 5.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={},
+            item_categories={1: 10},
+            category_burn_rates={10: 1.5},
+            demand_window_hours=24,
+            planning_window_hours=24,
+            safety_factor=1.0,
+            horizon_a_hours=0,
+            horizon_b_hours=0,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="BASELINE",
+            inventory_as_of=None,
+            base_warnings=[],
+        )
+        item = items[0]
+        self.assertEqual(item["burn_rate_per_hour"], 0.0)
+        self.assertEqual(item["time_to_stockout"], "N/A - No current demand")
+        self.assertIn("burn_no_rows_in_window", item["warnings"])
+        self.assertIn("inventory_timestamp_unavailable", item["warnings"])
+        self.assertNotIn("burn_rate_estimated", item["warnings"])
     def test_default_windows_are_v41(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(rules.get_windows_version(), "v41")
