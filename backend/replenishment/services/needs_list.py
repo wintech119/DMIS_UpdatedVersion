@@ -261,10 +261,14 @@ def build_preview_items(
             ab_cannot_cover_window or planning_window_long or b_too_slow or c_too_slow
         )
 
-        is_critical = (
+        category_id = item_categories.get(item_id)
+        is_critical = rules.is_critical(item_id, category_id) or (
             critical_item_ids_set is not None and item_id in critical_item_ids_set
         )
-        if gap_positive and phase == "SURGE" and critical_item_ids_set is None:
+        critical_configured = (
+            rules.has_critical_config() or critical_item_ids_set is not None
+        )
+        if gap_positive and phase == "SURGE" and not critical_configured:
             item_base_warnings = merge_warnings(
                 item_base_warnings, ["critical_flag_unavailable"]
             )
@@ -296,6 +300,29 @@ def build_preview_items(
                 horizon_c_qty = 0.0
 
         horizon["B"]["recommended_qty"] = round(horizon_b_qty, 2)
+        horizon["C"]["recommended_qty"] = round(horizon_c_qty, 2)
+
+        procurement_payload: Dict[str, object] | None = None
+        procurement_status = None
+        if activate_c:
+            est_unit_cost = None
+            est_total_cost = None
+            approval, approval_warnings = rules.get_procurement_approval(
+                est_total_cost, phase
+            )
+            item_base_warnings = merge_warnings(item_base_warnings, approval_warnings)
+            procurement_status = "RECOMMENDED"
+            procurement_payload = {
+                "recommended_qty": round(horizon_c_qty, 2),
+                "est_unit_cost": est_unit_cost,
+                "est_total_cost": est_total_cost,
+                "lead_time_hours_default": rules.PROCUREMENT_LEAD_TIME_HOURS,
+                "approval": approval,
+                "gojep_note": {
+                    "label": rules.GOJEP_NOTE_LABEL,
+                    "url": rules.GOJEP_URL,
+                },
+            }
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
@@ -346,7 +373,8 @@ def build_preview_items(
             item_payload.update(
                 {
                     "procurement_recommendation_qty": round(horizon_c_qty, 2),
-                    "procurement_status": "PLANNED",
+                    "procurement_status": procurement_status,
+                    "procurement": procurement_payload,
                     "external_procurement_system": "GOJEP",
                     "external_reference": None,
                 }
