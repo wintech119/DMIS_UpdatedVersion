@@ -173,12 +173,17 @@ def build_preview_items(
     phase: str,
     inventory_as_of,
     base_warnings: Iterable[str] | None = None,
+    critical_item_ids: Iterable[int] | None = None,
 ) -> Tuple[List[Dict[str, object]], List[str], Dict[str, int]]:
     items: List[Dict[str, object]] = []
     warnings: List[str] = []
     base_warnings = list(base_warnings or [])
 
     fallback_counts = {"category_avg": 0, "none": 0}
+
+    critical_item_ids_set = (
+        {int(item_id) for item_id in critical_item_ids} if critical_item_ids else None
+    )
 
     for item_id in item_ids:
         available = float(available_by_item.get(item_id, 0.0))
@@ -228,6 +233,67 @@ def build_preview_items(
         horizon, horizon_warnings = allocate_horizons(
             gap, horizon_a_hours, horizon_b_hours, procurement_available=False
         )
+        time_to_stockout = compute_time_to_stockout_hours(
+            burn_rate_per_hour, available, inbound_strict
+        )
+        stockout_hours = (
+            time_to_stockout if isinstance(time_to_stockout, (int, float)) else None
+        )
+
+        horizon_a_qty = float(horizon["A"]["recommended_qty"] or 0.0)
+        remaining_after_a = max(gap - horizon_a_qty, 0.0)
+        gap_positive = gap > 0
+
+        lead_time_b = float(rules.DONATION_LEAD_TIME_HOURS)
+        lead_time_c = float(rules.PROCUREMENT_LEAD_TIME_HOURS)
+        buffer_multiplier = float(rules.SAFETY_BUFFER_MULTIPLIERS.get(phase, 0.0))
+        b_threshold = lead_time_b * (1.0 + buffer_multiplier)
+        c_threshold = lead_time_c * (1.0 + buffer_multiplier)
+        b_too_slow = stockout_hours is not None and stockout_hours < b_threshold
+        c_too_slow = stockout_hours is not None and stockout_hours < c_threshold
+        planning_window_long = planning_window_hours > 168
+        ab_cannot_cover_window = planning_window_hours > (horizon_a_hours + lead_time_b)
+
+        activate_b = gap_positive and remaining_after_a > 0
+        activate_c = gap_positive and (
+            ab_cannot_cover_window or planning_window_long or b_too_slow or c_too_slow
+        )
+
+        is_critical = (
+            critical_item_ids_set is not None and item_id in critical_item_ids_set
+        )
+        if gap_positive and phase == "SURGE" and critical_item_ids_set is None:
+            item_base_warnings = merge_warnings(
+                item_base_warnings, ["critical_flag_unavailable"]
+            )
+        activate_all = False
+        if gap_positive and phase == "SURGE" and is_critical:
+            activate_b = True
+            activate_c = True
+            activate_all = True
+        else:
+            activate_all = activate_b and activate_c
+
+        horizon_b_qty = float(horizon["B"]["recommended_qty"] or 0.0)
+        horizon_c_qty = 0.0
+        if gap_positive:
+            if activate_b and activate_c:
+                weight_b = max(lead_time_b, 1.0)
+                weight_c = max(lead_time_c, 1.0)
+                total_weight = weight_b + weight_c
+                horizon_b_qty = remaining_after_a * (weight_b / total_weight)
+                horizon_c_qty = remaining_after_a - horizon_b_qty
+            elif activate_b:
+                horizon_b_qty = remaining_after_a
+                horizon_c_qty = 0.0
+            elif activate_c:
+                horizon_b_qty = 0.0
+                horizon_c_qty = remaining_after_a
+            else:
+                horizon_b_qty = 0.0
+                horizon_c_qty = 0.0
+
+        horizon["B"]["recommended_qty"] = round(horizon_b_qty, 2)
         mapping_best_effort = "strict_inbound_mapping_best_effort" in base_warnings
         confidence_level, reasons, item_warnings = compute_confidence_and_warnings(
             burn_source=burn_source,
@@ -239,47 +305,51 @@ def build_preview_items(
         )
         item_warnings = merge_warnings(item_warnings, freshness_warnings)
         warnings = merge_warnings(warnings, item_warnings)
-
-        time_to_stockout = compute_time_to_stockout_hours(
-            burn_rate_per_hour, available, inbound_strict
-        )
-        horizon_b_qty = horizon["B"]["recommended_qty"] or 0.0
-        horizon_c_qty = horizon["C"]["recommended_qty"]
         triggers = {
-            "activate_B": horizon_b_qty > 0,
-            "activate_C": horizon_c_qty is not None and horizon_c_qty > 0,
-            "activate_all": gap > 0,
+            "activate_B": activate_b,
+            "activate_C": activate_c,
+            "activate_all": activate_all,
         }
 
-        items.append(
-            {
-                "item_id": item_id,
-                "available_qty": round(available, 2),
-                "inbound_strict_qty": round(inbound_strict, 2),
-                "burn_rate_per_hour": round(burn_rate_per_hour, 4),
-                "required_qty": round(required_qty, 2),
-                "gap_qty": round(gap, 2),
-                "time_to_stockout": time_to_stockout
-                if isinstance(time_to_stockout, str)
-                else round(time_to_stockout, 2),
-                "time_to_stockout_hours": time_to_stockout
-                if isinstance(time_to_stockout, str)
-                else round(time_to_stockout, 2),
-                "horizon": horizon,
-                "triggers": triggers,
-                "confidence": {"level": confidence_level, "reasons": reasons},
-                "warnings": item_warnings,
-                "freshness_state": freshness_state.capitalize(),
-                "freshness": {
-                    "state": freshness_state,
-                    "inventory_as_of": inventory_as_of.isoformat()
-                    if inventory_as_of and hasattr(inventory_as_of, "isoformat")
-                    else None,
-                    "age_hours": None if age_hours is None else round(age_hours, 2),
-                    "demand_window_hours": demand_window_hours,
-                    "planning_window_hours": planning_window_hours,
-                },
-            }
-        )
+        item_payload: Dict[str, object] = {
+            "item_id": item_id,
+            "available_qty": round(available, 2),
+            "inbound_strict_qty": round(inbound_strict, 2),
+            "burn_rate_per_hour": round(burn_rate_per_hour, 4),
+            "required_qty": round(required_qty, 2),
+            "gap_qty": round(gap, 2),
+            "time_to_stockout": time_to_stockout
+            if isinstance(time_to_stockout, str)
+            else round(time_to_stockout, 2),
+            "time_to_stockout_hours": time_to_stockout
+            if isinstance(time_to_stockout, str)
+            else round(time_to_stockout, 2),
+            "horizon": horizon,
+            "triggers": triggers,
+            "confidence": {"level": confidence_level, "reasons": reasons},
+            "warnings": item_warnings,
+            "freshness_state": freshness_state.capitalize(),
+            "freshness": {
+                "state": freshness_state,
+                "inventory_as_of": inventory_as_of.isoformat()
+                if inventory_as_of and hasattr(inventory_as_of, "isoformat")
+                else None,
+                "age_hours": None if age_hours is None else round(age_hours, 2),
+                "demand_window_hours": demand_window_hours,
+                "planning_window_hours": planning_window_hours,
+            },
+        }
+
+        if activate_c:
+            item_payload.update(
+                {
+                    "procurement_recommendation_qty": round(horizon_c_qty, 2),
+                    "procurement_status": "PLANNED",
+                    "external_procurement_system": "GOJEP",
+                    "external_reference": None,
+                }
+            )
+
+        items.append(item_payload)
 
     return items, warnings, fallback_counts
