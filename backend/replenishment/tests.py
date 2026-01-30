@@ -198,30 +198,60 @@ class NeedsListServiceTests(SimpleTestCase):
     def test_surge_critical_activates_all(self) -> None:
         as_of_dt = timezone.now()
         inventory_as_of = as_of_dt - timedelta(hours=1)
-        items, _, _ = needs_list.build_preview_items(
-            item_ids=[1],
-            available_by_item={1: 0.0},
-            inbound_donations_by_item={},
-            inbound_transfers_by_item={},
-            burn_by_item={1: 60.0},
-            item_categories={1: 10},
-            category_burn_rates={},
-            demand_window_hours=6,
-            planning_window_hours=72,
-            safety_factor=1.0,
-            horizon_a_hours=24,
-            horizon_b_hours=24,
-            burn_source="reliefpkg",
-            as_of_dt=as_of_dt,
-            phase="SURGE",
-            inventory_as_of=inventory_as_of,
-            base_warnings=[],
-            critical_item_ids=[1],
-        )
+        with patch.dict(os.environ, {"NEEDS_CRITICAL_ITEM_IDS": "1"}):
+            items, _, _ = needs_list.build_preview_items(
+                item_ids=[1],
+                available_by_item={1: 0.0},
+                inbound_donations_by_item={},
+                inbound_transfers_by_item={},
+                burn_by_item={1: 60.0},
+                item_categories={1: 10},
+                category_burn_rates={},
+                demand_window_hours=6,
+                planning_window_hours=72,
+                safety_factor=1.0,
+                horizon_a_hours=24,
+                horizon_b_hours=24,
+                burn_source="reliefpkg",
+                as_of_dt=as_of_dt,
+                phase="SURGE",
+                inventory_as_of=inventory_as_of,
+                base_warnings=[],
+            )
         triggers = items[0]["triggers"]
         self.assertTrue(triggers["activate_all"])
         self.assertTrue(triggers["activate_B"])
         self.assertTrue(triggers["activate_C"])
+        self.assertNotIn("critical_flag_unavailable", items[0]["warnings"])
+
+    def test_surge_critical_category_activates_all(self) -> None:
+        as_of_dt = timezone.now()
+        inventory_as_of = as_of_dt - timedelta(hours=1)
+        with patch.dict(os.environ, {"NEEDS_CRITICAL_CATEGORY_IDS": "10"}):
+            items, _, _ = needs_list.build_preview_items(
+                item_ids=[1],
+                available_by_item={1: 0.0},
+                inbound_donations_by_item={},
+                inbound_transfers_by_item={},
+                burn_by_item={1: 60.0},
+                item_categories={1: 10},
+                category_burn_rates={},
+                demand_window_hours=6,
+                planning_window_hours=72,
+                safety_factor=1.0,
+                horizon_a_hours=24,
+                horizon_b_hours=24,
+                burn_source="reliefpkg",
+                as_of_dt=as_of_dt,
+                phase="SURGE",
+                inventory_as_of=inventory_as_of,
+                base_warnings=[],
+            )
+        triggers = items[0]["triggers"]
+        self.assertTrue(triggers["activate_all"])
+        self.assertTrue(triggers["activate_B"])
+        self.assertTrue(triggers["activate_C"])
+        self.assertNotIn("critical_flag_unavailable", items[0]["warnings"])
 
     def test_surge_missing_critical_warns(self) -> None:
         as_of_dt = timezone.now()

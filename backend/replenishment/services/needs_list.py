@@ -261,10 +261,14 @@ def build_preview_items(
             ab_cannot_cover_window or planning_window_long or b_too_slow or c_too_slow
         )
 
-        is_critical = (
+        category_id = item_categories.get(item_id)
+        is_critical = rules.is_critical(item_id, category_id) or (
             critical_item_ids_set is not None and item_id in critical_item_ids_set
         )
-        if gap_positive and phase == "SURGE" and critical_item_ids_set is None:
+        critical_configured = (
+            rules.has_critical_config() or critical_item_ids_set is not None
+        )
+        if gap_positive and phase == "SURGE" and not critical_configured:
             item_base_warnings = merge_warnings(
                 item_base_warnings, ["critical_flag_unavailable"]
             )
