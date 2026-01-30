@@ -72,6 +72,23 @@ export class NeedsListPreviewComponent {
   readonly phaseOptions = ['SURGE', 'STABILIZED', 'BASELINE'] as const;
 
   readonly form: FormGroup;
+  private readonly warningLabels: Record<string, string> = {
+    burn_data_missing: 'No recent burn data found in the demand window.',
+    burn_fallback_unavailable: 'No category fallback rate is available for this item.',
+    burn_rate_estimated: 'Burn rate is estimated from fallback data.',
+    burn_no_rows_in_window: 'No validated fulfillments in the demand window.',
+    db_unavailable_preview_stub: 'Database unavailable; showing preview stub values.',
+    donation_in_transit_unmodeled: 'Donation in-transit data is not modeled yet.',
+    procurement_unavailable_in_schema: 'Procurement data is not modeled yet.',
+    procurement_cost_unavailable: 'Procurement cost estimates are unavailable.',
+    procurement_category_unavailable: 'Procurement category is missing; using defaults.',
+    procurement_cost_invalid: 'Procurement cost estimate is invalid.',
+    procurement_phase_invalid: 'Procurement phase value is invalid; using baseline.',
+    strict_inbound_mapping_best_effort: 'Inbound status mapping uses best-effort rules.',
+    critical_flag_unavailable: 'Critical item flag not configured.',
+    inventory_timestamp_unavailable: 'Inventory timestamp is unavailable.',
+    burn_fallback_unavailable_in_schema: 'Fallback burn rate data is missing in schema.'
+  };
 
   loading = false;
   response: NeedsListResponse | null = null;
@@ -189,6 +206,16 @@ export class NeedsListPreviewComponent {
 
   warningList(source: string[]): string {
     return source.join(', ');
+  }
+
+  warningLabel(code: string): string {
+    return this.warningLabels[code] ?? this.humanizeWarning(code);
+  }
+
+  private humanizeWarning(code: string): string {
+    return code
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   dataNotes(): string[] {
