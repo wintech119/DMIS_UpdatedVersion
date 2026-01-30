@@ -34,6 +34,15 @@
         <button mat-flat-button color="primary" type="submit" [disabled]="loading">
           Generate Preview
         </button>
+        <button
+          mat-stroked-button
+          color="primary"
+          type="button"
+          [disabled]="loading || !can('replenishment.needs_list.create_draft')"
+          (click)="createDraft()"
+        >
+          Create Draft
+        </button>
       </div>
     </form>
 
@@ -42,6 +51,11 @@
     <div class="errors" *ngIf="errors.length">
       <div class="error-title">Request errors</div>
       <div class="error-item" *ngFor="let err of errors">{{ err }}</div>
+    </div>
+
+    <div class="errors" *ngIf="workflowErrors.length">
+      <div class="error-title">Workflow errors</div>
+      <div class="error-item" *ngFor="let err of workflowErrors">{{ err }}</div>
     </div>
 
     <div class="data-note" *ngIf="dataNotes().length">
@@ -69,6 +83,75 @@
       <div>
         <div class="summary-label">Phase</div>
         <div class="summary-value">{{ response.phase }}</div>
+      </div>
+      <div *ngIf="response.needs_list_id">
+        <div class="summary-label">Status</div>
+        <div class="summary-value">
+          <span class="status-pill" [ngClass]="'status-' + (response.status || 'draft').toLowerCase()">
+            {{ response.status || 'DRAFT' }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </mat-card>
+
+  <mat-card class="panel workflow" *ngIf="response?.needs_list_id">
+    <div class="workflow-header">
+      <div>
+        <h2>Needs List Workflow</h2>
+        <p>Drafts are stored locally for dev-only workflow testing.</p>
+      </div>
+      <div class="status-pill" [ngClass]="'status-' + (response.status || 'draft').toLowerCase()">
+        {{ response.status || 'DRAFT' }}
+      </div>
+    </div>
+    <div class="workflow-actions">
+      <button
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="!isDraftEditable() || !can('replenishment.needs_list.submit')"
+        (click)="submitDraft()"
+      >
+        Submit
+      </button>
+    </div>
+    <div
+      class="review-panel"
+      *ngIf="
+        can('replenishment.needs_list.review_start') ||
+        can('replenishment.needs_list.return') ||
+        can('replenishment.needs_list.reject')
+      "
+    >
+      <div class="section-label">Review Panel</div>
+      <div class="workflow-actions">
+        <button
+          mat-stroked-button
+          color="primary"
+          type="button"
+          [disabled]="response.status !== 'SUBMITTED' || !can('replenishment.needs_list.review_start')"
+          (click)="startReview()"
+        >
+          Start Review
+        </button>
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="response.status !== 'UNDER_REVIEW' || !can('replenishment.needs_list.return')"
+          (click)="returnDraft()"
+        >
+          Return
+        </button>
+        <button
+          mat-stroked-button
+          color="warn"
+          type="button"
+          [disabled]="response.status !== 'UNDER_REVIEW' || !can('replenishment.needs_list.reject')"
+          (click)="rejectDraft()"
+        >
+          Reject
+        </button>
       </div>
     </div>
   </mat-card>
@@ -103,8 +186,49 @@
         </ng-container>
 
         <ng-container matColumnDef="required">
-          <th mat-header-cell *matHeaderCellDef>Required Qty</th>
-          <td mat-cell *matCellDef="let item">{{ requiredQty(item) | number : '1.0-2' }}</td>
+          <th mat-header-cell *matHeaderCellDef>
+            {{ isDraftEditable() ? 'Override Qty' : 'Required Qty' }}
+          </th>
+          <td mat-cell *matCellDef="let item">
+            <div *ngIf="isDraftEditable()" class="qty-stack">
+              <div class="qty-line">
+                <span class="qty-label">Recommended</span>
+                <span>{{ recommendedQty(item) | number : '1.0-2' }}</span>
+              </div>
+              <div class="qty-line">
+                <span class="qty-label">Override</span>
+                <input
+                  matInput
+                  type="number"
+                  class="qty-input"
+                  [value]="overrideEdits[item.item_id]?.overridden_qty ?? item.required_qty"
+                  (input)="updateOverrideQty(item, $any($event.target).value)"
+                />
+              </div>
+              <div class="qty-line">
+                <span class="qty-label">Reason</span>
+                <input
+                  matInput
+                  type="text"
+                  class="qty-input"
+                  [value]="overrideEdits[item.item_id]?.reason || ''"
+                  (input)="updateOverrideReason(item, $any($event.target).value)"
+                />
+              </div>
+              <button
+                mat-stroked-button
+                color="primary"
+                type="button"
+                class="override-action"
+                (click)="applyOverride(item)"
+              >
+                Apply
+              </button>
+            </div>
+            <div *ngIf="!isDraftEditable()">
+              {{ requiredQty(item) | number : '1.0-2' }}
+            </div>
+          </td>
         </ng-container>
 
         <ng-container matColumnDef="gap">

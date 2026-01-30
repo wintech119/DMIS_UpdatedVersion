@@ -138,6 +138,43 @@ curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/preview 
   -Body '{ "event_id": 1, "warehouse_id": 1, "phase": "BASELINE" }'
 ```
 
+## Workflow Dev Store (Needs List Drafts)
+The draft workflow is dev-only and persists to a local JSON file. It is disabled by default.
+
+Enable the dev store:
+```powershell
+$env:NEEDS_WORKFLOW_DEV_STORE = "1"
+```
+
+Store location:
+```text
+backend/.local/needs_list_store.json
+```
+
+Endpoints (dev store only):
+```text
+POST  /api/v1/replenishment/needs-list/draft
+GET   /api/v1/replenishment/needs-list/{needs_list_id}
+PATCH /api/v1/replenishment/needs-list/{needs_list_id}/lines
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/submit
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/review/start
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/return
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/reject
+```
+
+Example curl (create draft + submit):
+```powershell
+curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/draft `
+  -ContentType "application/json" `
+  -Body '{ "event_id": 1, "warehouse_id": 1, "phase": "BASELINE" }'
+
+curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/{needs_list_id}/submit `
+  -ContentType "application/json" `
+  -Body '{}'
+```
+
+Reminder: draft storage is local only. Persisting needs lists to Postgres requires a future DB change proposal.
+
 Windows + thresholds follow v4.1 + Appendix D Technical Specifications.
 
 Default phase windows (hours):

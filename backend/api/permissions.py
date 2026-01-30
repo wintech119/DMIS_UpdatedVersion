@@ -13,3 +13,25 @@ class NeedsListPreviewPermission(BasePermission):
 
         _, permissions = resolve_roles_and_permissions(request, user)
         return REQUIRED_PERMISSION in permissions
+
+
+class NeedsListPermission(BasePermission):
+    message = "Forbidden."
+
+    def has_permission(self, request, view) -> bool:
+        required = getattr(view, "required_permission", None)
+        if required is None:
+            view_cls = getattr(view, "view_class", None) or getattr(view, "cls", None)
+            if view_cls is not None:
+                required = getattr(view_cls, "required_permission", None)
+        if not required:
+            return False
+
+        user = request.user
+        if not getattr(user, "is_authenticated", False):
+            return False
+
+        _, permissions = resolve_roles_and_permissions(request, user)
+        if isinstance(required, (list, set, tuple)):
+            return any(perm in permissions for perm in required)
+        return required in permissions
