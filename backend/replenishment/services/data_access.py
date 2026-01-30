@@ -77,7 +77,7 @@ def get_available_by_item(
             cursor.execute(
                 f"""
                 SELECT MAX(update_dtime)
-                FROM {schema}.inventory
+                FROM {schema}.itembatch
                 WHERE inventory_id = %s
                   AND update_dtime <= %s
                 """,
@@ -85,6 +85,19 @@ def get_available_by_item(
             )
             row = cursor.fetchone()
             inventory_as_of = row[0] if row else None
+        if inventory_as_of is None:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT MAX(update_dtime)
+                    FROM {schema}.inventory
+                    WHERE inventory_id = %s
+                      AND update_dtime <= %s
+                    """,
+                    [warehouse_id, as_of_dt],
+                )
+                row = cursor.fetchone()
+                inventory_as_of = row[0] if row else None
     except DatabaseError as exc:
         logger.warning("Available inventory query failed: %s", exc)
         try:
@@ -185,13 +198,61 @@ def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]
     return categories, warnings
 
 
+def get_category_burn_fallback_rates(
+    event_id: int, warehouse_id: int, lookback_days: int, as_of_dt
+) -> Tuple[Dict[int, float], List[str], Dict[str, object]]:
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"], {}
+
+    warnings: List[str] = []
+    start_dt = _normalize_datetime(as_of_dt) - timedelta(days=lookback_days)
+    end_dt = _normalize_datetime(as_of_dt)
+    schema = _schema_name()
+    category_rates: Dict[int, float] = {}
+    debug: Dict[str, object] = {
+        "window_start": start_dt.isoformat(),
+        "window_end": end_dt.isoformat(),
+        "row_count": 0,
+        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
+    }
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT i.category_id, SUM(rpi.item_qty) AS qty
+                FROM {schema}.reliefpkg_item rpi
+                JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
+                JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
+                JOIN {schema}.item i ON i.item_id = rpi.item_id
+                WHERE rp.to_inventory_id = %s
+                  AND rp.status_code IN ('D','R')
+                  AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
+                  AND rp.dispatch_dtime BETWEEN %s AND %s
+                GROUP BY i.category_id
+                """,
+                [warehouse_id, event_id, event_id, start_dt, end_dt],
+            )
+            rows = cursor.fetchall()
+            debug["row_count"] = len(rows)
+            hours = max(lookback_days * 24, 1)
+            for category_id, qty in rows:
+                category_rates[int(category_id)] = _to_float(qty) / hours
+    except DatabaseError as exc:
+        logger.warning("Category burn fallback query failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after category fallback error: %s", rollback_exc)
+        warnings.append("db_unavailable_preview_stub")
+        return {}, warnings, debug
+
+    return category_rates, warnings, debug
+
+
 def get_burn_by_item(
     event_id: int, warehouse_id: int, demand_window_hours: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str], str, Dict[str, object]]:
-    if _is_sqlite():
-        return {}, ["db_unavailable_preview_stub"], "none", {}
-
-    warnings: List[str] = []
     start_dt = _normalize_datetime(as_of_dt) - timedelta(hours=demand_window_hours)
     end_dt = _normalize_datetime(as_of_dt)
     burn: Dict[int, float] = {}
@@ -199,50 +260,49 @@ def get_burn_by_item(
         "window_start": start_dt.isoformat(),
         "window_end": end_dt.isoformat(),
         "row_count": 0,
-        "filter": "reliefrqst_status.status_desc = 'Submitted'",
+        # Legacy analytics mapping: dispatched/received packages are status_code IN ('D','R').
+        "filter": "reliefpkg.status_code IN ('D','R') and dispatch_dtime window",
     }
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"], "none", debug
 
-    primary = getattr(settings, "NEEDS_BURN_SOURCE", "reliefpkg")
+    warnings: List[str] = []
+
     schema = _schema_name()
 
-    if primary == "reliefpkg":
+    try:
+        with connection.cursor() as cursor:
+            # Doc concept "validated/submitted fulfillment" mapped to legacy analytics filter:
+            # relief packages with status_code IN ('D','R') and dispatch_dtime in window.
+            cursor.execute(
+                f"""
+                SELECT rpi.item_id, SUM(rpi.item_qty) AS qty
+                FROM {schema}.reliefpkg_item rpi
+                JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
+                JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
+                WHERE rp.to_inventory_id = %s
+                  AND rp.status_code IN ('D','R')
+                  AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
+                  AND rp.dispatch_dtime BETWEEN %s AND %s
+                GROUP BY rpi.item_id
+                """,
+                [warehouse_id, event_id, event_id, start_dt, end_dt],
+            )
+            rows = cursor.fetchall()
+            debug["row_count"] = len(rows)
+            for item_id, qty in rows:
+                burn[int(item_id)] = _to_float(qty)
+    except DatabaseError as exc:
+        logger.warning("Burn query (reliefpkg) failed: %s", exc)
         try:
-            with connection.cursor() as cursor:
-                # Doc mapping: "validated fulfillment" -> reliefpkg_item quantities
-                # joined to reliefrqst with status_desc = 'Submitted'.
-                cursor.execute(
-                    f"""
-                    SELECT rpi.item_id, SUM(rpi.item_qty) AS qty
-                    FROM {schema}.reliefpkg_item rpi
-                    JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id
-                    JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rp.reliefrqst_id
-                    JOIN {schema}.reliefrqst_status rs ON rs.status_code = rr.status_code
-                    WHERE rp.to_inventory_id = %s
-                      AND (rp.eligible_event_id = %s OR rr.eligible_event_id = %s)
-                      AND rs.status_desc = 'Submitted'
-                      AND COALESCE(rp.dispatch_dtime, rp.start_date)
-                          BETWEEN %s AND %s
-                    GROUP BY rpi.item_id
-                    """,
-                    [warehouse_id, event_id, event_id, start_dt, end_dt],
-                )
-                rows = cursor.fetchall()
-                debug["row_count"] = len(rows)
-                for item_id, qty in rows:
-                    burn[int(item_id)] = _to_float(qty)
-        except DatabaseError as exc:
-            logger.warning("Burn query (reliefpkg) failed: %s", exc)
-            try:
-                connection.rollback()
-            except Exception as rollback_exc:
-                logger.warning("DB rollback failed after burn query error: %s", rollback_exc)
-            warnings.append("db_unavailable_preview_stub")
-            return {}, warnings, "none", debug
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after burn query error: %s", rollback_exc)
+        warnings.append("db_unavailable_preview_stub")
+        return {}, warnings, "none", debug
 
-        if burn:
-            return burn, warnings, "reliefpkg", debug
+    if burn:
+        return burn, warnings, "reliefpkg", debug
 
-    # TODO: Implement fallback to NEEDS_BURN_FALLBACK (e.g., reliefrqst)
-    # when reliefpkg returns no data
     warnings.append("burn_data_missing")
     return {}, warnings, "none", debug

@@ -19,10 +19,14 @@ interface NeedsListItem {
   available_qty: number;
   inbound_strict_qty: number;
   burn_rate_per_hour: number;
+  required_qty?: number;
   gap_qty: number;
+  time_to_stockout?: string | number;
   horizon?: { A: HorizonBlock; B: HorizonBlock; C: HorizonBlock };
+  triggers?: { activate_B: boolean; activate_C: boolean; activate_all: boolean };
   confidence?: { level: string; reasons: string[] };
   warnings?: string[];
+  freshness_state?: string;
   freshness?: { state: string; age_hours: number | null; inventory_as_of: string | null };
 }
 
@@ -74,6 +78,7 @@ export class NeedsListPreviewComponent {
     'burn',
     'required',
     'gap',
+    'stockout',
     'horizonA',
     'horizonB',
     'horizonC',
@@ -131,6 +136,9 @@ export class NeedsListPreviewComponent {
   }
 
   requiredQty(item: NeedsListItem): number {
+    if (typeof item.required_qty === 'number') {
+      return Number(item.required_qty.toFixed(2));
+    }
     const available = item.available_qty ?? 0;
     const inbound = item.inbound_strict_qty ?? 0;
     const gap = item.gap_qty ?? 0;
@@ -149,7 +157,25 @@ export class NeedsListPreviewComponent {
   }
 
   freshnessState(item: NeedsListItem): string {
-    return item.freshness?.state ?? 'unknown';
+    const state = item.freshness_state ?? item.freshness?.state ?? 'unknown';
+    return String(state).toLowerCase();
+  }
+
+  freshnessLabel(item: NeedsListItem): string {
+    const state = this.freshnessState(item);
+    return state.charAt(0).toUpperCase() + state.slice(1);
+  }
+
+  timeToStockout(item: NeedsListItem): string {
+    const value = item.time_to_stockout ?? '';
+    if (typeof value === 'number') {
+      return value.toFixed(2);
+    }
+    return value || 'N/A';
+  }
+
+  isEstimated(item: NeedsListItem): boolean {
+    return (item.warnings ?? []).includes('burn_rate_estimated');
   }
 
   warningList(source: string[]): string {

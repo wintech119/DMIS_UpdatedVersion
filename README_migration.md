@@ -102,6 +102,23 @@ npm install
 npm start
 ```
 
+## Postgres Smoke Test (opt-in)
+Run the integration smoke test against Postgres with DEBUG off:
+```powershell
+cd backend
+$env:DJANGO_USE_SQLITE = "0"
+$env:DJANGO_USE_POSTGRES_TEST = "1"
+$env:DJANGO_DEBUG = "0"
+$env:DJANGO_SECRET_KEY = "smoke-test-$(New-Guid)"
+$env:DJANGO_ALLOWED_HOSTS = "localhost"
+$env:DB_NAME = "dmis"
+$env:DB_USER = "postgres"
+$env:DB_PASSWORD = "your_password"
+$env:DB_HOST = "localhost"
+$env:DB_PORT = "5432"
+python -m unittest replenishment.tests_postgres
+```
+
 ## Needs List Preview (API)
 Endpoint:
 ```text
@@ -125,11 +142,32 @@ Note: `planning_window_days` is computed from the phase windows configured by `N
 
 Configuration knobs (TBD finalize from PRD/appendices):
 
-Status code mappings (legacy code -> conceptual inbound):
 ```ini
-TRANSFER_DISPATCHED_CODES=D
+NEEDS_SAFETY_FACTOR=1.25
+NEEDS_HORIZON_A_DAYS=7
+NEEDS_HORIZON_B_DAYS=
+NEEDS_STRICT_INBOUND_DONATION_STATUSES=V,P
+NEEDS_STRICT_INBOUND_TRANSFER_STATUSES=V,P
+NEEDS_INVENTORY_ACTIVE_STATUS=A
+NEEDS_BURN_SOURCE=reliefpkg
+NEEDS_BURN_FALLBACK=reliefrqst
+```
+
+Note: donation status model is E/V/P only; do not use A/P/C.
+
+Optional overrides for inbound donation mapping (if needed):
+```ini
 DONATION_CONFIRMED_CODES=V
 DONATION_IN_TRANSIT_CODES=V
 ```
 
+Status code mappings (legacy code -> conceptual inbound):
+```ini
+TRANSFER_DISPATCHED_CODES=D
+```
+
 Mappings are best-effort until schema/docs align; no DB changes are introduced.
+
+Known limitations (doc-aligned, schema-constrained):
+- Procurement/shipment tables are not present; Horizon C remains recommendation-only.
+- Donation in-transit/shipped status is not modeled; inbound donations are treated as 0 with warnings.

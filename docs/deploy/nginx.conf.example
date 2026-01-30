@@ -1,6 +1,9 @@
 # =============================================================================
 # DMIS NGINX Production Configuration Template
 # =============================================================================
+# DMIS NGINX Production Configuration Template
+# =============================================================================
+# =============================================================================
 # This configuration template is designed for production deployment of DMIS
 # behind NGINX as a reverse proxy.
 #
@@ -165,6 +168,11 @@ server {
         alias /var/www/dmis/spa/;
         try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
         add_header Cache-Control "no-cache";
+     location ^~ /replenishment/needs-list-preview/ {
+         alias /var/www/dmis/spa/;
+         try_files $uri $uri/ /replenishment/needs-list-preview/index.html;
+         add_header Cache-Control "no-cache";
+     }
     }
     
     # Block access to sensitive files
