@@ -135,6 +135,40 @@
   color: #475569;
 }
 
+.procurement-block {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 0.8rem;
+}
+
+.procurement-title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.procurement-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: 0.2rem;
+}
+
+.procurement-label {
+  color: #64748b;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.procurement-note {
+  margin-top: 0.35rem;
+  color: #475569;
+  font-size: 0.75rem;
+}
+
 .warnings {
   background: #f8fafc;
 }
