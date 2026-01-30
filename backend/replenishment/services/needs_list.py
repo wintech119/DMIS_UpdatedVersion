@@ -178,13 +178,6 @@ def build_preview_items(
     warnings: List[str] = []
     base_warnings = list(base_warnings or [])
 
-    raw_burn_rates: Dict[int, float] = {}
-    for item_id in item_ids:
-        burn_total = float(burn_by_item.get(item_id, 0.0))
-        raw_burn_rates[item_id] = (
-            burn_total / demand_window_hours if demand_window_hours else 0.0
-        )
-
     fallback_counts = {"category_avg": 0, "none": 0}
 
     for item_id in item_ids:
@@ -193,20 +186,33 @@ def build_preview_items(
             item_id, inbound_donations_by_item, inbound_transfers_by_item
         )
         item_base_warnings = list(base_warnings)
-        burn_rate_per_hour = raw_burn_rates.get(item_id, 0.0)
+
+        freshness_state, freshness_warnings, age_hours = compute_freshness_state(
+            phase, inventory_as_of, as_of_dt
+        )
+
+        burn_total = float(burn_by_item.get(item_id, 0.0))
+        burn_rate_per_hour = burn_total / demand_window_hours if demand_window_hours else 0.0
         burn_rate_estimated = False
-        if burn_rate_per_hour <= 0:
-            category_id = item_categories.get(item_id)
-            category_rate = category_burn_rates.get(category_id, 0.0)
-            if category_rate > 0:
-                burn_rate_per_hour = category_rate
-                burn_rate_estimated = True
-                fallback_counts["category_avg"] += 1
-            else:
+
+        if burn_total <= 0:
+            if freshness_state in ("fresh", "warn", "unknown"):
                 item_base_warnings = merge_warnings(
-                    item_base_warnings, ["burn_fallback_unavailable"]
+                    item_base_warnings, ["burn_no_rows_in_window"]
                 )
-                fallback_counts["none"] += 1
+                burn_rate_per_hour = 0.0
+            else:
+                burn_rate_estimated = True
+                category_id = item_categories.get(item_id)
+                category_rate = category_burn_rates.get(category_id, 0.0)
+                if category_rate > 0:
+                    burn_rate_per_hour = category_rate
+                    fallback_counts["category_avg"] += 1
+                else:
+                    item_base_warnings = merge_warnings(
+                        item_base_warnings, ["burn_fallback_unavailable"]
+                    )
+                    fallback_counts["none"] += 1
 
         gap = compute_gap(
             burn_rate_per_hour,
@@ -230,9 +236,6 @@ def build_preview_items(
             + (["burn_rate_estimated"] if burn_rate_estimated else []),
             procurement_available=False,
             mapping_best_effort=mapping_best_effort,
-        )
-        freshness_state, freshness_warnings, age_hours = compute_freshness_state(
-            phase, inventory_as_of, as_of_dt
         )
         item_warnings = merge_warnings(item_warnings, freshness_warnings)
         warnings = merge_warnings(warnings, item_warnings)
