@@ -19,6 +19,20 @@ def _get_str_env(name: str, default: str) -> str:
     stripped = raw.strip()
     return stripped or default
 
+
+def _parse_int_list_env(name: str) -> List[int]:
+    raw = os.getenv(name)
+    if raw is None:
+        return []
+    values: List[int] = []
+    for entry in raw.split(","):
+        trimmed = entry.strip()
+        if not trimmed:
+            continue
+        if trimmed.lstrip("+-").isdigit():
+            values.append(int(trimmed))
+    return values
+
 PHASES = ("SURGE", "STABILIZED", "BASELINE")
 
 WINDOWS_V40_LEGACY: Dict[str, Dict[str, int]] = {
@@ -61,6 +75,9 @@ PROCUREMENT_INBOUND_ELIGIBLE_STATUSES = {
     "IN_TRANSIT",
     "PARTIALLY_RECEIVED",
 }
+
+CRITICAL_ITEM_IDS = _parse_int_list_env("NEEDS_CRITICAL_ITEM_IDS")
+CRITICAL_CATEGORY_IDS = _parse_int_list_env("NEEDS_CRITICAL_CATEGORY_IDS")
 
 PROCUREMENT_APPROVAL_RULES: Dict[str, List[Dict[str, object]]] = {
     "goods_services": [
@@ -266,3 +283,23 @@ def get_procurement_approval(
         "methods_allowed": list(selected["methods"]),
     }
     return approval, warnings
+
+
+def get_critical_item_ids() -> List[int]:
+    return _parse_int_list_env("NEEDS_CRITICAL_ITEM_IDS")
+
+
+def get_critical_category_ids() -> List[int]:
+    return _parse_int_list_env("NEEDS_CRITICAL_CATEGORY_IDS")
+
+
+def has_critical_config() -> bool:
+    return bool(get_critical_item_ids() or get_critical_category_ids())
+
+
+def is_critical(item_id: int, category_id: int | None) -> bool:
+    if item_id in get_critical_item_ids():
+        return True
+    if category_id is None:
+        return False
+    return int(category_id) in get_critical_category_ids()
