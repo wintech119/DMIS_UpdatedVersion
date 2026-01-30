@@ -67,7 +67,7 @@ def needs_list_preview(request):
         phase = "BASELINE"
         warnings_phase.append("phase_defaulted_to_baseline")
     phase = str(phase).upper()
-    if phase not in rules.WINDOWS_V40:
+    if phase not in rules.PHASES:
         return Response({"errors": {"phase": "Must be SURGE, STABILIZED, or BASELINE."}}, status=400)
 
     windows = rules.get_phase_windows(phase)
