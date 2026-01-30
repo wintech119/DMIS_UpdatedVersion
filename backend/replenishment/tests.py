@@ -129,13 +129,37 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertIsNotNone(horizon_b)
         self.assertGreater(horizon_b or 0.0, 0.0)
 
-    def test_windows_version_switch(self) -> None:
+    def test_default_windows_are_v41(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(rules.get_windows_version(), "v41")
+            self.assertEqual(
+                rules.get_phase_windows("SURGE"),
+                {"demand_hours": 6, "planning_hours": 72},
+            )
+            self.assertEqual(
+                rules.get_phase_windows("STABILIZED"),
+                {"demand_hours": 72, "planning_hours": 168},
+            )
+            self.assertEqual(
+                rules.get_phase_windows("BASELINE"),
+                {"demand_hours": 720, "planning_hours": 720},
+            )
+
+    def test_windows_version_override_v40(self) -> None:
         with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v40"}):
             windows = rules.get_phase_windows("SURGE")
             self.assertEqual(windows["planning_hours"], 24)
-        with patch.dict(os.environ, {"NEEDS_WINDOWS_VERSION": "v41"}):
-            windows = rules.get_phase_windows("SURGE")
-            self.assertEqual(windows["planning_hours"], 72)
+            self.assertEqual(windows["demand_hours"], 6)
+
+    def test_freshness_thresholds_matrix(self) -> None:
+        self.assertEqual(
+            rules.FRESHNESS_THRESHOLDS,
+            {
+                "SURGE": {"fresh_max_hours": 2, "warn_max_hours": 4},
+                "STABILIZED": {"fresh_max_hours": 6, "warn_max_hours": 12},
+                "BASELINE": {"fresh_max_hours": 24, "warn_max_hours": 48},
+            },
+        )
 
     def test_donation_mapping_avoids_apc(self) -> None:
         with patch.dict(
