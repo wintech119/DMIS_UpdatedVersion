@@ -440,6 +440,27 @@ export class NeedsListPreviewComponent implements OnInit {
     return this.response?.status === 'DRAFT';
   }
 
+  statusValue(): string {
+    return this.response?.status ?? 'DRAFT';
+  }
+
+  isStatus(status: string): boolean {
+    return this.response?.status === status;
+  }
+
+  overrideQty(item: NeedsListItem): number | null {
+    const entry = this.overrideEdits[item.item_id];
+    if (!entry || entry.overridden_qty === undefined || entry.overridden_qty === null) {
+      return null;
+    }
+    return entry.overridden_qty;
+  }
+
+  overrideReason(item: NeedsListItem): string {
+    const entry = this.overrideEdits[item.item_id];
+    return entry?.reason ?? '';
+  }
+
   private buildPayload(): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       event_id: Number(this.form.value.event_id),
