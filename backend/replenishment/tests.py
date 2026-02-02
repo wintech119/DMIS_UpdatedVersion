@@ -955,12 +955,13 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
 
-            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"]):
-                self.client.post(
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
+                review_resp = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
                     {},
                     format="json",
                 )
+                self.assertEqual(review_resp.status_code, 200)
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="submitter"):
                 approve = self.client.post(
