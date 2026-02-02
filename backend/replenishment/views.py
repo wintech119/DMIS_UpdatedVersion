@@ -674,7 +674,9 @@ def needs_list_escalate(request, needs_list_id: str):
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
-    record = workflow_store.transition_status(record, "ESCALATED", _actor_id(request), reason)
+    record = workflow_store.transition_status(
+        record, "ESCALATED", _actor_id(request), reason=reason
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
