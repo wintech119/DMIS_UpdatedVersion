@@ -222,8 +222,6 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "submitted_at": record.get("submitted_at"),
             "reviewed_by": record.get("reviewed_by"),
             "reviewed_at": record.get("reviewed_at"),
-            "reviewer_by": record.get("reviewer_by"),
-            "review_started_at": record.get("review_started_at"),
             "approved_by": record.get("approved_by"),
             "approved_at": record.get("approved_at"),
             "approval_tier": record.get("approval_tier"),

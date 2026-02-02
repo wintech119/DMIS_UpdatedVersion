@@ -76,8 +76,6 @@ def create_draft(
         "submitted_at": None,
         "reviewed_by": None,
         "reviewed_at": None,
-        "reviewer_by": None,
-        "review_started_at": None,
         "approved_by": None,
         "approved_at": None,
         "approval_tier": None,
@@ -190,8 +188,6 @@ def transition_status(
     if to_status == "UNDER_REVIEW":
         record["reviewed_by"] = actor
         record["reviewed_at"] = now
-        record["reviewer_by"] = actor
-        record["review_started_at"] = now
     if to_status == "APPROVED":
         record["approved_by"] = actor
         record["approved_at"] = now
