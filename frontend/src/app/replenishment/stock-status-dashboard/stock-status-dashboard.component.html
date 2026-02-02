@@ -1,0 +1,248 @@
+<div class="dmis-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <h1 class="page-title">Stock Status Dashboard</h1>
+    <p class="page-subtitle">Monitor burn rates and replenishment needs</p>
+  </div>
+
+  <!-- Filters Card -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Filters</h2>
+    </div>
+    <div class="card-body">
+      <form [formGroup]="form" (ngSubmit)="loadStockStatus()" class="filter-form">
+        <div class="form-row">
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Event ID</mat-label>
+            <input matInput type="number" formControlName="event_id" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Warehouse ID</mat-label>
+            <input matInput type="number" formControlName="warehouse_id" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Phase</mat-label>
+            <mat-select formControlName="phase">
+              <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
+                {{ phase }}
+              </mat-option>
+            </mat-select>
+          </mat-form-field>
+
+          <button mat-raised-button color="primary" type="submit" [disabled]="loading" class="btn-primary">
+            Load Status
+          </button>
+        </div>
+      </form>
+
+      <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
+
+      <!-- Errors -->
+      <div class="alert alert-danger" *ngIf="errors.length">
+        <strong>Error:</strong> {{ errors[0] }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Freshness Warning -->
+  <div class="alert alert-warning" *ngIf="getDataFreshnessWarning() as warning">
+    <strong>Warning:</strong> {{ warning }}
+  </div>
+
+  <!-- Summary Stats -->
+  <div class="stats-row" *ngIf="response">
+    <div class="stat-box stat-critical">
+      <div class="stat-value">{{ criticalItems.length }}</div>
+      <div class="stat-label">Critical Items</div>
+    </div>
+    <div class="stat-box stat-info">
+      <div class="stat-value">{{ items.length }}</div>
+      <div class="stat-label">Total Items</div>
+    </div>
+    <div class="stat-box stat-phase">
+      <div class="stat-value">{{ getPhaseLabel() }}</div>
+      <div class="stat-label">Event Phase</div>
+    </div>
+    <div class="stat-box stat-time">
+      <div class="stat-value">{{ getAsOfTime() | date: 'short' }}</div>
+      <div class="stat-label">Last Updated</div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card" *ngIf="response">
+    <div class="card-header filter-header">
+      <h2>Filters & Sort</h2>
+      <button mat-button (click)="toggleFilters()" class="toggle-btn">
+        {{ filtersExpanded ? 'Hide' : 'Show' }} Filters
+      </button>
+    </div>
+    <div class="card-body" *ngIf="filtersExpanded">
+      <!-- Sort Controls -->
+      <div class="filter-section">
+        <label class="filter-label">Sort By:</label>
+        <div class="sort-buttons">
+          <button
+            mat-stroked-button
+            [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
+            (click)="changeSortBy('time_to_stockout')"
+            class="sort-btn"
+          >
+            Time to Stockout
+            <span *ngIf="sortBy === 'time_to_stockout'">
+              {{ sortDirection === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+          <button
+            mat-stroked-button
+            [color]="sortBy === 'severity' ? 'primary' : undefined"
+            (click)="changeSortBy('severity')"
+            class="sort-btn"
+          >
+            Severity
+            <span *ngIf="sortBy === 'severity'">
+              {{ sortDirection === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+          <button
+            mat-stroked-button
+            [color]="sortBy === 'item_name' ? 'primary' : undefined"
+            (click)="changeSortBy('item_name')"
+            class="sort-btn"
+          >
+            Item Name
+            <span *ngIf="sortBy === 'item_name'">
+              {{ sortDirection === 'asc' ? '↑' : '↓' }}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Severity Filter -->
+      <div class="filter-section" *ngIf="severityOptions.length">
+        <label class="filter-label">Filter by Severity:</label>
+        <mat-chip-listbox class="chip-list">
+          <mat-chip-option
+            *ngFor="let severity of severityOptions"
+            [selected]="isSeveritySelected(severity)"
+            (click)="toggleSeverity(severity)"
+            [ngClass]="'chip-' + severity.toLowerCase()"
+          >
+            {{ severity }}
+          </mat-chip-option>
+        </mat-chip-listbox>
+      </div>
+
+      <!-- Category Filter -->
+      <div class="filter-section" *ngIf="availableCategories.length">
+        <label class="filter-label">Filter by Category:</label>
+        <mat-chip-listbox class="chip-list">
+          <mat-chip-option
+            *ngFor="let category of availableCategories"
+            [selected]="isCategorySelected(category)"
+            (click)="toggleCategory(category)"
+          >
+            {{ category }}
+          </mat-chip-option>
+        </mat-chip-listbox>
+      </div>
+
+      <!-- Reset Button -->
+      <div class="filter-actions" *ngIf="hasActiveFilters()">
+        <button mat-button color="warn" (click)="resetFilters()">
+          Reset Filters
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Button -->
+  <div class="action-row" *ngIf="response">
+    <button
+      mat-raised-button
+      [color]="hasCriticalItems() ? 'warn' : 'primary'"
+      (click)="generateNeedsList()"
+      class="btn-action"
+    >
+      Generate Needs List
+      <span *ngIf="hasCriticalItems()"> ({{ criticalItems.length }} Critical)</span>
+    </button>
+  </div>
+
+  <!-- Stock Status Table -->
+  <div class="card" *ngIf="items.length">
+    <div class="card-header">
+      <h2>Stock Status ({{ items.length }} items)</h2>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="dmis-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Item</th>
+              <th>Available</th>
+              <th>Inbound</th>
+              <th>Burn Rate</th>
+              <th>Time to Stockout</th>
+              <th>Required</th>
+              <th>Gap</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let item of items" [ngClass]="'row-' + getSeverityClass(item.severity)">
+              <td>
+                <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
+                  {{ item.severity || 'OK' }}
+                </span>
+              </td>
+              <td>
+                <strong>{{ item.item_name || 'Item ' + item.item_id }}</strong>
+                <div class="text-muted" *ngIf="item.category">{{ item.category }}</div>
+              </td>
+              <td>{{ item.available_qty | number: '1.0-0' }}</td>
+              <td>{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
+              <td>
+                {{ formatBurnRate(item) }}
+              </td>
+              <td>
+                <strong [ngClass]="'text-' + (item.severity?.toLowerCase() || 'ok')">
+                  {{ formatTimeToStockout(item) }}
+                </strong>
+              </td>
+              <td>{{ item.required_qty | number: '1.0-0' }}</td>
+              <td>
+                <span [ngClass]="item.gap_qty > 0 ? 'text-danger' : 'text-success'">
+                  {{ item.gap_qty | number: '1.0-0' }}
+                </span>
+              </td>
+              <td>
+                <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
+                  {{ item.freshness?.state || 'N/A' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty State -->
+  <div class="card" *ngIf="!loading && !response">
+    <div class="card-body text-center">
+      <p>Enter an Event ID, Warehouse ID, and Phase to load stock status.</p>
+    </div>
+  </div>
+
+  <!-- No Items State -->
+  <div class="card" *ngIf="response && items.length === 0">
+    <div class="card-body text-center">
+      <p>No items found or all items have sufficient coverage.</p>
+    </div>
+  </div>
+</div>

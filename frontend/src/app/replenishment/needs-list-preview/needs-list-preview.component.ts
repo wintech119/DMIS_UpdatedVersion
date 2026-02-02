@@ -2,15 +2,18 @@ import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 type HorizonBlock = { recommended_qty: number | null };
 
@@ -95,10 +98,12 @@ interface NeedsListResponse {
     MatChipsModule,
     MatDividerModule,
     MatFormFieldModule,
+    MatIconModule,
     MatInputModule,
     MatProgressBarModule,
     MatSelectModule,
-    MatTableModule
+    MatTableModule,
+    MatTooltipModule
   ],
   templateUrl: './needs-list-preview.component.html',
   styleUrl: './needs-list-preview.component.scss'
@@ -160,7 +165,12 @@ export class NeedsListPreviewComponent implements OnInit {
     'freshness'
   ];
 
-  constructor(private readonly fb: FormBuilder, private readonly http: HttpClient) {
+  constructor(
+    private readonly fb: FormBuilder,
+    private readonly http: HttpClient,
+    private readonly route: ActivatedRoute,
+    private readonly router: Router
+  ) {
     this.form = this.fb.group({
       event_id: [null, [Validators.required, Validators.min(1)]],
       warehouse_id: [null, [Validators.required, Validators.min(1)]],
@@ -171,6 +181,27 @@ export class NeedsListPreviewComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadPermissions();
+    this.loadQueryParams();
+  }
+
+  backToDashboard(): void {
+    this.router.navigate(['/replenishment/dashboard']);
+  }
+
+  private loadQueryParams(): void {
+    this.route.queryParams.subscribe(params => {
+      if (params['event_id']) {
+        this.form.patchValue({
+          event_id: Number(params['event_id']),
+          warehouse_id: Number(params['warehouse_id']) || null,
+          phase: params['phase'] || 'BASELINE'
+        });
+        // Auto-generate preview if params are present
+        if (params['event_id'] && params['warehouse_id']) {
+          setTimeout(() => this.generatePreview(), 100);
+        }
+      }
+    });
   }
 
   generatePreview(): void {
