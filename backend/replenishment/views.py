@@ -18,6 +18,7 @@ from api.rbac import (
     PERM_NEEDS_LIST_APPROVE,
     PERM_NEEDS_LIST_EXECUTE,
     PERM_NEEDS_LIST_CANCEL,
+    PERM_NEEDS_LIST_REVIEW_COMMENTS,
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_REVIEW_START,
@@ -435,6 +436,69 @@ def needs_list_edit_lines(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "line_count": len(overrides),
+        },
+    )
+    return Response(response)
+
+
+@api_view(["PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_review_comments(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "UNDER_REVIEW":
+        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+
+    notes_raw = request.data
+    if not isinstance(notes_raw, list):
+        return Response({"errors": {"lines": "Expected a list of comments."}}, status=400)
+
+    notes: list[Dict[str, object]] = []
+    parse_errors: list[str] = []
+    for entry in notes_raw:
+        if not isinstance(entry, dict):
+            parse_errors.append("Each comment must be an object.")
+            continue
+        item_id = entry.get("item_id")
+        comment = entry.get("comment")
+        if item_id is None:
+            parse_errors.append("item_id is required.")
+            continue
+        if not comment or not str(comment).strip():
+            parse_errors.append(f"comment is required for item_id {item_id}.")
+            continue
+        notes.append(
+            {
+                "item_id": item_id,
+                "comment": str(comment).strip(),
+            }
+        )
+
+    if parse_errors:
+        return Response({"errors": {"lines": parse_errors}}, status=400)
+
+    record, errors = workflow_store.add_line_review_notes(record, notes, _actor_id(request))
+    if errors:
+        return Response({"errors": {"lines": errors}}, status=400)
+    workflow_store.update_record(needs_list_id, record)
+
+    response = _serialize_workflow_record(record, include_overrides=True)
+    logger.info(
+        "needs_list_review_comments_updated",
+        extra={
+            "event_type": "UPDATE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "line_count": len(notes),
         },
     )
     return Response(response)
@@ -914,8 +978,10 @@ needs_list_get.required_permission = [
     PERM_NEEDS_LIST_ESCALATE,
     PERM_NEEDS_LIST_EXECUTE,
     PERM_NEEDS_LIST_CANCEL,
+    PERM_NEEDS_LIST_REVIEW_COMMENTS,
 ]
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
+needs_list_review_comments.required_permission = PERM_NEEDS_LIST_REVIEW_COMMENTS
 needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
 needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
 needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
@@ -932,6 +998,7 @@ for view_func in (
     needs_list_draft,
     needs_list_get,
     needs_list_edit_lines,
+    needs_list_review_comments,
     needs_list_submit,
     needs_list_review_start,
     needs_list_return,

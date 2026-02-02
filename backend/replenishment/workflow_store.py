@@ -97,6 +97,7 @@ def create_draft(
         "return_reason": None,
         "reject_reason": None,
         "line_overrides": {},
+        "line_review_notes": {},
         "snapshot": {
             "items": stored_items,
             "warnings": list(warnings),
@@ -136,17 +137,25 @@ def apply_overrides(record: Dict[str, object]) -> Dict[str, object]:
     snapshot = dict(record.get("snapshot") or {})
     items = [dict(item) for item in snapshot.get("items") or []]
     overrides = record.get("line_overrides") or {}
+    review_notes = record.get("line_review_notes") or {}
     for item in items:
         item_id = str(item.get("item_id"))
         if item_id not in overrides:
-            continue
-        override = overrides[item_id]
-        if "computed_required_qty" not in item:
-            item["computed_required_qty"] = item.get("required_qty")
-        item["required_qty"] = override.get("overridden_qty")
-        item["override_reason"] = override.get("reason")
-        item["override_updated_by"] = override.get("updated_by")
-        item["override_updated_at"] = override.get("updated_at")
+            override = None
+        else:
+            override = overrides[item_id]
+        if override:
+            if "computed_required_qty" not in item:
+                item["computed_required_qty"] = item.get("required_qty")
+            item["required_qty"] = override.get("overridden_qty")
+            item["override_reason"] = override.get("reason")
+            item["override_updated_by"] = override.get("updated_by")
+            item["override_updated_at"] = override.get("updated_at")
+        note = review_notes.get(item_id)
+        if note:
+            item["review_comment"] = note.get("comment")
+            item["review_updated_by"] = note.get("updated_by")
+            item["review_updated_at"] = note.get("updated_at")
     snapshot["items"] = items
     return snapshot
 
@@ -178,6 +187,36 @@ def add_line_overrides(
             "updated_at": now,
         }
     record["line_overrides"] = line_overrides
+    record["updated_by"] = actor
+    record["updated_at"] = now
+    return record, errors
+
+
+def add_line_review_notes(
+    record: Dict[str, object],
+    notes: Iterable[Dict[str, object]],
+    actor: str | None,
+) -> Tuple[Dict[str, object], list[str]]:
+    errors: list[str] = []
+    now = _utc_now()
+    items = record.get("snapshot", {}).get("items") or []
+    valid_item_ids = {str(item.get("item_id")) for item in items}
+    line_notes = record.get("line_review_notes") or {}
+    for note in notes:
+        item_id = note.get("item_id")
+        comment = note.get("comment")
+        if item_id is None or str(item_id) not in valid_item_ids:
+            errors.append(f"item_id {item_id} not found in draft")
+            continue
+        if not comment or not str(comment).strip():
+            errors.append(f"comment required for item_id {item_id}")
+            continue
+        line_notes[str(item_id)] = {
+            "comment": str(comment).strip(),
+            "updated_by": actor,
+            "updated_at": now,
+        }
+    record["line_review_notes"] = line_notes
     record["updated_by"] = actor
     record["updated_at"] = now
     return record, errors
