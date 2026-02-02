@@ -155,6 +155,10 @@
           <span class="approval-label">Rationale</span>
           <span>{{ summary.rationale }}</span>
         </div>
+        <div class="approval-row" *ngIf="summary.escalation_required">
+          <span class="approval-label">Escalation</span>
+          <span>Required by Appendix C authority rules</span>
+        </div>
         <div class="approval-warnings" *ngIf="approvalWarnings().length">
           <div class="approval-warning" *ngFor="let warn of approvalWarnings()">
             {{ warningLabel(warn) }}
@@ -205,6 +209,57 @@
         >
           Escalate
         </button>
+      </div>
+      <div
+        class="review-panel execution-panel"
+        *ngIf="canExecute() || canCancel()"
+      >
+        <div class="section-label">Execution</div>
+        <div class="workflow-actions">
+          <button
+            mat-stroked-button
+            color="primary"
+            type="button"
+            [disabled]="!isStatus('APPROVED') || !canExecute()"
+            (click)="startPreparation()"
+          >
+            Start Preparation
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="!isStatus('IN_PREPARATION') || !canExecute()"
+            (click)="markDispatched()"
+          >
+            Mark Dispatched
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="!isStatus('DISPATCHED') || !canExecute()"
+            (click)="markReceived()"
+          >
+            Mark Received
+          </button>
+          <button
+            mat-stroked-button
+            color="primary"
+            type="button"
+            [disabled]="!isStatus('RECEIVED') || !canExecute()"
+            (click)="markCompleted()"
+          >
+            Mark Completed
+          </button>
+          <button
+            mat-stroked-button
+            color="warn"
+            type="button"
+            [disabled]="!canCancel() || !(isStatus('APPROVED') || isStatus('IN_PREPARATION'))"
+            (click)="cancelExecution()"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
     </ng-container>

@@ -16,6 +16,8 @@ from api.rbac import (
     PERM_NEEDS_LIST_EDIT_LINES,
     PERM_NEEDS_LIST_ESCALATE,
     PERM_NEEDS_LIST_APPROVE,
+    PERM_NEEDS_LIST_EXECUTE,
+    PERM_NEEDS_LIST_CANCEL,
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_REVIEW_START,
@@ -201,8 +203,11 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             bool(approval_warnings),
         )
     )
+    authority_warnings, escalation_required = (
+        approval_service.evaluate_appendix_c_authority(snapshot.get("items") or [])
+    )
     approval_warnings = needs_list.merge_warnings(
-        approval_warnings, approval_warnings_extra
+        approval_warnings, approval_warnings_extra + authority_warnings
     )
     response = dict(snapshot)
     response.update(
@@ -226,6 +231,17 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "approved_at": record.get("approved_at"),
             "approval_tier": record.get("approval_tier"),
             "approval_rationale": record.get("approval_rationale"),
+            "prep_started_by": record.get("prep_started_by"),
+            "prep_started_at": record.get("prep_started_at"),
+            "dispatched_by": record.get("dispatched_by"),
+            "dispatched_at": record.get("dispatched_at"),
+            "received_by": record.get("received_by"),
+            "received_at": record.get("received_at"),
+            "completed_by": record.get("completed_by"),
+            "completed_at": record.get("completed_at"),
+            "cancelled_by": record.get("cancelled_by"),
+            "cancelled_at": record.get("cancelled_at"),
+            "cancel_reason": record.get("cancel_reason"),
             "escalated_by": record.get("escalated_by"),
             "escalated_at": record.get("escalated_at"),
             "escalation_reason": record.get("escalation_reason"),
@@ -239,6 +255,7 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
                 "approval": approval,
                 "warnings": approval_warnings,
                 "rationale": approval_rationale,
+                "escalation_required": escalation_required,
             },
         }
     )
@@ -618,7 +635,20 @@ def needs_list_approve(request, needs_list_id: str):
             bool(total_warnings),
         )
     )
-    warnings = needs_list.merge_warnings(total_warnings, approval_warnings)
+    authority_warnings, escalation_required = (
+        approval_service.evaluate_appendix_c_authority(snapshot.get("items") or [])
+    )
+    warnings = needs_list.merge_warnings(
+        total_warnings, approval_warnings + authority_warnings
+    )
+    if escalation_required:
+        return Response(
+            {
+                "errors": {"approval": "Escalation required by Appendix C rules."},
+                "warnings": warnings,
+            },
+            status=409,
+        )
     required_roles = approval_service.required_roles_for_approval(approval)
 
     from api.rbac import resolve_roles_and_permissions
@@ -695,6 +725,184 @@ def needs_list_escalate(request, needs_list_id: str):
     return Response(_serialize_workflow_record(record, include_overrides=True))
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_start_preparation(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "APPROVED":
+        return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
+
+    record = workflow_store.transition_status(record, "IN_PREPARATION", _actor_id(request))
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_preparation_started",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "APPROVED",
+            "to_status": "IN_PREPARATION",
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_mark_dispatched(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "IN_PREPARATION":
+        return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
+
+    record = workflow_store.transition_status(record, "DISPATCHED", _actor_id(request))
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_dispatched",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "IN_PREPARATION",
+            "to_status": "DISPATCHED",
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_mark_received(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "DISPATCHED":
+        return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
+
+    record = workflow_store.transition_status(record, "RECEIVED", _actor_id(request))
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_received",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "DISPATCHED",
+            "to_status": "RECEIVED",
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_mark_completed(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "RECEIVED":
+        return Response({"errors": {"status": "Needs list must be received."}}, status=409)
+
+    record = workflow_store.transition_status(record, "COMPLETED", _actor_id(request))
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_completed",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "RECEIVED",
+            "to_status": "COMPLETED",
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_cancel(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") not in {"APPROVED", "IN_PREPARATION"}:
+        return Response({"errors": {"status": "Cancel not allowed in current state."}}, status=409)
+
+    reason = (request.data or {}).get("reason")
+    if not reason:
+        return Response({"errors": {"reason": "Reason is required."}}, status=400)
+
+    from_status = record.get("status")
+    record = workflow_store.transition_status(
+        record, "CANCELLED", _actor_id(request), reason=reason
+    )
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_cancelled",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": from_status,
+            "to_status": "CANCELLED",
+            "reason": reason,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
 needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT
 needs_list_get.required_permission = [
     PERM_NEEDS_LIST_CREATE_DRAFT,
@@ -704,6 +912,8 @@ needs_list_get.required_permission = [
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_APPROVE,
     PERM_NEEDS_LIST_ESCALATE,
+    PERM_NEEDS_LIST_EXECUTE,
+    PERM_NEEDS_LIST_CANCEL,
 ]
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
 needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
@@ -712,6 +922,11 @@ needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
 needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT
 needs_list_approve.required_permission = PERM_NEEDS_LIST_APPROVE
 needs_list_escalate.required_permission = PERM_NEEDS_LIST_ESCALATE
+needs_list_start_preparation.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_mark_dispatched.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_mark_received.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_mark_completed.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_cancel.required_permission = PERM_NEEDS_LIST_CANCEL
 
 for view_func in (
     needs_list_draft,
@@ -723,6 +938,11 @@ for view_func in (
     needs_list_reject,
     needs_list_approve,
     needs_list_escalate,
+    needs_list_start_preparation,
+    needs_list_mark_dispatched,
+    needs_list_mark_received,
+    needs_list_mark_completed,
+    needs_list_cancel,
 ):
     if hasattr(view_func, "cls"):
         view_func.cls.required_permission = view_func.required_permission
