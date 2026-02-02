@@ -309,8 +309,8 @@ export class StockStatusDashboardComponent implements OnInit {
 
       switch (this.sortBy) {
         case 'time_to_stockout': {
-          const timeA = a.time_to_stockout_hours ?? Infinity;
-          const timeB = b.time_to_stockout_hours ?? Infinity;
+          const timeA = a.time_to_stockout_hours ?? a.time_to_stockout ?? Infinity;
+          const timeB = b.time_to_stockout_hours ?? b.time_to_stockout ?? Infinity;
           comparison = timeA - timeB;
           break;
         }
