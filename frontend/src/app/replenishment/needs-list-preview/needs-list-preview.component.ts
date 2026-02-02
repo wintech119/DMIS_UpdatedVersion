@@ -27,6 +27,9 @@ interface NeedsListItem {
   override_reason?: string;
   override_updated_by?: string;
   override_updated_at?: string;
+  review_comment?: string;
+  review_updated_by?: string;
+  review_updated_at?: string;
   gap_qty: number;
   time_to_stockout?: string | number;
   horizon?: { A: HorizonBlock; B: HorizonBlock; C: HorizonBlock };
