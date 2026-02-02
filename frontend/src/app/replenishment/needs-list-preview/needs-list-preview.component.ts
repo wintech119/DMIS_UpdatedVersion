@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -61,6 +61,9 @@ interface NeedsListResponse {
   submitted_at?: string | null;
   reviewed_by?: string | null;
   reviewed_at?: string | null;
+  review_comment?: string | null;
+  review_updated_by?: string | null;
+  review_updated_at?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
   approval_summary?: {
@@ -85,6 +88,7 @@ interface NeedsListResponse {
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     ReactiveFormsModule,
     MatButtonModule,
     MatCardModule,
@@ -138,6 +142,8 @@ export class NeedsListPreviewComponent implements OnInit {
   workflowErrors: string[] = [];
   permissions: string[] = [];
   overrideEdits: Record<number, { overridden_qty?: number; reason?: string }> = {};
+  reviewEdits: Record<number, { comment?: string }> = {};
+  draftIdInput = '';
 
   displayedColumns = [
     'item',
@@ -215,10 +221,37 @@ export class NeedsListPreviewComponent implements OnInit {
           .filter((item) => item.warnings && item.warnings.length)
           .map((item) => ({ item_id: item.item_id, warnings: item.warnings ?? [] }));
         this.overrideEdits = {};
+        this.reviewEdits = {};
       },
       error: (error: HttpErrorResponse) => {
         this.loading = false;
         this.workflowErrors = this.extractErrors(error, 'Draft creation failed.');
+      }
+    });
+  }
+
+  loadDraftById(): void {
+    this.workflowErrors = [];
+    const trimmed = this.draftIdInput.trim();
+    if (!trimmed) {
+      this.workflowErrors = ['Please enter a draft ID.'];
+      return;
+    }
+    this.loading = true;
+    this.http.get<NeedsListResponse>(`/api/v1/replenishment/needs-list/${trimmed}`).subscribe({
+      next: (data) => {
+        this.loading = false;
+        this.response = data;
+        this.items = data.items ?? [];
+        this.topWarnings = data.warnings ?? [];
+        this.perItemWarnings = this.items
+          .filter((item) => item.warnings && item.warnings.length)
+          .map((item) => ({ item_id: item.item_id, warnings: item.warnings ?? [] }));
+        this.reviewEdits = {};
+      },
+      error: (error: HttpErrorResponse) => {
+        this.loading = false;
+        this.workflowErrors = this.extractErrors(error, 'Load draft failed.');
       }
     });
   }
@@ -346,6 +379,34 @@ export class NeedsListPreviewComponent implements OnInit {
         error: (error: HttpErrorResponse) => {
           this.loading = false;
           this.workflowErrors = this.extractErrors(error, 'Reject failed.');
+        }
+      });
+  }
+
+  applyReviewComment(item: NeedsListItem): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const comment = this.reviewEdits[item.item_id]?.comment;
+    if (!comment || !comment.trim()) {
+      this.workflowErrors = ['Comment is required for review notes.'];
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .patch<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/review-comments`, [
+        { item_id: item.item_id, comment }
+      ])
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+          this.items = data.items ?? [];
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Review comment failed.');
         }
       });
   }
@@ -518,12 +579,22 @@ export class NeedsListPreviewComponent implements OnInit {
     };
   }
 
+  updateReviewComment(item: NeedsListItem, value: string): void {
+    this.reviewEdits[item.item_id] = {
+      comment: value
+    };
+  }
+
   can(permission: string): boolean {
     return this.permissions.includes(permission);
   }
 
   canEditLines(): boolean {
     return this.can('replenishment.needs_list.edit_lines');
+  }
+
+  canReviewComments(): boolean {
+    return this.can('replenishment.needs_list.review_comments');
   }
 
   canExecute(): boolean {

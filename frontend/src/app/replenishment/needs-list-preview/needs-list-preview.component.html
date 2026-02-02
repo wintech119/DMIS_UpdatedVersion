@@ -46,6 +46,22 @@
       </div>
     </form>
 
+    <div class="draft-loader">
+      <mat-form-field appearance="outline">
+        <mat-label>Load Draft ID</mat-label>
+        <input matInput type="text" [(ngModel)]="draftIdInput" name="draftIdInput" />
+      </mat-form-field>
+      <button
+        mat-stroked-button
+        color="primary"
+        type="button"
+        [disabled]="loading"
+        (click)="loadDraftById()"
+      >
+        Load Draft
+      </button>
+    </div>
+
     <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
 
     <div class="errors" *ngIf="errors.length">
@@ -210,6 +226,9 @@
           Escalate
         </button>
       </div>
+      <div class="status-hint" *ngIf="!isStatus('SUBMITTED')">
+        Start Review is available only when status is SUBMITTED.
+      </div>
       <div
         class="review-panel execution-panel"
         *ngIf="canExecute() || canCancel()"
@@ -336,6 +355,28 @@
             </div>
             <div *ngIf="!isDraftEditable() || !canEditLines()">
               {{ requiredQty(item) | number : '1.0-2' }}
+            </div>
+            <div
+              class="review-comment"
+              *ngIf="canReviewComments() && isStatus('UNDER_REVIEW')"
+            >
+              <span class="qty-label">Review Comment</span>
+              <input
+                matInput
+                type="text"
+                class="qty-input"
+                [value]="reviewEdits[item.item_id]?.comment || item.review_comment || ''"
+                (input)="updateReviewComment(item, $any($event.target).value)"
+              />
+              <button
+                mat-stroked-button
+                color="primary"
+                type="button"
+                class="override-action"
+                (click)="applyReviewComment(item)"
+              >
+                Save Comment
+              </button>
             </div>
           </td>
         </ng-container>

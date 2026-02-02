@@ -41,6 +41,18 @@
   gap: 1rem;
 }
 
+.draft-loader {
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.draft-loader mat-form-field {
+  min-width: 280px;
+}
+
 .errors {
   margin-top: 1rem;
   background: #fff1f2;
@@ -145,6 +157,12 @@
   border-top: 1px solid #e2e8f0;
 }
 
+.status-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
 .execution-panel {
   margin-top: 1.25rem;
 }
@@ -232,6 +250,12 @@
 }
 
 .qty-stack {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.review-comment {
+  margin-top: 0.5rem;
   display: grid;
   gap: 0.35rem;
 }

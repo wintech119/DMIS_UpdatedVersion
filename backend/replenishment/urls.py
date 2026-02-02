@@ -13,6 +13,7 @@ from replenishment.views import (
     needs_list_preview,
     needs_list_reject,
     needs_list_return,
+    needs_list_review_comments,
     needs_list_review_start,
     needs_list_start_preparation,
     needs_list_submit,
@@ -26,6 +27,11 @@ urlpatterns = [
         "needs-list/<str:needs_list_id>/lines",
         needs_list_edit_lines,
         name="needs_list_edit_lines",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/review-comments",
+        needs_list_review_comments,
+        name="needs_list_review_comments",
     ),
     path(
         "needs-list/<str:needs_list_id>/submit",

@@ -156,6 +156,7 @@ Endpoints (dev store only):
 POST  /api/v1/replenishment/needs-list/draft
 GET   /api/v1/replenishment/needs-list/{needs_list_id}
 PATCH /api/v1/replenishment/needs-list/{needs_list_id}/lines
+PATCH /api/v1/replenishment/needs-list/{needs_list_id}/review-comments
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/submit
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/review/start
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/return
