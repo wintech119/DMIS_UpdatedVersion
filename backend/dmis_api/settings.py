@@ -135,7 +135,8 @@ DEV_AUTH_ROLES = [role.strip() for role in os.getenv("DEV_AUTH_ROLES", "").split
 DEV_AUTH_PERMISSIONS = [
     perm.strip()
     for perm in os.getenv(
-        "DEV_AUTH_PERMISSIONS", "replenishment.needs_list.preview"
+        "DEV_AUTH_PERMISSIONS",
+        "replenishment.needs_list.preview,replenishment.needs_list.create_draft",
     ).split(",")
     if perm.strip()
 ]

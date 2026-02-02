@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from replenishment import rules
+from replenishment import rules, workflow_store
 from replenishment.services import needs_list
 from replenishment.services.needs_list import (
     allocate_horizons,
@@ -518,3 +518,520 @@ class NeedsListPreviewApiTests(TestCase):
         self.assertIn("time_to_stockout", item)
         self.assertEqual(item.get("freshness_state"), "Unknown")
         self.assertIn("donation_in_transit_unmodeled", item.get("warnings", []))
+
+
+class NeedsListWorkflowApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        store_path = workflow_store._store_path()
+        if store_path.exists():
+            store_path.unlink()
+
+    def tearDown(self) -> None:
+        store_path = workflow_store._store_path()
+        if store_path.exists():
+            store_path.unlink()
+
+    def _draft_payload(self) -> dict:
+        return {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"}
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_draft_creation_creates_store_entry(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body.get("status"), "DRAFT")
+        self.assertIsNotNone(body.get("needs_list_id"))
+        store_path = workflow_store._store_path()
+        self.assertTrue(store_path.exists())
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_line_edit_requires_reason_and_draft_only(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+
+            response = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": 5}],
+                format="json",
+            )
+            self.assertEqual(response.status_code, 400)
+
+            invalid_negative = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": -5, "reason": "Adjust"}],
+                format="json",
+            )
+            self.assertEqual(invalid_negative.status_code, 400)
+
+            invalid_nan = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": "NaN", "reason": "Adjust"}],
+                format="json",
+            )
+            self.assertEqual(invalid_nan.status_code, 400)
+
+            response = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": 5, "reason": "Adjust"}],
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json()["items"][0].get("required_qty"),
+                5.0,
+            )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_submit_and_review_separation(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            submit = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+            self.assertEqual(submit.status_code, 200)
+            submit_again = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+            self.assertEqual(submit_again.status_code, 409)
+
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"]):
+                review_same_user = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(review_same_user.status_code, 409)
+
+            with self.settings(
+                DEV_AUTH_USER_ID="reviewer",
+                DEV_AUTH_ROLES=["EXECUTIVE"],
+            ):
+                review = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(review.status_code, 200)
+                self.assertEqual(review.json().get("status"), "UNDER_REVIEW")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_return_and_reject_require_reason(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                needs_list_id = draft["needs_list_id"]
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+            review = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                {},
+                format="json",
+            )
+            self.assertEqual(review.status_code, 200)
+
+            returned = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
+                {},
+                format="json",
+            )
+            self.assertEqual(returned.status_code, 400)
+
+            rejected = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/reject",
+                {},
+                format="json",
+            )
+            self.assertEqual(rejected.status_code, 400)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_rbac_denies_unauthorized_review(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            review = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                {},
+                format="json",
+            )
+            self.assertEqual(review.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_approve_requires_authorized_role(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                    {},
+                    format="json",
+                )
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(approve.status_code, 200)
+                body = approve.json()
+                self.assertEqual(body.get("status"), "APPROVED")
+                self.assertEqual(body.get("approval_tier"), "Tier 3")
+                self.assertIn(
+                    "approval_tier_conservative",
+                    body.get("approval_summary", {}).get("warnings", []),
+                )
+
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="approver"):
+                approve_denied = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(approve_denied.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_approve_blocked_for_submitter(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
+                review_resp = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(review_resp.status_code, 200)
+
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="submitter"):
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(approve.status_code, 409)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_escalate_requires_reason(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                needs_list_id = draft["needs_list_id"]
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                {},
+                format="json",
+            )
+            missing = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/escalate",
+                {},
+                format="json",
+            )
+            self.assertEqual(missing.status_code, 400)
+
+            escalated = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/escalate",
+                {"reason": "Higher authority needed"},
+                format="json",
+            )
+            self.assertEqual(escalated.status_code, 200)
+            self.assertEqual(escalated.json().get("status"), "ESCALATED")
