@@ -63,3 +63,7 @@ Thumbs.db
 deploy/*.conf
 !deploy/*.example
 !deploy/*.example.conf
+
+# Local dev workflow store/temp
+backend/.local/
+backend/.tmp/

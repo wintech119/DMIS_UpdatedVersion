@@ -11,10 +11,30 @@ from api.authentication import Principal
 logger = logging.getLogger(__name__)
 
 REQUIRED_PERMISSION = "replenishment.needs_list.preview"
+PERM_NEEDS_LIST_CREATE_DRAFT = "replenishment.needs_list.create_draft"
+PERM_NEEDS_LIST_EDIT_LINES = "replenishment.needs_list.edit_lines"
+PERM_NEEDS_LIST_SUBMIT = "replenishment.needs_list.submit"
+PERM_NEEDS_LIST_REVIEW_START = "replenishment.needs_list.review_start"
+PERM_NEEDS_LIST_RETURN = "replenishment.needs_list.return"
+PERM_NEEDS_LIST_REJECT = "replenishment.needs_list.reject"
+PERM_NEEDS_LIST_APPROVE = "replenishment.needs_list.approve"
+PERM_NEEDS_LIST_ESCALATE = "replenishment.needs_list.escalate"
 
 _DEV_ROLE_PERMISSION_MAP = {
-    "LOGISTICS": {REQUIRED_PERMISSION},
-    "EXECUTIVE": {REQUIRED_PERMISSION},
+    "LOGISTICS": {
+        REQUIRED_PERMISSION,
+        PERM_NEEDS_LIST_CREATE_DRAFT,
+        PERM_NEEDS_LIST_EDIT_LINES,
+        PERM_NEEDS_LIST_SUBMIT,
+    },
+    "EXECUTIVE": {
+        REQUIRED_PERMISSION,
+        PERM_NEEDS_LIST_REVIEW_START,
+        PERM_NEEDS_LIST_RETURN,
+        PERM_NEEDS_LIST_REJECT,
+        PERM_NEEDS_LIST_APPROVE,
+        PERM_NEEDS_LIST_ESCALATE,
+    },
 }
 
 
