@@ -145,6 +145,37 @@
   border-top: 1px solid #e2e8f0;
 }
 
+.approval-summary {
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.approval-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.approval-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.approval-warnings {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+  color: #92400e;
+  font-size: 0.8rem;
+}
+
 .table-wrapper {
   overflow-x: auto;
 }

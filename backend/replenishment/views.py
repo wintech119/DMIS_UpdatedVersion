@@ -13,12 +13,15 @@ from api.permissions import NeedsListPermission, NeedsListPreviewPermission
 from api.rbac import (
     PERM_NEEDS_LIST_CREATE_DRAFT,
     PERM_NEEDS_LIST_EDIT_LINES,
+    PERM_NEEDS_LIST_ESCALATE,
+    PERM_NEEDS_LIST_APPROVE,
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_REVIEW_START,
     PERM_NEEDS_LIST_SUBMIT,
 )
 from replenishment import rules, workflow_store
+from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list
 
 logger = logging.getLogger("dmis.audit")
@@ -187,6 +190,19 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
         if include_overrides
         else dict(record.get("snapshot") or {})
     )
+    total_required_qty, total_estimated_cost, approval_warnings = (
+        approval_service.compute_needs_list_totals(snapshot.get("items") or [])
+    )
+    approval, approval_warnings_extra, approval_rationale = (
+        approval_service.determine_approval_tier(
+            str(record.get("phase") or "BASELINE"),
+            total_estimated_cost,
+            bool(approval_warnings),
+        )
+    )
+    approval_warnings = needs_list.merge_warnings(
+        approval_warnings, approval_warnings_extra
+    )
     response = dict(snapshot)
     response.update(
         {
@@ -203,10 +219,28 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "updated_at": record.get("updated_at"),
             "submitted_by": record.get("submitted_by"),
             "submitted_at": record.get("submitted_at"),
+            "reviewed_by": record.get("reviewed_by"),
+            "reviewed_at": record.get("reviewed_at"),
             "reviewer_by": record.get("reviewer_by"),
             "review_started_at": record.get("review_started_at"),
+            "approved_by": record.get("approved_by"),
+            "approved_at": record.get("approved_at"),
+            "approval_tier": record.get("approval_tier"),
+            "approval_rationale": record.get("approval_rationale"),
+            "escalated_by": record.get("escalated_by"),
+            "escalated_at": record.get("escalated_at"),
+            "escalation_reason": record.get("escalation_reason"),
             "return_reason": record.get("return_reason"),
             "reject_reason": record.get("reject_reason"),
+            "approval_summary": {
+                "total_required_qty": round(total_required_qty, 2),
+                "total_estimated_cost": None
+                if total_estimated_cost is None
+                else round(float(total_estimated_cost), 2),
+                "approval": approval,
+                "warnings": approval_warnings,
+                "rationale": approval_rationale,
+            },
         }
     )
     return response
@@ -548,6 +582,116 @@ def needs_list_reject(request, needs_list_id: str):
     return Response(_serialize_workflow_record(record, include_overrides=True))
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_approve(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "UNDER_REVIEW":
+        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+
+    actor = _actor_id(request)
+    if not record.get("submitted_by") or record.get("submitted_by") == actor:
+        return Response(
+            {"errors": {"approval": "Approver must be different from submitter."}},
+            status=409,
+        )
+
+    comment = (request.data or {}).get("comment")
+    snapshot = workflow_store.apply_overrides(record)
+    total_required_qty, total_estimated_cost, total_warnings = (
+        approval_service.compute_needs_list_totals(snapshot.get("items") or [])
+    )
+    approval, approval_warnings, approval_rationale = (
+        approval_service.determine_approval_tier(
+            str(record.get("phase") or "BASELINE"),
+            total_estimated_cost,
+            bool(total_warnings),
+        )
+    )
+    warnings = needs_list.merge_warnings(total_warnings, approval_warnings)
+    required_roles = approval_service.required_roles_for_approval(approval)
+
+    from api.rbac import resolve_roles_and_permissions
+
+    roles, _ = resolve_roles_and_permissions(request, request.user)
+    role_set = {role.upper() for role in roles}
+    if not role_set.intersection(required_roles):
+        return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
+
+    record = workflow_store.transition_status(record, "APPROVED", actor)
+    record["approval_tier"] = approval.get("tier")
+    record["approval_rationale"] = approval_rationale
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_approved",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "UNDER_REVIEW",
+            "to_status": "APPROVED",
+            "approval_tier": approval.get("tier"),
+            "approval_rationale": approval_rationale,
+            "comment": comment,
+            "warnings": warnings,
+            "total_required_qty": round(total_required_qty, 2),
+            "total_estimated_cost": total_estimated_cost,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_escalate(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if record.get("status") != "UNDER_REVIEW":
+        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+
+    reason = (request.data or {}).get("reason")
+    if not reason:
+        return Response({"errors": {"reason": "Reason is required."}}, status=400)
+
+    record = workflow_store.transition_status(record, "ESCALATED", _actor_id(request), reason)
+    workflow_store.update_record(needs_list_id, record)
+
+    logger.info(
+        "needs_list_escalated",
+        extra={
+            "event_type": "STATE_CHANGE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "from_status": "UNDER_REVIEW",
+            "to_status": "ESCALATED",
+            "reason": reason,
+        },
+    )
+
+    return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
 needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT
 needs_list_get.required_permission = [
     PERM_NEEDS_LIST_CREATE_DRAFT,
@@ -555,12 +699,16 @@ needs_list_get.required_permission = [
     PERM_NEEDS_LIST_REVIEW_START,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_REJECT,
+    PERM_NEEDS_LIST_APPROVE,
+    PERM_NEEDS_LIST_ESCALATE,
 ]
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
 needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
 needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
 needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
 needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT
+needs_list_approve.required_permission = PERM_NEEDS_LIST_APPROVE
+needs_list_escalate.required_permission = PERM_NEEDS_LIST_ESCALATE
 
 for view_func in (
     needs_list_draft,
@@ -570,6 +718,8 @@ for view_func in (
     needs_list_review_start,
     needs_list_return,
     needs_list_reject,
+    needs_list_approve,
+    needs_list_escalate,
 ):
     if hasattr(view_func, "cls"):
         view_func.cls.required_permission = view_func.required_permission

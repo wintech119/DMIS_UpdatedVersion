@@ -74,8 +74,17 @@ def create_draft(
         "updated_at": now,
         "submitted_by": None,
         "submitted_at": None,
+        "reviewed_by": None,
+        "reviewed_at": None,
         "reviewer_by": None,
         "review_started_at": None,
+        "approved_by": None,
+        "approved_at": None,
+        "approval_tier": None,
+        "approval_rationale": None,
+        "escalated_by": None,
+        "escalated_at": None,
+        "escalation_reason": None,
         "return_reason": None,
         "reject_reason": None,
         "line_overrides": {},
@@ -179,12 +188,21 @@ def transition_status(
         record["submitted_by"] = actor
         record["submitted_at"] = now
     if to_status == "UNDER_REVIEW":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
         record["reviewer_by"] = actor
         record["review_started_at"] = now
+    if to_status == "APPROVED":
+        record["approved_by"] = actor
+        record["approved_at"] = now
     if to_status == "REJECTED":
         record["reject_reason"] = reason
     if to_status == "RETURNED":
         record["return_reason"] = reason
+    if to_status == "ESCALATED":
+        record["escalated_by"] = actor
+        record["escalated_at"] = now
+        record["escalation_reason"] = reason
     return record
 
 

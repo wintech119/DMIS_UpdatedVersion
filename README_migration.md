@@ -160,6 +160,8 @@ POST  /api/v1/replenishment/needs-list/{needs_list_id}/submit
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/review/start
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/return
 POST  /api/v1/replenishment/needs-list/{needs_list_id}/reject
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/approve
+POST  /api/v1/replenishment/needs-list/{needs_list_id}/escalate
 ```
 
 Example curl (create draft + submit):
@@ -171,6 +173,14 @@ curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/draft `
 curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/{needs_list_id}/submit `
   -ContentType "application/json" `
   -Body '{}'
+
+curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/{needs_list_id}/approve `
+  -ContentType "application/json" `
+  -Body '{ "comment": "Approved for release." }'
+
+curl -Method Post http://localhost:8001/api/v1/replenishment/needs-list/{needs_list_id}/escalate `
+  -ContentType "application/json" `
+  -Body '{ "reason": "Requires higher authority." }'
 ```
 
 Reminder: draft storage is local only. Persisting needs lists to Postgres requires a future DB change proposal.
