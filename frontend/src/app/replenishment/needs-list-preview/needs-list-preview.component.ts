@@ -63,6 +63,20 @@ interface NeedsListResponse {
   review_started_at?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
+  approval_summary?: {
+    total_required_qty: number;
+    total_estimated_cost: number | null;
+    approval?: { tier: string; approver_role: string; methods_allowed: string[] };
+    warnings?: string[];
+    rationale?: string;
+  };
+  approval_tier?: string | null;
+  approval_rationale?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  escalated_by?: string | null;
+  escalated_at?: string | null;
+  escalation_reason?: string | null;
 }
 
 @Component({
@@ -100,6 +114,8 @@ export class NeedsListPreviewComponent implements OnInit {
     procurement_category_unavailable: 'Procurement category is missing; using defaults.',
     procurement_cost_invalid: 'Procurement cost estimate is invalid.',
     procurement_phase_invalid: 'Procurement phase value is invalid; using baseline.',
+    cost_missing_for_approval: 'Estimated costs are missing; approval tier is conservative.',
+    approval_tier_conservative: 'Approval tier is escalated due to missing cost data.',
     strict_inbound_mapping_best_effort: 'Inbound status mapping uses best-effort rules.',
     critical_flag_unavailable: 'Critical item flag not configured.',
     inventory_timestamp_unavailable: 'Inventory timestamp is unavailable.',
@@ -327,6 +343,55 @@ export class NeedsListPreviewComponent implements OnInit {
       });
   }
 
+  approveDraft(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const comment = window.prompt('Approval comment (optional):') ?? '';
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/approve`, {
+        comment: comment || undefined
+      })
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Approve failed.');
+        }
+      });
+  }
+
+  escalateDraft(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const reason = window.prompt('Reason for escalation:');
+    if (!reason) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/escalate`, {
+        reason
+      })
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Escalation failed.');
+        }
+      });
+  }
+
   updateOverrideQty(item: NeedsListItem, value: string): void {
     const qty = value === '' ? undefined : Number(value);
     this.overrideEdits[item.item_id] = {
@@ -446,6 +511,10 @@ export class NeedsListPreviewComponent implements OnInit {
 
   isStatus(status: string): boolean {
     return this.response?.status === status;
+  }
+
+  approvalWarnings(): string[] {
+    return this.response?.approval_summary?.warnings ?? [];
   }
 
   overrideQty(item: NeedsListItem): number | null {

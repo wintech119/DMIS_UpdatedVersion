@@ -1,8 +1,10 @@
 from django.urls import path
 
 from replenishment.views import (
+    needs_list_approve,
     needs_list_draft,
     needs_list_edit_lines,
+    needs_list_escalate,
     needs_list_get,
     needs_list_preview,
     needs_list_reject,
@@ -39,5 +41,15 @@ urlpatterns = [
         "needs-list/<str:needs_list_id>/reject",
         needs_list_reject,
         name="needs_list_reject",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/approve",
+        needs_list_approve,
+        name="needs_list_approve",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/escalate",
+        needs_list_escalate,
+        name="needs_list_escalate",
     ),
 ]

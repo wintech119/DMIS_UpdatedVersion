@@ -122,10 +122,45 @@
       *ngIf="
         can('replenishment.needs_list.review_start') ||
         can('replenishment.needs_list.return') ||
-        can('replenishment.needs_list.reject')
+        can('replenishment.needs_list.reject') ||
+        can('replenishment.needs_list.approve') ||
+        can('replenishment.needs_list.escalate')
       "
     >
       <div class="section-label">Review Panel</div>
+      <div class="approval-summary" *ngIf="response?.approval_summary as summary">
+        <div class="approval-row">
+          <span class="approval-label">Total required</span>
+          <span>{{ summary.total_required_qty | number : '1.0-2' }}</span>
+        </div>
+        <div class="approval-row">
+          <span class="approval-label">Est. cost (JMD)</span>
+          <span>
+            {{ summary.total_estimated_cost === null ? 'N/A' : (summary.total_estimated_cost | number : '1.0-2') }}
+          </span>
+        </div>
+        <div class="approval-row" *ngIf="summary.approval">
+          <span class="approval-label">Tier</span>
+          <span>{{ summary.approval.tier }}</span>
+        </div>
+        <div class="approval-row" *ngIf="summary.approval">
+          <span class="approval-label">Approver</span>
+          <span>{{ summary.approval.approver_role }}</span>
+        </div>
+        <div class="approval-row" *ngIf="summary.approval">
+          <span class="approval-label">Methods</span>
+          <span>{{ summary.approval.methods_allowed.join(', ') }}</span>
+        </div>
+        <div class="approval-row" *ngIf="summary.rationale">
+          <span class="approval-label">Rationale</span>
+          <span>{{ summary.rationale }}</span>
+        </div>
+        <div class="approval-warnings" *ngIf="approvalWarnings().length">
+          <div class="approval-warning" *ngFor="let warn of approvalWarnings()">
+            {{ warningLabel(warn) }}
+          </div>
+        </div>
+      </div>
       <div class="workflow-actions">
         <button
           mat-stroked-button
@@ -152,6 +187,23 @@
           (click)="rejectDraft()"
         >
           Reject
+        </button>
+        <button
+          mat-flat-button
+          color="primary"
+          type="button"
+          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.approve')"
+          (click)="approveDraft()"
+        >
+          Approve
+        </button>
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.escalate')"
+          (click)="escalateDraft()"
+        >
+          Escalate
         </button>
       </div>
     </div>
