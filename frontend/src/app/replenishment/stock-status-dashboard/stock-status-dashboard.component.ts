@@ -307,21 +307,25 @@ export class StockStatusDashboardComponent implements OnInit {
       let comparison = 0;
 
       switch (this.sortBy) {
-        case 'time_to_stockout':
+        case 'time_to_stockout': {
           const timeA = a.time_to_stockout_hours ?? Infinity;
           const timeB = b.time_to_stockout_hours ?? Infinity;
           comparison = timeA - timeB;
           break;
-        case 'severity':
+        }
+        case 'severity': {
           const severityA = severityOrder[a.severity ?? 'OK'];
           const severityB = severityOrder[b.severity ?? 'OK'];
           comparison = severityA - severityB;
           break;
-        case 'item_name':
+        }
+        case 'item_name': {
           const nameA = (a.item_name || `Item ${a.item_id}`).toLowerCase();
           const nameB = (b.item_name || `Item ${b.item_id}`).toLowerCase();
           comparison = nameA.localeCompare(nameB);
           break;
+        }
+      }
       }
 
       return this.sortDirection === 'asc' ? comparison : -comparison;
