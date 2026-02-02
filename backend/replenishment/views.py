@@ -1,5 +1,6 @@
 import logging
 import re
+import math
 from typing import Any, Dict
 
 from django.conf import settings
@@ -389,6 +390,8 @@ def needs_list_edit_lines(request, needs_list_id: str):
             continue
         try:
             overridden_qty = float(overridden_qty)
+            if not math.isfinite(overridden_qty) or overridden_qty < 0:
+                raise ValueError("overridden_qty must be a finite, non-negative number")
         except (TypeError, ValueError):
             parse_errors.append(f"overridden_qty must be numeric for item_id {item_id}.")
             continue

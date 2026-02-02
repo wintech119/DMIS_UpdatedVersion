@@ -626,6 +626,20 @@ class NeedsListWorkflowApiTests(TestCase):
             )
             self.assertEqual(response.status_code, 400)
 
+            invalid_negative = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": -5, "reason": "Adjust"}],
+                format="json",
+            )
+            self.assertEqual(invalid_negative.status_code, 400)
+
+            invalid_nan = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": "NaN", "reason": "Adjust"}],
+                format="json",
+            )
+            self.assertEqual(invalid_nan.status_code, 400)
+
             response = self.client.patch(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
                 [{"item_id": 1, "overridden_qty": 5, "reason": "Adjust"}],
