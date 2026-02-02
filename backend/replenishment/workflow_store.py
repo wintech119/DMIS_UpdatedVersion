@@ -80,6 +80,17 @@ def create_draft(
         "approved_at": None,
         "approval_tier": None,
         "approval_rationale": None,
+        "prep_started_by": None,
+        "prep_started_at": None,
+        "dispatched_by": None,
+        "dispatched_at": None,
+        "received_by": None,
+        "received_at": None,
+        "completed_by": None,
+        "completed_at": None,
+        "cancelled_by": None,
+        "cancelled_at": None,
+        "cancel_reason": None,
         "escalated_by": None,
         "escalated_at": None,
         "escalation_reason": None,
@@ -191,6 +202,18 @@ def transition_status(
     if to_status == "APPROVED":
         record["approved_by"] = actor
         record["approved_at"] = now
+    if to_status == "IN_PREPARATION":
+        record["prep_started_by"] = actor
+        record["prep_started_at"] = now
+    if to_status == "DISPATCHED":
+        record["dispatched_by"] = actor
+        record["dispatched_at"] = now
+    if to_status == "RECEIVED":
+        record["received_by"] = actor
+        record["received_at"] = now
+    if to_status == "COMPLETED":
+        record["completed_by"] = actor
+        record["completed_at"] = now
     if to_status == "REJECTED":
         record["reject_reason"] = reason
     if to_status == "RETURNED":
@@ -199,6 +222,10 @@ def transition_status(
         record["escalated_by"] = actor
         record["escalated_at"] = now
         record["escalation_reason"] = reason
+    if to_status == "CANCELLED":
+        record["cancelled_by"] = actor
+        record["cancelled_at"] = now
+        record["cancel_reason"] = reason
     return record
 
 

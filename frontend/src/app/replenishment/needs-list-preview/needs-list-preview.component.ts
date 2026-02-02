@@ -69,6 +69,7 @@ interface NeedsListResponse {
     approval?: { tier: string; approver_role: string; methods_allowed: string[] };
     warnings?: string[];
     rationale?: string;
+    escalation_required?: boolean;
   };
   approval_tier?: string | null;
   approval_rationale?: string | null;
@@ -116,6 +117,12 @@ export class NeedsListPreviewComponent implements OnInit {
     procurement_phase_invalid: 'Procurement phase value is invalid; using baseline.',
     cost_missing_for_approval: 'Estimated costs are missing; approval tier is conservative.',
     approval_tier_conservative: 'Approval tier is escalated due to missing cost data.',
+    transfer_cross_parish_over_500: 'Cross-parish transfer above 500 units requires escalation.',
+    transfer_scope_unavailable: 'Transfer scope is unavailable for approval authority checks.',
+    transfer_scope_unrecognized: 'Transfer scope is unrecognized.',
+    donation_restriction_unavailable: 'Donation restriction is unavailable for approval authority checks.',
+    donation_restriction_escalation_required: 'Restricted or earmarked donation requires escalation.',
+    donation_restriction_unrecognized: 'Donation restriction is unrecognized.',
     strict_inbound_mapping_best_effort: 'Inbound status mapping uses best-effort rules.',
     critical_flag_unavailable: 'Critical item flag not configured.',
     inventory_timestamp_unavailable: 'Inventory timestamp is unavailable.',
@@ -392,6 +399,110 @@ export class NeedsListPreviewComponent implements OnInit {
       });
   }
 
+  startPreparation(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/start-preparation`, {})
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Start preparation failed.');
+        }
+      });
+  }
+
+  markDispatched(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/mark-dispatched`, {})
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Mark dispatched failed.');
+        }
+      });
+  }
+
+  markReceived(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/mark-received`, {})
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Mark received failed.');
+        }
+      });
+  }
+
+  markCompleted(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/mark-completed`, {})
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Mark completed failed.');
+        }
+      });
+  }
+
+  cancelExecution(): void {
+    if (!this.response?.needs_list_id) {
+      return;
+    }
+    const reason = window.prompt('Reason for cancellation:');
+    if (!reason) {
+      return;
+    }
+    const draftId = this.response.needs_list_id;
+    this.loading = true;
+    this.http
+      .post<NeedsListResponse>(`/api/v1/replenishment/needs-list/${draftId}/cancel`, { reason })
+      .subscribe({
+        next: (data) => {
+          this.loading = false;
+          this.response = data;
+        },
+        error: (error: HttpErrorResponse) => {
+          this.loading = false;
+          this.workflowErrors = this.extractErrors(error, 'Cancel failed.');
+        }
+      });
+  }
+
   updateOverrideQty(item: NeedsListItem, value: string): void {
     const qty = value === '' ? undefined : Number(value);
     this.overrideEdits[item.item_id] = {
@@ -413,6 +524,14 @@ export class NeedsListPreviewComponent implements OnInit {
 
   canEditLines(): boolean {
     return this.can('replenishment.needs_list.edit_lines');
+  }
+
+  canExecute(): boolean {
+    return this.can('replenishment.needs_list.execute');
+  }
+
+  canCancel(): boolean {
+    return this.can('replenishment.needs_list.cancel');
   }
 
   requiredQty(item: NeedsListItem): number {
