@@ -64,6 +64,7 @@ def determine_approval_tier(
         rationale = "Costs missing; highest tier required."
         return approval, warnings, rationale
 
+    # Category is not modeled at needs-list level; default category fallback is expected here.
     approval, approval_warnings = rules.get_procurement_approval(total_cost, phase)
     warnings.extend(approval_warnings)
     rationale = "Tier computed from estimated total cost."
@@ -73,3 +74,49 @@ def determine_approval_tier(
 def required_roles_for_approval(approval: Dict[str, object]) -> set[str]:
     approver_role = str(approval.get("approver_role") or "")
     return APPROVAL_ROLE_MAP.get(approver_role, {"EXECUTIVE"})
+
+
+def evaluate_appendix_c_authority(
+    items: Iterable[Dict[str, object]],
+) -> Tuple[List[str], bool]:
+    warnings: List[str] = []
+    escalation_required = False
+
+    def _safe_float(value: object) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    for item in items:
+        horizon = item.get("horizon") or {}
+        horizon_a = _safe_float((horizon.get("A") or {}).get("recommended_qty"))
+        horizon_b = _safe_float((horizon.get("B") or {}).get("recommended_qty"))
+
+        if horizon_a > 0:
+            transfer_scope = item.get("transfer_scope")
+            transfer_qty = _safe_float(item.get("transfer_qty") or horizon_a)
+            if not transfer_scope:
+                warnings.append("transfer_scope_unavailable")
+            else:
+                scope = str(transfer_scope).lower()
+                if scope == "cross_parish":
+                    if transfer_qty > 500:
+                        warnings.append("transfer_cross_parish_over_500")
+                        escalation_required = True
+                elif scope != "same_parish":
+                    warnings.append("transfer_scope_unrecognized")
+
+        if horizon_b > 0:
+            donation_restriction = item.get("donation_restriction")
+            if not donation_restriction:
+                warnings.append("donation_restriction_unavailable")
+            else:
+                restriction = str(donation_restriction).lower()
+                if restriction in {"restricted", "earmarked"}:
+                    warnings.append("donation_restriction_escalation_required")
+                    escalation_required = True
+                elif restriction != "verified":
+                    warnings.append("donation_restriction_unrecognized")
+
+    return list(dict.fromkeys(warnings)), escalation_required

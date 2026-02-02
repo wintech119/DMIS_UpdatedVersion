@@ -19,6 +19,9 @@ PERM_NEEDS_LIST_RETURN = "replenishment.needs_list.return"
 PERM_NEEDS_LIST_REJECT = "replenishment.needs_list.reject"
 PERM_NEEDS_LIST_APPROVE = "replenishment.needs_list.approve"
 PERM_NEEDS_LIST_ESCALATE = "replenishment.needs_list.escalate"
+PERM_NEEDS_LIST_EXECUTE = "replenishment.needs_list.execute"
+PERM_NEEDS_LIST_CANCEL = "replenishment.needs_list.cancel"
+PERM_NEEDS_LIST_REVIEW_COMMENTS = "replenishment.needs_list.review_comments"
 
 _DEV_ROLE_PERMISSION_MAP = {
     "LOGISTICS": {
@@ -26,6 +29,8 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_CREATE_DRAFT,
         PERM_NEEDS_LIST_EDIT_LINES,
         PERM_NEEDS_LIST_SUBMIT,
+        PERM_NEEDS_LIST_EXECUTE,
+        PERM_NEEDS_LIST_CANCEL,
     },
     "EXECUTIVE": {
         REQUIRED_PERMISSION,
@@ -34,6 +39,7 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_REJECT,
         PERM_NEEDS_LIST_APPROVE,
         PERM_NEEDS_LIST_ESCALATE,
+        PERM_NEEDS_LIST_REVIEW_COMMENTS,
     },
 }
 
