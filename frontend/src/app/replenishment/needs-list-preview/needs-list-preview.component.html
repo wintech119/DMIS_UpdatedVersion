@@ -1,7 +1,10 @@
 <section class="page-grid">
   <mat-card class="panel">
     <div class="panel-header">
-      <div>
+      <button mat-icon-button (click)="backToDashboard()" matTooltip="Back to Dashboard" class="back-btn">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
         <h1>Needs List Preview</h1>
         <p>Read-only preview derived from inventory, transfer, and relief package data.</p>
       </div>
@@ -365,7 +368,7 @@
                 matInput
                 type="text"
                 class="qty-input"
-                [value]="reviewEdits[item.item_id]?.comment || item.review_comment || ''"
+                [value]="(reviewEdits[item.item_id] && reviewEdits[item.item_id].comment) || item.review_comment || ''"
                 (input)="updateReviewComment(item, $any($event.target).value)"
               />
               <button
