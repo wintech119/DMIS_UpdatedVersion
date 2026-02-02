@@ -138,9 +138,10 @@ export class StockStatusDashboardComponent implements OnInit {
 
     // Filter by severity
     if (this.selectedSeverities.length > 0) {
-      filtered = filtered.filter(item =>
-        item.severity && this.selectedSeverities.includes(item.severity)
-      );
+      filtered = filtered.filter(item => {
+        const sev = item.severity ?? 'OK';
+        return this.selectedSeverities.includes(sev);
+      });
     }
 
     // Sort
