@@ -64,6 +64,7 @@ def determine_approval_tier(
         rationale = "Costs missing; highest tier required."
         return approval, warnings, rationale
 
+    # Category is not modeled at needs-list level; default category fallback is expected here.
     approval, approval_warnings = rules.get_procurement_approval(total_cost, phase)
     warnings.extend(approval_warnings)
     rationale = "Tier computed from estimated total cost."
