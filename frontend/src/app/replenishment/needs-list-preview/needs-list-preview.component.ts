@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -111,10 +112,12 @@ interface NeedsListResponse {
   templateUrl: './needs-list-preview.component.html',
   styleUrl: './needs-list-preview.component.scss'
 })
-export class NeedsListPreviewComponent implements OnInit {
+export class NeedsListPreviewComponent implements OnInit, OnDestroy {
   readonly phaseOptions = ['SURGE', 'STABILIZED', 'BASELINE'] as const;
 
   readonly form: FormGroup;
+  private readonly destroyRef = inject(DestroyRef);
+  private autoPreviewTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private readonly warningLabels: Record<string, string> = {
     burn_data_missing: 'No recent burn data found in the demand window.',
     burn_fallback_unavailable: 'No category fallback rate is available for this item.',
@@ -187,12 +190,18 @@ export class NeedsListPreviewComponent implements OnInit {
     this.loadQueryParams();
   }
 
+  ngOnDestroy(): void {
+    if (this.autoPreviewTimeoutId) {
+      clearTimeout(this.autoPreviewTimeoutId);
+    }
+  }
+
   backToDashboard(): void {
     this.router.navigate(['/replenishment/dashboard']);
   }
 
   private loadQueryParams(): void {
-    this.route.queryParams.subscribe(params => {
+    this.route.queryParams.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
       if (params['event_id']) {
         this.form.patchValue({
           event_id: Number(params['event_id']),
@@ -201,7 +210,10 @@ export class NeedsListPreviewComponent implements OnInit {
         });
         // Auto-generate preview if params are present
         if (params['event_id'] && params['warehouse_id']) {
-          setTimeout(() => this.generatePreview(), 100);
+          if (this.autoPreviewTimeoutId) {
+            clearTimeout(this.autoPreviewTimeoutId);
+          }
+          this.autoPreviewTimeoutId = setTimeout(() => this.generatePreview(), 100);
         }
       }
     });
