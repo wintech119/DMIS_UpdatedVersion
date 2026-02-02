@@ -411,6 +411,10 @@ export class NeedsListPreviewComponent implements OnInit {
     return this.permissions.includes(permission);
   }
 
+  canEditLines(): boolean {
+    return this.can('replenishment.needs_list.edit_lines');
+  }
+
   requiredQty(item: NeedsListItem): number {
     if (typeof item.required_qty === 'number') {
       return Number(item.required_qty.toFixed(2));
