@@ -59,8 +59,8 @@ interface NeedsListResponse {
   updated_at?: string | null;
   submitted_by?: string | null;
   submitted_at?: string | null;
-  reviewer_by?: string | null;
-  review_started_at?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
   approval_summary?: {
