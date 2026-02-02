@@ -1,7 +1,10 @@
 <section class="page-grid">
   <mat-card class="panel">
     <div class="panel-header">
-      <div>
+      <button mat-icon-button (click)="backToDashboard()" matTooltip="Back to Dashboard" class="back-btn">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
         <h1>Needs List Preview</h1>
         <p>Read-only preview derived from inventory, transfer, and relief package data.</p>
       </div>
@@ -45,6 +48,22 @@
         </button>
       </div>
     </form>
+
+    <div class="draft-loader">
+      <mat-form-field appearance="outline">
+        <mat-label>Load Draft ID</mat-label>
+        <input matInput type="text" [(ngModel)]="draftIdInput" name="draftIdInput" />
+      </mat-form-field>
+      <button
+        mat-stroked-button
+        color="primary"
+        type="button"
+        [disabled]="loading"
+        (click)="loadDraftById()"
+      >
+        Load Draft
+      </button>
+    </div>
 
     <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
 
@@ -155,6 +174,10 @@
           <span class="approval-label">Rationale</span>
           <span>{{ summary.rationale }}</span>
         </div>
+        <div class="approval-row" *ngIf="summary.escalation_required">
+          <span class="approval-label">Escalation</span>
+          <span>Required by Appendix C authority rules</span>
+        </div>
         <div class="approval-warnings" *ngIf="approvalWarnings().length">
           <div class="approval-warning" *ngFor="let warn of approvalWarnings()">
             {{ warningLabel(warn) }}
@@ -205,6 +228,60 @@
         >
           Escalate
         </button>
+      </div>
+      <div class="status-hint" *ngIf="!isStatus('SUBMITTED')">
+        Start Review is available only when status is SUBMITTED.
+      </div>
+      <div
+        class="review-panel execution-panel"
+        *ngIf="canExecute() || canCancel()"
+      >
+        <div class="section-label">Execution</div>
+        <div class="workflow-actions">
+          <button
+            mat-stroked-button
+            color="primary"
+            type="button"
+            [disabled]="!isStatus('APPROVED') || !canExecute()"
+            (click)="startPreparation()"
+          >
+            Start Preparation
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="!isStatus('IN_PREPARATION') || !canExecute()"
+            (click)="markDispatched()"
+          >
+            Mark Dispatched
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="!isStatus('DISPATCHED') || !canExecute()"
+            (click)="markReceived()"
+          >
+            Mark Received
+          </button>
+          <button
+            mat-stroked-button
+            color="primary"
+            type="button"
+            [disabled]="!isStatus('RECEIVED') || !canExecute()"
+            (click)="markCompleted()"
+          >
+            Mark Completed
+          </button>
+          <button
+            mat-stroked-button
+            color="warn"
+            type="button"
+            [disabled]="!canCancel() || !(isStatus('APPROVED') || isStatus('IN_PREPARATION'))"
+            (click)="cancelExecution()"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
     </ng-container>
@@ -281,6 +358,28 @@
             </div>
             <div *ngIf="!isDraftEditable() || !canEditLines()">
               {{ requiredQty(item) | number : '1.0-2' }}
+            </div>
+            <div
+              class="review-comment"
+              *ngIf="canReviewComments() && isStatus('UNDER_REVIEW')"
+            >
+              <span class="qty-label">Review Comment</span>
+              <input
+                matInput
+                type="text"
+                class="qty-input"
+                [value]="(reviewEdits[item.item_id] && reviewEdits[item.item_id].comment) || item.review_comment || ''"
+                (input)="updateReviewComment(item, $any($event.target).value)"
+              />
+              <button
+                mat-stroked-button
+                color="primary"
+                type="button"
+                class="override-action"
+                (click)="applyReviewComment(item)"
+              >
+                Save Comment
+              </button>
             </div>
           </td>
         </ng-container>
