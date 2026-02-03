@@ -14,6 +14,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router } from '@angular/router';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { StockStatusItem, StockStatusResponse, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel } from '../models/stock-status.model';
+import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 
 interface FilterState {
   categories: string[];
@@ -37,7 +38,8 @@ interface FilterState {
     MatProgressBarModule,
     MatSelectModule,
     MatTableModule,
-    MatTooltipModule
+    MatTooltipModule,
+    TimeToStockoutComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
@@ -347,6 +349,18 @@ export class StockStatusDashboardComponent implements OnInit {
       case 'stable': return 'trend-stable';
       default: return '';
     }
+  }
+
+  getTimeToStockoutData(item: StockStatusItem): TimeToStockoutData {
+    const hours = item.time_to_stockout_hours ?? null;
+    const severity = item.severity ?? 'OK';
+    const hasBurnRate = item.burn_rate_per_hour > 0;
+
+    return {
+      hours,
+      severity,
+      hasBurnRate
+    };
   }
 
   hasCriticalItems(): boolean {

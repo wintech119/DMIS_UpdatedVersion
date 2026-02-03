@@ -1,0 +1,209 @@
+// Time-to-Stockout Component Styles
+.time-to-stockout-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+
+  .stockout-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .action-icon {
+      font-size: 24px;
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .stockout-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+
+      .countdown {
+        font-weight: 600;
+        font-size: 14px;
+        line-height: 1.2;
+      }
+
+      .urgency-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        border-radius: 2px;
+        background-color: #dc3545;
+        color: white;
+        width: fit-content;
+        letter-spacing: 0.5px;
+      }
+    }
+  }
+
+  .progress-container {
+    width: 100%;
+
+    mat-progress-bar {
+      height: 6px;
+      border-radius: 3px;
+      overflow: hidden;
+
+      ::ng-deep .mat-mdc-progress-bar-buffer {
+        background-color: rgba(0, 0, 0, 0.1);
+      }
+    }
+  }
+
+  // Severity-based color coding
+  &.severity-critical {
+    background-color: #fff5f5;
+    border-left: 4px solid #dc3545;
+
+    .action-icon {
+      color: #dc3545;
+    }
+
+    .countdown {
+      color: #dc3545;
+    }
+
+    .progress-critical ::ng-deep .mat-mdc-progress-bar-fill::after {
+      background-color: #dc3545;
+    }
+  }
+
+  &.severity-warning {
+    background-color: #fffbf0;
+    border-left: 4px solid #fd7e14;
+
+    .action-icon {
+      color: #fd7e14;
+    }
+
+    .countdown {
+      color: #fd7e14;
+    }
+
+    .progress-warning ::ng-deep .mat-mdc-progress-bar-fill::after {
+      background-color: #fd7e14;
+    }
+  }
+
+  &.severity-watch {
+    background-color: #ffffea;
+    border-left: 4px solid #ffc107;
+
+    .action-icon {
+      color: #f59e0b;
+    }
+
+    .countdown {
+      color: #f59e0b;
+    }
+
+    .progress-watch ::ng-deep .mat-mdc-progress-bar-fill::after {
+      background-color: #ffc107;
+    }
+  }
+
+  &.severity-ok {
+    background-color: #f0fdf4;
+    border-left: 4px solid #28a745;
+
+    .action-icon {
+      color: #28a745;
+    }
+
+    .countdown {
+      color: #28a745;
+    }
+
+    .progress-ok ::ng-deep .mat-mdc-progress-bar-fill::after {
+      background-color: #28a745;
+    }
+  }
+
+  // Hover effect
+  &:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+  }
+}
+
+// Pulse animation for CRITICAL items
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-text {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.pulse-animation {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.pulse-text {
+  animation: pulse-text 2s ease-in-out infinite;
+}
+
+// Mobile responsiveness
+@media (max-width: 768px) {
+  .time-to-stockout-container {
+    min-width: 140px;
+    padding: 6px;
+
+    .stockout-main {
+      gap: 6px;
+
+      .action-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+      }
+
+      .stockout-text {
+        .countdown {
+          font-size: 12px;
+        }
+
+        .urgency-badge {
+          font-size: 8px;
+          padding: 1px 4px;
+        }
+      }
+    }
+
+    .progress-container {
+      mat-progress-bar {
+        height: 4px;
+      }
+    }
+  }
+}
