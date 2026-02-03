@@ -14,7 +14,7 @@ Redesign the Needs List generation flow as a 3-step wizard to make the workflow 
 
 Transform into a linear 3-step wizard with clear progression:
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │  [1] Review Scope  →  [2] Preview  →  [3] Submit │
 └─────────────────────────────────────────────────┘
@@ -24,7 +24,7 @@ Transform into a linear 3-step wizard with clear progression:
 
 ### Component Structure
 
-```
+```text
 needs-list-wizard/
 ├── needs-list-wizard.component.ts       (Container with stepper)
 ├── needs-list-wizard.component.html
@@ -74,7 +74,7 @@ interface WizardState {
 **Purpose**: Set parameters before calculation
 
 **UI Elements**:
-```
+```text
 ┌────────────────────────────────────────┐
 │  Current Event Phase: SURGE            │
 │  ├─ Demand Window: 6 hours            │
@@ -125,7 +125,7 @@ POST /api/v1/replenishment/needs-list/preview
 **Purpose**: Review gaps, adjust quantities, see recommendations
 
 **UI Elements**:
-```
+```text
 ┌────────────────────────────────────────────────────────────────────┐
 │  Gap Analysis Results                                              │
 │  Total Items: 42 | Critical: 8 | Warning: 15 | Watch: 12 | OK: 7  │
@@ -187,7 +187,7 @@ adjustments[item_id] = {
 **Purpose**: Final review and submission
 
 **UI Elements**:
-```
+```text
 ┌────────────────────────────────────────────────┐
 │  Needs List Summary                            │
 ├────────────────────────────────────────────────┤
