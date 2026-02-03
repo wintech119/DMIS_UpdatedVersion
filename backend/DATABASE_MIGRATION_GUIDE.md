@@ -81,17 +81,6 @@ psql -h localhost -U dmis_user -d dmis_db -f EP02_SUPPLY_REPLENISHMENT_SCHEMA.sq
 ```
 
 **Expected Output:**
-```
-ALTER TABLE
-ALTER TABLE
-ALTER TABLE
-...
-CREATE TABLE
-CREATE INDEX
-COMMENT
-...
-INSERT 0 3
-```
 
 ### Step 3: Verify Schema Changes
 
