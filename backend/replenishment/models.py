@@ -118,6 +118,7 @@ class NeedsList(AuditedModel):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
         ('PENDING_APPROVAL', 'Pending Approval'),
+        ('UNDER_REVIEW', 'Under Review'),
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('RETURNED', 'Returned'),
@@ -144,11 +145,16 @@ class NeedsList(AuditedModel):
     # Workflow timestamps
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.CharField(max_length=20, null=True, blank=True)
+    under_review_at = models.DateTimeField(null=True, blank=True)
+    under_review_by = models.CharField(max_length=20, null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.CharField(max_length=20, null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)
     rejected_by = models.CharField(max_length=20, null=True, blank=True)
     rejection_reason = models.CharField(max_length=255, null=True, blank=True)
+    returned_at = models.DateTimeField(null=True, blank=True)
+    returned_by = models.CharField(max_length=20, null=True, blank=True)
+    returned_reason = models.CharField(max_length=255, null=True, blank=True)
 
     superseded_by = models.ForeignKey(
         'self',

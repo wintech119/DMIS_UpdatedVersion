@@ -209,6 +209,9 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         if 'submitted_at' in record and record['submitted_at']:
             needs_list.submitted_at = record['submitted_at']
             needs_list.submitted_by = record.get('submitted_by')
+        if 'reviewed_at' in record and record['reviewed_at']:
+            needs_list.under_review_at = record['reviewed_at']
+            needs_list.under_review_by = record.get('reviewed_by')
         if 'approved_at' in record and record['approved_at']:
             needs_list.approved_at = record['approved_at']
             needs_list.approved_by = record.get('approved_by')
@@ -216,6 +219,11 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
             needs_list.rejected_at = record['rejected_at']
             needs_list.rejected_by = record.get('rejected_by')
             needs_list.rejection_reason = record.get('reject_reason')
+        if 'returned_at' in record and record['returned_at']:
+            needs_list.returned_at = record['returned_at']
+            needs_list.returned_by = record.get('returned_by')
+        if 'return_reason' in record and record['return_reason']:
+            needs_list.returned_reason = record.get('return_reason')
 
         needs_list.save()
 
@@ -469,6 +477,9 @@ def transition_status(
     if to_status == 'PENDING_APPROVAL':
         needs_list.submitted_at = now
         needs_list.submitted_by = actor
+    elif to_status == 'UNDER_REVIEW':
+        needs_list.under_review_at = now
+        needs_list.under_review_by = actor
     elif to_status == 'APPROVED':
         needs_list.approved_at = now
         needs_list.approved_by = actor
@@ -476,6 +487,10 @@ def transition_status(
         needs_list.rejected_at = now
         needs_list.rejected_by = actor
         needs_list.rejection_reason = reason
+    elif to_status == 'RETURNED':
+        needs_list.returned_at = now
+        needs_list.returned_by = actor
+        needs_list.returned_reason = reason
     elif to_status == 'CANCELLED':
         needs_list.rejection_reason = reason  # Reuse rejection_reason field
 
@@ -599,8 +614,8 @@ def _needs_list_to_dict(
         'updated_at': needs_list.update_dtime.isoformat(),
         'submitted_by': needs_list.submitted_by,
         'submitted_at': needs_list.submitted_at.isoformat() if needs_list.submitted_at else None,
-        'reviewed_by': None,  # TODO: Add to model if needed
-        'reviewed_at': None,
+        'reviewed_by': needs_list.under_review_by,
+        'reviewed_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
         'approved_by': needs_list.approved_by,
         'approved_at': needs_list.approved_at.isoformat() if needs_list.approved_at else None,
         'approval_tier': None,  # TODO: Add to model if needed
@@ -619,7 +634,7 @@ def _needs_list_to_dict(
         'escalated_by': None,  # TODO: Add escalation tracking
         'escalated_at': None,
         'escalation_reason': None,
-        'return_reason': needs_list.rejection_reason if needs_list.status_code == 'RETURNED' else None,
+        'return_reason': needs_list.returned_reason if needs_list.status_code == 'RETURNED' else None,
         'reject_reason': needs_list.rejection_reason if needs_list.status_code == 'REJECTED' else None,
         'line_overrides': line_overrides,
         'line_review_notes': line_review_notes,

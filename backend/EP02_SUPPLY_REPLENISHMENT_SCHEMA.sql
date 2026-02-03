@@ -168,11 +168,16 @@ CREATE TABLE IF NOT EXISTS public.needs_list (
     total_estimated_value NUMERIC(15,2) DEFAULT 0.00,
     submitted_at TIMESTAMP(0) WITHOUT TIME ZONE,
     submitted_by VARCHAR(20),
+    under_review_at TIMESTAMP(0) WITHOUT TIME ZONE,
+    under_review_by VARCHAR(20),
     approved_at TIMESTAMP(0) WITHOUT TIME ZONE,
     approved_by VARCHAR(20),
     rejected_at TIMESTAMP(0) WITHOUT TIME ZONE,
     rejected_by VARCHAR(20),
     rejection_reason VARCHAR(255),
+    returned_at TIMESTAMP(0) WITHOUT TIME ZONE,
+    returned_by VARCHAR(20),
+    returned_reason VARCHAR(255),
     superseded_by_id INTEGER REFERENCES public.needs_list(needs_list_id),
     notes_text TEXT,
     create_by_id VARCHAR(20) NOT NULL,
@@ -184,7 +189,7 @@ CREATE TABLE IF NOT EXISTS public.needs_list (
     CONSTRAINT c_needs_list_phase CHECK (event_phase IN ('SURGE', 'STABILIZED', 'BASELINE')),
     CONSTRAINT c_needs_list_freshness CHECK (data_freshness_level IN ('HIGH', 'MEDIUM', 'LOW')),
     CONSTRAINT c_needs_list_status CHECK (status_code IN (
-        'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED',
+        'DRAFT', 'PENDING_APPROVAL', 'UNDER_REVIEW', 'APPROVED', 'REJECTED',
         'RETURNED', 'IN_PROGRESS', 'FULFILLED', 'CANCELLED', 'SUPERSEDED'
     )),
     CONSTRAINT c_needs_list_gap CHECK (total_gap_qty >= 0.00)
