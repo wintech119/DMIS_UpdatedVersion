@@ -82,6 +82,8 @@ def create_draft(
     if actor is None:
         actor = 'SYSTEM'
 
+    items = list(items)
+
     # Extract header data
     event_id = payload.get('event_id')
     warehouse_id = payload.get('warehouse_id')
