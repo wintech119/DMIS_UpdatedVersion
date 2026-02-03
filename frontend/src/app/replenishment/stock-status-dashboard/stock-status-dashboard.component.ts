@@ -267,9 +267,9 @@ export class StockStatusDashboardComponent implements OnInit {
     if (item.burn_rate_per_hour === 0) {
       const freshness = item.freshness?.state;
       if (freshness === 'LOW' || freshness === 'MEDIUM') {
-        return '0 (estimated - no recent data)';
+        return '0 units/hr (estimated - no recent data)';
       }
-      return '0 - No current demand';
+      return '0 units/hr - No current demand';
     }
 
     return `${rate} units/hr`;
