@@ -389,8 +389,12 @@ export class StockStatusDashboardComponent implements OnInit {
 
       switch (this.sortBy) {
         case 'time_to_stockout': {
-          const timeA = a.time_to_stockout_hours ?? a.time_to_stockout ?? Infinity;
-          const timeB = b.time_to_stockout_hours ?? b.time_to_stockout ?? Infinity;
+          const normalizeTime = (value: unknown): number => {
+            const numeric = typeof value === 'number' ? value : Number(value);
+            return Number.isFinite(numeric) ? numeric : Infinity;
+          };
+          const timeA = normalizeTime(a.time_to_stockout_hours ?? a.time_to_stockout);
+          const timeB = normalizeTime(b.time_to_stockout_hours ?? b.time_to_stockout);
           comparison = timeA - timeB;
           break;
         }
@@ -406,7 +410,6 @@ export class StockStatusDashboardComponent implements OnInit {
           comparison = nameA.localeCompare(nameB);
           break;
         }
-      }
       }
 
       return this.sortDirection === 'asc' ? comparison : -comparison;
