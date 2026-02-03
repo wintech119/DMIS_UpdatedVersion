@@ -571,8 +571,8 @@ def _needs_list_to_dict(
                 'horizon_c_qty': float(item.horizon_c_qty),
                 'computed_required_qty': float(item.required_qty),
                 # Add override fields if present
-                'override_reason': item.adjustment_notes if item.adjusted_qty else None,
-                'override_updated_by': item.adjusted_by if item.adjusted_qty else None,
+                'override_reason': item.adjustment_notes if item.adjusted_qty is not None else None,
+                'override_updated_by': item.adjusted_by if item.adjusted_qty is not None else None,
                 'override_updated_at': item.adjusted_at.isoformat() if item.adjusted_at else None,
             }
             for item in needs_list.items.all()
@@ -594,14 +594,15 @@ def _needs_list_to_dict(
 
     # Build line review notes dict from audit logs
     line_review_notes = {}
-    for audit in needs_list.audit_logs.filter(action_type='COMMENT_ADDED'):
+    for audit in needs_list.audit_logs.filter(action_type='COMMENT_ADDED').order_by('-action_dtime'):
         if audit.needs_list_item:
             item_id = str(audit.needs_list_item.item_id)
-            line_review_notes[item_id] = {
-                'comment': audit.notes_text,
-                'updated_by': audit.actor_user_id,
-                'updated_at': audit.action_dtime.isoformat(),
-            }
+            if item_id not in line_review_notes:
+                line_review_notes[item_id] = {
+                    'comment': audit.notes_text,
+                    'updated_by': audit.actor_user_id,
+                    'updated_at': audit.action_dtime.isoformat(),
+                }
 
     return {
         'needs_list_id': str(needs_list.needs_list_id),  # String for backward compatibility
