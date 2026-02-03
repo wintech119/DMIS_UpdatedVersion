@@ -568,8 +568,10 @@ SELECT
     END AS data_freshness
 FROM public.warehouse w
 CROSS JOIN public.item i
-LEFT JOIN public.inventory inv ON inv.item_id = i.item_id
-    -- Note: inventory table uses inventory_id, need to map via item_location or similar
+LEFT JOIN public.inventory inv
+    ON inv.item_id = i.item_id
+    AND inv.inventory_id = w.warehouse_id
+    -- inventory_id corresponds to warehouse_id for per-warehouse stock
 WHERE w.status_code = 'A'
   AND i.status_code = 'A';
 
