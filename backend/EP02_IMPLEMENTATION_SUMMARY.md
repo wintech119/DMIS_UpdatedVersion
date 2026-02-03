@@ -180,29 +180,6 @@ from replenishment import workflow_store_db as workflow_store
 ### Step 4: Test the Changes
 
 1. **Create a test needs list:**
-   ```bash
-   curl -X POST http://localhost:8000/api/v1/replenishment/needs-list/preview \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer YOUR_TOKEN" \
-     -d '{
-       "event_id": 1,
-       "warehouse_id": 1,
-       "phase": "BASELINE"
-     }'
-   ```
-
-2. **Create a draft:**
-   ```bash
-   curl -X POST http://localhost:8000/api/v1/replenishment/needs-list/draft \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer YOUR_TOKEN" \
-     -d '{
-       "event_id": 1,
-       "warehouse_id": 1,
-       "phase": "BASELINE",
-       "snapshot": { ... }
-     }'
-   ```
 
 3. **Verify in database:**
    ```sql
