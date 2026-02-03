@@ -348,8 +348,14 @@ def add_line_overrides(
             continue
 
         try:
+            overridden_qty_decimal = Decimal(str(overridden_qty))
+        except (InvalidOperation, ValueError, TypeError):
+            errors.append(f"invalid overridden_qty for item_id {item_id}")
+            continue
+
+        try:
             item = needs_list.items.get(item_id=int(item_id))
-            item.adjusted_qty = Decimal(str(overridden_qty))
+            item.adjusted_qty = overridden_qty_decimal
             item.adjustment_reason = 'OTHER'
             item.adjustment_notes = reason
             item.adjusted_by = actor
