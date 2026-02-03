@@ -207,7 +207,35 @@
               <td>{{ item.available_qty | number: '1.0-0' }}</td>
               <td>{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
               <td>
-                {{ formatBurnRate(item) }}
+                <div class="burn-rate-cell" [matTooltip]="getBurnRateTooltip(item)" matTooltipPosition="above">
+                  <div class="burn-rate-main">
+                    <span class="burn-rate-value" [ngClass]="{
+                      'burn-rate-zero-stale': shouldShowZeroWarning(item),
+                      'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                    }">
+                      {{ getBurnRateDisplay(item) }}
+                    </span>
+                    <mat-icon
+                      *ngIf="item.burn_rate_trend && getTrendIcon(item.burn_rate_trend)"
+                      class="trend-icon"
+                      [ngClass]="getTrendClass(item.burn_rate_trend)"
+                      inline="true"
+                    >
+                      {{ getTrendIcon(item.burn_rate_trend) }}
+                    </mat-icon>
+                  </div>
+                  <div class="burn-rate-indicators">
+                    <span
+                      class="confidence-badge"
+                      [ngClass]="getBurnRateConfidenceClass(getBurnRateConfidence(item))"
+                    >
+                      {{ getBurnRateConfidence(item) }}
+                    </span>
+                    <span class="stale-badge" *ngIf="isStaleDataBurnRate(item)">
+                      ⚠ Stale Data
+                    </span>
+                  </div>
+                </div>
               </td>
               <td>
                 <strong [ngClass]="'text-' + (item.severity?.toLowerCase() || 'ok')">
