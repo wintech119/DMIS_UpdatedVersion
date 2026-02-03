@@ -1,0 +1,35 @@
+<div
+  class="time-to-stockout-container"
+  [ngClass]="getSeverityClass()"
+  [matTooltip]="getTooltip()"
+  matTooltipPosition="above"
+>
+  <!-- Main Display -->
+  <div class="stockout-main">
+    <!-- Action Icon -->
+    <mat-icon
+      class="action-icon"
+      [ngClass]="{'pulse-animation': shouldPulse()}"
+      inline="true"
+    >
+      {{ getActionIcon() }}
+    </mat-icon>
+
+    <!-- Countdown Text -->
+    <div class="stockout-text" [ngClass]="{'pulse-text': shouldPulse()}">
+      <span class="countdown">{{ getDisplayText() }}</span>
+      <span class="urgency-badge" *ngIf="getUrgencyBadge() as badge">
+        {{ badge }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Progress Bar -->
+  <div class="progress-container" *ngIf="data.hasBurnRate">
+    <mat-progress-bar
+      mode="determinate"
+      [value]="getProgressValue()"
+      [ngClass]="getProgressColorClass()"
+    ></mat-progress-bar>
+  </div>
+</div>
