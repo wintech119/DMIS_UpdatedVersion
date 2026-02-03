@@ -99,6 +99,11 @@ def create_draft(
     windows = phase_windows.get(phase, phase_windows['BASELINE'])
     demand_window_hours = windows['demand']
     planning_window_hours = windows['planning']
+    if planning_window_days is not None:
+        try:
+            planning_window_hours = int(float(planning_window_days) * 24)
+        except (TypeError, ValueError):
+            pass
 
     # Generate unique needs list number
     needs_list_no = _generate_needs_list_no(event_id, warehouse_id)
