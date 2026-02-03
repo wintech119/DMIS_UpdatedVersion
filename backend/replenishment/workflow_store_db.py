@@ -216,7 +216,10 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         if 'submitted_at' in record and record['submitted_at']:
             needs_list.submitted_at = record['submitted_at']
             needs_list.submitted_by = record.get('submitted_by')
-        if 'reviewed_at' in record and record['reviewed_at']:
+        if 'review_started_at' in record and record['review_started_at']:
+            needs_list.under_review_at = record['review_started_at']
+            needs_list.under_review_by = record.get('review_started_by')
+        elif 'reviewed_at' in record and record['reviewed_at']:
             needs_list.under_review_at = record['reviewed_at']
             needs_list.under_review_by = record.get('reviewed_by')
         if 'approved_at' in record and record['approved_at']:
@@ -635,6 +638,8 @@ def _needs_list_to_dict(
         'submitted_at': needs_list.submitted_at.isoformat() if needs_list.submitted_at else None,
         'reviewed_by': needs_list.under_review_by,
         'reviewed_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
+        'review_started_by': needs_list.under_review_by,
+        'review_started_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
         'approved_by': needs_list.approved_by,
         'approved_at': needs_list.approved_at.isoformat() if needs_list.approved_at else None,
         'approval_tier': None,  # TODO: Add to model if needed
@@ -653,7 +658,11 @@ def _needs_list_to_dict(
         'escalated_by': None,  # TODO: Add escalation tracking
         'escalated_at': None,
         'escalation_reason': None,
+        'returned_by': needs_list.returned_by,
+        'returned_at': needs_list.returned_at.isoformat() if needs_list.returned_at else None,
         'return_reason': needs_list.returned_reason if needs_list.status_code == 'RETURNED' else None,
+        'rejected_by': needs_list.rejected_by,
+        'rejected_at': needs_list.rejected_at.isoformat() if needs_list.rejected_at else None,
         'reject_reason': needs_list.rejection_reason if needs_list.status_code == 'REJECTED' else None,
         'line_overrides': line_overrides,
         'line_review_notes': line_review_notes,
