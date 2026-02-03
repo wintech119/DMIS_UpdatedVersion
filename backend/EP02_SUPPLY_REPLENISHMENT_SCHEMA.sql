@@ -504,6 +504,9 @@ CREATE TABLE IF NOT EXISTS public.lead_time_config (
     effective_to DATE,
     create_by_id VARCHAR(20) NOT NULL,
     create_dtime TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_by_id VARCHAR(20) NOT NULL,
+    update_dtime TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version_nbr INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT c_ltc_horizon CHECK (horizon IN ('A', 'B', 'C')),
     CONSTRAINT c_ltc_lead_time CHECK (lead_time_hours > 0),
@@ -518,7 +521,6 @@ CREATE TABLE IF NOT EXISTS public.lead_time_config (
 );
 
 COMMENT ON TABLE public.lead_time_config IS 'Configurable lead times for Three Horizons: A (warehouse routes), B (donations), C (suppliers)';
-
 
 -- ============================================================================
 -- PART 3: FOREIGN KEY ADDITIONS
