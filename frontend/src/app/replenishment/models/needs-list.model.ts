@@ -3,7 +3,7 @@ import { EventPhase, SeverityLevel, FreshnessLevel } from '../models/stock-statu
 export interface NeedsListItem {
   item_id: number;
   item_name?: string;
-  warehouse_id: number;              // NEW for multi-warehouse
+  warehouse_id?: number;             // NEW for multi-warehouse
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
   inbound_strict_qty: number;
@@ -87,8 +87,8 @@ export interface ApprovalSummary {
 export interface NeedsListResponse {
   event_id: number;
   phase: EventPhase;
-  warehouse_ids: number[];           // NEW (array for multi-warehouse)
-  warehouses: WarehouseInfo[];       // NEW (warehouse metadata)
+  warehouse_ids?: number[];          // NEW (array for multi-warehouse)
+  warehouses?: WarehouseInfo[];      // NEW (warehouse metadata)
   items: NeedsListItem[];
   as_of_datetime: string;
   planning_window_days?: number;
