@@ -260,11 +260,91 @@ export class StockStatusDashboardComponent implements OnInit {
     return `${rate} units/hr${estimated}`;
   }
 
+  getBurnRateDisplay(item: StockStatusItem): string {
+    const rate = item.burn_rate_per_hour.toFixed(2);
+
+    // Handle zero burn rate cases
+    if (item.burn_rate_per_hour === 0) {
+      const freshness = item.freshness?.state;
+      if (freshness === 'LOW' || freshness === 'MEDIUM') {
+        return '0 (estimated - no recent data)';
+      }
+      return '0 - No current demand';
+    }
+
+    return `${rate} units/hr`;
+  }
+
+  getBurnRateConfidence(item: StockStatusItem): FreshnessLevel {
+    return item.freshness?.state ?? 'HIGH';
+  }
+
+  getBurnRateConfidenceClass(level: FreshnessLevel): string {
+    const classMap: Record<FreshnessLevel, string> = {
+      'HIGH': 'confidence-high',
+      'MEDIUM': 'confidence-medium',
+      'LOW': 'confidence-low'
+    };
+    return classMap[level];
+  }
+
+  getBurnRateTooltip(item: StockStatusItem): string {
+    const freshness = item.freshness;
+    const rate = item.burn_rate_per_hour.toFixed(2);
+
+    // Build tooltip text
+    let tooltip = `Burn Rate: ${rate} units/hr\n`;
+
+    if (item.is_estimated) {
+      tooltip += 'Status: Estimated (limited data)\n';
+    }
+
+    if (freshness) {
+      tooltip += `Data Freshness: ${freshness.state}\n`;
+      if (freshness.age_hours !== null) {
+        tooltip += `Age: ${freshness.age_hours.toFixed(1)} hours old\n`;
+      }
+      if (freshness.inventory_as_of) {
+        tooltip += `Last Updated: ${new Date(freshness.inventory_as_of).toLocaleString()}\n`;
+      }
+    }
+
+    // Add context about trend
+    if (item.burn_rate_trend) {
+      const trendText = {
+        'up': 'Demand increasing',
+        'down': 'Demand decreasing',
+        'stable': 'Demand stable'
+      };
+      tooltip += `Trend: ${trendText[item.burn_rate_trend]}`;
+    }
+
+    return tooltip;
+  }
+
+  isStaleDataBurnRate(item: StockStatusItem): boolean {
+    return item.freshness?.state === 'LOW';
+  }
+
+  shouldShowZeroWarning(item: StockStatusItem): boolean {
+    return item.burn_rate_per_hour === 0 &&
+           (item.freshness?.state === 'LOW' || item.freshness?.state === 'MEDIUM');
+  }
+
   getTrendIcon(trend?: 'up' | 'down' | 'stable'): string {
     switch (trend) {
       case 'up': return 'trending_up';
       case 'down': return 'trending_down';
       case 'stable': return 'trending_flat';
+      default: return '';
+    }
+  }
+
+  getTrendClass(trend?: 'up' | 'down' | 'stable'): string {
+    switch (trend) {
+      case 'up': return 'trend-up';
+      case 'down': return 'trend-down';
+      case 'stable': return 'trend-stable';
       default: return '';
     }
   }
