@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, Tuple
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from .models import (
     NeedsList,
@@ -49,6 +49,15 @@ def _generate_needs_list_no(event_id: int, warehouse_id: int) -> str:
 
     seq = existing + 1
     return f"{prefix}-{seq:03d}"
+
+
+def _coerce_optional_decimal(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
 @transaction.atomic
@@ -119,6 +128,7 @@ def create_draft(
 
     # Create line items
     for item_data in items:
+        time_to_stockout = _coerce_optional_decimal(item_data.get('time_to_stockout'))
         NeedsListItem.objects.create(
             needs_list=needs_list,
             item_id=item_data.get('item_id'),
@@ -133,7 +143,7 @@ def create_draft(
             required_qty=Decimal(str(item_data.get('required_qty', 0))),
             coverage_qty=Decimal(str(item_data.get('coverage_qty', 0))),
             gap_qty=Decimal(str(item_data.get('gap_qty', 0))),
-            time_to_stockout_hours=Decimal(str(item_data['time_to_stockout'])) if item_data.get('time_to_stockout') else None,
+            time_to_stockout_hours=time_to_stockout,
             severity_level=item_data.get('severity', 'OK'),
             horizon_a_qty=Decimal(str(item_data.get('horizon_a_qty', 0))),
             horizon_b_qty=Decimal(str(item_data.get('horizon_b_qty', 0))),
