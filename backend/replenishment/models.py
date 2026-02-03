@@ -155,6 +155,8 @@ class NeedsList(AuditedModel):
     returned_at = models.DateTimeField(null=True, blank=True)
     returned_by = models.CharField(max_length=20, null=True, blank=True)
     returned_reason = models.CharField(max_length=255, null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.CharField(max_length=20, null=True, blank=True)
 
     superseded_by = models.ForeignKey(
         'self',

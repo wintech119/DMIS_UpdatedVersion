@@ -229,6 +229,9 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
             needs_list.returned_by = record.get('returned_by')
         if 'return_reason' in record and record['return_reason']:
             needs_list.returned_reason = record.get('return_reason')
+        if 'cancelled_at' in record and record['cancelled_at']:
+            needs_list.cancelled_at = record['cancelled_at']
+            needs_list.cancelled_by = record.get('cancelled_by')
 
         needs_list.save()
 
@@ -497,6 +500,8 @@ def transition_status(
         needs_list.returned_by = actor
         needs_list.returned_reason = reason
     elif to_status == 'CANCELLED':
+        needs_list.cancelled_at = now
+        needs_list.cancelled_by = actor
         needs_list.rejection_reason = reason  # Reuse rejection_reason field
 
     needs_list.save()
@@ -634,8 +639,8 @@ def _needs_list_to_dict(
         'received_at': None,
         'completed_by': None,
         'completed_at': None,
-        'cancelled_by': needs_list.rejected_by if needs_list.status_code == 'CANCELLED' else None,
-        'cancelled_at': needs_list.rejected_at.isoformat() if needs_list.status_code == 'CANCELLED' and needs_list.rejected_at else None,
+        'cancelled_by': needs_list.cancelled_by if needs_list.status_code == 'CANCELLED' else None,
+        'cancelled_at': needs_list.cancelled_at.isoformat() if needs_list.status_code == 'CANCELLED' and needs_list.cancelled_at else None,
         'cancel_reason': needs_list.rejection_reason if needs_list.status_code == 'CANCELLED' else None,
         'escalated_by': None,  # TODO: Add escalation tracking
         'escalated_at': None,

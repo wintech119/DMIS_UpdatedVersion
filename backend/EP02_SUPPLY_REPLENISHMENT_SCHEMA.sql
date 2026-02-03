@@ -178,6 +178,8 @@ CREATE TABLE IF NOT EXISTS public.needs_list (
     returned_at TIMESTAMP(0) WITHOUT TIME ZONE,
     returned_by VARCHAR(20),
     returned_reason VARCHAR(255),
+    cancelled_at TIMESTAMP(0) WITHOUT TIME ZONE,
+    cancelled_by VARCHAR(20),
     superseded_by_id INTEGER REFERENCES public.needs_list(needs_list_id),
     notes_text TEXT,
     create_by_id VARCHAR(20) NOT NULL,
