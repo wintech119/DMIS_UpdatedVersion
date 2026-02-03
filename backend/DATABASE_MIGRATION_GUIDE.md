@@ -264,10 +264,10 @@ sudo journalctl -u dmis_api -f
 # Test health endpoint
 curl -X GET http://localhost:8000/api/v1/health/
 
-# Test needs list preview (replace with actual values)
+# Test needs list preview (export API_TOKEN first, replace with actual values)
 curl -X POST http://localhost:8000/api/v1/replenishment/needs-list/preview \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer $API_TOKEN" \
   -d '{
     "event_id": 1,
     "warehouse_id": 1,
