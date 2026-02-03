@@ -355,6 +355,91 @@
   }
 }
 
+// Burn Rate Display
+.burn-rate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .burn-rate-main {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    .burn-rate-value {
+      font-weight: 500;
+
+      &.burn-rate-zero-stale {
+        color: #fd7e14;
+        font-style: italic;
+      }
+
+      &.burn-rate-zero-fresh {
+        color: #6c757d;
+      }
+    }
+
+    .trend-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+
+      &.trend-up {
+        color: #dc3545;
+      }
+
+      &.trend-down {
+        color: #28a745;
+      }
+
+      &.trend-stable {
+        color: #6c757d;
+      }
+    }
+  }
+
+  .burn-rate-indicators {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+
+    .confidence-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      border-radius: 2px;
+
+      &.confidence-high {
+        background-color: #d4edda;
+        color: #155724;
+      }
+
+      &.confidence-medium {
+        background-color: #fff3cd;
+        color: #856404;
+      }
+
+      &.confidence-low {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+    }
+
+    .stale-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 9px;
+      font-weight: 600;
+      background-color: #dc3545;
+      color: white;
+      border-radius: 2px;
+    }
+  }
+}
+
 // Text Utilities
 .text-muted {
   color: #6c757d;
