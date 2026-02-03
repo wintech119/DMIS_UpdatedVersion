@@ -181,12 +181,7 @@ from replenishment import workflow_store_db as workflow_store
 
 1. **Create a test needs list:**
 
-3. **Verify in database:**
-   ```sql
-   SELECT needs_list_no, status_code, create_dtime
-   FROM public.needs_list
-   ORDER BY create_dtime DESC
-   LIMIT 5;
+2. **Verify in database:**
 
    SELECT COUNT(*) FROM public.needs_list_item;
    SELECT COUNT(*) FROM public.needs_list_audit;
