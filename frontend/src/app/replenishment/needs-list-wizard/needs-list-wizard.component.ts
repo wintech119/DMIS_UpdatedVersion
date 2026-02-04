@@ -21,7 +21,7 @@ import { WizardStateService } from './services/wizard-state.service';
     MatTooltipModule
   ],
   templateUrl: './needs-list-wizard.component.html',
-  styleUrl: './needs-list-wizard.component.scss'
+  styleUrls: ['./needs-list-wizard.component.scss']
 })
 export class NeedsListWizardComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
