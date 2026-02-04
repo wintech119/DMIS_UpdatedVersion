@@ -147,6 +147,8 @@ class NeedsList(AuditedModel):
     submitted_by = models.CharField(max_length=20, null=True, blank=True)
     under_review_at = models.DateTimeField(null=True, blank=True)
     under_review_by = models.CharField(max_length=20, null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.CharField(max_length=20, null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.CharField(max_length=20, null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)

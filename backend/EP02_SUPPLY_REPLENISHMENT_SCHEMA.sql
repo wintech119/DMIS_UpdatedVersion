@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS public.needs_list (
     submitted_by VARCHAR(20),
     under_review_at TIMESTAMP(0) WITHOUT TIME ZONE,
     under_review_by VARCHAR(20),
+    reviewed_at TIMESTAMP(0) WITHOUT TIME ZONE,
+    reviewed_by VARCHAR(20),
     approved_at TIMESTAMP(0) WITHOUT TIME ZONE,
     approved_by VARCHAR(20),
     rejected_at TIMESTAMP(0) WITHOUT TIME ZONE,

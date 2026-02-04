@@ -244,9 +244,9 @@ def transition_status(
     if to_status == "UNDER_REVIEW":
         record["review_started_by"] = actor
         record["review_started_at"] = now
+    if to_status == "APPROVED":
         record["reviewed_by"] = actor
         record["reviewed_at"] = now
-    if to_status == "APPROVED":
         record["approved_by"] = actor
         record["approved_at"] = now
     if to_status == "IN_PREPARATION":
@@ -262,10 +262,14 @@ def transition_status(
         record["completed_by"] = actor
         record["completed_at"] = now
     if to_status == "REJECTED":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
         record["rejected_by"] = actor
         record["rejected_at"] = now
         record["reject_reason"] = reason
     if to_status == "RETURNED":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
         record["returned_by"] = actor
         record["returned_at"] = now
         record["return_reason"] = reason
