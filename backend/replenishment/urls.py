@@ -11,6 +11,7 @@ from replenishment.views import (
     needs_list_mark_dispatched,
     needs_list_mark_received,
     needs_list_preview,
+    needs_list_preview_multi,
     needs_list_reject,
     needs_list_return,
     needs_list_review_comments,
@@ -21,6 +22,7 @@ from replenishment.views import (
 
 urlpatterns = [
     path("needs-list/preview", needs_list_preview, name="needs_list_preview"),
+    path("needs-list/preview-multi", needs_list_preview_multi, name="needs_list_preview_multi"),
     path("needs-list/draft", needs_list_draft, name="needs_list_draft"),
     path("needs-list/<str:needs_list_id>", needs_list_get, name="needs_list_get"),
     path(

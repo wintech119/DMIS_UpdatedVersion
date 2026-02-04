@@ -299,6 +299,114 @@ def needs_list_preview(request):
 
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_preview_multi(request):
+    """
+    Generate needs list preview for multiple warehouses.
+    Aggregates results across selected warehouses.
+    """
+    payload = request.data or {}
+    warehouse_ids = payload.get("warehouse_ids", [])
+
+    if not warehouse_ids or not isinstance(warehouse_ids, list):
+        return Response({"errors": {"warehouse_ids": "warehouse_ids array required"}}, status=400)
+
+    errors: Dict[str, str] = {}
+
+    # Validate event_id
+    event_id = _parse_positive_int(payload.get("event_id"), "event_id", errors)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    # Validate warehouse_ids are positive integers
+    validated_warehouse_ids = []
+    for wh_id in warehouse_ids:
+        wh_id_parsed = _parse_positive_int(wh_id, "warehouse_id", errors)
+        if wh_id_parsed:
+            validated_warehouse_ids.append(wh_id_parsed)
+
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    if not validated_warehouse_ids:
+        return Response({"errors": {"warehouse_ids": "At least one valid warehouse ID required"}}, status=400)
+
+    # Get phase from payload
+    phase = payload.get("phase")
+    if not phase:
+        phase = "BASELINE"
+    phase = str(phase).upper()
+    if phase not in rules.PHASES:
+        return Response({"errors": {"phase": "Must be SURGE, STABILIZED, or BASELINE."}}, status=400)
+
+    # Aggregate results from all warehouses
+    all_items = []
+    warehouse_metadata = []
+    base_warnings = []
+
+    for warehouse_id in validated_warehouse_ids:
+        # Build preview for this warehouse
+        wh_payload = dict(payload)
+        wh_payload["warehouse_id"] = warehouse_id
+        response, wh_errors = _build_preview_response(wh_payload)
+
+        if wh_errors:
+            # Log error but continue with other warehouses
+            logger.warning(
+                "Preview failed for warehouse_id=%s: %s",
+                warehouse_id,
+                wh_errors
+            )
+            base_warnings.append(f"preview_failed_warehouse_{warehouse_id}")
+            continue
+
+        # Get warehouse name
+        warehouse_name = data_access.get_warehouse_name(warehouse_id)
+
+        # Add warehouse info to each item
+        for item in response.get("items", []):
+            item["warehouse_id"] = warehouse_id
+            item["warehouse_name"] = warehouse_name
+
+        all_items.extend(response.get("items", []))
+        warehouse_metadata.append({
+            "warehouse_id": warehouse_id,
+            "warehouse_name": warehouse_name
+        })
+
+        # Merge warnings
+        base_warnings.extend(response.get("warnings", []))
+
+    # Build aggregated response
+    aggregated_response = {
+        "event_id": event_id,
+        "phase": phase,
+        "warehouse_ids": validated_warehouse_ids,
+        "warehouses": warehouse_metadata,
+        "items": all_items,
+        "as_of_datetime": timezone.now().isoformat(),
+        "warnings": list(set(base_warnings)),  # Deduplicate warnings
+    }
+
+    logger.info(
+        "needs_list_preview_multi",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "event_id": event_id,
+            "warehouse_ids": validated_warehouse_ids,
+            "warehouse_count": len(validated_warehouse_ids),
+            "item_count": len(all_items),
+            "warnings": aggregated_response.get("warnings", []),
+        },
+    )
+
+    return Response(aggregated_response)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_draft(request):
     payload = request.data or {}

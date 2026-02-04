@@ -238,9 +238,7 @@
                 </div>
               </td>
               <td>
-                <strong [ngClass]="'text-' + (item.severity?.toLowerCase() || 'ok')">
-                  {{ formatTimeToStockout(item) }}
-                </strong>
+                <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
               </td>
               <td>{{ item.required_qty | number: '1.0-0' }}</td>
               <td>
