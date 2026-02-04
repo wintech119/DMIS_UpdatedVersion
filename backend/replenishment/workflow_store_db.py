@@ -241,6 +241,7 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         if 'cancelled_at' in record and record['cancelled_at']:
             needs_list.cancelled_at = record['cancelled_at']
             needs_list.cancelled_by = record.get('cancelled_by')
+            needs_list.rejection_reason = record.get('cancel_reason')
 
         needs_list.save()
 
