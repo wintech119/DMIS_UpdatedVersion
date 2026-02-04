@@ -83,11 +83,14 @@ export class SubmitStepComponent implements OnInit {
         items: state.previewResponse?.items || [],
         adjustments: state.adjustments
       })),
-      distinctUntilChanged((prev, curr) =>
-        prev.items === curr.items && prev.adjustments === curr.adjustments
+    this.wizardService.getState$().pipe(
+      map(state => state.previewResponse?.items || []),
+      distinctUntilChanged((prev, curr) => 
+        prev.length === curr.length && 
+        prev.every((item, i) => item.item_id === curr[i]?.item_id)
       ),
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(({ items }) => {
+    ).subscribe(items => {
       this.items = items;
       this.calculateSummary();
     });
