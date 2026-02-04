@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def get_warehouse_name(warehouse_id: int) -> str:
     """
     Fetch warehouse name from legacy inventory table.
-    Returns warehouse_id as string fallback if name not found.
+    Returns the warehouse name string or the fallback format "Warehouse {id}" when not found.
     """
     if _is_sqlite():
         return f"Warehouse {warehouse_id}"
