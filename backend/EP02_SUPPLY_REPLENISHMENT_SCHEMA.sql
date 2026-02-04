@@ -524,7 +524,7 @@ CREATE TABLE IF NOT EXISTS public.lead_time_config (
         (horizon != 'A')
     ),
     CONSTRAINT c_ltc_c_supplier CHECK (
-        (horizon = 'C' AND supplier_id IS NOT NULL) OR
+        (horizon = 'C' AND (is_default OR supplier_id IS NOT NULL)) OR
         (horizon != 'C')
     )
 );
