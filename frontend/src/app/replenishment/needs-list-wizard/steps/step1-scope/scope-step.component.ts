@@ -12,14 +12,8 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { ReplenishmentService } from '../../../services/replenishment.service';
-import { EventPhase } from '../../../models/stock-status.model';
+import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
 import { distinctUntilChanged, map } from 'rxjs/operators';
-
-interface PhaseWindow {
-  demand_hours: number;
-  planning_hours: number;
-  safety_factor: number;
-}
 
 interface ScopeFormValue {
   event_id: number | null;
@@ -27,12 +21,6 @@ interface ScopeFormValue {
   phase: EventPhase;
   as_of_datetime: string;
 }
-
-const PHASE_WINDOWS: Record<EventPhase, PhaseWindow> = {
-  SURGE: { demand_hours: 6, planning_hours: 72, safety_factor: 1.25 },
-  STABILIZED: { demand_hours: 72, planning_hours: 168, safety_factor: 1.25 },
-  BASELINE: { demand_hours: 720, planning_hours: 720, safety_factor: 1.25 }
-};
 
 const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => {
   if (a.event_id !== b.event_id) return false;
@@ -120,11 +108,11 @@ export class ScopeStepComponent implements OnInit {
     });
   }
 
-  getPhaseInfo(phase: EventPhase): PhaseWindow {
+  getPhaseInfo(phase: EventPhase): PhaseWindows {
     return PHASE_WINDOWS[phase];
   }
 
-  get selectedPhaseInfo(): PhaseWindow | null {
+  get selectedPhaseInfo(): PhaseWindows | null {
     const phase = this.form.value.phase;
     return phase ? this.getPhaseInfo(phase) : null;
   }
