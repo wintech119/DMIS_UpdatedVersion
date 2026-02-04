@@ -10,6 +10,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { WizardStateService } from './services/wizard-state.service';
 import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
+import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
 
 @Component({
   selector: 'app-needs-list-wizard',
@@ -21,7 +22,8 @@ import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
     MatIconModule,
     MatCardModule,
     MatTooltipModule,
-    ScopeStepComponent
+    ScopeStepComponent,
+    PreviewStepComponent
   ],
   templateUrl: './needs-list-wizard.component.html',
   styleUrls: ['./needs-list-wizard.component.scss']
