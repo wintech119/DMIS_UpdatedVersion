@@ -76,6 +76,8 @@ def create_draft(
         "submitted_at": None,
         "reviewed_by": None,
         "reviewed_at": None,
+        "review_started_by": None,
+        "review_started_at": None,
         "approved_by": None,
         "approved_at": None,
         "approval_tier": None,
@@ -94,7 +96,11 @@ def create_draft(
         "escalated_by": None,
         "escalated_at": None,
         "escalation_reason": None,
+        "returned_by": None,
+        "returned_at": None,
         "return_reason": None,
+        "rejected_by": None,
+        "rejected_at": None,
         "reject_reason": None,
         "line_overrides": {},
         "line_review_notes": {},
@@ -236,9 +242,11 @@ def transition_status(
         record["submitted_by"] = actor
         record["submitted_at"] = now
     if to_status == "UNDER_REVIEW":
+        record["review_started_by"] = actor
+        record["review_started_at"] = now
+    if to_status == "APPROVED":
         record["reviewed_by"] = actor
         record["reviewed_at"] = now
-    if to_status == "APPROVED":
         record["approved_by"] = actor
         record["approved_at"] = now
     if to_status == "IN_PREPARATION":
@@ -254,8 +262,16 @@ def transition_status(
         record["completed_by"] = actor
         record["completed_at"] = now
     if to_status == "REJECTED":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
+        record["rejected_by"] = actor
+        record["rejected_at"] = now
         record["reject_reason"] = reason
     if to_status == "RETURNED":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
+        record["returned_by"] = actor
+        record["returned_at"] = now
         record["return_reason"] = reason
     if to_status == "ESCALATED":
         record["escalated_by"] = actor

@@ -14,6 +14,36 @@ from replenishment import rules
 logger = logging.getLogger(__name__)
 
 
+def get_warehouse_name(warehouse_id: int) -> str:
+    """
+    Fetch warehouse name from legacy inventory table.
+    Returns the warehouse name string or the fallback format "Warehouse {id}" when not found.
+    """
+    if _is_sqlite():
+        return f"Warehouse {warehouse_id}"
+
+    schema = _schema_name()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT name
+                FROM {schema}.inventory
+                WHERE inventory_id = %s
+                LIMIT 1
+                """,
+                [warehouse_id],
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return str(row[0])
+    except DatabaseError as exc:
+        logger.warning("Warehouse name query failed for warehouse_id=%s: %s", warehouse_id, exc)
+
+    # Fallback to ID if name not found
+    return f"Warehouse {warehouse_id}"
+
+
 def _is_sqlite() -> bool:
     if os.getenv("DJANGO_USE_SQLITE", "0") == "1":
         return True

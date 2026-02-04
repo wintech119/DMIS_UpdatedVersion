@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
+import { NeedsListResponse } from '../models/needs-list.model';
 
 @Injectable({
   providedIn: 'root'
@@ -19,6 +20,40 @@ export class ReplenishmentService {
       phase: phase
     }).pipe(
       map(response => this.enrichStockStatusResponse(response))
+    );
+  }
+
+  /**
+   * Get stock status for multiple warehouses (for wizard)
+   */
+  getStockStatusMulti(
+    eventId: number,
+    warehouseIds: number[],
+    phase: string,
+    asOfDatetime?: string
+  ): Observable<NeedsListResponse> {
+    const payload: any = {
+      event_id: eventId,
+      warehouse_ids: warehouseIds,
+      phase: phase
+    };
+
+    if (asOfDatetime) {
+      payload.as_of_datetime = asOfDatetime;
+    }
+
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/preview-multi`,
+      payload
+    ).pipe(
+      map(response => ({
+        ...response,
+        items: response.items.map(item => ({
+          ...item,
+          time_to_stockout_hours: this.parseTimeToStockout(item.time_to_stockout) ?? undefined,
+          severity: calculateSeverity(this.parseTimeToStockout(item.time_to_stockout))
+        }))
+      }))
     );
   }
 
