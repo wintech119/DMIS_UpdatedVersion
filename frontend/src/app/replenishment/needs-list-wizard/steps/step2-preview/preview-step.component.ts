@@ -135,8 +135,9 @@ export class PreviewStepComponent implements OnInit {
   }
 
   getEstimatedCost(item: NeedsListItem): string {
-    if (item.procurement?.est_total_cost) {
-      return `$${item.procurement.est_total_cost.toFixed(2)}`;
+    const cost = item.procurement?.est_total_cost;
+    if (cost !== null && cost !== undefined) {
+      return `$${cost.toFixed(2)}`;
     }
     return 'N/A';
   }
