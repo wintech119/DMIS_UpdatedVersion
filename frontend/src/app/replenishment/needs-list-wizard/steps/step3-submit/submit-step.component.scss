@@ -106,7 +106,8 @@
     border-radius: 8px;
     transition: all 0.2s;
 
-    &:hover {
+    &:hover,
+    &:focus-within {
       border-color: #667eea;
       box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
     }
