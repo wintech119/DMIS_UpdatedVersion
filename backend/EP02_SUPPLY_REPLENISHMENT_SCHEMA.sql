@@ -704,6 +704,11 @@ FOR EACH ROW EXECUTE FUNCTION public.log_event_phase_change();
 -- PART 7: DEFAULT DATA
 -- ============================================================================
 
+-- Ensure only one default per horizon
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ltc_default_per_horizon
+    ON public.lead_time_config (horizon)
+    WHERE is_default = TRUE;
+
 -- Insert default lead times
 INSERT INTO public.lead_time_config (horizon, lead_time_hours, is_default, create_by_id, update_by_id)
 VALUES
