@@ -563,10 +563,10 @@ SELECT
     i.item_code,
     i.item_name,
     i.criticality_level,
-    inv.usable_qty AS available_stock,
-    inv.reserved_qty,
+    COALESCE(inv.usable_qty, 0) AS available_stock,
+    COALESCE(inv.reserved_qty, 0) AS reserved_qty,
     COALESCE(i.min_stock_threshold, w.min_stock_threshold, 0) AS min_threshold,
-    inv.usable_qty - COALESCE(i.min_stock_threshold, w.min_stock_threshold, 0) AS surplus_qty,
+    COALESCE(inv.usable_qty, 0) - COALESCE(i.min_stock_threshold, w.min_stock_threshold, 0) AS surplus_qty,
     w.last_sync_dtime,
     w.sync_status,
     CASE
