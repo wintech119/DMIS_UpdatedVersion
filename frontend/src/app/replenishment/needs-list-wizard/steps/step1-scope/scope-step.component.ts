@@ -1,4 +1,5 @@
-import { Component, OnInit, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -12,6 +13,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { WizardStateService } from '../../services/wizard-state.service';
 import { ReplenishmentService } from '../../../services/replenishment.service';
 import { EventPhase } from '../../../models/stock-status.model';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 
 interface PhaseWindow {
   demand_hours: number;
@@ -19,10 +21,28 @@ interface PhaseWindow {
   safety_factor: number;
 }
 
+interface ScopeFormValue {
+  event_id: number | null;
+  warehouse_ids: number[];
+  phase: EventPhase;
+  as_of_datetime: string;
+}
+
 const PHASE_WINDOWS: Record<EventPhase, PhaseWindow> = {
   SURGE: { demand_hours: 6, planning_hours: 72, safety_factor: 1.25 },
   STABILIZED: { demand_hours: 72, planning_hours: 168, safety_factor: 1.25 },
   BASELINE: { demand_hours: 720, planning_hours: 720, safety_factor: 1.25 }
+};
+
+const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => {
+  if (a.event_id !== b.event_id) return false;
+  if (a.phase !== b.phase) return false;
+  if (a.as_of_datetime !== b.as_of_datetime) return false;
+  if (a.warehouse_ids.length !== b.warehouse_ids.length) return false;
+  for (let i = 0; i < a.warehouse_ids.length; i += 1) {
+    if (a.warehouse_ids[i] !== b.warehouse_ids[i]) return false;
+  }
+  return true;
 };
 
 @Component({
@@ -49,6 +69,7 @@ export class ScopeStepComponent implements OnInit {
   phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   loading = false;
   errors: string[] = [];
+  private destroyRef = inject(DestroyRef);
 
   // Hardcoded warehouse list for MVP (can be fetched from API later)
   availableWarehouses = [
@@ -73,19 +94,23 @@ export class ScopeStepComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    // Load from wizard state
-    const state = this.wizardService.getState();
-    if (state.event_id) {
-      this.form.patchValue({
-        event_id: state.event_id,
-        warehouse_ids: state.warehouse_ids || [],
-        phase: state.phase || 'BASELINE',
-        as_of_datetime: state.as_of_datetime || ''
-      });
-    }
+    this.wizardService.getState$().pipe(
+      map(state => ({
+        event_id: state.event_id ?? null,
+        warehouse_ids: state.warehouse_ids ?? [],
+        phase: state.phase ?? 'BASELINE',
+        as_of_datetime: state.as_of_datetime ?? ''
+      })),
+      distinctUntilChanged(isSameScopeFormValue),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(values => {
+      this.form.patchValue(values, { emitEvent: false });
+    });
 
     // Auto-save form changes to state
-    this.form.valueChanges.subscribe(values => {
+    this.form.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(values => {
       this.wizardService.updateState({
         event_id: values.event_id,
         warehouse_ids: values.warehouse_ids,
