@@ -79,11 +79,6 @@ export class SubmitStepComponent implements OnInit {
   ngOnInit(): void {
     // Subscribe to wizard state changes
     this.wizardService.getState$().pipe(
-      map(state => ({
-        items: state.previewResponse?.items || [],
-        adjustments: state.adjustments
-      })),
-    this.wizardService.getState$().pipe(
       map(state => state.previewResponse?.items || []),
       distinctUntilChanged((prev, curr) => 
         prev.length === curr.length && 
