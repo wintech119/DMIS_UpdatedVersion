@@ -322,8 +322,6 @@ def add_line_overrides(
         Tuple of (updated record, list of error messages)
     """
     errors: list[str] = []
-    now = _utc_now()
-
     needs_list_id = record.get('needs_list_id')
     if not needs_list_id:
         return record, ['needs_list_id missing']
