@@ -108,6 +108,11 @@ export class SubmitStepComponent implements OnInit {
 
   calculateSummary(): void {
     if (!this.items.length) {
+      this.totalItems = 0;
+      this.totalUnits = 0;
+      this.totalCost = 0;
+      this.warehouseBreakdown = [];
+      this.horizonBreakdown = [];
       return;
     }
 
