@@ -520,6 +520,152 @@ class NeedsListPreviewApiTests(TestCase):
         self.assertIn("donation_in_transit_unmodeled", item.get("warnings", []))
 
 
+class NeedsListPreviewMultiApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_warehouse_name")
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_preview_multi_aggregates_warehouses(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+        mock_warehouse_name,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+        mock_warehouse_name.side_effect = lambda wh_id: f"Warehouse {wh_id}"
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview-multi",
+            {
+                "event_id": 1,
+                "warehouse_ids": [1, 2],
+                "phase": "BASELINE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("items", body)
+        self.assertIn("warehouses", body)
+        self.assertIn("warehouse_ids", body)
+        self.assertEqual(body["warehouse_ids"], [1, 2])
+        self.assertEqual(len(body["warehouses"]), 2)
+        # Should have items from both warehouses
+        self.assertEqual(len(body["items"]), 2)
+        # Each item should have warehouse info
+        for item in body["items"]:
+            self.assertIn("warehouse_id", item)
+            self.assertIn("warehouse_name", item)
+            self.assertIn(item["warehouse_id"], [1, 2])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_preview_multi_requires_warehouse_ids_array(self) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview-multi",
+            {
+                "event_id": 1,
+                "phase": "BASELINE",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("warehouse_ids", response.json()["errors"])
+
+        # Test with non-array warehouse_ids
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview-multi",
+            {
+                "event_id": 1,
+                "warehouse_ids": 1,  # Not an array
+                "phase": "BASELINE",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_warehouse_name")
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_preview_multi_handles_single_warehouse(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+        mock_warehouse_name,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+        mock_warehouse_name.return_value = "Kingston Central"
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview-multi",
+            {
+                "event_id": 1,
+                "warehouse_ids": [1],
+                "phase": "BASELINE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body["warehouses"]), 1)
+        self.assertEqual(body["warehouses"][0]["warehouse_name"], "Kingston Central")
+
+
 class NeedsListWorkflowApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
