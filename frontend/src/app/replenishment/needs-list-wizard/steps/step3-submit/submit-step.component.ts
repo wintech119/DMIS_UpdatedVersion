@@ -179,19 +179,19 @@ export class SubmitStepComponent implements OnInit {
       }
     });
 
-    this.horizonBreakdown = [
-      { horizon: 'A', label: 'Transfer (Horizon A)', items: byHorizon.get('A')!.items, units: byHorizon.get('A')!.units, leadTime: '6-8 hours' },
-      { horizon: 'B', label: 'Donation (Horizon B)', items: byHorizon.get('B')!.items, units: byHorizon.get('B')!.units, leadTime: '2-7 days' },
-      { horizon: 'C', label: 'Procurement (Horizon C)', items: byHorizon.get('C')!.items, units: byHorizon.get('C')!.units, leadTime: '14+ days' }
-    ].filter(h => h.items > 0); // Only show horizons with items
+    this.horizonBreakdown = ([
+      { horizon: 'A' as const, label: 'Transfer (Horizon A)', items: byHorizon.get('A')!.items, units: byHorizon.get('A')!.units, leadTime: '6-8 hours' },
+      { horizon: 'B' as const, label: 'Donation (Horizon B)', items: byHorizon.get('B')!.items, units: byHorizon.get('B')!.units, leadTime: '2-7 days' },
+      { horizon: 'C' as const, label: 'Procurement (Horizon C)', items: byHorizon.get('C')!.items, units: byHorizon.get('C')!.units, leadTime: '14+ days' }
+    ] as HorizonBreakdown[]).filter(h => h.items > 0); // Only show horizons with items
   }
 
   getApprovalInfo(): string {
     const state = this.wizardService.getState();
     const response = state.previewResponse;
 
-    if (response?.approval_summary) {
-      const approval = response.approval_summary;
+    if (response?.approval_summary?.approval) {
+      const approval = response.approval_summary.approval;
       return `${approval.tier} - ${approval.approver_role}`;
     }
 

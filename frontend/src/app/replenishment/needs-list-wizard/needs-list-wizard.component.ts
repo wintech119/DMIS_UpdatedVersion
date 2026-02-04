@@ -32,15 +32,15 @@ import { SubmitStepComponent } from './steps/step3-submit/submit-step.component'
 })
 export class NeedsListWizardComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
+  private destroyRef = inject(DestroyRef);
+  public wizardService = inject(WizardStateService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
-  private destroyRef = inject(DestroyRef);
 
-  constructor(
-    public wizardService: WizardStateService,
-    private route: ActivatedRoute,
-    private router: Router
-  ) {}
+  constructor() {}
 
   ngOnInit(): void {
     // Load query params from dashboard navigation

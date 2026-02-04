@@ -58,7 +58,7 @@ export class PreviewStepComponent implements OnInit {
     'actions'
   ];
 
-  adjustmentReasonOptions = Object.entries(ADJUSTMENT_REASON_LABELS);
+  adjustmentReasonOptions = Object.entries(ADJUSTMENT_REASON_LABELS).map(([key, label]) => ({ key, label }));
   editingItemKey: string | null = null;
   adjustmentForm: FormGroup;
 
@@ -157,6 +157,16 @@ export class PreviewStepComponent implements OnInit {
       (item.horizon?.C?.recommended_qty || 0);
 
     return item.gap_qty > horizonTotal;
+  }
+
+  // Computed property for template - checks if any items are uncovered
+  get hasUncoveredItems(): boolean {
+    return this.items.some(item => this.isUncovered(item));
+  }
+
+  // Computed property for template - count of uncovered items
+  get uncoveredItemCount(): number {
+    return this.items.filter(item => this.isUncovered(item)).length;
   }
 
   getRowClass(item: NeedsListItem): string {
