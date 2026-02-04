@@ -18,16 +18,7 @@
     <!-- Step 1: Review & Confirm Scope -->
     <mat-step [completed]="(isStep1Valid$ | async) || false">
       <ng-template matStepLabel>Review Scope</ng-template>
-      <div class="step-content">
-        <h2>Step 1: Review & Confirm Scope</h2>
-        <p>Select warehouses and configure event parameters</p>
-        <!-- Step 1 component will be added in Phase 3 -->
-        <div class="step-actions">
-          <button mat-raised-button color="primary" disabled>
-            Calculate Gaps
-          </button>
-        </div>
-      </div>
+      <app-scope-step (next)="stepper.next()"></app-scope-step>
     </mat-step>
 
     <!-- Step 2: Preview Results -->
