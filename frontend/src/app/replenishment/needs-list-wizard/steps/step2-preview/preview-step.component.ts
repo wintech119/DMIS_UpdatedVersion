@@ -199,6 +199,13 @@ export class PreviewStepComponent implements OnInit {
     return this.editingItemKey === this.getItemKey(item);
   }
 
+  get editingItem(): NeedsListItem | undefined {
+    if (!this.editingItemKey) {
+      return undefined;
+    }
+    return this.items.find(item => this.getItemKey(item) === this.editingItemKey);
+  }
+
   saveAdjustment(item: NeedsListItem): void {
     if (this.adjustmentForm.invalid) {
       this.adjustmentForm.markAllAsTouched();

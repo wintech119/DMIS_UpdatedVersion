@@ -196,8 +196,8 @@
             <button
               mat-raised-button
               color="primary"
-              (click)="saveAdjustment(items.find(i => getItemKey(i) === editingItemKey)!)"
-              [disabled]="adjustmentForm.invalid"
+              (click)="editingItem && saveAdjustment(editingItem)"
+              [disabled]="adjustmentForm.invalid || !editingItem"
             >
               Save
             </button>
