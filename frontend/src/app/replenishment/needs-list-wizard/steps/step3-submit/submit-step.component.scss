@@ -174,9 +174,27 @@
         display: flex;
         flex-direction: column;
 
-        .horizon-label {
-          font-weight: 500;
-          font-size: 1rem;
+        .horizon-title {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+
+          .horizon-label {
+            font-weight: 500;
+            font-size: 1rem;
+          }
+
+          .horizon-tag {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            padding: 0.1rem 0.4rem;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.08);
+            color: rgba(0, 0, 0, 0.7);
+          }
         }
 
         .horizon-lead-time {

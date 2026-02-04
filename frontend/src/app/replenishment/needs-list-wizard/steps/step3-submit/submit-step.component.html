@@ -25,7 +25,7 @@
           <mat-icon class="summary-icon">attach_money</mat-icon>
           <div class="summary-text">
             <span class="label">Estimated Cost</span>
-            <span class="value">${{ totalCost.toFixed(2) }}</span>
+            <span class="value">${{ (totalCost ?? 0) | number:'1.2-2' }}</span>
           </div>
         </div>
         <div class="summary-item" *ngIf="hasAdjustments">
@@ -67,7 +67,7 @@
                 </div>
                 <div class="stat">
                   <span class="stat-label">Cost:</span>
-                  <span class="stat-value">${{ wh.cost.toFixed(2) }}</span>
+                  <span class="stat-value">{{ (wh.cost ?? 0) | currency:'USD':'symbol':'1.2-2' }}</span>
                 </div>
               </div>
             </div>
@@ -94,7 +94,10 @@
                   {{ h.horizon === 'A' ? 'local_shipping' : h.horizon === 'B' ? 'inventory' : 'shopping_cart' }}
                 </mat-icon>
                 <div class="horizon-info">
-                  <span class="horizon-label">{{ h.label }}</span>
+                  <div class="horizon-title">
+                    <span class="horizon-label">{{ h.label }}</span>
+                    <span class="horizon-tag" aria-label="Horizon {{ h.horizon }}">Horizon {{ h.horizon }}</span>
+                  </div>
                   <span class="horizon-lead-time">Lead Time: {{ h.leadTime }}</span>
                 </div>
               </div>
@@ -184,7 +187,7 @@
   </div>
 
   <!-- Errors -->
-  <div class="errors-container" *ngIf="errors.length">
+  <div class="errors-container" *ngIf="errors?.length">
     <mat-card class="error-card">
       <mat-icon class="error-icon">error</mat-icon>
       <div class="error-list">
