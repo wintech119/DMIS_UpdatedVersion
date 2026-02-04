@@ -16,11 +16,11 @@
           <span class="value">${{ getTotalCost().toFixed(2) }}</span>
         </div>
       </div>
-      <div class="summary-item warning" *ngIf="items.some(item => isUncovered(item))">
+      <div class="summary-item warning" *ngIf="hasUncoveredItems">
         <mat-icon>warning</mat-icon>
         <div class="summary-text">
           <span class="label">Uncovered Items</span>
-          <span class="value">{{ items.filter(item => isUncovered(item)).length }}</span>
+          <span class="value">{{ uncoveredItemCount }}</span>
         </div>
       </div>
     </div>
@@ -179,8 +179,8 @@
               <mat-form-field appearance="outline" class="form-field">
                 <mat-label>Reason *</mat-label>
                 <mat-select formControlName="reason">
-                  <mat-option *ngFor="let [key, label] of adjustmentReasonOptions" [value]="key">
-                    {{ label }}
+                  <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
+                    {{ option.label }}
                   </mat-option>
                 </mat-select>
                 <mat-error *ngIf="adjustmentForm.get('reason')?.hasError('required')">
