@@ -223,19 +223,22 @@ describe('WizardStateService', () => {
     it('should emit state changes', (done) => {
       const emissions: any[] = [];
 
-      service.getState$().subscribe(state => {
-        emissions.push(state);
+      service.getState$().pipe(
+        take(3)
+      ).subscribe({
+        next: (state) => {
+          emissions.push(state);
+        },
+        complete: () => {
+          expect(emissions.length).toBe(3);
+          expect(emissions[1].event_id).toBe(1);
+          expect(emissions[2].warehouse_ids).toEqual([1]);
+          done();
+        }
       });
 
       service.updateState({ event_id: 1 });
       service.updateState({ warehouse_ids: [1] });
-
-      setTimeout(() => {
-        expect(emissions.length).toBeGreaterThan(1);
-        expect(emissions[emissions.length - 1].event_id).toBe(1);
-        expect(emissions[emissions.length - 1].warehouse_ids).toEqual([1]);
-        done();
-      }, 100);
     });
   });
 });

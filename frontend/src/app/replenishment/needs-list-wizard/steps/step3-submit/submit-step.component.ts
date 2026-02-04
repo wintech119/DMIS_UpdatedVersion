@@ -118,7 +118,7 @@ export class SubmitStepComponent implements OnInit {
     // Calculate totals
     this.totalItems = adjustedItems.length;
     this.totalUnits = adjustedItems.reduce((sum, item) => sum + (item.gap_qty || 0), 0);
-    this.totalCost = adjustedItems.reduce((sum, item) => sum + (item.procurement?.est_total_cost || 0), 0);
+    this.totalCost = adjustedItems.reduce((sum, item) => sum + this.getItemCost(item), 0);
 
     // Group by warehouse
     const byWarehouse = new Map<number, { name: string; items: number; units: number; cost: number }>();
@@ -138,7 +138,7 @@ export class SubmitStepComponent implements OnInit {
       const wh = byWarehouse.get(warehouseId)!;
       wh.items++;
       wh.units += item.gap_qty || 0;
-      wh.cost += item.procurement?.est_total_cost || 0;
+      wh.cost += this.getItemCost(item);
     });
 
     this.warehouseBreakdown = Array.from(byWarehouse.entries())
@@ -207,6 +207,12 @@ export class SubmitStepComponent implements OnInit {
       default:
         return 'To be determined';
     }
+  }
+
+  private getItemCost(item: NeedsListItem): number {
+    const unitCost = item.procurement?.est_unit_cost ?? 0;
+    const quantity = item.gap_qty ?? 0;
+    return quantity * unitCost;
   }
 
   getPhaseLabel(): string {
