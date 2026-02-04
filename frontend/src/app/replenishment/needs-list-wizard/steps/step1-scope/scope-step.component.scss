@@ -1,0 +1,252 @@
+.scope-step-container {
+  padding: 16px 0;
+
+  .step-card {
+    max-width: 800px;
+    margin: 0 auto;
+
+    mat-card-header {
+      margin-bottom: 24px;
+
+      mat-card-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #1a1a1a;
+      }
+
+      mat-card-subtitle {
+        font-size: 14px;
+        color: #666;
+        margin-top: 4px;
+      }
+    }
+
+    mat-card-content {
+      .loading-bar {
+        margin-bottom: 16px;
+      }
+
+      .scope-form {
+        margin-bottom: 24px;
+
+        .form-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+          margin-bottom: 16px;
+
+          .form-field-full {
+            grid-column: 1 / -1;
+          }
+        }
+
+        mat-form-field {
+          width: 100%;
+        }
+
+        mat-icon[matSuffix] {
+          color: #666;
+        }
+      }
+
+      .phase-info {
+        background: #f8f9fa;
+        border-left: 4px solid #1976d2;
+        margin-bottom: 24px;
+
+        h3 {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 0 0 16px 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: #1976d2;
+
+          mat-icon {
+            font-size: 20px;
+            width: 20px;
+            height: 20px;
+          }
+        }
+
+        .phase-details {
+          display: grid;
+          gap: 12px;
+
+          .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+
+            .detail-icon {
+              color: #1976d2;
+              font-size: 24px;
+              width: 24px;
+              height: 24px;
+              flex-shrink: 0;
+            }
+
+            .detail-content {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              flex: 1;
+
+              .label {
+                font-weight: 500;
+                color: #333;
+              }
+
+              .value {
+                font-weight: 600;
+                color: #1976d2;
+              }
+            }
+          }
+        }
+      }
+
+      .errors-container {
+        margin-bottom: 16px;
+
+        .error-card {
+          background: #fff3cd;
+          border-left: 4px solid #dc3545;
+          padding: 16px;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+
+          .error-icon {
+            color: #dc3545;
+            font-size: 24px;
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+          }
+
+          .error-list {
+            flex: 1;
+
+            .error-item {
+              color: #721c24;
+              font-size: 14px;
+              margin-bottom: 4px;
+
+              &:last-child {
+                margin-bottom: 0;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    mat-card-actions {
+      padding: 16px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: flex-end;
+
+      .calculate-btn {
+        min-width: 180px;
+
+        mat-icon {
+          margin-right: 8px;
+        }
+      }
+    }
+  }
+}
+
+// Mobile responsive
+@media (max-width: 768px) {
+  .scope-step-container {
+    .step-card {
+      mat-card-content {
+        .scope-form {
+          .form-row {
+            grid-template-columns: 1fr;
+
+            .form-field-full {
+              grid-column: 1;
+            }
+          }
+        }
+
+        .phase-info {
+          .phase-details {
+            .detail-item {
+              .detail-content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+              }
+            }
+          }
+        }
+      }
+
+      mat-card-actions {
+        .calculate-btn {
+          width: 100%;
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .scope-step-container {
+    padding: 8px 0;
+
+    .step-card {
+      mat-card-header {
+        margin-bottom: 16px;
+
+        mat-card-title {
+          font-size: 18px;
+        }
+
+        mat-card-subtitle {
+          font-size: 12px;
+        }
+      }
+
+      mat-card-content {
+        .phase-info {
+          h3 {
+            font-size: 14px;
+          }
+
+          .phase-details {
+            gap: 8px;
+
+            .detail-item {
+              padding: 6px;
+
+              .detail-icon {
+                font-size: 20px;
+                width: 20px;
+                height: 20px;
+              }
+
+              .detail-content {
+                font-size: 13px;
+
+                .label,
+                .value {
+                  font-size: 13px;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

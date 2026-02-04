@@ -1,0 +1,161 @@
+import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatIconModule } from '@angular/material/icon';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+
+import { WizardStateService } from '../../services/wizard-state.service';
+import { ReplenishmentService } from '../../../services/replenishment.service';
+import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
+import { distinctUntilChanged, map } from 'rxjs/operators';
+
+interface ScopeFormValue {
+  event_id: number | null;
+  warehouse_ids: number[];
+  phase: EventPhase;
+  as_of_datetime: string;
+}
+
+const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => {
+  if (a.event_id !== b.event_id) return false;
+  if (a.phase !== b.phase) return false;
+  if (a.as_of_datetime !== b.as_of_datetime) return false;
+  if (a.warehouse_ids.length !== b.warehouse_ids.length) return false;
+  for (let i = 0; i < a.warehouse_ids.length; i += 1) {
+    if (a.warehouse_ids[i] !== b.warehouse_ids[i]) return false;
+  }
+  return true;
+};
+
+@Component({
+  selector: 'app-scope-step',
+  standalone: true,
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
+    MatButtonModule,
+    MatCardModule,
+    MatIconModule,
+    MatProgressBarModule
+  ],
+  templateUrl: './scope-step.component.html',
+  styleUrl: './scope-step.component.scss'
+})
+export class ScopeStepComponent implements OnInit {
+  @Output() next = new EventEmitter<void>();
+
+  form: FormGroup;
+  phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
+  loading = false;
+  errors: string[] = [];
+  private destroyRef = inject(DestroyRef);
+
+  // Hardcoded warehouse list for MVP (can be fetched from API later)
+  availableWarehouses = [
+    { id: 1, name: 'Kingston Central' },
+    { id: 2, name: 'Montego Bay' },
+    { id: 3, name: 'Spanish Town' },
+    { id: 4, name: 'Portmore' },
+    { id: 5, name: 'May Pen' }
+  ];
+
+  constructor(
+    private fb: FormBuilder,
+    private wizardService: WizardStateService,
+    private replenishmentService: ReplenishmentService
+  ) {
+    this.form = this.fb.group({
+      event_id: [null, [Validators.required, Validators.min(1)]],
+      warehouse_ids: [[], [Validators.required, Validators.minLength(1)]],
+      phase: ['BASELINE', Validators.required],
+      as_of_datetime: ['']
+    });
+  }
+
+  ngOnInit(): void {
+    this.wizardService.getState$().pipe(
+      map(state => ({
+        event_id: state.event_id ?? null,
+        warehouse_ids: state.warehouse_ids ?? [],
+        phase: state.phase ?? 'BASELINE',
+        as_of_datetime: state.as_of_datetime ?? ''
+      })),
+      distinctUntilChanged(isSameScopeFormValue),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(values => {
+      this.form.patchValue(values, { emitEvent: false });
+    });
+
+    // Auto-save form changes to state
+    this.form.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(values => {
+      this.wizardService.updateState({
+        event_id: values.event_id,
+        warehouse_ids: values.warehouse_ids,
+        phase: values.phase,
+        as_of_datetime: values.as_of_datetime
+      });
+    });
+  }
+
+  getPhaseInfo(phase: EventPhase): PhaseWindows {
+    return PHASE_WINDOWS[phase];
+  }
+
+  get selectedPhaseInfo(): PhaseWindows | null {
+    const phase = this.form.value.phase;
+    return phase ? this.getPhaseInfo(phase) : null;
+  }
+
+  calculateGaps(): void {
+    this.errors = [];
+
+    if (this.form.invalid) {
+      this.errors = ['Please provide valid event ID, warehouse(s), and phase.'];
+      this.form.markAllAsTouched();
+      return;
+    }
+
+    const { event_id, warehouse_ids, phase, as_of_datetime } = this.form.value;
+
+    this.loading = true;
+
+    // Call preview-multi API
+    this.replenishmentService.getStockStatusMulti(
+      event_id,
+      warehouse_ids,
+      phase,
+      as_of_datetime || undefined
+    ).subscribe({
+      next: (response) => {
+        // Store preview response in wizard state
+        this.wizardService.updateState({
+          previewResponse: response
+        });
+        this.loading = false;
+        this.next.emit();  // Move to next step
+      },
+      error: (error) => {
+        this.loading = false;
+        const errorMessage = error.error?.errors
+          ? Object.values(error.error.errors).join(', ')
+          : error.message || 'Failed to calculate gaps. Please try again.';
+        this.errors = [errorMessage];
+      }
+    });
+  }
+
+  get isValid(): boolean {
+    return this.form.valid;
+  }
+}
