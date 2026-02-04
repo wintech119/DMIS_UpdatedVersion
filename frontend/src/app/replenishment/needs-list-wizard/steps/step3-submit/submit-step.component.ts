@@ -174,22 +174,21 @@ export class SubmitStepComponent implements OnInit {
       const horizon = item.horizon;
       if (!horizon) return;
 
-      // Count items by their primary recommended source
+      // Count items by their primary recommended source (A → B → C)
       if (horizon.A?.recommended_qty && horizon.A.recommended_qty > 0) {
         const h = byHorizon.get('A')!;
         h.items++;
         h.units += horizon.A.recommended_qty;
-      }
-      if (horizon.B?.recommended_qty && horizon.B.recommended_qty > 0) {
+      } else if (horizon.B?.recommended_qty && horizon.B.recommended_qty > 0) {
         const h = byHorizon.get('B')!;
         h.items++;
         h.units += horizon.B.recommended_qty;
-      }
-      if (horizon.C?.recommended_qty && horizon.C.recommended_qty > 0) {
+      } else if (horizon.C?.recommended_qty && horizon.C.recommended_qty > 0) {
         const h = byHorizon.get('C')!;
         h.items++;
         h.units += horizon.C.recommended_qty;
       }
+    });
     });
 
     this.horizonBreakdown = ([
