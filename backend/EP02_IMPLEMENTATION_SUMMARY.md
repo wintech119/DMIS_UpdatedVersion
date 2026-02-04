@@ -183,6 +183,7 @@ from replenishment import workflow_store_db as workflow_store
 
 2. **Verify in database:**
 
+   ```sql
    SELECT COUNT(*) FROM public.needs_list_item;
    SELECT COUNT(*) FROM public.needs_list_audit;
    ```
