@@ -1,0 +1,122 @@
+<div class="scope-step-container">
+  <mat-card class="step-card">
+    <mat-card-header>
+      <mat-card-title>Review & Confirm Scope</mat-card-title>
+      <mat-card-subtitle>Set parameters before calculating supply gaps</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <!-- Loading indicator -->
+      <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
+
+      <!-- Form -->
+      <form [formGroup]="form" class="scope-form">
+        <div class="form-row">
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Event ID</mat-label>
+            <input matInput type="number" formControlName="event_id" min="1" />
+            <mat-icon matSuffix>event</mat-icon>
+            <mat-error *ngIf="form.get('event_id')?.hasError('required')">
+              Event ID is required
+            </mat-error>
+            <mat-error *ngIf="form.get('event_id')?.hasError('min')">
+              Event ID must be positive
+            </mat-error>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Event Phase</mat-label>
+            <mat-select formControlName="phase">
+              <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
+                {{ phase }}
+              </mat-option>
+            </mat-select>
+            <mat-icon matSuffix>timeline</mat-icon>
+            <mat-error *ngIf="form.get('phase')?.hasError('required')">
+              Phase is required
+            </mat-error>
+          </mat-form-field>
+        </div>
+
+        <div class="form-row">
+          <mat-form-field appearance="outline" class="form-field-full">
+            <mat-label>Warehouses</mat-label>
+            <mat-select formControlName="warehouse_ids" multiple>
+              <mat-option *ngFor="let wh of availableWarehouses" [value]="wh.id">
+                {{ wh.name }}
+              </mat-option>
+            </mat-select>
+            <mat-icon matSuffix>warehouse</mat-icon>
+            <mat-hint>Select one or more warehouses to analyze</mat-hint>
+            <mat-error *ngIf="form.get('warehouse_ids')?.hasError('required')">
+              At least one warehouse is required
+            </mat-error>
+          </mat-form-field>
+        </div>
+
+        <div class="form-row">
+          <mat-form-field appearance="outline" class="form-field-full">
+            <mat-label>As Of (Optional)</mat-label>
+            <input matInput type="datetime-local" formControlName="as_of_datetime" />
+            <mat-icon matSuffix>schedule</mat-icon>
+            <mat-hint>Leave empty to use current date/time</mat-hint>
+          </mat-form-field>
+        </div>
+      </form>
+
+      <!-- Phase Information -->
+      <mat-card class="phase-info" *ngIf="selectedPhaseInfo">
+        <h3>
+          <mat-icon>info</mat-icon>
+          Current Event Phase: {{ form.value.phase }}
+        </h3>
+        <div class="phase-details">
+          <div class="detail-item">
+            <mat-icon class="detail-icon">schedule</mat-icon>
+            <div class="detail-content">
+              <span class="label">Demand Window:</span>
+              <span class="value">{{ selectedPhaseInfo.demand_hours }} hours</span>
+            </div>
+          </div>
+          <div class="detail-item">
+            <mat-icon class="detail-icon">event</mat-icon>
+            <div class="detail-content">
+              <span class="label">Planning Window:</span>
+              <span class="value">{{ selectedPhaseInfo.planning_hours }} hours ({{ selectedPhaseInfo.planning_hours / 24 }} days)</span>
+            </div>
+          </div>
+          <div class="detail-item">
+            <mat-icon class="detail-icon">security</mat-icon>
+            <div class="detail-content">
+              <span class="label">Safety Factor:</span>
+              <span class="value">{{ selectedPhaseInfo.safety_factor }}x</span>
+            </div>
+          </div>
+        </div>
+      </mat-card>
+
+      <!-- Errors -->
+      <div class="errors-container" *ngIf="errors.length">
+        <mat-card class="error-card">
+          <mat-icon class="error-icon">error</mat-icon>
+          <div class="error-list">
+            <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
+          </div>
+        </mat-card>
+      </div>
+    </mat-card-content>
+
+    <mat-card-actions>
+      <button
+        mat-raised-button
+        color="primary"
+        (click)="calculateGaps()"
+        [disabled]="!isValid || loading"
+        class="calculate-btn"
+      >
+        <mat-icon>calculate</mat-icon>
+        {{ loading ? 'Calculating...' : 'Calculate Gaps' }}
+      </button>
+    </mat-card-actions>
+  </mat-card>
+</div>

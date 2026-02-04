@@ -1,4 +1,5 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnInit, ViewChild, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatStepperModule, MatStepper } from '@angular/material/stepper';
@@ -8,6 +9,8 @@ import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { WizardStateService } from './services/wizard-state.service';
+import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
+import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
 
 @Component({
   selector: 'app-needs-list-wizard',
@@ -18,7 +21,9 @@ import { WizardStateService } from './services/wizard-state.service';
     MatButtonModule,
     MatIconModule,
     MatCardModule,
-    MatTooltipModule
+    MatTooltipModule,
+    ScopeStepComponent,
+    PreviewStepComponent
   ],
   templateUrl: './needs-list-wizard.component.html',
   styleUrls: ['./needs-list-wizard.component.scss']
@@ -27,6 +32,7 @@ export class NeedsListWizardComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
+  private destroyRef = inject(DestroyRef);
 
   constructor(
     public wizardService: WizardStateService,
