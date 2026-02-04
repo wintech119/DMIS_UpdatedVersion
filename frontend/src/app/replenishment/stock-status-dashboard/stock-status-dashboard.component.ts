@@ -214,8 +214,8 @@ export class StockStatusDashboardComponent implements OnInit {
   generateNeedsList(): void {
     if (!this.response) return;
 
-    // Navigate to needs list preview with pre-filled form data
-    this.router.navigate(['/replenishment/needs-list-preview'], {
+    // Navigate to needs list wizard with pre-filled form data
+    this.router.navigate(['/replenishment/needs-list-wizard'], {
       queryParams: {
         event_id: this.response.event_id,
         warehouse_id: this.response.warehouse_id,

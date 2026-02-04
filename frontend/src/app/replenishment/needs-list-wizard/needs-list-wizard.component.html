@@ -33,20 +33,10 @@
     <!-- Step 3: Submit for Approval -->
     <mat-step>
       <ng-template matStepLabel>Submit</ng-template>
-      <div class="step-content">
-        <h2>Step 3: Submit for Approval</h2>
-        <p>Review summary and submit needs list</p>
-        <!-- Step 3 component will be added in Phase 5 -->
-        <div class="step-actions">
-          <button mat-button matStepperPrevious>Back</button>
-          <button mat-stroked-button disabled matTooltip="Coming soon">
-            Save as Draft
-          </button>
-          <button mat-raised-button color="primary" disabled>
-            Submit for Approval
-          </button>
-        </div>
-      </div>
+      <app-submit-step
+        (back)="stepper.previous()"
+        (complete)="onComplete()"
+      ></app-submit-step>
     </mat-step>
 
   </mat-stepper>
