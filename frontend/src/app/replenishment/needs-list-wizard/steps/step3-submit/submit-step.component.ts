@@ -79,13 +79,21 @@ export class SubmitStepComponent implements OnInit {
   ngOnInit(): void {
     // Subscribe to wizard state changes
     this.wizardService.getState$().pipe(
-      map(state => state.previewResponse?.items || []),
-      distinctUntilChanged((prev, curr) => 
-        prev.length === curr.length && 
-        prev.every((item, i) => item.item_id === curr[i]?.item_id)
-      ),
+      map(state => ({
+        items: state.previewResponse?.items || [],
+        adjustments: state.adjustments
+      })),
+      distinctUntilChanged((prev, curr) => (
+        prev.items.length === curr.items.length &&
+        prev.items.every((item, i) => (
+          item.item_id === curr.items[i]?.item_id &&
+          item.warehouse_id === curr.items[i]?.warehouse_id &&
+          item.gap_qty === curr.items[i]?.gap_qty
+        )) &&
+        prev.adjustments === curr.adjustments
+      )),
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(items => {
+    ).subscribe(({ items }) => {
       this.items = items;
       this.calculateSummary();
     });
@@ -169,7 +177,7 @@ export class SubmitStepComponent implements OnInit {
       const horizon = item.horizon;
       if (!horizon) return;
 
-      // Count items by their primary recommended source (A → B → C)
+      // Count items by their primary recommended source (A -> B -> C)
       if (horizon.A?.recommended_qty && horizon.A.recommended_qty > 0) {
         const h = byHorizon.get('A')!;
         h.items++;
@@ -183,7 +191,6 @@ export class SubmitStepComponent implements OnInit {
         h.items++;
         h.units += horizon.C.recommended_qty;
       }
-    });
     });
 
     this.horizonBreakdown = ([
