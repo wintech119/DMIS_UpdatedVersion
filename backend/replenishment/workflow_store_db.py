@@ -83,6 +83,7 @@ def create_draft(
         actor = 'SYSTEM'
 
     items = list(items)
+    warnings_list = list(warnings)
 
     # Extract header data
     event_id = payload.get('event_id')
@@ -163,12 +164,12 @@ def create_draft(
     NeedsListAudit.objects.create(
         needs_list=needs_list,
         action_type='CREATED',
-        notes_text=f"Created with {len(items)} items. Warnings: {', '.join(warnings) if warnings else 'None'}",
+        notes_text=f"Created with {len(items)} items. Warnings: {', '.join(warnings_list) if warnings_list else 'None'}",
         actor_user_id=actor,
     )
 
     # Return dict representation matching the old JSON format
-    return _needs_list_to_dict(needs_list, items, warnings)
+    return _needs_list_to_dict(needs_list, items, warnings_list)
 
 
 def get_record(needs_list_id: str) -> Dict[str, object] | None:
