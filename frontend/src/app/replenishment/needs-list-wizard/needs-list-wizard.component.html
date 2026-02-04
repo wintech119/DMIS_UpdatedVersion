@@ -1,0 +1,69 @@
+<div class="wizard-container">
+  <!-- Header -->
+  <mat-card class="wizard-header">
+    <div class="header-content">
+      <button mat-icon-button (click)="backToDashboard()" class="back-btn" matTooltip="Back to Dashboard">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
+        <h1>Generate Needs List</h1>
+        <p>3-step wizard for supply replenishment planning</p>
+      </div>
+    </div>
+  </mat-card>
+
+  <!-- Stepper -->
+  <mat-stepper linear #stepper (selectionChange)="onStepChange($event)" class="wizard-stepper">
+
+    <!-- Step 1: Review & Confirm Scope -->
+    <mat-step [completed]="(isStep1Valid$ | async) || false">
+      <ng-template matStepLabel>Review Scope</ng-template>
+      <div class="step-content">
+        <h2>Step 1: Review & Confirm Scope</h2>
+        <p>Select warehouses and configure event parameters</p>
+        <!-- Step 1 component will be added in Phase 3 -->
+        <div class="step-actions">
+          <button mat-raised-button color="primary" disabled>
+            Calculate Gaps
+          </button>
+        </div>
+      </div>
+    </mat-step>
+
+    <!-- Step 2: Preview Results -->
+    <mat-step [completed]="(isStep2Valid$ | async) || false">
+      <ng-template matStepLabel>Preview Results</ng-template>
+      <div class="step-content">
+        <h2>Step 2: Preview Results</h2>
+        <p>Review items and adjust quantities if needed</p>
+        <!-- Step 2 component will be added in Phase 4 -->
+        <div class="step-actions">
+          <button mat-button matStepperPrevious>Back</button>
+          <button mat-raised-button color="primary" matStepperNext disabled>
+            Continue to Summary
+          </button>
+        </div>
+      </div>
+    </mat-step>
+
+    <!-- Step 3: Submit for Approval -->
+    <mat-step>
+      <ng-template matStepLabel>Submit</ng-template>
+      <div class="step-content">
+        <h2>Step 3: Submit for Approval</h2>
+        <p>Review summary and submit needs list</p>
+        <!-- Step 3 component will be added in Phase 5 -->
+        <div class="step-actions">
+          <button mat-button matStepperPrevious>Back</button>
+          <button mat-stroked-button disabled matTooltip="Coming soon">
+            Save as Draft
+          </button>
+          <button mat-raised-button color="primary" disabled>
+            Submit for Approval
+          </button>
+        </div>
+      </div>
+    </mat-step>
+
+  </mat-stepper>
+</div>
