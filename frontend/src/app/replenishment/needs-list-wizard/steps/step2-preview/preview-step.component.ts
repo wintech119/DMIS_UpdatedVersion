@@ -1,4 +1,5 @@
-import { Component, OnInit, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -15,6 +16,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { WizardStateService } from '../../services/wizard-state.service';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import { ItemAdjustment, ADJUSTMENT_REASON_LABELS, AdjustmentReason } from '../../models/wizard-state.model';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 
 @Component({
   selector: 'app-preview-step',
@@ -43,6 +45,7 @@ export class PreviewStepComponent implements OnInit {
   items: NeedsListItem[] = [];
   loading = false;
   errors: string[] = [];
+  private destroyRef = inject(DestroyRef);
 
   displayedColumns = [
     'severity',
@@ -71,8 +74,13 @@ export class PreviewStepComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const state = this.wizardService.getState();
-    this.items = state.previewResponse?.items || [];
+    this.wizardService.getState$().pipe(
+      map(state => state.previewResponse?.items || []),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(items => {
+      this.items = items;
+    });
   }
 
   getSeverityIcon(item: NeedsListItem): string {
