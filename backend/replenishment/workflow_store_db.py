@@ -588,7 +588,9 @@ def _needs_list_to_dict(
                 'required_qty': float(item.required_qty),
                 'coverage_qty': float(item.coverage_qty),
                 'gap_qty': float(item.gap_qty),
-                'time_to_stockout': float(item.time_to_stockout_hours) if item.time_to_stockout_hours else None,
+                'time_to_stockout': float(item.time_to_stockout_hours)
+                if item.time_to_stockout_hours is not None
+                else None,
                 'severity': item.severity_level,
                 'horizon_a_qty': float(item.horizon_a_qty),
                 'horizon_b_qty': float(item.horizon_b_qty),

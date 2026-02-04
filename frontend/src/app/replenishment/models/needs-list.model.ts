@@ -12,6 +12,7 @@ export interface NeedsListItem {
   computed_required_qty?: number;
   gap_qty: number;
   time_to_stockout?: string | number;
+  time_to_stockout_hours?: number;
   severity?: SeverityLevel;
   horizon?: HorizonAllocation;
   confidence?: ConfidenceInfo;
