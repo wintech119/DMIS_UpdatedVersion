@@ -119,6 +119,7 @@
                   *ngIf="!isEditing(item) && !hasAdjustment(item)"
                   mat-icon-button
                   (click)="startEdit(item)"
+                  aria-label="Adjust quantity"
                   matTooltip="Adjust quantity"
                 >
                   <mat-icon>edit</mat-icon>
@@ -128,6 +129,7 @@
                   mat-icon-button
                   color="primary"
                   (click)="startEdit(item)"
+                  aria-label="Edit adjustment"
                   matTooltip="Edit adjustment"
                 >
                   <mat-icon>edit</mat-icon>
@@ -137,6 +139,7 @@
                   mat-icon-button
                   color="warn"
                   (click)="removeAdjustment(item)"
+                  aria-label="Remove adjustment"
                   matTooltip="Remove adjustment"
                 >
                   <mat-icon>delete</mat-icon>
