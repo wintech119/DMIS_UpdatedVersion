@@ -705,11 +705,11 @@ FOR EACH ROW EXECUTE FUNCTION public.log_event_phase_change();
 -- ============================================================================
 
 -- Insert default lead times
-INSERT INTO public.lead_time_config (horizon, lead_time_hours, is_default, create_by_id)
+INSERT INTO public.lead_time_config (horizon, lead_time_hours, is_default, create_by_id, update_by_id)
 VALUES
-    ('A', 8, TRUE, 'SYSTEM'),    -- Transfers: 8 hours default
-    ('B', 72, TRUE, 'SYSTEM'),   -- Donations: 72 hours (3 days) default
-    ('C', 336, TRUE, 'SYSTEM')   -- Procurement: 336 hours (14 days) default
+    ('A', 8, TRUE, 'SYSTEM', 'SYSTEM'),    -- Transfers: 8 hours default
+    ('B', 72, TRUE, 'SYSTEM', 'SYSTEM'),   -- Donations: 72 hours (3 days) default
+    ('C', 336, TRUE, 'SYSTEM', 'SYSTEM')   -- Procurement: 336 hours (14 days) default
 ON CONFLICT DO NOTHING;
 
 
