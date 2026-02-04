@@ -5,6 +5,7 @@ import { MatStepperModule, MatStepper } from '@angular/material/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { WizardStateService } from './services/wizard-state.service';
 
@@ -16,7 +17,8 @@ import { WizardStateService } from './services/wizard-state.service';
     MatStepperModule,
     MatButtonModule,
     MatIconModule,
-    MatCardModule
+    MatCardModule,
+    MatTooltipModule
   ],
   templateUrl: './needs-list-wizard.component.html',
   styleUrl: './needs-list-wizard.component.scss'
