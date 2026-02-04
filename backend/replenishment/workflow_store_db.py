@@ -222,6 +222,9 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         elif 'reviewed_at' in record and record['reviewed_at']:
             needs_list.under_review_at = record['reviewed_at']
             needs_list.under_review_by = record.get('reviewed_by')
+        if 'reviewed_at' in record and record['reviewed_at']:
+            needs_list.reviewed_at = record['reviewed_at']
+            needs_list.reviewed_by = record.get('reviewed_by')
         if 'approved_at' in record and record['approved_at']:
             needs_list.approved_at = record['approved_at']
             needs_list.approved_by = record.get('approved_by')
@@ -500,13 +503,19 @@ def transition_status(
         needs_list.under_review_at = now
         needs_list.under_review_by = actor
     elif to_status == 'APPROVED':
+        needs_list.reviewed_at = now
+        needs_list.reviewed_by = actor
         needs_list.approved_at = now
         needs_list.approved_by = actor
     elif to_status == 'REJECTED':
+        needs_list.reviewed_at = now
+        needs_list.reviewed_by = actor
         needs_list.rejected_at = now
         needs_list.rejected_by = actor
         needs_list.rejection_reason = reason
     elif to_status == 'RETURNED':
+        needs_list.reviewed_at = now
+        needs_list.reviewed_by = actor
         needs_list.returned_at = now
         needs_list.returned_by = actor
         needs_list.returned_reason = reason
@@ -636,8 +645,8 @@ def _needs_list_to_dict(
         'updated_at': needs_list.update_dtime.isoformat(),
         'submitted_by': needs_list.submitted_by,
         'submitted_at': needs_list.submitted_at.isoformat() if needs_list.submitted_at else None,
-        'reviewed_by': needs_list.under_review_by,
-        'reviewed_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
+        'reviewed_by': needs_list.reviewed_by,
+        'reviewed_at': needs_list.reviewed_at.isoformat() if needs_list.reviewed_at else None,
         'review_started_by': needs_list.under_review_by,
         'review_started_at': needs_list.under_review_at.isoformat() if needs_list.under_review_at else None,
         'approved_by': needs_list.approved_by,
