@@ -36,7 +36,9 @@ export class NeedsListWizardComponent implements OnInit {
 
   ngOnInit(): void {
     // Load query params from dashboard navigation
-    this.route.queryParams.subscribe(params => {
+    this.route.queryParams.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(params => {
       if (params['event_id']) {
         // Convert single warehouse_id to array for multi-warehouse support
         const warehouseId = params['warehouse_id'];
