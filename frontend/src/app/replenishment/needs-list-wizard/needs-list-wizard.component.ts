@@ -11,6 +11,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { WizardStateService } from './services/wizard-state.service';
 import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
 import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
+import { SubmitStepComponent } from './steps/step3-submit/submit-step.component';
 
 @Component({
   selector: 'app-needs-list-wizard',
@@ -23,7 +24,8 @@ import { PreviewStepComponent } from './steps/step2-preview/preview-step.compone
     MatCardModule,
     MatTooltipModule,
     ScopeStepComponent,
-    PreviewStepComponent
+    PreviewStepComponent,
+    SubmitStepComponent
   ],
   templateUrl: './needs-list-wizard.component.html',
   styleUrls: ['./needs-list-wizard.component.scss']
@@ -78,5 +80,17 @@ export class NeedsListWizardComponent implements OnInit {
   onStepChange(event: any): void {
     // Track step changes for analytics
     console.log('Step changed:', event.selectedIndex);
+  }
+
+  onComplete(): void {
+    // Handle wizard completion (after successful submission)
+    console.log('Wizard completed');
+    // In future: navigate to confirmation page or back to dashboard
+    // For now, just reset state and navigate to dashboard
+    const confirmed = confirm('Needs list submitted successfully! Return to dashboard?');
+    if (confirmed) {
+      this.wizardService.reset();
+      this.router.navigate(['/replenishment/dashboard']);
+    }
   }
 }
