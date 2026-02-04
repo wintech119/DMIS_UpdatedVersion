@@ -25,6 +25,8 @@ import { WizardStateService } from './services/wizard-state.service';
 })
 export class NeedsListWizardComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
+  readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
+  readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
 
   constructor(
     public wizardService: WizardStateService,

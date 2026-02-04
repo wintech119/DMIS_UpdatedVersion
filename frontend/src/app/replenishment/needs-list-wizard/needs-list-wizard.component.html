@@ -16,7 +16,7 @@
   <mat-stepper linear #stepper (selectionChange)="onStepChange($event)" class="wizard-stepper">
 
     <!-- Step 1: Review & Confirm Scope -->
-    <mat-step [completed]="(wizardService.isStep1Valid$() | async) || false">
+    <mat-step [completed]="(isStep1Valid$ | async) || false">
       <ng-template matStepLabel>Review Scope</ng-template>
       <div class="step-content">
         <h2>Step 1: Review & Confirm Scope</h2>
@@ -31,7 +31,7 @@
     </mat-step>
 
     <!-- Step 2: Preview Results -->
-    <mat-step [completed]="(wizardService.isStep2Valid$() | async) || false">
+    <mat-step [completed]="(isStep2Valid$ | async) || false">
       <ng-template matStepLabel>Preview Results</ng-template>
       <div class="step-content">
         <h2>Step 2: Preview Results</h2>
