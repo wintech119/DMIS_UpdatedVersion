@@ -1,0 +1,233 @@
+<div class="submit-step-container">
+  <!-- Summary Header -->
+  <mat-card class="summary-card">
+    <mat-card-header>
+      <mat-card-title>Needs List Summary</mat-card-title>
+      <mat-card-subtitle>Review and submit for approval</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <mat-icon class="summary-icon">inventory_2</mat-icon>
+          <div class="summary-text">
+            <span class="label">Total Items</span>
+            <span class="value">{{ totalItems }}</span>
+          </div>
+        </div>
+        <div class="summary-item">
+          <mat-icon class="summary-icon">widgets</mat-icon>
+          <div class="summary-text">
+            <span class="label">Total Units</span>
+            <span class="value">{{ totalUnits }}</span>
+          </div>
+        </div>
+        <div class="summary-item">
+          <mat-icon class="summary-icon">attach_money</mat-icon>
+          <div class="summary-text">
+            <span class="label">Estimated Cost</span>
+            <span class="value">${{ totalCost.toFixed(2) }}</span>
+          </div>
+        </div>
+        <div class="summary-item" *ngIf="hasAdjustments">
+          <mat-icon class="summary-icon">edit</mat-icon>
+          <div class="summary-text">
+            <span class="label">Adjustments</span>
+            <span class="value">{{ adjustmentCount }}</span>
+          </div>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- Main Content Grid -->
+  <div class="content-grid">
+    <!-- Left Column -->
+    <div class="left-column">
+      <!-- Warehouse Breakdown -->
+      <mat-card class="breakdown-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">store</mat-icon>
+          <mat-card-title>Warehouse Breakdown</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="warehouse-list">
+            <div *ngFor="let wh of warehouseBreakdown" class="warehouse-item">
+              <div class="wh-header">
+                <mat-icon class="wh-icon">location_on</mat-icon>
+                <span class="wh-name">{{ wh.warehouse_name }}</span>
+              </div>
+              <div class="wh-stats">
+                <div class="stat">
+                  <span class="stat-label">Items:</span>
+                  <span class="stat-value">{{ wh.items }}</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Units:</span>
+                  <span class="stat-value">{{ wh.units }}</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Cost:</span>
+                  <span class="stat-value">${{ wh.cost.toFixed(2) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div *ngIf="warehouseBreakdown.length === 0" class="empty-state">
+              <mat-icon>info</mat-icon>
+              <p>No warehouses selected</p>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Horizon Breakdown -->
+      <mat-card class="breakdown-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">timeline</mat-icon>
+          <mat-card-title>Replenishment Horizons</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="horizon-list">
+            <div *ngFor="let h of horizonBreakdown" class="horizon-item" [ngClass]="'horizon-' + h.horizon">
+              <div class="horizon-header">
+                <mat-icon class="horizon-icon">
+                  {{ h.horizon === 'A' ? 'local_shipping' : h.horizon === 'B' ? 'inventory' : 'shopping_cart' }}
+                </mat-icon>
+                <div class="horizon-info">
+                  <span class="horizon-label">{{ h.label }}</span>
+                  <span class="horizon-lead-time">Lead Time: {{ h.leadTime }}</span>
+                </div>
+              </div>
+              <div class="horizon-stats">
+                <div class="stat">
+                  <span class="stat-label">Items:</span>
+                  <span class="stat-value">{{ h.items }}</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Units:</span>
+                  <span class="stat-value">{{ h.units }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div *ngIf="horizonBreakdown.length === 0" class="empty-state">
+              <mat-icon>info</mat-icon>
+              <p>No horizon allocations available</p>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+
+    <!-- Right Column -->
+    <div class="right-column">
+      <!-- Event & Phase Info -->
+      <mat-card class="info-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">event</mat-icon>
+          <mat-card-title>Event Information</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="info-row">
+            <span class="info-label">Event ID:</span>
+            <span class="info-value">{{ getEventId() || 'N/A' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Phase:</span>
+            <mat-chip class="phase-chip">{{ getPhaseLabel() }}</mat-chip>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Approval Info -->
+      <mat-card class="info-card approval-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">approval</mat-icon>
+          <mat-card-title>Approval Required</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="approval-info">
+            <mat-icon class="approval-icon">person</mat-icon>
+            <div class="approval-text">
+              <span class="approval-label">This needs list will be sent to:</span>
+              <span class="approval-value">{{ getApprovalInfo() }}</span>
+            </div>
+          </div>
+          <p class="approval-note">
+            They will be notified via email and in-app notification.
+          </p>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Notes -->
+      <mat-card class="notes-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">notes</mat-icon>
+          <mat-card-title>Additional Notes</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <form [formGroup]="notesForm">
+            <mat-form-field appearance="outline" class="notes-field">
+              <mat-label>Notes (Optional)</mat-label>
+              <textarea
+                matInput
+                formControlName="notes"
+                rows="4"
+                placeholder="Add any additional context, special instructions, or comments for the approver..."
+              ></textarea>
+              <mat-hint>These notes will be included with the needs list submission</mat-hint>
+            </mat-form-field>
+          </form>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  </div>
+
+  <!-- Errors -->
+  <div class="errors-container" *ngIf="errors.length">
+    <mat-card class="error-card">
+      <mat-icon class="error-icon">error</mat-icon>
+      <div class="error-list">
+        <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
+      </div>
+    </mat-card>
+  </div>
+
+  <!-- Actions -->
+  <mat-card class="actions-card">
+    <mat-card-content>
+      <div class="step-actions">
+        <button mat-button (click)="goBack()" class="back-btn">
+          <mat-icon>arrow_back</mat-icon>
+          Back
+        </button>
+
+        <div class="primary-actions">
+          <button
+            mat-stroked-button
+            color="accent"
+            (click)="saveDraft()"
+            [disabled]="loading || totalItems === 0"
+            class="draft-btn"
+          >
+            <mat-icon>save</mat-icon>
+            Save as Draft
+          </button>
+          <button
+            mat-raised-button
+            color="primary"
+            (click)="submitForApproval()"
+            [disabled]="loading || totalItems === 0"
+            class="submit-btn"
+          >
+            <mat-icon>send</mat-icon>
+            Submit for Approval
+          </button>
+        </div>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
+  <!-- Loading indicator -->
+  <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
+</div>
