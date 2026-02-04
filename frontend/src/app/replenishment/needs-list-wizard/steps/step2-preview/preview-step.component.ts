@@ -185,7 +185,7 @@ export class PreviewStepComponent implements OnInit {
 
     const existing = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
     this.adjustmentForm.patchValue({
-      adjusted_qty: existing?.adjusted_qty || item.gap_qty,
+      adjusted_qty: existing?.adjusted_qty ?? item.gap_qty,
       reason: existing?.reason || '',
       notes: existing?.notes || ''
     });
