@@ -213,11 +213,13 @@ export class PreviewStepComponent implements OnInit {
       return;
     }
 
+    const adjustedQty = Number(this.adjustmentForm.value.adjusted_qty);
+
     const adjustment: ItemAdjustment = {
       item_id: item.item_id,
       warehouse_id: item.warehouse_id || 0,
       original_qty: item.gap_qty,
-      adjusted_qty: this.adjustmentForm.value.adjusted_qty,
+      adjusted_qty: adjustedQty,
       reason: this.adjustmentForm.value.reason,
       notes: this.adjustmentForm.value.notes
     };
