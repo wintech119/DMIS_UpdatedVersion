@@ -24,6 +24,8 @@ def build_csp_header():
     
     Whitelisted domains:
     - cdn.jsdelivr.net: Bootstrap 5.3.3, Bootstrap Icons, Chart.js, Flatpickr
+    - fonts.googleapis.com: Material Icons stylesheet
+    - fonts.gstatic.com: Material Icons font files
     
     Security features:
     - Nonce-based inline script/style protection
@@ -49,13 +51,13 @@ def build_csp_header():
         f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net",
         
         # Styles: self, nonce for inline, CDN for external frameworks
-        f"style-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net",
+        f"style-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net https://fonts.googleapis.com",
         
         # Images: self and data URIs only (removed https: wildcard)
         "img-src 'self' data:",
         
         # Fonts: self, CDN for Bootstrap Icons, data URIs for embedded fonts
-        "font-src 'self' https://cdn.jsdelivr.net data:",
+        "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:",
         
         # AJAX/fetch: same origin only (CDN resources don't need connect-src)
         "connect-src 'self'",
