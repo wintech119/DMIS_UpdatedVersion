@@ -245,6 +245,11 @@ BEGIN
         UNION ALL SELECT 'item', 'min_stock_threshold'
         UNION ALL SELECT 'item', 'criticality_level'
         UNION ALL SELECT 'transfer', 'needs_list_id'
+        UNION ALL SELECT 'transfer', 'dispatched_at'
+        UNION ALL SELECT 'transfer', 'dispatched_by'
+        UNION ALL SELECT 'transfer', 'expected_arrival'
+        UNION ALL SELECT 'transfer', 'received_at'
+        UNION ALL SELECT 'transfer', 'received_by'
     ) AS expected
     WHERE NOT EXISTS (
         SELECT 1
@@ -305,7 +310,7 @@ BEGIN
     RAISE NOTICE '--------';
 
     IF missing_columns = 0 THEN
-        RAISE NOTICE '✓ All required columns present (10 columns checked)';
+        RAISE NOTICE '✓ All required columns present (15 columns checked)';
     ELSE
         RAISE NOTICE '✗ Missing % column(s)', missing_columns;
     END IF;
