@@ -527,3 +527,392 @@
     grid-template-columns: 1fr;
   }
 }
+
+// ===== NEW MULTI-WAREHOUSE STYLES =====
+
+// Context Card
+.context-card {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+
+  .context-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .context-info {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+  }
+
+  .context-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .context-label {
+    font-size: 12px;
+    color: #666;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .context-value {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+
+    &.phase-badge {
+      padding: 4px 12px;
+      background-color: #6f42c1;
+      color: white;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  }
+
+  .context-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    button {
+      mat-icon {
+        margin-right: 4px;
+      }
+    }
+  }
+}
+
+// Updated Stats Row with Icons
+.stats-row {
+  .stat-box {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+
+    .stat-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      flex-shrink: 0;
+
+      mat-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+      }
+    }
+
+    .stat-content {
+      text-align: left;
+      flex: 1;
+    }
+
+    &.stat-critical .stat-icon {
+      background-color: #fff5f5;
+      color: #dc3545;
+    }
+
+    &.stat-warning .stat-icon {
+      background-color: #fffbf0;
+      color: #fd7e14;
+    }
+
+    &.stat-warehouses .stat-icon {
+      background-color: #f0f5ff;
+      color: #007bff;
+    }
+  }
+}
+
+// Filters Panel (Expansion Panel)
+.filters-panel {
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+
+  mat-expansion-panel-header {
+    mat-panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+
+      mat-icon {
+        color: #666;
+      }
+
+      .filter-badge {
+        margin-left: 8px;
+        padding: 2px 8px;
+        background-color: #007bff;
+        color: white;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+    }
+  }
+
+  .filters-content {
+    padding: 15px 0;
+  }
+}
+
+// Warehouses Container
+.warehouses-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+// Warehouse Card
+.warehouse-card {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  overflow: hidden;
+
+  .warehouse-header {
+    padding: 15px 20px;
+    border-bottom: 2px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 15px;
+
+    &.header-critical {
+      background-color: #fff5f5;
+      border-bottom-color: #dc3545;
+    }
+
+    &.header-warning {
+      background-color: #fffbf0;
+      border-bottom-color: #fd7e14;
+    }
+
+    &.header-ok {
+      background-color: #f0fff4;
+      border-bottom-color: #28a745;
+    }
+  }
+
+  .warehouse-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    mat-icon {
+      color: #666;
+      font-size: 28px;
+      width: 28px;
+      height: 28px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+  }
+
+  .warehouse-stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    .stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 600;
+
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      &.stat-chip-critical {
+        background-color: #dc3545;
+        color: white;
+      }
+
+      &.stat-chip-warning {
+        background-color: #fd7e14;
+        color: white;
+      }
+
+      &.stat-chip-ok {
+        background-color: #28a745;
+        color: white;
+      }
+    }
+  }
+
+  .warehouse-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+
+    button {
+      mat-icon {
+        margin-right: 4px;
+      }
+    }
+  }
+
+  .warehouse-content {
+    padding: 20px;
+
+    &.empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+
+      mat-icon {
+        font-size: 48px;
+        width: 48px;
+        height: 48px;
+        color: #ccc;
+        margin-bottom: 10px;
+      }
+
+      p {
+        margin: 0;
+        font-size: 14px;
+      }
+    }
+  }
+}
+
+// Empty State Card
+.empty-state-card {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 60px 20px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+
+  mat-icon {
+    font-size: 64px;
+    width: 64px;
+    height: 64px;
+    color: #ccc;
+    margin-bottom: 20px;
+  }
+
+  h3 {
+    margin: 0 0 10px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+  }
+
+  p {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: #666;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+
+    &.help-text {
+      font-size: 13px;
+      color: #999;
+      margin-top: 5px;
+    }
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+}
+
+// Alert with Icon
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  mat-icon {
+    flex-shrink: 0;
+  }
+}
+
+// Responsive Updates
+@media (max-width: 768px) {
+  .context-card {
+    .context-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .context-info {
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .context-actions {
+      width: 100%;
+
+      button {
+        flex: 1;
+      }
+    }
+  }
+
+  .warehouse-card {
+    .warehouse-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .warehouse-actions {
+      width: 100%;
+
+      button {
+        flex: 1;
+      }
+    }
+  }
+
+  .stats-row {
+    .stat-box {
+      .stat-icon {
+        width: 40px;
+        height: 40px;
+
+        mat-icon {
+          font-size: 24px;
+          width: 24px;
+          height: 24px;
+        }
+      }
+
+      .stat-value {
+        font-size: 24px;
+      }
+    }
+  }
+}

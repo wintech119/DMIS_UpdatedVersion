@@ -6,13 +6,15 @@ export interface StockStatusItem {
   item_id: number;
   item_name?: string;
   category?: string;
+  warehouse_id?: number;
+  warehouse_name?: string;
   available_qty: number;
   inbound_strict_qty: number;
   burn_rate_per_hour: number;
   burn_rate_trend?: 'up' | 'down' | 'stable';
   time_to_stockout?: number | string;
   time_to_stockout_hours?: number;
-  required_qty: number;
+  required_qty?: number;
   gap_qty: number;
   severity?: SeverityLevel;
   confidence?: {
@@ -40,6 +42,26 @@ export interface StockStatusResponse {
     last_sync: string;
     warehouses: Record<string, { state: FreshnessLevel; last_sync: string }>;
   };
+}
+
+export interface WarehouseStockGroup {
+  warehouse_id: number;
+  warehouse_name: string;
+  items: StockStatusItem[];
+  critical_count: number;
+  warning_count: number;
+  watch_count: number;
+  ok_count: number;
+  overall_freshness?: FreshnessLevel;
+}
+
+export interface MultiWarehouseStockResponse {
+  event_id: number;
+  event_name: string;
+  phase: EventPhase;
+  warehouses: WarehouseStockGroup[];
+  as_of_datetime: string;
+  warnings: string[];
 }
 
 export interface PhaseWindows {

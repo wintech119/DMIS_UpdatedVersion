@@ -2,85 +2,113 @@
   <!-- Page Header -->
   <div class="page-header">
     <h1 class="page-title">Stock Status Dashboard</h1>
-    <p class="page-subtitle">Monitor burn rates and replenishment needs</p>
+    <p class="page-subtitle">Monitor burn rates and replenishment needs across all warehouses</p>
   </div>
 
-  <!-- Filters Card -->
-  <div class="card">
-    <div class="card-header">
-      <h2>Filters</h2>
-    </div>
-    <div class="card-body">
-      <form [formGroup]="form" (ngSubmit)="loadStockStatus()" class="filter-form">
-        <div class="form-row">
-          <mat-form-field appearance="outline" class="form-field">
-            <mat-label>Event ID</mat-label>
-            <input matInput type="number" formControlName="event_id" />
-          </mat-form-field>
+  <!-- Loading State -->
+  <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
 
-          <mat-form-field appearance="outline" class="form-field">
-            <mat-label>Warehouse ID</mat-label>
-            <input matInput type="number" formControlName="warehouse_id" />
-          </mat-form-field>
+  <!-- Errors -->
+  <div class="alert alert-danger" *ngIf="errors.length">
+    <mat-icon>error</mat-icon>
+    <strong>Error:</strong> {{ errors[0] }}
+  </div>
 
-          <mat-form-field appearance="outline" class="form-field">
-            <mat-label>Phase</mat-label>
-            <mat-select formControlName="phase">
-              <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
-                {{ phase }}
-              </mat-option>
-            </mat-select>
-          </mat-form-field>
-
-          <button mat-raised-button color="primary" type="submit" [disabled]="loading" class="btn-primary">
-            Load Status
-          </button>
+  <!-- Context Display -->
+  <div class="context-card" *ngIf="activeEvent">
+    <div class="context-header">
+      <div class="context-info">
+        <div class="context-row">
+          <span class="context-label">Active Event:</span>
+          <span class="context-value">{{ getEventName() }}</span>
         </div>
-      </form>
-
-      <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
-
-      <!-- Errors -->
-      <div class="alert alert-danger" *ngIf="errors.length">
-        <strong>Error:</strong> {{ errors[0] }}
+        <div class="context-row">
+          <span class="context-label">Phase:</span>
+          <span class="context-value phase-badge">{{ getPhaseLabel() }}</span>
+        </div>
+        <div class="context-row">
+          <span class="context-label">Viewing:</span>
+          <span class="context-value">
+            <span *ngIf="viewMode === 'multi' && selectedWarehouseIds.length === 0">
+              All Warehouses ({{ allWarehouses.length }})
+            </span>
+            <span *ngIf="viewMode === 'multi' && selectedWarehouseIds.length > 0">
+              {{ selectedWarehouseIds.length }} Selected Warehouses
+            </span>
+            <span *ngIf="viewMode === 'single'">
+              Single Warehouse Detail
+            </span>
+          </span>
+        </div>
+      </div>
+      <div class="context-actions">
+        <button mat-stroked-button (click)="changeEventOrPhase()" *ngIf="viewMode === 'multi'">
+          <mat-icon>event</mat-icon>
+          Change Event/Phase
+        </button>
+        <button mat-stroked-button [matMenuTriggerFor]="warehouseMenu" *ngIf="viewMode === 'multi'">
+          <mat-icon>warehouse</mat-icon>
+          Filter by Warehouse
+        </button>
+        <mat-menu #warehouseMenu="matMenu">
+          <button mat-menu-item (click)="clearWarehouseFilter()">
+            <mat-icon>select_all</mat-icon>
+            Show All Warehouses
+          </button>
+          <mat-divider></mat-divider>
+          <button
+            mat-menu-item
+            *ngFor="let warehouse of allWarehouses"
+            (click)="toggleWarehouseFilter(warehouse.warehouse_id); $event.stopPropagation()"
+          >
+            <mat-icon>{{ isWarehouseSelected(warehouse.warehouse_id) ? 'check_box' : 'check_box_outline_blank' }}</mat-icon>
+            {{ warehouse.warehouse_name }}
+          </button>
+        </mat-menu>
+        <button mat-stroked-button (click)="returnToMultiView()" *ngIf="viewMode === 'single'">
+          <mat-icon>arrow_back</mat-icon>
+          Back to All Warehouses
+        </button>
       </div>
     </div>
   </div>
 
-  <!-- Data Freshness Warning -->
-  <div class="alert alert-warning" *ngIf="getDataFreshnessWarning() as warning">
-    <strong>Warning:</strong> {{ warning }}
-  </div>
-
   <!-- Summary Stats -->
-  <div class="stats-row" *ngIf="response">
+  <div class="stats-row" *ngIf="warehouseGroups.length">
     <div class="stat-box stat-critical">
-      <div class="stat-value">{{ criticalItems.length }}</div>
-      <div class="stat-label">Critical Items</div>
+      <div class="stat-icon"><mat-icon>error</mat-icon></div>
+      <div class="stat-content">
+        <div class="stat-value">{{ getTotalCriticalCount() }}</div>
+        <div class="stat-label">Critical Items</div>
+      </div>
     </div>
-    <div class="stat-box stat-info">
-      <div class="stat-value">{{ items.length }}</div>
-      <div class="stat-label">Total Items</div>
+    <div class="stat-box stat-warning">
+      <div class="stat-icon"><mat-icon>warning</mat-icon></div>
+      <div class="stat-content">
+        <div class="stat-value">{{ getTotalWarningCount() }}</div>
+        <div class="stat-label">Warning Items</div>
+      </div>
     </div>
-    <div class="stat-box stat-phase">
-      <div class="stat-value">{{ getPhaseLabel() }}</div>
-      <div class="stat-label">Event Phase</div>
-    </div>
-    <div class="stat-box stat-time">
-      <div class="stat-value">{{ getAsOfTime() | date: 'short' }}</div>
-      <div class="stat-label">Last Updated</div>
+    <div class="stat-box stat-warehouses">
+      <div class="stat-icon"><mat-icon>warehouse</mat-icon></div>
+      <div class="stat-content">
+        <div class="stat-value">{{ warehouseGroups.length }}</div>
+        <div class="stat-label">Warehouses</div>
+      </div>
     </div>
   </div>
 
-  <!-- Filters -->
-  <div class="card" *ngIf="response">
-    <div class="card-header filter-header">
-      <h2>Filters & Sort</h2>
-      <button mat-button (click)="toggleFilters()" class="toggle-btn">
-        {{ filtersExpanded ? 'Hide' : 'Show' }} Filters
-      </button>
-    </div>
-    <div class="card-body" *ngIf="filtersExpanded">
+  <!-- Filters & Sort (Collapsible, Optional) -->
+  <mat-expansion-panel class="filters-panel" [(expanded)]="filtersExpanded">
+    <mat-expansion-panel-header>
+      <mat-panel-title>
+        <mat-icon>filter_list</mat-icon>
+        Filters & Sort
+        <span class="filter-badge" *ngIf="hasActiveFilters()">{{ selectedCategories.length + selectedSeverities.length }} active</span>
+      </mat-panel-title>
+    </mat-expansion-panel-header>
+
+    <div class="filters-content">
       <!-- Sort Controls -->
       <div class="filter-section">
         <label class="filter-label">Sort By:</label>
@@ -153,122 +181,164 @@
       <!-- Reset Button -->
       <div class="filter-actions" *ngIf="hasActiveFilters()">
         <button mat-button color="warn" (click)="resetFilters()">
+          <mat-icon>clear</mat-icon>
           Reset Filters
         </button>
       </div>
     </div>
-  </div>
+  </mat-expansion-panel>
 
-  <!-- Action Button -->
-  <div class="action-row" *ngIf="response">
-    <button
-      mat-raised-button
-      [color]="hasCriticalItems() ? 'warn' : 'primary'"
-      (click)="generateNeedsList()"
-      class="btn-action"
-    >
-      Generate Needs List
-      <span *ngIf="hasCriticalItems()"> ({{ criticalItems.length }} Critical)</span>
-    </button>
-  </div>
+  <!-- Warehouse Cards (Multi-Warehouse View) -->
+  <div class="warehouses-container" *ngIf="!loading && warehouseGroups.length">
+    <div class="warehouse-card" *ngFor="let group of warehouseGroups">
+      <!-- Warehouse Header -->
+      <div class="warehouse-header" [ngClass]="{
+        'header-critical': group.critical_count > 0,
+        'header-warning': group.critical_count === 0 && group.warning_count > 0,
+        'header-ok': group.critical_count === 0 && group.warning_count === 0
+      }">
+        <div class="warehouse-title">
+          <mat-icon>warehouse</mat-icon>
+          <h2>{{ group.warehouse_name }}</h2>
+        </div>
+        <div class="warehouse-stats">
+          <span class="stat-chip stat-chip-critical" *ngIf="group.critical_count > 0">
+            <mat-icon>error</mat-icon>
+            {{ group.critical_count }} Critical
+          </span>
+          <span class="stat-chip stat-chip-warning" *ngIf="group.warning_count > 0">
+            <mat-icon>warning</mat-icon>
+            {{ group.warning_count }} Warning
+          </span>
+          <span class="stat-chip stat-chip-ok" *ngIf="group.critical_count === 0 && group.warning_count === 0">
+            <mat-icon>check_circle</mat-icon>
+            All OK
+          </span>
+        </div>
+        <div class="warehouse-actions">
+          <button
+            mat-raised-button
+            [color]="group.critical_count > 0 ? 'warn' : 'primary'"
+            (click)="generateNeedsList(group.warehouse_id)"
+            [disabled]="group.items.length === 0"
+          >
+            <mat-icon>add_shopping_cart</mat-icon>
+            Generate Needs List
+          </button>
+          <button mat-stroked-button (click)="drillDownToWarehouse(group.warehouse_id)" *ngIf="viewMode === 'multi'">
+            <mat-icon>visibility</mat-icon>
+            View Details
+          </button>
+        </div>
+      </div>
 
-  <!-- Stock Status Table -->
-  <div class="card" *ngIf="items.length">
-    <div class="card-header">
-      <h2>Stock Status ({{ items.length }} items)</h2>
-    </div>
-    <div class="card-body">
-      <div class="table-responsive">
-        <table class="dmis-table">
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Item</th>
-              <th>Available</th>
-              <th>Inbound</th>
-              <th>Burn Rate</th>
-              <th>Time to Stockout</th>
-              <th>Required</th>
-              <th>Gap</th>
-              <th>Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let item of items" [ngClass]="'row-' + getSeverityClass(item.severity)">
-              <td>
-                <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
-                  {{ item.severity || 'OK' }}
-                </span>
-              </td>
-              <td>
-                <strong>{{ item.item_name || 'Item ' + item.item_id }}</strong>
-                <div class="text-muted" *ngIf="item.category">{{ item.category }}</div>
-              </td>
-              <td>{{ item.available_qty | number: '1.0-0' }}</td>
-              <td>{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
-              <td>
-                <div class="burn-rate-cell" [matTooltip]="getBurnRateTooltip(item)" matTooltipPosition="above">
-                  <div class="burn-rate-main">
-                    <span class="burn-rate-value" [ngClass]="{
-                      'burn-rate-zero-stale': shouldShowZeroWarning(item),
-                      'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
-                    }">
-                      {{ getBurnRateDisplay(item) }}
-                    </span>
-                    <mat-icon
-                      *ngIf="item.burn_rate_trend && getTrendIcon(item.burn_rate_trend)"
-                      class="trend-icon"
-                      [ngClass]="getTrendClass(item.burn_rate_trend)"
-                      inline="true"
-                    >
-                      {{ getTrendIcon(item.burn_rate_trend) }}
-                    </mat-icon>
+      <!-- Data Freshness Warning -->
+      <div class="alert alert-warning" *ngIf="getDataFreshnessWarning(group) as warning">
+        <mat-icon>schedule</mat-icon>
+        {{ warning }}
+      </div>
+
+      <!-- Stock Items Table -->
+      <div class="warehouse-content" *ngIf="group.items.length > 0">
+        <div class="table-responsive">
+          <table class="dmis-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Item</th>
+                <th>Available</th>
+                <th>Inbound</th>
+                <th>Burn Rate</th>
+                <th>Time to Stockout</th>
+                <th>Required</th>
+                <th>Gap</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let item of group.items" [ngClass]="'row-' + getSeverityClass(item.severity)">
+                <td>
+                  <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
+                    {{ item.severity || 'OK' }}
+                  </span>
+                </td>
+                <td>
+                  <strong>{{ item.item_name || 'Item ' + item.item_id }}</strong>
+                  <div class="text-muted" *ngIf="item.category">{{ item.category }}</div>
+                </td>
+                <td>{{ item.available_qty | number: '1.0-0' }}</td>
+                <td>{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
+                <td>
+                  <div class="burn-rate-cell" [matTooltip]="getBurnRateTooltip(item)" matTooltipPosition="above">
+                    <div class="burn-rate-main">
+                      <span class="burn-rate-value" [ngClass]="{
+                        'burn-rate-zero-stale': shouldShowZeroWarning(item),
+                        'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                      }">
+                        {{ getBurnRateDisplay(item) }}
+                      </span>
+                      <mat-icon
+                        *ngIf="item.burn_rate_trend && getTrendIcon(item.burn_rate_trend)"
+                        class="trend-icon"
+                        [ngClass]="getTrendClass(item.burn_rate_trend)"
+                        inline="true"
+                      >
+                        {{ getTrendIcon(item.burn_rate_trend) }}
+                      </mat-icon>
+                    </div>
+                    <div class="burn-rate-indicators">
+                      <span
+                        class="confidence-badge"
+                        [ngClass]="getBurnRateConfidenceClass(getBurnRateConfidence(item))"
+                      >
+                        {{ getBurnRateConfidence(item) }}
+                      </span>
+                      <span class="stale-badge" *ngIf="isStaleDataBurnRate(item)">
+                        ⚠ Stale Data
+                      </span>
+                    </div>
                   </div>
-                  <div class="burn-rate-indicators">
-                    <span
-                      class="confidence-badge"
-                      [ngClass]="getBurnRateConfidenceClass(getBurnRateConfidence(item))"
-                    >
-                      {{ getBurnRateConfidence(item) }}
-                    </span>
-                    <span class="stale-badge" *ngIf="isStaleDataBurnRate(item)">
-                      ⚠ Stale Data
-                    </span>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
-              </td>
-              <td>{{ item.required_qty | number: '1.0-0' }}</td>
-              <td>
-                <span [ngClass]="item.gap_qty > 0 ? 'text-danger' : 'text-success'">
-                  {{ item.gap_qty | number: '1.0-0' }}
-                </span>
-              </td>
-              <td>
-                <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
-                  {{ item.freshness?.state || 'N/A' }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td>
+                  <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
+                </td>
+                <td>{{ item.required_qty | number: '1.0-0' }}</td>
+                <td>
+                  <span [ngClass]="item.gap_qty > 0 ? 'text-danger' : 'text-success'">
+                    {{ item.gap_qty | number: '1.0-0' }}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
+                    {{ item.freshness?.state || 'N/A' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- No Items in Warehouse -->
+      <div class="warehouse-content empty-state" *ngIf="group.items.length === 0">
+        <mat-icon>inventory_2</mat-icon>
+        <p>No items match the current filters or all items have sufficient coverage.</p>
       </div>
     </div>
   </div>
 
-  <!-- Empty State -->
-  <div class="card" *ngIf="!loading && !response">
-    <div class="card-body text-center">
-      <p>Enter an Event ID, Warehouse ID, and Phase to load stock status.</p>
-    </div>
+  <!-- Empty State (No Active Event) -->
+  <div class="empty-state-card" *ngIf="!loading && !activeEvent">
+    <mat-icon>event_busy</mat-icon>
+    <h3>No Active Events</h3>
+    <p>There are currently no active events in the system.</p>
+    <p class="help-text">To view stock status and burn rates, an event must be declared and marked as active in the Event Management module.</p>
   </div>
 
-  <!-- No Items State -->
-  <div class="card" *ngIf="response && items.length === 0">
-    <div class="card-body text-center">
-      <p>No items found or all items have sufficient coverage.</p>
-    </div>
+  <!-- No Warehouses State -->
+  <div class="empty-state-card" *ngIf="!loading && activeEvent && warehouseGroups.length === 0">
+    <mat-icon>warehouse</mat-icon>
+    <h3>No Warehouses Available</h3>
+    <p>No warehouses found or all selected warehouses have no stock data.</p>
   </div>
 </div>
