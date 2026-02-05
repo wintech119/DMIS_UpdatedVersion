@@ -710,9 +710,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ltc_default_per_horizon
     WHERE is_default = TRUE;
 
 -- Insert default lead times
+-- Note: Horizon A (Transfers) requires specific warehouse routes, so no default is inserted
+-- Horizon B and C can have defaults since they don't require specific routes
 INSERT INTO public.lead_time_config (horizon, lead_time_hours, is_default, create_by_id, update_by_id)
 VALUES
-    ('A', 8, TRUE, 'SYSTEM', 'SYSTEM'),    -- Transfers: 8 hours default
     ('B', 72, TRUE, 'SYSTEM', 'SYSTEM'),   -- Donations: 72 hours (3 days) default
     ('C', 336, TRUE, 'SYSTEM', 'SYSTEM')   -- Procurement: 336 hours (14 days) default
 ON CONFLICT DO NOTHING;
