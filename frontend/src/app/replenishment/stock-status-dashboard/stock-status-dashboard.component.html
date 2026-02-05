@@ -42,11 +42,25 @@
         </div>
       </div>
       <div class="context-actions">
-        <button mat-stroked-button (click)="changeEventOrPhase()" *ngIf="viewMode === 'multi'">
+        <button
+          mat-stroked-button
+          (click)="changeEventOrPhase()"
+          *ngIf="viewMode === 'multi'"
+          matTooltip="Switch to a different disaster event or view a different response phase (Surge, Stabilized, Baseline)"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
           <mat-icon>event</mat-icon>
           Change Event/Phase
         </button>
-        <button mat-stroked-button [matMenuTriggerFor]="warehouseMenu" *ngIf="viewMode === 'multi'">
+        <button
+          mat-stroked-button
+          [matMenuTriggerFor]="warehouseMenu"
+          *ngIf="viewMode === 'multi'"
+          matTooltip="Show stock status for specific warehouses only"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
           <mat-icon>warehouse</mat-icon>
           Filter by Warehouse
         </button>
@@ -65,7 +79,14 @@
             {{ warehouse.warehouse_name }}
           </button>
         </mat-menu>
-        <button mat-stroked-button (click)="returnToMultiView()" *ngIf="viewMode === 'single'">
+        <button
+          mat-stroked-button
+          (click)="returnToMultiView()"
+          *ngIf="viewMode === 'single'"
+          matTooltip="Return to multi-warehouse overview"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
           <mat-icon>arrow_back</mat-icon>
           Back to All Warehouses
         </button>
@@ -118,6 +139,9 @@
             [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
             (click)="changeSortBy('time_to_stockout')"
             class="sort-btn"
+            matTooltip="Sort by days until stock runs out. Items running out soonest appear first."
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
           >
             Time to Stockout
             <span *ngIf="sortBy === 'time_to_stockout'">
@@ -129,6 +153,9 @@
             [color]="sortBy === 'severity' ? 'primary' : undefined"
             (click)="changeSortBy('severity')"
             class="sort-btn"
+            matTooltip="Sort by stock health status. Critical items appear first, then Warning, Watch, OK."
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
           >
             Severity
             <span *ngIf="sortBy === 'severity'">
@@ -140,6 +167,9 @@
             [color]="sortBy === 'item_name' ? 'primary' : undefined"
             (click)="changeSortBy('item_name')"
             class="sort-btn"
+            matTooltip="Sort alphabetically by item name."
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
           >
             Item Name
             <span *ngIf="sortBy === 'item_name'">
@@ -158,6 +188,9 @@
             [selected]="isSeveritySelected(severity)"
             (click)="toggleSeverity(severity)"
             [ngClass]="'chip-' + severity.toLowerCase()"
+            [matTooltip]="getSeverityTooltip(severity)"
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
           >
             {{ severity }}
           </mat-chip-option>
@@ -180,7 +213,14 @@
 
       <!-- Reset Button -->
       <div class="filter-actions" *ngIf="hasActiveFilters()">
-        <button mat-button color="warn" (click)="resetFilters()">
+        <button
+          mat-button
+          color="warn"
+          (click)="resetFilters()"
+          matTooltip="Clear all active filters and return to default sorting"
+          matTooltipPosition="above"
+          matTooltipShowDelay="300"
+        >
           <mat-icon>clear</mat-icon>
           Reset Filters
         </button>
@@ -221,11 +261,21 @@
             [color]="group.critical_count > 0 ? 'warn' : 'primary'"
             (click)="generateNeedsList(group.warehouse_id)"
             [disabled]="group.items.length === 0"
+            matTooltip="Create a replenishment needs list for this warehouse. Lists items requiring restocking with recommended quantities and sources."
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
           >
             <mat-icon>add_shopping_cart</mat-icon>
             Generate Needs List
           </button>
-          <button mat-stroked-button (click)="drillDownToWarehouse(group.warehouse_id)" *ngIf="viewMode === 'multi'">
+          <button
+            mat-stroked-button
+            (click)="drillDownToWarehouse(group.warehouse_id)"
+            *ngIf="viewMode === 'multi'"
+            matTooltip="View detailed stock information and history for this warehouse"
+            matTooltipPosition="above"
+            matTooltipShowDelay="300"
+          >
             <mat-icon>visibility</mat-icon>
             View Details
           </button>
@@ -244,15 +294,15 @@
           <table class="dmis-table">
             <thead>
               <tr>
-                <th>Status</th>
-                <th>Item</th>
-                <th>Available</th>
-                <th>Inbound</th>
-                <th>Burn Rate</th>
-                <th>Time to Stockout</th>
-                <th>Required</th>
-                <th>Gap</th>
-                <th>Data</th>
+                <th matTooltip="Stock health status based on days until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
+                <th matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
+                <th matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
+                <th matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
+                <th matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
+                <th matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
+                <th matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
+                <th matTooltip="Shortfall after accounting for available stock and confirmed inbound" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
+                <th matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
               </tr>
             </thead>
             <tbody>
