@@ -295,7 +295,7 @@ BEGIN
     WHERE current_phase IS NULL;
 
     -- Count missing default lead times
-    SELECT 3 - COUNT(*) INTO missing_defaults
+    SELECT GREATEST(0, 2 - COUNT(*)) INTO missing_defaults
     FROM public.lead_time_config
     WHERE is_default = TRUE;
 
