@@ -27,15 +27,17 @@ export interface PhaseSelectDialogData {
 })
 export class PhaseSelectDialogComponent {
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
-  phaseControl = new FormControl<EventPhase | null>(this.data.currentPhase ?? null, {
-    nonNullable: false,
-    validators: [Validators.required]
-  });
+  phaseControl: FormControl<EventPhase | null>;
 
   constructor(
     private dialogRef: MatDialogRef<PhaseSelectDialogComponent, EventPhase>,
     @Inject(MAT_DIALOG_DATA) public data: PhaseSelectDialogData
-  ) {}
+  ) {
+    this.phaseControl = new FormControl<EventPhase | null>(this.data.currentPhase ?? null, {
+      nonNullable: false,
+      validators: [Validators.required]
+    });
+  }
 
   submit(): void {
     if (this.phaseControl.invalid) {

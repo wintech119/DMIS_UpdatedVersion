@@ -600,20 +600,27 @@
     display: flex;
     align-items: center;
     gap: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    }
 
     .stat-icon {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 48px;
-      height: 48px;
+      width: 56px;
+      height: 56px;
       border-radius: 50%;
       flex-shrink: 0;
 
       mat-icon {
-        font-size: 28px;
-        width: 28px;
-        height: 28px;
+        font-size: 32px;
+        width: 32px;
+        height: 32px;
       }
     }
 
@@ -622,19 +629,47 @@
       flex: 1;
     }
 
-    &.stat-critical .stat-icon {
-      background-color: #fff5f5;
-      color: #dc3545;
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 4px;
     }
 
-    &.stat-warning .stat-icon {
-      background-color: #fffbf0;
-      color: #fd7e14;
+    .stat-label {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
     }
 
-    &.stat-warehouses .stat-icon {
-      background-color: #f0f5ff;
-      color: #007bff;
+    &.stat-critical {
+      .stat-icon {
+        background-color: #fee;
+        color: #c82333;
+      }
+      .stat-value {
+        color: #c82333;
+      }
+    }
+
+    &.stat-warning {
+      .stat-icon {
+        background-color: #fff4e6;
+        color: #e8590c;
+      }
+      .stat-value {
+        color: #e8590c;
+      }
+    }
+
+    &.stat-warehouses {
+      .stat-icon {
+        background-color: #e7f5ff;
+        color: #0056b3;
+      }
+      .stat-value {
+        color: #0056b3;
+      }
     }
   }
 }
@@ -857,6 +892,56 @@
 
   mat-icon {
     flex-shrink: 0;
+  }
+}
+
+// Accessibility Improvements
+button {
+  &:focus-visible {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+  }
+}
+
+mat-chip-option {
+  &:focus-visible {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+  }
+}
+
+// Ensure sufficient contrast for badges
+.badge {
+  &.badge-critical {
+    background-color: #c82333; // Darker red for better contrast
+  }
+
+  &.badge-warning {
+    background-color: #e8590c; // Darker orange for better contrast
+  }
+
+  &.badge-watch {
+    background-color: #e6a700; // Darker yellow for better contrast
+    color: #000; // Black text for better contrast
+  }
+
+  &.badge-ok {
+    background-color: #218838; // Darker green for better contrast
+  }
+}
+
+// Stat chip improvements
+.stat-chip {
+  &.stat-chip-critical {
+    background-color: #c82333; // Improved contrast
+  }
+
+  &.stat-chip-warning {
+    background-color: #e8590c; // Improved contrast
+  }
+
+  &.stat-chip-ok {
+    background-color: #218838; // Improved contrast
   }
 }
 
