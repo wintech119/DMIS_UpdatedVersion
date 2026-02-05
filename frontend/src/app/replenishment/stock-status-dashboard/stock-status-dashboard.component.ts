@@ -320,8 +320,8 @@ export class StockStatusDashboardComponent implements OnInit {
 
   /**
    * Reload data when filters change
-   */
   onFiltersChanged(): void {
+    this.saveFilterState();
     if (this.viewMode === 'multi') {
       this.loadMultiWarehouseStatus();
     } else {
@@ -339,7 +339,7 @@ export class StockStatusDashboardComponent implements OnInit {
     } else {
       this.selectedWarehouseIds.push(warehouseId);
     }
-    this.loadMultiWarehouseStatus();
+    this.onFiltersChanged();
   }
 
   isWarehouseSelected(warehouseId: number): boolean {
@@ -351,7 +351,7 @@ export class StockStatusDashboardComponent implements OnInit {
    */
   clearWarehouseFilter(): void {
     this.selectedWarehouseIds = [];
-    this.loadMultiWarehouseStatus();
+    this.onFiltersChanged();
   }
 
   /**
