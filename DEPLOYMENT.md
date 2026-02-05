@@ -17,8 +17,8 @@ This guide covers deploying the new 3-step Needs List Wizard to production and m
 
 ### Backend Requirements
 - [ ] PostgreSQL 16+ database configured
-- [ ] Django 6.0+ installed
-- [ ] Environment variables configured (see [Backend Configuration](#backend-configuration))
+- [ ] Django 4.2.27+ installed
+- [ ] Environment variables configured (see [Backend Configuration](`#backend-configuration`))
 - [ ] Database migrations applied
 - [ ] Static files collected
 - [ ] CORS settings configured for frontend domain
