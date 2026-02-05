@@ -140,8 +140,8 @@ export const environment = {
 ```bash
 cd frontend
 
-# Install dependencies
-npm ci --production
+# Install dependencies (include devDependencies required for build)
+npm ci
 
 # Run production build
 ng build --configuration=production
