@@ -66,6 +66,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   loading = false;
   warehouseGroups: WarehouseStockGroup[] = [];
+  private warehouseItemsById: Map<number, StockStatusItem[]> = new Map();
   warnings: string[] = [];
   errors: string[] = [];
 
@@ -184,44 +185,12 @@ export class StockStatusDashboardComponent implements OnInit {
       warehouseMap.get(warehouseId)!.push(item);
     });
 
+    this.warehouseItemsById = new Map(warehouseMap);
+
     // Create warehouse groups
-    this.warehouseGroups = Array.from(warehouseMap.entries()).map(([warehouseId, warehouseItems]) => {
-      const warehouseName = (warehouseItems[0] as any).warehouse_name || `Warehouse ${warehouseId}`;
-
-      // Apply filters and sort to each warehouse's items
-      let filteredItems = this.applyFiltersToItems(warehouseItems);
-      filteredItems = this.sortItems(filteredItems);
-
-      // Calculate severity counts
-      const severityCounts = {
-        critical: filteredItems.filter(i => i.severity === 'CRITICAL').length,
-        warning: filteredItems.filter(i => i.severity === 'WARNING').length,
-        watch: filteredItems.filter(i => i.severity === 'WATCH').length,
-        ok: filteredItems.filter(i => i.severity === 'OK').length
-      };
-
-      // Overall freshness (worst of all items)
-      const freshnessLevels: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
-      const worstFreshness = filteredItems
-        .map(i => i.freshness?.state)
-        .filter((f): f is FreshnessLevel => !!f)
-        .reduce((worst, current) => {
-          const worstIndex = freshnessLevels.indexOf(worst);
-          const currentIndex = freshnessLevels.indexOf(current);
-          return currentIndex < worstIndex ? current : worst;
-        }, 'HIGH' as FreshnessLevel);
-
-      return {
-        warehouse_id: warehouseId,
-        warehouse_name: warehouseName,
-        items: filteredItems,
-        critical_count: severityCounts.critical,
-        warning_count: severityCounts.warning,
-        watch_count: severityCounts.watch,
-        ok_count: severityCounts.ok,
-        overall_freshness: worstFreshness
-      };
-    });
+    this.warehouseGroups = Array.from(warehouseMap.entries()).map(([warehouseId, warehouseItems]) =>
+      this.buildWarehouseGroup(warehouseId, warehouseItems)
+    );
 
     // Sort warehouses by critical count (most critical first)
     this.warehouseGroups.sort((a, b) => b.critical_count - a.critical_count);
@@ -234,6 +203,51 @@ export class StockStatusDashboardComponent implements OnInit {
         .map(item => item.category)
         .filter((cat): cat is string => !!cat)
     )].sort();
+  }
+
+  private buildWarehouseGroup(warehouseId: number, warehouseItems: StockStatusItem[]): WarehouseStockGroup {
+    const warehouseName = (warehouseItems[0] as any).warehouse_name || `Warehouse ${warehouseId}`;
+
+    // Apply filters and sort to each warehouse's items
+    let filteredItems = this.applyFiltersToItems(warehouseItems);
+    filteredItems = this.sortItems(filteredItems);
+
+    // Calculate severity counts
+    const severityCounts = {
+      critical: filteredItems.filter(i => i.severity === 'CRITICAL').length,
+      warning: filteredItems.filter(i => i.severity === 'WARNING').length,
+      watch: filteredItems.filter(i => i.severity === 'WATCH').length,
+      ok: filteredItems.filter(i => i.severity === 'OK').length
+    };
+
+    // Overall freshness (worst of all items)
+    const freshnessLevels: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
+    const worstFreshness = filteredItems
+      .map(i => i.freshness?.state)
+      .filter((f): f is FreshnessLevel => !!f)
+      .reduce((worst, current) => {
+        const worstIndex = freshnessLevels.indexOf(worst);
+        const currentIndex = freshnessLevels.indexOf(current);
+        return currentIndex < worstIndex ? current : worst;
+      }, 'HIGH' as FreshnessLevel);
+
+    return {
+      warehouse_id: warehouseId,
+      warehouse_name: warehouseName,
+      items: filteredItems,
+      critical_count: severityCounts.critical,
+      warning_count: severityCounts.warning,
+      watch_count: severityCounts.watch,
+      ok_count: severityCounts.ok,
+      overall_freshness: worstFreshness
+    };
+  }
+
+  private refreshSingleWarehouseView(): void {
+    if (!this.selectedWarehouseId) return;
+    const items = this.warehouseItemsById.get(this.selectedWarehouseId);
+    if (!items) return;
+    this.warehouseGroups = [this.buildWarehouseGroup(this.selectedWarehouseId, items)];
   }
 
   private normalizePreviewItems(items: NeedsListItem[]): StockStatusItem[] {
@@ -306,8 +320,8 @@ export class StockStatusDashboardComponent implements OnInit {
   onFiltersChanged(): void {
     if (this.viewMode === 'multi') {
       this.loadMultiWarehouseStatus();
-    } else if (this.selectedWarehouseId) {
-      this.drillDownToWarehouse(this.selectedWarehouseId);
+    } else {
+      this.refreshSingleWarehouseView();
     }
   }
 
@@ -344,11 +358,7 @@ export class StockStatusDashboardComponent implements OnInit {
     this.viewMode = 'single';
     this.selectedWarehouseId = warehouseId;
 
-    // Find the warehouse group
-    const group = this.warehouseGroups.find(g => g.warehouse_id === warehouseId);
-    if (group) {
-      this.warehouseGroups = [group];
-    }
+    this.refreshSingleWarehouseView();
   }
 
   /**
