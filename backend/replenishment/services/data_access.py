@@ -358,16 +358,16 @@ def get_active_event() -> Dict[str, object] | None:
 
     try:
         with connection.cursor() as cursor:
-            # Query for active event (status_code 'A' = Active)
+            # Query for active event (status_code 'A' or 'ACTIVE' = Active)
             cursor.execute(
                 f"""
                 SELECT event_id, event_name, status_code, current_phase, start_date
                 FROM {schema}.event
-                WHERE status_code = %s
+                WHERE UPPER(status_code) IN (%s, %s)
                 ORDER BY start_date DESC
                 LIMIT 1
                 """,
-                ["A"],
+                ["A", "ACTIVE"],
             )
             row = cursor.fetchone()
 
