@@ -320,6 +320,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   /**
    * Reload data when filters change
+   */
   onFiltersChanged(): void {
     this.saveFilterState();
     if (this.viewMode === 'multi') {
@@ -519,9 +520,9 @@ export class StockStatusDashboardComponent implements OnInit {
     if (item.burn_rate_per_hour === 0) {
       const freshness = item.freshness?.state;
       if (freshness === 'LOW' || freshness === 'MEDIUM') {
-        return '0 units/hr (estimated - no recent data)';
+        return '0 units/hr (no recent data)';
       }
-      return '0 units/hr - No current demand';
+      return '0 units/hr';
     }
 
     return `${rate} units/hr`;

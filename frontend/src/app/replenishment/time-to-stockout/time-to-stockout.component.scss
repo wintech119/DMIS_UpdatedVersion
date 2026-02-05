@@ -39,7 +39,7 @@
         font-weight: 700;
         text-transform: uppercase;
         border-radius: 2px;
-        background-color: #dc3545;
+        background-color: #c82333; // Darker red for WCAG compliance
         color: white;
         width: fit-content;
         letter-spacing: 0.5px;
@@ -61,72 +61,72 @@
     }
   }
 
-  // Severity-based color coding
+  // Severity-based color coding (WCAG AA compliant colors)
   &.severity-critical {
     background-color: #fff5f5;
-    border-left: 4px solid #dc3545;
+    border-left: 4px solid #c82333;
 
     .action-icon {
-      color: #dc3545;
+      color: #c82333; // Darker for better contrast
     }
 
     .countdown {
-      color: #dc3545;
+      color: #c82333; // Darker for better contrast
     }
 
     .progress-critical ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #dc3545;
+      background-color: #c82333;
     }
   }
 
   &.severity-warning {
     background-color: #fffbf0;
-    border-left: 4px solid #fd7e14;
+    border-left: 4px solid #e8590c;
 
     .action-icon {
-      color: #fd7e14;
+      color: #e8590c; // Darker for better contrast
     }
 
     .countdown {
-      color: #fd7e14;
+      color: #e8590c; // Darker for better contrast
     }
 
     .progress-warning ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #fd7e14;
+      background-color: #e8590c;
     }
   }
 
   &.severity-watch {
-    background-color: #ffffea;
-    border-left: 4px solid #ffc107;
+    background-color: #fffef0;
+    border-left: 4px solid #e6a700;
 
     .action-icon {
-      color: #f59e0b;
+      color: #b38600; // Darker for better contrast
     }
 
     .countdown {
-      color: #f59e0b;
+      color: #b38600; // Darker for better contrast
     }
 
     .progress-watch ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #ffc107;
+      background-color: #e6a700;
     }
   }
 
   &.severity-ok {
     background-color: #f0fdf4;
-    border-left: 4px solid #28a745;
+    border-left: 4px solid #218838;
 
     .action-icon {
-      color: #28a745;
+      color: #218838; // Darker for better contrast
     }
 
     .countdown {
-      color: #28a745;
+      color: #218838; // Darker for better contrast
     }
 
     .progress-ok ::ng-deep .mat-mdc-progress-bar-fill::after {
-      background-color: #28a745;
+      background-color: #218838;
     }
   }
 
