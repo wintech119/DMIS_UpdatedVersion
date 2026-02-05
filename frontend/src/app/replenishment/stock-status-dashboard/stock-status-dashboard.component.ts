@@ -495,6 +495,21 @@ export class StockStatusDashboardComponent implements OnInit {
     return `severity-${severity?.toLowerCase() ?? 'unknown'}`;
   }
 
+  getSeverityTooltip(severity: SeverityLevel): string {
+    switch (severity) {
+      case 'CRITICAL':
+        return 'CRITICAL: Less than 8 hours of stock remaining. Immediate replenishment action required using transfers (Horizon A).';
+      case 'WARNING':
+        return 'WARNING: 8-24 hours of stock remaining. Replenishment should be initiated soon using transfers or donations (Horizon A/B).';
+      case 'WATCH':
+        return 'WATCH: 24-72 hours of stock remaining. Monitor closely and plan replenishment using donations or procurement (Horizon B/C).';
+      case 'OK':
+        return 'OK: More than 72 hours of stock remaining. Stock levels are healthy.';
+      default:
+        return 'Unknown severity level';
+    }
+  }
+
   getFreshnessIcon(level: FreshnessLevel | undefined): string {
     switch (level) {
       case 'HIGH': return 'check_circle';

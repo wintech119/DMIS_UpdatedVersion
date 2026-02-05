@@ -228,6 +228,45 @@ def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]
     return categories, warnings
 
 
+def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch item names for given item IDs.
+    Returns a dict mapping item_id -> item_name, and any warnings.
+    """
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"]
+    if not item_ids:
+        return {}, []
+
+    schema = _schema_name()
+    item_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(item_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT item_id, item_name
+                FROM {schema}.item
+                WHERE item_id IN ({placeholders})
+                """,
+                [*item_ids],
+            )
+            for item_id, item_name in cursor.fetchall():
+                if item_name:
+                    item_names[int(item_id)] = str(item_name)
+    except DatabaseError as exc:
+        logger.warning("Item name lookup failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after item name error: %s", rollback_exc)
+        warnings.append("db_unavailable_item_names")
+        return {}, warnings
+
+    return item_names, warnings
+
+
 def get_category_burn_fallback_rates(
     event_id: int, warehouse_id: int, lookback_days: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str], Dict[str, object]]:
