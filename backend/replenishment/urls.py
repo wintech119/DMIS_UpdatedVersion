@@ -1,6 +1,8 @@
 from django.urls import path
 
 from replenishment.views import (
+    get_active_event,
+    get_all_warehouses,
     needs_list_approve,
     needs_list_cancel,
     needs_list_draft,
@@ -21,6 +23,8 @@ from replenishment.views import (
 )
 
 urlpatterns = [
+    path("active-event", get_active_event, name="get_active_event"),
+    path("warehouses", get_all_warehouses, name="get_all_warehouses"),
     path("needs-list/preview", needs_list_preview, name="needs_list_preview"),
     path("needs-list/preview-multi", needs_list_preview_multi, name="needs_list_preview_multi"),
     path("needs-list/draft", needs_list_draft, name="needs_list_draft"),

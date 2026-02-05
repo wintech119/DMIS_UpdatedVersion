@@ -270,6 +270,66 @@ def _workflow_disabled_response() -> Response:
     )
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def get_active_event(request):
+    """
+    Get the most recent active event.
+    Returns event details including event_id, event_name, status, phase, and declaration_date.
+    Returns null if no active event found (200 status, not 404).
+    """
+    event = data_access.get_active_event()
+
+    if not event:
+        # Return 200 with null instead of 404, so frontend can show empty state
+        logger.info(
+            "get_active_event_none",
+            extra={
+                "event_type": "READ",
+                "user_id": getattr(request.user, "user_id", None),
+                "username": getattr(request.user, "username", None),
+                "message": "No active event found",
+            },
+        )
+        return Response(None, status=200)
+
+    logger.info(
+        "get_active_event",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "event_id": event.get("event_id"),
+        },
+    )
+
+    return Response(event)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def get_all_warehouses(request):
+    """
+    Get all active warehouses.
+    Returns list of warehouses with warehouse_id and warehouse_name.
+    """
+    warehouses = data_access.get_all_warehouses()
+
+    logger.info(
+        "get_all_warehouses",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "warehouse_count": len(warehouses),
+        },
+    )
+
+    return Response({"warehouses": warehouses, "count": len(warehouses)})
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPreviewPermission])
