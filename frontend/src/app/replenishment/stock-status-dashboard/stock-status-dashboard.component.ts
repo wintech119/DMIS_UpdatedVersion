@@ -390,6 +390,9 @@ export class StockStatusDashboardComponent implements OnInit {
       if (!newPhase) {
         return;
       }
+      if (!this.activeEvent) {
+        return;
+      }
       this.activeEvent = { ...this.activeEvent, phase: newPhase };
       this.loadMultiWarehouseStatus();
     });
