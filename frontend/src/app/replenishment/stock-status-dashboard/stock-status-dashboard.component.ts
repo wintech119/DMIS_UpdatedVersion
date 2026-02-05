@@ -224,9 +224,9 @@ export class StockStatusDashboardComponent implements OnInit {
       ok: filteredItems.filter(i => i.severity === 'OK').length
     };
 
-    // Overall freshness (worst of all items)
+    // Overall freshness (worst of all items, regardless of filters)
     const freshnessLevels: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
-    const worstFreshness = filteredItems
+    const worstFreshness = warehouseItems
       .map(i => i.freshness?.state)
       .filter((f): f is FreshnessLevel => !!f)
       .reduce((worst, current) => {
