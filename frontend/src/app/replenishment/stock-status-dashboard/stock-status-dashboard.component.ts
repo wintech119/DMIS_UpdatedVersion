@@ -14,12 +14,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
 import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup, calculateSeverity } from '../models/stock-status.model';
 import { NeedsListItem } from '../models/needs-list.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
+import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 
 interface FilterState {
   categories: string[];
@@ -47,6 +49,7 @@ interface FilterState {
     MatExpansionModule,
     MatMenuModule,
     MatDividerModule,
+    MatDialogModule,
     TimeToStockoutComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
@@ -95,7 +98,8 @@ export class StockStatusDashboardComponent implements OnInit {
 
   constructor(
     private replenishmentService: ReplenishmentService,
-    private router: Router
+    private router: Router,
+    private dialog: MatDialog
   ) {}
 
   ngOnInit(): void {
@@ -374,15 +378,21 @@ export class StockStatusDashboardComponent implements OnInit {
    * Change event or phase
    */
   changeEventOrPhase(): void {
-    // Could open a dialog or navigate to an event selector
-    // For now, just reload with a simple prompt
-    const newPhase = prompt('Enter phase (SURGE, STABILIZED, BASELINE):', this.activeEvent?.phase);
-    if (newPhase && ['SURGE', 'STABILIZED', 'BASELINE'].includes(newPhase.toUpperCase())) {
-      if (this.activeEvent) {
-        this.activeEvent.phase = newPhase.toUpperCase() as EventPhase;
-        this.loadMultiWarehouseStatus();
-      }
+    if (!this.activeEvent) {
+      return;
     }
+    const dialogRef = this.dialog.open(PhaseSelectDialogComponent, {
+      data: { currentPhase: this.activeEvent?.phase },
+      ariaLabel: 'Select event phase'
+    });
+
+    dialogRef.afterClosed().subscribe((newPhase?: EventPhase) => {
+      if (!newPhase) {
+        return;
+      }
+      this.activeEvent = { ...this.activeEvent, phase: newPhase };
+      this.loadMultiWarehouseStatus();
+    });
   }
 
   toggleCategory(category: string): void {
