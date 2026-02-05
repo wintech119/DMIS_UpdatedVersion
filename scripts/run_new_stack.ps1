@@ -55,10 +55,11 @@ if (-not $env:DB_PASSWORD -and -not $DbPassword -and -not $envFileHasDbPassword)
   $DbPassword = Read-Host "Enter DB_PASSWORD" -AsSecureString
 }
 
-if (-not $env:DB_PASSWORD -and $DbPassword) {
+$dbPasswordPlain = $null
+if (-not $env:DB_PASSWORD -and -not $envFileHasDbPassword -and $DbPassword) {
   $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($DbPassword)
   try {
-    $env:DB_PASSWORD = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    $dbPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
   } finally {
     [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
   }
@@ -142,14 +143,30 @@ $frontendCmd = $frontendCmd.Replace("__FRONTEND_PATH__", $frontendPath).Replace(
 
 function Start-EncodedProcess {
   param(
-    [string]$Command
+    [string]$Command,
+    [string]$DbPasswordPlain
   )
   $bytes = [System.Text.Encoding]::Unicode.GetBytes($Command)
   $encoded = [Convert]::ToBase64String($bytes)
-  Start-Process -FilePath "powershell" -ArgumentList @("-NoExit", "-EncodedCommand", $encoded) | Out-Null
+  $hadDbPassword = Test-Path Env:DB_PASSWORD
+  $originalDbPassword = $env:DB_PASSWORD
+  if ($DbPasswordPlain -and -not $hadDbPassword) {
+    $env:DB_PASSWORD = $DbPasswordPlain
+  }
+  try {
+    Start-Process -FilePath "powershell" -ArgumentList @("-NoExit", "-EncodedCommand", $encoded) | Out-Null
+  } finally {
+    if ($DbPasswordPlain -and -not $hadDbPassword) {
+      if ($null -eq $originalDbPassword) {
+        Remove-Item Env:DB_PASSWORD -ErrorAction SilentlyContinue
+      } else {
+        $env:DB_PASSWORD = $originalDbPassword
+      }
+    }
+  }
 }
 
-Start-EncodedProcess -Command $backendCmd
+Start-EncodedProcess -Command $backendCmd -DbPasswordPlain $dbPasswordPlain
 Start-EncodedProcess -Command $frontendCmd
 
 Write-Host "Started Django API (http://localhost:8001) and Angular UI (http://localhost:4200)."
