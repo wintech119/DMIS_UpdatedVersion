@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def get_warehouse_name(warehouse_id: int) -> str:
     """
-    Fetch warehouse name from legacy inventory table.
+    Fetch warehouse name from warehouse table.
     Returns the warehouse name string or the fallback format "Warehouse {id}" when not found.
     """
     if _is_sqlite():
@@ -27,9 +27,9 @@ def get_warehouse_name(warehouse_id: int) -> str:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT name
-                FROM {schema}.inventory
-                WHERE inventory_id = %s
+                SELECT warehouse_name
+                FROM {schema}.warehouse
+                WHERE warehouse_id = %s
                 LIMIT 1
                 """,
                 [warehouse_id],
@@ -336,3 +336,95 @@ def get_burn_by_item(
 
     warnings.append("burn_data_missing")
     return {}, warnings, "none", debug
+
+
+def get_active_event() -> Dict[str, object] | None:
+    """
+    Fetch the most recent active event.
+    Returns event dict with keys: event_id, event_name, status, phase, declaration_date
+    or None if no active event found.
+    """
+    if _is_sqlite():
+        # Return mock data for SQLite development - Event ID 1 is always the default active event
+        return {
+            "event_id": 1,
+            "event_name": "Development Test Event",
+            "status": "ACTIVE",
+            "phase": "STABILIZED",
+            "declaration_date": timezone.now().isoformat(),
+        }
+
+    schema = _schema_name()
+
+    try:
+        with connection.cursor() as cursor:
+            # Query for active event (status_code 'A' = Active)
+            cursor.execute(
+                f"""
+                SELECT event_id, event_name, status_code, current_phase, start_date
+                FROM {schema}.event
+                WHERE status_code = %s
+                ORDER BY start_date DESC
+                LIMIT 1
+                """,
+                ["A"],
+            )
+            row = cursor.fetchone()
+
+            if row:
+                return {
+                    "event_id": int(row[0]),
+                    "event_name": str(row[1]) if row[1] else f"Event {row[0]}",
+                    "status": str(row[2]) if row[2] else "A",
+                    "phase": str(row[3]).upper() if row[3] else "BASELINE",
+                    "declaration_date": row[4].isoformat() if row[4] else None,
+                }
+    except DatabaseError as exc:
+        logger.warning("Active event query failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after active event query error: %s", rollback_exc)
+
+    return None
+
+
+def get_all_warehouses() -> List[Dict[str, object]]:
+    """
+    Fetch all warehouses from the inventory table.
+    Returns list of warehouse dicts with keys: warehouse_id, warehouse_name
+    """
+    if _is_sqlite():
+        # Return mock data for SQLite development - Default warehouses for Event ID 1
+        return [
+            {"warehouse_id": 1, "warehouse_name": "Kingston Central Depot"},
+            {"warehouse_id": 2, "warehouse_name": "Montego Bay Hub"},
+            {"warehouse_id": 3, "warehouse_name": "Mandeville Storage"},
+        ]
+
+    schema = _schema_name()
+    warehouses = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id, warehouse_name
+                FROM {schema}.warehouse
+                WHERE status_code = %s
+                ORDER BY warehouse_name
+                """,
+                ["A"],
+            )
+            for row in cursor.fetchall():
+                warehouses.append({
+                    "warehouse_id": int(row[0]),
+                    "warehouse_name": str(row[1]) if row[1] else f"Warehouse {row[0]}",
+                })
+    except DatabaseError as exc:
+        logger.warning("Warehouses query failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after warehouses query error: %s", rollback_exc)
+
+    return warehouses

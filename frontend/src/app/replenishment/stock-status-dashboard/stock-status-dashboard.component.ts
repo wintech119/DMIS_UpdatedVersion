@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -11,9 +11,14 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { Router } from '@angular/router';
-import { ReplenishmentService } from '../services/replenishment.service';
-import { StockStatusItem, StockStatusResponse, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel } from '../models/stock-status.model';
+import { forkJoin } from 'rxjs';
+import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
+import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup, calculateSeverity } from '../models/stock-status.model';
+import { NeedsListItem } from '../models/needs-list.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 
 interface FilterState {
@@ -39,6 +44,9 @@ interface FilterState {
     MatSelectModule,
     MatTableModule,
     MatTooltipModule,
+    MatExpansionModule,
+    MatMenuModule,
+    MatDividerModule,
     TimeToStockoutComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
@@ -48,22 +56,29 @@ export class StockStatusDashboardComponent implements OnInit {
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   readonly severityOptions: SeverityLevel[] = ['CRITICAL', 'WARNING', 'WATCH', 'OK'];
 
-  form: FormGroup;
+  // Current context
+  activeEvent: ActiveEvent | null = null;
+  allWarehouses: Warehouse[] = [];
+  selectedWarehouseIds: number[] = []; // Empty = all warehouses
+
+  // View mode
+  viewMode: 'multi' | 'single' = 'multi';
+
   loading = false;
-  response: StockStatusResponse | null = null;
-  allItems: StockStatusItem[] = [];
-  items: StockStatusItem[] = [];
-  criticalItems: StockStatusItem[] = [];
+  warehouseGroups: WarehouseStockGroup[] = [];
   warnings: string[] = [];
   errors: string[] = [];
 
   // Filters
-  filtersExpanded = true;
+  filtersExpanded = false; // Collapsed by default
   availableCategories: string[] = [];
   selectedCategories: string[] = [];
   selectedSeverities: SeverityLevel[] = [];
   sortBy: 'time_to_stockout' | 'item_name' | 'severity' = 'time_to_stockout';
   sortDirection: 'asc' | 'desc' = 'asc';
+
+  // For single warehouse drill-down
+  selectedWarehouseId: number | null = null;
 
   displayedColumns = [
     'severity',
@@ -78,48 +93,72 @@ export class StockStatusDashboardComponent implements OnInit {
   ];
 
   constructor(
-    private fb: FormBuilder,
     private replenishmentService: ReplenishmentService,
     private router: Router
-  ) {
-    this.form = this.fb.group({
-      event_id: [null, [Validators.required, Validators.min(1)]],
-      warehouse_id: [null, [Validators.required, Validators.min(1)]],
-      phase: ['BASELINE', Validators.required]
-    });
-  }
+  ) {}
 
   ngOnInit(): void {
     this.loadFilterState();
-    this.loadFormState();
+    this.autoLoadDashboard();
   }
 
-  loadStockStatus(): void {
+  /**
+   * Auto-load dashboard with active event and all warehouses
+   */
+  autoLoadDashboard(): void {
+    this.loading = true;
     this.errors = [];
-    if (this.form.invalid) {
-      this.errors = ['Please provide valid event_id, warehouse_id, and phase.'];
+
+    forkJoin({
+      event: this.replenishmentService.getActiveEvent(),
+      warehouses: this.replenishmentService.getAllWarehouses()
+    }).subscribe({
+      next: ({ event, warehouses }) => {
+        this.activeEvent = event;
+        this.allWarehouses = warehouses;
+
+        // If no active event, stop loading and show empty state
+        if (!event) {
+          this.loading = false;
+          return;
+        }
+
+        // Load stock status for all warehouses
+        this.loadMultiWarehouseStatus();
+      },
+      error: (error) => {
+        this.loading = false;
+        this.errors = [error.error?.errors?.event || error.message || 'Failed to load dashboard data.'];
+      }
+    });
+  }
+
+  /**
+   * Load stock status for all warehouses (or filtered warehouses)
+   */
+  loadMultiWarehouseStatus(): void {
+    if (!this.activeEvent) return;
+
+    const warehouseIds = this.selectedWarehouseIds.length > 0
+      ? this.selectedWarehouseIds
+      : this.allWarehouses.map(w => w.warehouse_id);
+
+    if (warehouseIds.length === 0) {
+      this.loading = false;
+      this.errors = ['No warehouses available.'];
       return;
     }
 
     this.loading = true;
-    const { event_id, warehouse_id, phase } = this.form.value;
-
-    this.replenishmentService.getStockStatus(event_id, warehouse_id, phase).subscribe({
+    this.replenishmentService.getStockStatusMulti(
+      this.activeEvent.event_id,
+      warehouseIds,
+      this.activeEvent.phase
+    ).subscribe({
       next: (data) => {
-        this.response = data;
-        this.allItems = data.items;
-
-        // Extract unique categories
-        this.availableCategories = [...new Set(
-          data.items
-            .map(item => item.category)
-            .filter((cat): cat is string => !!cat)
-        )].sort();
-
-        this.applyFiltersAndSort();
-        this.warnings = data.warnings ?? [];
+        const items = this.normalizePreviewItems(data.items);
+        this.groupItemsByWarehouse(items, data.warnings ?? []);
         this.loading = false;
-        this.saveFormState();
       },
       error: (error) => {
         this.loading = false;
@@ -128,8 +167,120 @@ export class StockStatusDashboardComponent implements OnInit {
     });
   }
 
-  applyFiltersAndSort(): void {
-    let filtered = [...this.allItems];
+  /**
+   * Group items by warehouse and calculate statistics
+   */
+  private groupItemsByWarehouse(items: StockStatusItem[], warnings: string[]): void {
+    // Group items by warehouse_id
+    const warehouseMap = new Map<number, StockStatusItem[]>();
+
+    items.forEach(item => {
+      const warehouseId = (item as any).warehouse_id;
+      if (!warehouseId) return;
+
+      if (!warehouseMap.has(warehouseId)) {
+        warehouseMap.set(warehouseId, []);
+      }
+      warehouseMap.get(warehouseId)!.push(item);
+    });
+
+    // Create warehouse groups
+    this.warehouseGroups = Array.from(warehouseMap.entries()).map(([warehouseId, warehouseItems]) => {
+      const warehouseName = (warehouseItems[0] as any).warehouse_name || `Warehouse ${warehouseId}`;
+
+      // Apply filters and sort to each warehouse's items
+      let filteredItems = this.applyFiltersToItems(warehouseItems);
+      filteredItems = this.sortItems(filteredItems);
+
+      // Calculate severity counts
+      const severityCounts = {
+        critical: filteredItems.filter(i => i.severity === 'CRITICAL').length,
+        warning: filteredItems.filter(i => i.severity === 'WARNING').length,
+        watch: filteredItems.filter(i => i.severity === 'WATCH').length,
+        ok: filteredItems.filter(i => i.severity === 'OK').length
+      };
+
+      // Overall freshness (worst of all items)
+      const freshnessLevels: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
+      const worstFreshness = filteredItems
+        .map(i => i.freshness?.state)
+        .filter((f): f is FreshnessLevel => !!f)
+        .reduce((worst, current) => {
+          const worstIndex = freshnessLevels.indexOf(worst);
+          const currentIndex = freshnessLevels.indexOf(current);
+          return currentIndex < worstIndex ? current : worst;
+        }, 'HIGH' as FreshnessLevel);
+
+      return {
+        warehouse_id: warehouseId,
+        warehouse_name: warehouseName,
+        items: filteredItems,
+        critical_count: severityCounts.critical,
+        warning_count: severityCounts.warning,
+        watch_count: severityCounts.watch,
+        ok_count: severityCounts.ok,
+        overall_freshness: worstFreshness
+      };
+    });
+
+    // Sort warehouses by critical count (most critical first)
+    this.warehouseGroups.sort((a, b) => b.critical_count - a.critical_count);
+
+    this.warnings = warnings;
+
+    // Extract available categories from all items
+    this.availableCategories = [...new Set(
+      items
+        .map(item => item.category)
+        .filter((cat): cat is string => !!cat)
+    )].sort();
+  }
+
+  private normalizePreviewItems(items: NeedsListItem[]): StockStatusItem[] {
+    return items.map(item => {
+      const parsedStockout = this.parseTimeToStockout(item.time_to_stockout);
+      const normalizedFreshness = this.normalizeFreshness(item.freshness);
+      const severity = item.severity ?? calculateSeverity(parsedStockout);
+
+      return {
+        ...item,
+        time_to_stockout_hours: item.time_to_stockout_hours ?? (parsedStockout ?? undefined),
+        severity,
+        freshness: normalizedFreshness ?? undefined
+      } as StockStatusItem;
+    });
+  }
+
+  private normalizeFreshness(
+    freshness: NeedsListItem['freshness']
+  ): StockStatusItem['freshness'] | null {
+    if (!freshness) return null;
+    const state = String(freshness.state).toUpperCase();
+    if (state !== 'HIGH' && state !== 'MEDIUM' && state !== 'LOW') {
+      return null;
+    }
+    return {
+      ...freshness,
+      state: state as FreshnessLevel
+    };
+  }
+
+  private parseTimeToStockout(value: number | string | undefined): number | null {
+    if (value === undefined || value === null || value === 'N/A') {
+      return null;
+    }
+    if (typeof value === 'number') {
+      return value;
+    }
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  /**
+   * Apply category and severity filters to items
+   */
+  private applyFiltersToItems(items: StockStatusItem[]): StockStatusItem[] {
+    let filtered = [...items];
 
     // Filter by category
     if (this.selectedCategories.length > 0) {
@@ -146,15 +297,82 @@ export class StockStatusDashboardComponent implements OnInit {
       });
     }
 
-    // Sort
-    filtered = this.sortItems(filtered);
+    return filtered;
+  }
 
-    this.items = filtered;
-    this.criticalItems = this.items.filter(item =>
-      item.severity === 'CRITICAL' || item.severity === 'WARNING'
-    );
+  /**
+   * Reload data when filters change
+   */
+  onFiltersChanged(): void {
+    if (this.viewMode === 'multi') {
+      this.loadMultiWarehouseStatus();
+    } else if (this.selectedWarehouseId) {
+      this.drillDownToWarehouse(this.selectedWarehouseId);
+    }
+  }
 
-    this.saveFilterState();
+  /**
+   * Toggle warehouse selection for filtering
+   */
+  toggleWarehouseFilter(warehouseId: number): void {
+    const index = this.selectedWarehouseIds.indexOf(warehouseId);
+    if (index >= 0) {
+      this.selectedWarehouseIds.splice(index, 1);
+    } else {
+      this.selectedWarehouseIds.push(warehouseId);
+    }
+    this.loadMultiWarehouseStatus();
+  }
+
+  isWarehouseSelected(warehouseId: number): boolean {
+    return this.selectedWarehouseIds.length === 0 || this.selectedWarehouseIds.includes(warehouseId);
+  }
+
+  /**
+   * Clear warehouse filter (show all)
+   */
+  clearWarehouseFilter(): void {
+    this.selectedWarehouseIds = [];
+    this.loadMultiWarehouseStatus();
+  }
+
+  /**
+   * Drill down to single warehouse detail view
+   */
+  drillDownToWarehouse(warehouseId: number): void {
+    // Navigate to single warehouse view (could also be done with routing)
+    this.viewMode = 'single';
+    this.selectedWarehouseId = warehouseId;
+
+    // Find the warehouse group
+    const group = this.warehouseGroups.find(g => g.warehouse_id === warehouseId);
+    if (group) {
+      this.warehouseGroups = [group];
+    }
+  }
+
+  /**
+   * Return to multi-warehouse view
+   */
+  returnToMultiView(): void {
+    this.viewMode = 'multi';
+    this.selectedWarehouseId = null;
+    this.loadMultiWarehouseStatus();
+  }
+
+  /**
+   * Change event or phase
+   */
+  changeEventOrPhase(): void {
+    // Could open a dialog or navigate to an event selector
+    // For now, just reload with a simple prompt
+    const newPhase = prompt('Enter phase (SURGE, STABILIZED, BASELINE):', this.activeEvent?.phase);
+    if (newPhase && ['SURGE', 'STABILIZED', 'BASELINE'].includes(newPhase.toUpperCase())) {
+      if (this.activeEvent) {
+        this.activeEvent.phase = newPhase.toUpperCase() as EventPhase;
+        this.loadMultiWarehouseStatus();
+      }
+    }
   }
 
   toggleCategory(category: string): void {
@@ -164,7 +382,7 @@ export class StockStatusDashboardComponent implements OnInit {
     } else {
       this.selectedCategories.push(category);
     }
-    this.applyFiltersAndSort();
+    this.onFiltersChanged();
   }
 
   toggleSeverity(severity: SeverityLevel): void {
@@ -174,7 +392,7 @@ export class StockStatusDashboardComponent implements OnInit {
     } else {
       this.selectedSeverities.push(severity);
     }
-    this.applyFiltersAndSort();
+    this.onFiltersChanged();
   }
 
   isCategorySelected(category: string): boolean {
@@ -192,36 +410,51 @@ export class StockStatusDashboardComponent implements OnInit {
       this.sortBy = field;
       this.sortDirection = 'asc';
     }
-    this.applyFiltersAndSort();
+    this.onFiltersChanged();
   }
 
   resetFilters(): void {
     this.selectedCategories = [];
     this.selectedSeverities = [];
+    this.selectedWarehouseIds = [];
     this.sortBy = 'time_to_stockout';
     this.sortDirection = 'asc';
-    this.applyFiltersAndSort();
+    this.onFiltersChanged();
   }
 
   hasActiveFilters(): boolean {
-    return this.selectedCategories.length > 0 || this.selectedSeverities.length > 0;
+    return this.selectedCategories.length > 0 ||
+           this.selectedSeverities.length > 0 ||
+           this.selectedWarehouseIds.length > 0;
   }
 
   toggleFilters(): void {
     this.filtersExpanded = !this.filtersExpanded;
   }
 
-  generateNeedsList(): void {
-    if (!this.response) return;
+  generateNeedsList(warehouseId?: number): void {
+    if (!this.activeEvent) return;
 
     // Navigate to needs list wizard with pre-filled form data
     this.router.navigate(['/replenishment/needs-list-wizard'], {
       queryParams: {
-        event_id: this.response.event_id,
-        warehouse_id: this.response.warehouse_id,
-        phase: this.response.phase
+        event_id: this.activeEvent.event_id,
+        warehouse_id: warehouseId || this.selectedWarehouseId,
+        phase: this.activeEvent.phase
       }
     });
+  }
+
+  getTotalCriticalCount(): number {
+    return this.warehouseGroups.reduce((sum, g) => sum + g.critical_count, 0);
+  }
+
+  getTotalWarningCount(): number {
+    return this.warehouseGroups.reduce((sum, g) => sum + g.warning_count, 0);
+  }
+
+  hasCriticalItems(): boolean {
+    return this.getTotalCriticalCount() > 0;
   }
 
   getSeverityIcon(severity: SeverityLevel | undefined): string {
@@ -254,12 +487,6 @@ export class StockStatusDashboardComponent implements OnInit {
   formatTimeToStockout(item: StockStatusItem): string {
     const value = item.time_to_stockout_hours ?? item.time_to_stockout;
     return formatTimeToStockout(value !== undefined ? value : null);
-  }
-
-  formatBurnRate(item: StockStatusItem): string {
-    const rate = item.burn_rate_per_hour.toFixed(2);
-    const estimated = item.is_estimated ? ' (est.)' : '';
-    return `${rate} units/hr${estimated}`;
   }
 
   getBurnRateDisplay(item: StockStatusItem): string {
@@ -363,31 +590,24 @@ export class StockStatusDashboardComponent implements OnInit {
     };
   }
 
-  hasCriticalItems(): boolean {
-    return this.criticalItems.length > 0;
-  }
-
-  getDataFreshnessWarning(): string | null {
-    if (!this.response?.data_freshness) return null;
-
-    const overall = this.response.data_freshness.overall;
-    const lastSync = this.response.data_freshness.last_sync;
+  getDataFreshnessWarning(group: WarehouseStockGroup): string | null {
+    const overall = group.overall_freshness;
 
     if (overall === 'LOW') {
-      return `STALE DATA ALERT: Inventory data exceeds freshness threshold. Last sync: ${lastSync}`;
+      return `STALE DATA ALERT: Inventory data exceeds freshness threshold for ${group.warehouse_name}`;
     }
     if (overall === 'MEDIUM') {
-      return `Warning: Data is aging. Last sync: ${lastSync}. Calculations may not reflect current stock levels.`;
+      return `Warning: Data is aging for ${group.warehouse_name}. Calculations may not reflect current stock levels.`;
     }
     return null;
   }
 
   getPhaseLabel(): string {
-    return this.response?.phase ?? 'Unknown';
+    return this.activeEvent?.phase ?? 'Unknown';
   }
 
-  getAsOfTime(): string {
-    return this.response?.as_of_datetime ?? 'N/A';
+  getEventName(): string {
+    return this.activeEvent?.event_name ?? 'No Active Event';
   }
 
   private sortItems(items: StockStatusItem[]): StockStatusItem[] {
@@ -451,25 +671,6 @@ export class StockStatusDashboardComponent implements OnInit {
         this.sortDirection = state.sortDirection || 'asc';
       } catch (e) {
         console.error('Failed to load filter state:', e);
-      }
-    }
-  }
-
-  private saveFormState(): void {
-    const formValue = this.form.value;
-    localStorage.setItem('dmis_stock_form', JSON.stringify(formValue));
-  }
-
-  private loadFormState(): void {
-    const saved = localStorage.getItem('dmis_stock_form');
-    if (saved) {
-      try {
-        const formValue = JSON.parse(saved);
-        if (formValue.event_id && formValue.warehouse_id) {
-          this.form.patchValue(formValue);
-        }
-      } catch (e) {
-        console.error('Failed to load form state:', e);
       }
     }
   }

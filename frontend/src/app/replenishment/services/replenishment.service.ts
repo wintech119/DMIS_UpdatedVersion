@@ -5,6 +5,24 @@ import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
 import { NeedsListResponse } from '../models/needs-list.model';
 
+export interface ActiveEvent {
+  event_id: number;
+  event_name: string;
+  status: string;
+  phase: string;
+  declaration_date: string;
+}
+
+export interface Warehouse {
+  warehouse_id: number;
+  warehouse_name: string;
+}
+
+export interface WarehousesResponse {
+  warehouses: Warehouse[];
+  count: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -12,6 +30,23 @@ export class ReplenishmentService {
   private readonly apiUrl = '/api/v1/replenishment';
 
   constructor(private http: HttpClient) {}
+
+  /**
+   * Get the currently active event
+   * Returns null if no active event exists
+   */
+  getActiveEvent(): Observable<ActiveEvent | null> {
+    return this.http.get<ActiveEvent | null>(`${this.apiUrl}/active-event`);
+  }
+
+  /**
+   * Get all active warehouses
+   */
+  getAllWarehouses(): Observable<Warehouse[]> {
+    return this.http.get<WarehousesResponse>(`${this.apiUrl}/warehouses`).pipe(
+      map(response => response.warehouses)
+    );
+  }
 
   getStockStatus(eventId: number, warehouseId: number, phase: string): Observable<StockStatusResponse> {
     return this.http.post<StockStatusResponse>(`${this.apiUrl}/needs-list/preview`, {
