@@ -1,0 +1,21 @@
+<h2 mat-dialog-title>Select Event Phase</h2>
+<div mat-dialog-content>
+  <mat-form-field appearance="fill" class="phase-field">
+    <mat-label>Phase</mat-label>
+    <mat-select
+      [formControl]="phaseControl"
+      aria-label="Event phase selection"
+      required>
+      <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
+        {{ phase }}
+      </mat-option>
+    </mat-select>
+    <mat-error *ngIf="phaseControl.hasError('required')">Phase is required.</mat-error>
+  </mat-form-field>
+</div>
+<div mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="cancel()">Cancel</button>
+  <button mat-flat-button color="primary" type="button" (click)="submit()" [disabled]="phaseControl.invalid">
+    Apply
+  </button>
+</div>
