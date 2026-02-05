@@ -176,7 +176,7 @@ export class StockStatusDashboardComponent implements OnInit {
     const warehouseMap = new Map<number, StockStatusItem[]>();
 
     items.forEach(item => {
-      const warehouseId = (item as any).warehouse_id;
+      const warehouseId = item.warehouse_id;
       if (!warehouseId) return;
 
       if (!warehouseMap.has(warehouseId)) {
@@ -206,7 +206,7 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private buildWarehouseGroup(warehouseId: number, warehouseItems: StockStatusItem[]): WarehouseStockGroup {
-    const warehouseName = (warehouseItems[0] as any).warehouse_name || `Warehouse ${warehouseId}`;
+    const warehouseName = warehouseItems[0]?.warehouse_name || `Warehouse ${warehouseId}`;
 
     // Apply filters and sort to each warehouse's items
     let filteredItems = this.applyFiltersToItems(warehouseItems);
