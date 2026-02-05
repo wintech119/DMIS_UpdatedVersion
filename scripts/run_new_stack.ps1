@@ -4,6 +4,8 @@ Run Angular + Django dev servers in separate PowerShell windows.
 Usage:
   .\scripts\run_new_stack.ps1
   .\scripts\run_new_stack.ps1 -InstallDeps
+
+DB_PASSWORD must be supplied via environment/.env or you will be prompted.
 #>
 param(
   [switch]$InstallDeps,
@@ -12,7 +14,7 @@ param(
   [string]$EnvFile,
   [string]$DbName = "dmis",
   [string]$DbUser = "postgres",
-  [string]$DbPassword,
+  [SecureString]$DbPassword,
   [string]$DbHost = "localhost",
   [string]$DbPort = "5432"
 )
@@ -29,7 +31,6 @@ $applySchemaLiteral = if ($ApplySchema) { '$true' } else { '$false' }
 
 $dbNameLiteral = if ($DbName) { $DbName } else { "" }
 $dbUserLiteral = if ($DbUser) { $DbUser } else { "" }
-$dbPasswordLiteral = if ($DbPassword) { $DbPassword } else { "" }
 $dbHostLiteral = if ($DbHost) { $DbHost } else { "localhost" }
 $dbPortLiteral = if ($DbPort) { $DbPort } else { "5432" }
 
@@ -44,6 +45,24 @@ if (-not $envFilePath) {
   }
 }
 $envFileLiteral = if ($envFilePath) { $envFilePath } else { "" }
+
+$envFileHasDbPassword = $false
+if ($envFilePath -and (Test-Path $envFilePath)) {
+  $envFileHasDbPassword = Select-String -Path $envFilePath -Pattern '^\s*(export\s+)?DB_PASSWORD\s*=' -Quiet
+}
+
+if (-not $env:DB_PASSWORD -and -not $DbPassword -and -not $envFileHasDbPassword) {
+  $DbPassword = Read-Host "Enter DB_PASSWORD" -AsSecureString
+}
+
+if (-not $env:DB_PASSWORD -and $DbPassword) {
+  $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($DbPassword)
+  try {
+    $env:DB_PASSWORD = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+  } finally {
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  }
+}
 
 $backendCmd = @'
 $host.ui.RawUI.WindowTitle = "DMIS Django API"
@@ -70,7 +89,6 @@ if (-not $env:DJANGO_DEBUG) { $env:DJANGO_DEBUG = "1" }
 $env:DJANGO_USE_SQLITE = "0"
 if ("__DB_NAME__") { $env:DB_NAME = "__DB_NAME__" }
 if ("__DB_USER__") { $env:DB_USER = "__DB_USER__" }
-if ("__DB_PASSWORD__") { $env:DB_PASSWORD = "__DB_PASSWORD__" }
 if ("__DB_HOST__") { $env:DB_HOST = "__DB_HOST__" }
 if ("__DB_PORT__") { $env:DB_PORT = "__DB_PORT__" }
 
@@ -81,7 +99,7 @@ foreach ($k in @("DB_NAME","DB_USER","DB_PASSWORD","DB_HOST","DB_PORT")) {
 }
 if ($missing.Count -gt 0) {
   Write-Host "Missing required DB settings: $($missing -join ', ')"
-  Write-Host "Set them in your environment or pass -DbName/-DbUser/-DbPassword/-DbHost/-DbPort."
+  Write-Host "Set them in your environment/.env or pass -DbName/-DbUser/-DbHost/-DbPort."
   Pause
   exit 1
 }
@@ -111,7 +129,6 @@ $backendCmd = $backendCmd.Replace("__BACKEND_PATH__", $backendPath).
   Replace("__ENV_FILE__", $envFileLiteral).
   Replace("__DB_NAME__", $dbNameLiteral).
   Replace("__DB_USER__", $dbUserLiteral).
-  Replace("__DB_PASSWORD__", $dbPasswordLiteral).
   Replace("__DB_HOST__", $dbHostLiteral).
   Replace("__DB_PORT__", $dbPortLiteral)
 
