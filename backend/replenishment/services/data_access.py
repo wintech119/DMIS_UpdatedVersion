@@ -391,7 +391,7 @@ def get_active_event() -> Dict[str, object] | None:
 
 def get_all_warehouses() -> List[Dict[str, object]]:
     """
-    Fetch all warehouses from the inventory table.
+    Fetch all active warehouses from the warehouse table.
     Returns list of warehouse dicts with keys: warehouse_id, warehouse_name
     """
     if _is_sqlite():
