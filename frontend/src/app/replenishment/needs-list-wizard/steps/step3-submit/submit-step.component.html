@@ -25,7 +25,7 @@
           <mat-icon class="summary-icon">attach_money</mat-icon>
           <div class="summary-text">
             <span class="label">Estimated Cost</span>
-            <span class="value">${{ totalCost | number:'1.2-2' }}</span>
+            <span class="value">${{ (totalCost ?? 0) | number:'1.2-2' }}</span>
           </div>
         </div>
         <div class="summary-item" *ngIf="hasAdjustments">
