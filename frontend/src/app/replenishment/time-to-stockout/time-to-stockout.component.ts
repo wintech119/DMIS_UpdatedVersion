@@ -28,7 +28,7 @@ export class TimeToStockoutComponent {
 
   getDisplayText(): string {
     if (!this.data.hasBurnRate || this.data.hours === null) {
-      return '∞ - No current demand';
+      return 'No current demand';
     }
 
     const hours = Math.floor(this.data.hours);
