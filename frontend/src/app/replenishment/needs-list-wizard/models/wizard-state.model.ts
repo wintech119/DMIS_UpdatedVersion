@@ -4,6 +4,7 @@ import { NeedsListResponse } from '../../models/needs-list.model';
 export interface WizardState {
   // Step 1 data
   event_id?: number;
+  event_name?: string;               // Add event name for display
   warehouse_ids?: number[];          // Array for multi-selection
   phase?: EventPhase;
   as_of_datetime?: string;
@@ -11,6 +12,7 @@ export interface WizardState {
   // Step 2 data (from preview-multi API)
   previewResponse?: NeedsListResponse;
   adjustments: Record<string, ItemAdjustment>;  // key: "{item_id}_{warehouse_id}"
+  selectedItemKeys?: string[];       // Array of "{item_id}_{warehouse_id}" for selected items
 
   // Step 3 data
   draft_ids?: string[];              // Array if creating multiple drafts (one per warehouse)

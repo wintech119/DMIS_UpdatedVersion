@@ -145,6 +145,10 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     item_categories, warnings_categories = data_access.get_item_categories(item_ids)
     base_warnings = needs_list.merge_warnings(base_warnings, warnings_categories)
 
+    # Fetch item names for display
+    item_names, warnings_names = data_access.get_item_names(item_ids)
+    base_warnings = needs_list.merge_warnings(base_warnings, warnings_names)
+
     safety_factor = rules.SAFETY_STOCK_FACTOR
     items, item_warnings, fallback_counts = needs_list.build_preview_items(
         item_ids=item_ids,
@@ -164,6 +168,7 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         phase=phase,
         inventory_as_of=inventory_as_of,
         base_warnings=base_warnings,
+        item_names=item_names,
     )
 
     warnings = needs_list.merge_warnings(base_warnings, item_warnings)

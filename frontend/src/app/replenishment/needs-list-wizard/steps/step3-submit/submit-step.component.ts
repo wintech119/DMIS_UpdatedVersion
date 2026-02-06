@@ -23,13 +23,6 @@ interface WarehouseBreakdown {
   cost: number;
 }
 
-interface HorizonBreakdown {
-  horizon: 'A' | 'B' | 'C';
-  label: string;
-  items: number;
-  units: number;
-  leadTime: string;
-}
 
 @Component({
   selector: 'app-submit-step',
@@ -54,16 +47,19 @@ export class SubmitStepComponent implements OnInit {
   @Output() complete = new EventEmitter<void>();
 
   items: NeedsListItem[] = [];
+  selectedItems: NeedsListItem[] = [];  // Only selected items
   warehouseBreakdown: WarehouseBreakdown[] = [];
-  horizonBreakdown: HorizonBreakdown[] = [];
 
   totalItems = 0;
   totalUnits = 0;
   totalCost = 0;
+  totalReviewed = 0;  // Total items reviewed (not just selected)
 
   notesForm: FormGroup;
   loading = false;
   errors: string[] = [];
+  showAllItems = false;  // For items preview expansion
+  showTierInfo = false;  // For approval tier explanation
 
   private destroyRef = inject(DestroyRef);
 
@@ -81,6 +77,7 @@ export class SubmitStepComponent implements OnInit {
     this.wizardService.getState$().pipe(
       map(state => ({
         items: state.previewResponse?.items || [],
+        selectedItemKeys: state.selectedItemKeys || [],
         adjustments: state.adjustments
       })),
       distinctUntilChanged((prev, curr) => (
@@ -90,11 +87,21 @@ export class SubmitStepComponent implements OnInit {
           item.warehouse_id === curr.items[i]?.warehouse_id &&
           item.gap_qty === curr.items[i]?.gap_qty
         )) &&
+        this.areSelectedKeysEqual(prev.selectedItemKeys, curr.selectedItemKeys) &&
         prev.adjustments === curr.adjustments
       )),
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(({ items }) => {
+    ).subscribe(({ items, selectedItemKeys }) => {
       this.items = items;
+      this.totalReviewed = items.length;
+
+      // Filter to only selected items
+      const selectedKeys = new Set(selectedItemKeys);
+      this.selectedItems = items.filter(item => {
+        const key = `${item.item_id}_${item.warehouse_id || 0}`;
+        return selectedKeys.has(key);
+      });
+
       this.calculateSummary();
     });
 
@@ -112,18 +119,27 @@ export class SubmitStepComponent implements OnInit {
     });
   }
 
+  private areSelectedKeysEqual(prevKeys: string[], currKeys: string[]): boolean {
+    if (prevKeys === currKeys) return true;
+    if (prevKeys.length !== currKeys.length) return false;
+
+    const prevSet = new Set(prevKeys);
+    if (prevSet.size !== currKeys.length) return false;
+
+    return currKeys.every(key => prevSet.has(key));
+  }
+
   calculateSummary(): void {
-    if (!this.items.length) {
+    if (!this.selectedItems.length) {
       this.totalItems = 0;
       this.totalUnits = 0;
       this.totalCost = 0;
       this.warehouseBreakdown = [];
-      this.horizonBreakdown = [];
       return;
     }
 
-    // Apply adjustments to items
-    const adjustedItems = this.items.map(item => {
+    // Apply adjustments to selected items only
+    const adjustedItems = this.selectedItems.map(item => {
       const adjustment = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
       return {
         ...item,
@@ -131,7 +147,7 @@ export class SubmitStepComponent implements OnInit {
       };
     });
 
-    // Calculate totals
+    // Calculate totals from selected items
     this.totalItems = adjustedItems.length;
     this.totalUnits = adjustedItems.reduce((sum, item) => sum + (item.gap_qty || 0), 0);
     this.totalCost = adjustedItems.reduce((sum, item) => sum + this.getItemCost(item), 0);
@@ -167,37 +183,6 @@ export class SubmitStepComponent implements OnInit {
       }))
       .sort((a, b) => a.warehouse_name.localeCompare(b.warehouse_name));
 
-    // Group by recommended horizon
-    const byHorizon = new Map<'A' | 'B' | 'C', { items: number; units: number }>();
-    byHorizon.set('A', { items: 0, units: 0 });
-    byHorizon.set('B', { items: 0, units: 0 });
-    byHorizon.set('C', { items: 0, units: 0 });
-
-    adjustedItems.forEach(item => {
-      const horizon = item.horizon;
-      if (!horizon) return;
-
-      // Count items by their primary recommended source (A -> B -> C)
-      if (horizon.A?.recommended_qty && horizon.A.recommended_qty > 0) {
-        const h = byHorizon.get('A')!;
-        h.items++;
-        h.units += horizon.A.recommended_qty;
-      } else if (horizon.B?.recommended_qty && horizon.B.recommended_qty > 0) {
-        const h = byHorizon.get('B')!;
-        h.items++;
-        h.units += horizon.B.recommended_qty;
-      } else if (horizon.C?.recommended_qty && horizon.C.recommended_qty > 0) {
-        const h = byHorizon.get('C')!;
-        h.items++;
-        h.units += horizon.C.recommended_qty;
-      }
-    });
-
-    this.horizonBreakdown = ([
-      { horizon: 'A' as const, label: 'Transfer (Horizon A)', items: byHorizon.get('A')!.items, units: byHorizon.get('A')!.units, leadTime: '6-8 hours' },
-      { horizon: 'B' as const, label: 'Donation (Horizon B)', items: byHorizon.get('B')!.items, units: byHorizon.get('B')!.units, leadTime: '2-7 days' },
-      { horizon: 'C' as const, label: 'Procurement (Horizon C)', items: byHorizon.get('C')!.items, units: byHorizon.get('C')!.units, leadTime: '14+ days' }
-    ] as HorizonBreakdown[]).filter(h => h.items > 0); // Only show horizons with items
   }
 
   getApprovalInfo(): string {
@@ -223,10 +208,56 @@ export class SubmitStepComponent implements OnInit {
     }
   }
 
-  private getItemCost(item: NeedsListItem): number {
+  getItemCost(item: NeedsListItem): number {
     const unitCost = item.procurement?.est_unit_cost ?? 0;
-    const quantity = item.gap_qty ?? 0;
+    const quantity = this.getAdjustedQty(item) ?? 0;
     return quantity * unitCost;
+  }
+
+  getHorizonItems(horizon: 'A' | 'B' | 'C'): number {
+    if (!this.selectedItems.length) return 0;
+
+    return this.selectedItems.reduce((count, item) => {
+      const horizons = item.horizon;
+      if (!horizons) return count;
+
+      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
+        return horizon === 'A' ? count + 1 : count;
+      }
+
+      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
+        return horizon === 'B' ? count + 1 : count;
+      }
+
+      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
+        return horizon === 'C' ? count + 1 : count;
+      }
+
+      return count;
+    }, 0);
+  }
+
+  getHorizonUnits(horizon: 'A' | 'B' | 'C'): number {
+    if (!this.selectedItems.length) return 0;
+
+    return this.selectedItems.reduce((sum, item) => {
+      const horizons = item.horizon;
+      if (!horizons) return sum;
+
+      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
+        return horizon === 'A' ? sum + horizons.A.recommended_qty : sum;
+      }
+
+      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
+        return horizon === 'B' ? sum + horizons.B.recommended_qty : sum;
+      }
+
+      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
+        return horizon === 'C' ? sum + horizons.C.recommended_qty : sum;
+      }
+
+      return sum;
+    }, 0);
   }
 
   getPhaseLabel(): string {
@@ -236,6 +267,33 @@ export class SubmitStepComponent implements OnInit {
 
   getEventId(): number | undefined {
     return this.wizardService.getState().event_id;
+  }
+
+  getEventName(): string {
+    const state = this.wizardService.getState();
+    return state.event_name || `Event ${state.event_id || 'N/A'}`;
+  }
+
+  toggleItemsList(): void {
+    this.showAllItems = !this.showAllItems;
+  }
+
+  toggleTierInfo(): void {
+    this.showTierInfo = !this.showTierInfo;
+  }
+
+  getAdjustedQty(item: NeedsListItem): number {
+    const adjustment = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
+    return adjustment ? adjustment.adjusted_qty : item.gap_qty;
+  }
+
+  getApprovalTierLevel(): number {
+    const approvalInfo = this.getApprovalInfo();
+    if (approvalInfo.includes('Tier 1')) return 1;
+    if (approvalInfo.includes('Tier 2')) return 2;
+    if (approvalInfo.includes('Tier 3')) return 3;
+    if (approvalInfo.includes('Tier 4')) return 4;
+    return 0;
   }
 
   saveDraft(): void {

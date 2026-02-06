@@ -5,6 +5,7 @@ export type FreshnessLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 export interface StockStatusItem {
   item_id: number;
   item_name?: string;
+  item_code?: string;
   category?: string;
   warehouse_id?: number;
   warehouse_name?: string;

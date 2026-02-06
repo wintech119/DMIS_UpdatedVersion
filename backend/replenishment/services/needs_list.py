@@ -174,6 +174,7 @@ def build_preview_items(
     inventory_as_of,
     base_warnings: Iterable[str] | None = None,
     critical_item_ids: Iterable[int] | None = None,
+    item_names: Dict[int, Dict[str, str] | str] | None = None,
 ) -> Tuple[List[Dict[str, object]], List[str], Dict[str, int]]:
     items: List[Dict[str, object]] = []
     warnings: List[str] = []
@@ -340,8 +341,23 @@ def build_preview_items(
             "activate_all": activate_all,
         }
 
+        # Get item name and code if available
+        item_name = None
+        item_code = None
+        if item_names:
+            item_data = item_names.get(item_id)
+            if item_data:
+                if isinstance(item_data, dict):
+                    item_name = item_data.get("name")
+                    item_code = item_data.get("code")
+                else:
+                    # Backward compatibility: if it's just a string
+                    item_name = item_data
+
         item_payload: Dict[str, object] = {
             "item_id": item_id,
+            "item_name": item_name,
+            "item_code": item_code,
             "available_qty": round(available, 2),
             "inbound_strict_qty": round(inbound_strict, 2),
             "burn_rate_per_hour": round(burn_rate_per_hour, 4),

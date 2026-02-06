@@ -5,8 +5,8 @@
       <div class="summary-item">
         <mat-icon>inventory_2</mat-icon>
         <div class="summary-text">
-          <span class="label">Total Items</span>
-          <span class="value">{{ items.length }}</span>
+          <span class="label">Selected Items</span>
+          <span class="value">{{ selectedCount }} of {{ items.length }}</span>
         </div>
       </div>
       <div class="summary-item">
@@ -34,12 +34,42 @@
     </mat-card-header>
 
     <mat-card-content>
+      <!-- Bulk Actions -->
+      <div class="bulk-actions" *ngIf="items.length > 0">
+        <button mat-stroked-button (click)="selectAll()" class="bulk-action-btn">
+          <mat-icon>done_all</mat-icon>
+          Select All
+        </button>
+        <button mat-stroked-button (click)="selectNone()" class="bulk-action-btn">
+          <mat-icon>remove_done</mat-icon>
+          Select None
+        </button>
+        <button mat-stroked-button (click)="selectItemsWithGap()" class="bulk-action-btn">
+          <mat-icon>filter_list</mat-icon>
+          Select Items with Gap &gt; 0
+        </button>
+      </div>
+
       <!-- Loading indicator -->
       <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
 
       <!-- Table -->
       <div class="table-container">
         <table mat-table [dataSource]="items" class="preview-table">
+
+          <!-- Checkbox Column -->
+          <ng-container matColumnDef="select">
+            <th mat-header-cell *matHeaderCellDef>
+              <mat-checkbox
+                (change)="toggleAllSelection()"
+                [checked]="allSelected"
+                [indeterminate]="someSelected"
+              ></mat-checkbox>
+            </th>
+            <td mat-cell *matCellDef="let item">
+              <mat-checkbox [(ngModel)]="item.included"></mat-checkbox>
+            </td>
+          </ng-container>
 
           <!-- Severity Column -->
           <ng-container matColumnDef="severity">
@@ -54,8 +84,8 @@
             <th mat-header-cell *matHeaderCellDef>Item</th>
             <td mat-cell *matCellDef="let item">
               <div class="item-cell">
-                <span class="item-id">{{ item.item_id }}</span>
-                <span class="item-name" *ngIf="item.item_name">{{ item.item_name }}</span>
+                <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+                <span class="item-code" *ngIf="item.item_code">{{ item.item_code }}</span>
               </div>
             </td>
           </ng-container>
@@ -63,23 +93,56 @@
           <!-- Warehouse Column -->
           <ng-container matColumnDef="warehouse">
             <th mat-header-cell *matHeaderCellDef>Warehouse</th>
-            <td mat-cell *matCellDef="let item">
-              {{ item.warehouse_name || item.warehouse_id }}
+            <td mat-cell *matCellDef="let item" class="warehouse-cell">
+              <span [matTooltip]="item.warehouse_name || item.warehouse_id" matTooltipPosition="above">
+                {{ item.warehouse_name || item.warehouse_id }}
+              </span>
             </td>
           </ng-container>
 
-          <!-- Gap Column -->
-          <ng-container matColumnDef="gap">
-            <th mat-header-cell *matHeaderCellDef>Gap Qty</th>
-            <td mat-cell *matCellDef="let item">
-              <div class="gap-cell">
-                <span class="gap-value" [class.has-adjustment]="hasAdjustment(item)">
-                  {{ getAdjustedQty(item) }}
-                </span>
-                <mat-icon *ngIf="hasAdjustment(item)" class="adjusted-icon" matTooltip="Quantity adjusted">
-                  edit
-                </mat-icon>
-              </div>
+          <!-- Calculated Gap Column (Read-only) -->
+          <ng-container matColumnDef="calculatedGap">
+            <th mat-header-cell *matHeaderCellDef>Calculated Gap</th>
+            <td mat-cell *matCellDef="let item" class="calculated-gap-cell">
+              <span class="gap-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
+                {{ item.gap_qty | number: '1.0-0' }}
+              </span>
+            </td>
+          </ng-container>
+
+          <!-- Adjusted Quantity Column (Editable) -->
+          <ng-container matColumnDef="adjustedQty">
+            <th mat-header-cell *matHeaderCellDef>Adjusted Qty</th>
+            <td mat-cell *matCellDef="let item" class="adjusted-qty-cell">
+              <mat-form-field appearance="outline" class="inline-qty-field">
+                <input
+                  matInput
+                  type="number"
+                  [(ngModel)]="item.tempAdjustedQty"
+                  (ngModelChange)="onQuantityChange(item)"
+                  min="0"
+                  [class.qty-adjusted]="isQuantityAdjusted(item)"
+                />
+              </mat-form-field>
+            </td>
+          </ng-container>
+
+          <!-- Reason Column (Appears when adjusted) -->
+          <ng-container matColumnDef="reason">
+            <th mat-header-cell *matHeaderCellDef>Reason</th>
+            <td mat-cell *matCellDef="let item" class="reason-cell">
+              <mat-form-field appearance="outline" class="inline-reason-field" *ngIf="showReasonField(item)">
+                <mat-select
+                  [(ngModel)]="item.tempReason"
+                  (ngModelChange)="onReasonChange(item)"
+                  placeholder="Select reason"
+                >
+                  <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
+                    {{ option.label }}
+                  </mat-option>
+                </mat-select>
+              </mat-form-field>
+              <span *ngIf="!showReasonField(item)" class="no-adjustment">—</span>
             </td>
           </ng-container>
 
@@ -97,7 +160,7 @@
           <!-- Lead Time Column -->
           <ng-container matColumnDef="leadTime">
             <th mat-header-cell *matHeaderCellDef>Lead Time</th>
-            <td mat-cell *matCellDef="let item">
+            <td mat-cell *matCellDef="let item" class="lead-time-cell">
               {{ getLeadTime(item) }}
             </td>
           </ng-container>
@@ -105,46 +168,8 @@
           <!-- Cost Column -->
           <ng-container matColumnDef="cost">
             <th mat-header-cell *matHeaderCellDef>Est. Cost</th>
-            <td mat-cell *matCellDef="let item">
+            <td mat-cell *matCellDef="let item" class="cost-cell">
               {{ getEstimatedCost(item) }}
-            </td>
-          </ng-container>
-
-          <!-- Actions Column -->
-          <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef>Actions</th>
-            <td mat-cell *matCellDef="let item">
-              <div class="actions-cell">
-                <button
-                  *ngIf="!isEditing(item) && !hasAdjustment(item)"
-                  mat-icon-button
-                  (click)="startEdit(item)"
-                  aria-label="Adjust quantity"
-                  matTooltip="Adjust quantity"
-                >
-                  <mat-icon>edit</mat-icon>
-                </button>
-                <button
-                  *ngIf="!isEditing(item) && hasAdjustment(item)"
-                  mat-icon-button
-                  color="primary"
-                  (click)="startEdit(item)"
-                  aria-label="Edit adjustment"
-                  matTooltip="Edit adjustment"
-                >
-                  <mat-icon>edit</mat-icon>
-                </button>
-                <button
-                  *ngIf="!isEditing(item) && hasAdjustment(item)"
-                  mat-icon-button
-                  color="warn"
-                  (click)="removeAdjustment(item)"
-                  aria-label="Remove adjustment"
-                  matTooltip="Remove adjustment"
-                >
-                  <mat-icon>delete</mat-icon>
-                </button>
-              </div>
             </td>
           </ng-container>
 
@@ -155,57 +180,6 @@
             [ngClass]="getRowClass(row)"
           ></tr>
         </table>
-      </div>
-
-      <!-- Inline Edit Form -->
-      <div class="edit-panel" *ngIf="editingItemKey">
-        <mat-card class="edit-card">
-          <mat-card-header>
-            <mat-card-title>Adjust Quantity</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <form [formGroup]="adjustmentForm" class="adjustment-form">
-              <mat-form-field appearance="outline" class="form-field">
-                <mat-label>Adjusted Quantity</mat-label>
-                <input matInput type="number" formControlName="adjusted_qty" min="0" />
-                <mat-error *ngIf="adjustmentForm.get('adjusted_qty')?.hasError('required')">
-                  Quantity is required
-                </mat-error>
-                <mat-error *ngIf="adjustmentForm.get('adjusted_qty')?.hasError('min')">
-                  Quantity must be 0 or greater
-                </mat-error>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="form-field">
-                <mat-label>Reason *</mat-label>
-                <mat-select formControlName="reason">
-                  <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
-                    {{ option.label }}
-                  </mat-option>
-                </mat-select>
-                <mat-error *ngIf="adjustmentForm.get('reason')?.hasError('required')">
-                  Reason is required
-                </mat-error>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="form-field-full">
-                <mat-label>Notes (Optional)</mat-label>
-                <textarea matInput formControlName="notes" rows="2"></textarea>
-              </mat-form-field>
-            </form>
-          </mat-card-content>
-          <mat-card-actions>
-            <button mat-button (click)="cancelEdit()">Cancel</button>
-            <button
-              mat-raised-button
-              color="primary"
-              (click)="editingItem && saveAdjustment(editingItem)"
-              [disabled]="adjustmentForm.invalid || !editingItem"
-            >
-              Save
-            </button>
-          </mat-card-actions>
-        </mat-card>
       </div>
 
       <!-- Errors -->
