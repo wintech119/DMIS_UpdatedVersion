@@ -12,6 +12,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import { WizardState } from '../../models/wizard-state.model';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../../../services/replenishment.service';
 import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
 import { distinctUntilChanged, map } from 'rxjs/operators';
@@ -102,7 +103,7 @@ export class ScopeStepComponent implements OnInit {
     this.form.valueChanges.pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(values => {
-      const update = {
+      const update: Partial<WizardState> = {
         event_id: values.event_id,
         warehouse_ids: values.warehouse_ids,
         phase: values.phase,
