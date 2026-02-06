@@ -22,7 +22,6 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
 // Extended interface to track selection and editing state
 interface PreviewItem extends NeedsListItem {
   included: boolean;
-  isEditing?: boolean;
   tempAdjustedQty?: number;
   tempReason?: AdjustmentReason;
 }
@@ -88,7 +87,6 @@ export class PreviewStepComponent implements OnInit {
       this.items = items.map(item => ({
         ...item,
         included: item.gap_qty > 0,
-        isEditing: false,
         tempAdjustedQty: this.getAdjustedQty(item),
         tempReason: this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0)?.reason
       }));
