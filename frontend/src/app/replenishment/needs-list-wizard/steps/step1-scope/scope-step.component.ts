@@ -102,13 +102,18 @@ export class ScopeStepComponent implements OnInit {
     this.form.valueChanges.pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(values => {
-      this.wizardService.updateState({
+      const update = {
         event_id: values.event_id,
-        event_name: this.activeEvent?.event_name,
         warehouse_ids: values.warehouse_ids,
         phase: values.phase,
         as_of_datetime: values.as_of_datetime
-      });
+      };
+
+      if (this.activeEvent?.event_name) {
+        update.event_name = this.activeEvent.event_name;
+      }
+
+      this.wizardService.updateState(update);
     });
   }
 
