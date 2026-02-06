@@ -285,7 +285,7 @@ export class PreviewStepComponent implements OnInit {
 
   // Inline editing methods
   onQuantityChange(item: PreviewItem): void {
-    if (item.tempAdjustedQty === undefined || item.tempAdjustedQty < 0) {
+    if (item.tempAdjustedQty === undefined || !Number.isFinite(item.tempAdjustedQty) || item.tempAdjustedQty < 0) {
       return;
     }
 
