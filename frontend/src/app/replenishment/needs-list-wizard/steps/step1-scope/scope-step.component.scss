@@ -108,6 +108,33 @@
             }
           }
         }
+
+        .phase-note {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          margin-top: 16px;
+          padding: 12px;
+          background: white;
+          border-radius: 4px;
+          border: 1px solid #e0e0e0;
+
+          .note-icon {
+            color: #666;
+            font-size: 20px;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            margin-top: 2px;
+          }
+
+          p {
+            margin: 0;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.5;
+          }
+        }
       }
 
       .errors-container {
@@ -149,14 +176,22 @@
     mat-card-actions {
       padding: 16px;
       border-top: 1px solid #e0e0e0;
-      display: flex;
-      justify-content: flex-end;
 
-      .calculate-btn {
-        min-width: 180px;
+      &.action-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
 
-        mat-icon {
-          margin-right: 8px;
+        .cancel-btn {
+          min-width: 100px;
+        }
+
+        .calculate-btn {
+          min-width: 180px;
+
+          mat-icon {
+            margin-right: 8px;
+          }
         }
       }
     }
@@ -192,8 +227,13 @@
       }
 
       mat-card-actions {
-        .calculate-btn {
-          width: 100%;
+        &.action-buttons {
+          flex-direction: column;
+
+          .cancel-btn,
+          .calculate-btn {
+            width: 100%;
+          }
         }
       }
     }

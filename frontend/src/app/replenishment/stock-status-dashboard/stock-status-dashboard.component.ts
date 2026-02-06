@@ -463,6 +463,7 @@ export class StockStatusDashboardComponent implements OnInit {
     this.router.navigate(['/replenishment/needs-list-wizard'], {
       queryParams: {
         event_id: this.activeEvent.event_id,
+        event_name: this.activeEvent.event_name,
         warehouse_id: warehouseId || this.selectedWarehouseId,
         phase: this.activeEvent.phase
       }

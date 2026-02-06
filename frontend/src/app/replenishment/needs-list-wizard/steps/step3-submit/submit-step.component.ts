@@ -54,16 +54,20 @@ export class SubmitStepComponent implements OnInit {
   @Output() complete = new EventEmitter<void>();
 
   items: NeedsListItem[] = [];
+  selectedItems: NeedsListItem[] = [];  // Only selected items
   warehouseBreakdown: WarehouseBreakdown[] = [];
   horizonBreakdown: HorizonBreakdown[] = [];
 
   totalItems = 0;
   totalUnits = 0;
   totalCost = 0;
+  totalReviewed = 0;  // Total items reviewed (not just selected)
 
   notesForm: FormGroup;
   loading = false;
   errors: string[] = [];
+  showAllItems = false;  // For items preview expansion
+  showTierInfo = false;  // For approval tier explanation
 
   private destroyRef = inject(DestroyRef);
 
@@ -81,6 +85,7 @@ export class SubmitStepComponent implements OnInit {
     this.wizardService.getState$().pipe(
       map(state => ({
         items: state.previewResponse?.items || [],
+        selectedItemKeys: state.selectedItemKeys || [],
         adjustments: state.adjustments
       })),
       distinctUntilChanged((prev, curr) => (
@@ -90,11 +95,21 @@ export class SubmitStepComponent implements OnInit {
           item.warehouse_id === curr.items[i]?.warehouse_id &&
           item.gap_qty === curr.items[i]?.gap_qty
         )) &&
+        prev.selectedItemKeys.length === curr.selectedItemKeys.length &&
         prev.adjustments === curr.adjustments
       )),
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(({ items }) => {
+    ).subscribe(({ items, selectedItemKeys }) => {
       this.items = items;
+      this.totalReviewed = items.length;
+
+      // Filter to only selected items
+      const selectedKeys = new Set(selectedItemKeys);
+      this.selectedItems = items.filter(item => {
+        const key = `${item.item_id}_${item.warehouse_id || 0}`;
+        return selectedKeys.has(key);
+      });
+
       this.calculateSummary();
     });
 
@@ -113,7 +128,7 @@ export class SubmitStepComponent implements OnInit {
   }
 
   calculateSummary(): void {
-    if (!this.items.length) {
+    if (!this.selectedItems.length) {
       this.totalItems = 0;
       this.totalUnits = 0;
       this.totalCost = 0;
@@ -122,8 +137,8 @@ export class SubmitStepComponent implements OnInit {
       return;
     }
 
-    // Apply adjustments to items
-    const adjustedItems = this.items.map(item => {
+    // Apply adjustments to selected items only
+    const adjustedItems = this.selectedItems.map(item => {
       const adjustment = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
       return {
         ...item,
@@ -131,7 +146,7 @@ export class SubmitStepComponent implements OnInit {
       };
     });
 
-    // Calculate totals
+    // Calculate totals from selected items
     this.totalItems = adjustedItems.length;
     this.totalUnits = adjustedItems.reduce((sum, item) => sum + (item.gap_qty || 0), 0);
     this.totalCost = adjustedItems.reduce((sum, item) => sum + this.getItemCost(item), 0);
@@ -223,10 +238,44 @@ export class SubmitStepComponent implements OnInit {
     }
   }
 
-  private getItemCost(item: NeedsListItem): number {
+  getItemCost(item: NeedsListItem): number {
     const unitCost = item.procurement?.est_unit_cost ?? 0;
     const quantity = item.gap_qty ?? 0;
     return quantity * unitCost;
+  }
+
+  getHorizonItems(horizon: 'A' | 'B' | 'C'): number {
+    if (!this.selectedItems.length) return 0;
+
+    return this.selectedItems.filter(item => {
+      if (!item.horizon) return false;
+
+      if (horizon === 'A') {
+        return item.horizon.A?.recommended_qty && item.horizon.A.recommended_qty > 0;
+      } else if (horizon === 'B') {
+        return item.horizon.B?.recommended_qty && item.horizon.B.recommended_qty > 0;
+      } else if (horizon === 'C') {
+        return item.horizon.C?.recommended_qty && item.horizon.C.recommended_qty > 0;
+      }
+      return false;
+    }).length;
+  }
+
+  getHorizonUnits(horizon: 'A' | 'B' | 'C'): number {
+    if (!this.selectedItems.length) return 0;
+
+    return this.selectedItems.reduce((sum, item) => {
+      if (!item.horizon) return sum;
+
+      if (horizon === 'A' && item.horizon.A?.recommended_qty) {
+        return sum + (item.horizon.A.recommended_qty || 0);
+      } else if (horizon === 'B' && item.horizon.B?.recommended_qty) {
+        return sum + (item.horizon.B.recommended_qty || 0);
+      } else if (horizon === 'C' && item.horizon.C?.recommended_qty) {
+        return sum + (item.horizon.C.recommended_qty || 0);
+      }
+      return sum;
+    }, 0);
   }
 
   getPhaseLabel(): string {
@@ -236,6 +285,33 @@ export class SubmitStepComponent implements OnInit {
 
   getEventId(): number | undefined {
     return this.wizardService.getState().event_id;
+  }
+
+  getEventName(): string {
+    const state = this.wizardService.getState();
+    return state.event_name || `Event ${state.event_id || 'N/A'}`;
+  }
+
+  toggleItemsList(): void {
+    this.showAllItems = !this.showAllItems;
+  }
+
+  toggleTierInfo(): void {
+    this.showTierInfo = !this.showTierInfo;
+  }
+
+  getAdjustedQty(item: NeedsListItem): number {
+    const adjustment = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
+    return adjustment ? adjustment.adjusted_qty : item.gap_qty;
+  }
+
+  getApprovalTierLevel(): number {
+    const approvalInfo = this.getApprovalInfo();
+    if (approvalInfo.includes('Tier 1')) return 1;
+    if (approvalInfo.includes('Tier 2')) return 2;
+    if (approvalInfo.includes('Tier 3')) return 3;
+    if (approvalInfo.includes('Tier 4')) return 4;
+    return 0;
   }
 
   saveDraft(): void {

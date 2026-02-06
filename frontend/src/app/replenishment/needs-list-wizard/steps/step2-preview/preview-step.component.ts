@@ -1,7 +1,7 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -12,11 +12,20 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import { ItemAdjustment, ADJUSTMENT_REASON_LABELS, AdjustmentReason } from '../../models/wizard-state.model';
 import { distinctUntilChanged, map } from 'rxjs/operators';
+
+// Extended interface to track selection and editing state
+interface PreviewItem extends NeedsListItem {
+  included: boolean;
+  isEditing?: boolean;
+  tempAdjustedQty?: number;
+  tempReason?: AdjustmentReason;
+}
 
 @Component({
   selector: 'app-preview-step',
@@ -24,6 +33,7 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
   imports: [
     CommonModule,
     ReactiveFormsModule,
+    FormsModule,
     MatTableModule,
     MatButtonModule,
     MatIconModule,
@@ -33,7 +43,8 @@ import { distinctUntilChanged, map } from 'rxjs/operators';
     MatInputModule,
     MatSelectModule,
     MatTooltipModule,
-    MatProgressBarModule
+    MatProgressBarModule,
+    MatCheckboxModule
   ],
   templateUrl: './preview-step.component.html',
   styleUrl: './preview-step.component.scss'
@@ -42,36 +53,30 @@ export class PreviewStepComponent implements OnInit {
   @Output() back = new EventEmitter<void>();
   @Output() next = new EventEmitter<void>();
 
-  items: NeedsListItem[] = [];
+  items: PreviewItem[] = [];
   loading = false;
   errors: string[] = [];
   private destroyRef = inject(DestroyRef);
 
   displayedColumns = [
+    'select',
     'severity',
     'item',
     'warehouse',
-    'gap',
+    'calculatedGap',
+    'adjustedQty',
+    'reason',
     'source',
     'leadTime',
-    'cost',
-    'actions'
+    'cost'
   ];
 
   adjustmentReasonOptions = Object.entries(ADJUSTMENT_REASON_LABELS).map(([key, label]) => ({ key, label }));
-  editingItemKey: string | null = null;
-  adjustmentForm: FormGroup;
 
   constructor(
     private fb: FormBuilder,
     private wizardService: WizardStateService
-  ) {
-    this.adjustmentForm = this.fb.group({
-      adjusted_qty: [null, [Validators.required, Validators.min(0)]],
-      reason: ['', Validators.required],
-      notes: ['']
-    });
-  }
+  ) {}
 
   ngOnInit(): void {
     this.wizardService.getState$().pipe(
@@ -79,7 +84,14 @@ export class PreviewStepComponent implements OnInit {
       distinctUntilChanged(),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(items => {
-      this.items = items;
+      // Convert to PreviewItem and auto-select items with gap > 0
+      this.items = items.map(item => ({
+        ...item,
+        included: item.gap_qty > 0,
+        isEditing: false,
+        tempAdjustedQty: this.getAdjustedQty(item),
+        tempReason: this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0)?.reason
+      }));
     });
   }
 
@@ -143,14 +155,48 @@ export class PreviewStepComponent implements OnInit {
   }
 
   getTotalCost(): number {
-    return this.items.reduce((sum, item) => {
-      const cost = item.procurement?.est_total_cost || 0;
-      return sum + cost;
-    }, 0);
+    return this.items
+      .filter(item => item.included)
+      .reduce((sum, item) => {
+        const cost = item.procurement?.est_total_cost || 0;
+        return sum + cost;
+      }, 0);
+  }
+
+  // Selection management
+  get selectedCount(): number {
+    return this.items.filter(item => item.included).length;
+  }
+
+  get allSelected(): boolean {
+    return this.items.length > 0 && this.items.every(item => item.included);
+  }
+
+  get someSelected(): boolean {
+    return this.items.some(item => item.included) && !this.allSelected;
+  }
+
+  toggleAllSelection(): void {
+    const newValue = !this.allSelected;
+    this.items.forEach(item => item.included = newValue);
+  }
+
+  selectAll(): void {
+    this.items.forEach(item => item.included = true);
+  }
+
+  selectNone(): void {
+    this.items.forEach(item => item.included = false);
+  }
+
+  selectItemsWithGap(): void {
+    this.items.forEach(item => {
+      item.included = item.gap_qty > 0;
+    });
   }
 
   // Check if item is uncovered (gap > 0 after horizon allocation)
-  isUncovered(item: NeedsListItem): boolean {
+  isUncovered(item: PreviewItem): boolean {
     const horizonTotal =
       (item.horizon?.A?.recommended_qty || 0) +
       (item.horizon?.B?.recommended_qty || 0) +
@@ -169,18 +215,30 @@ export class PreviewStepComponent implements OnInit {
     return this.items.filter(item => this.isUncovered(item)).length;
   }
 
-  getRowClass(item: NeedsListItem): string {
-    if (this.isUncovered(item)) {
-      return 'uncovered-item';
+  getRowClass(item: PreviewItem): string {
+    const classes: string[] = [];
+
+    // Add selected class for visual feedback
+    if (item.included) {
+      classes.push('selected-item');
     }
-    return '';
+
+    if (this.isUncovered(item)) {
+      classes.push('uncovered-item');
+    }
+
+    if (item.gap_qty === 0) {
+      classes.push('zero-gap-item');
+    }
+
+    return classes.join(' ');
   }
 
-  getItemKey(item: NeedsListItem): string {
+  getItemKey(item: PreviewItem): string {
     return `${item.item_id}_${item.warehouse_id}`;
   }
 
-  hasAdjustment(item: NeedsListItem): boolean {
+  hasAdjustment(item: PreviewItem): boolean {
     return !!this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
   }
 
@@ -189,61 +247,63 @@ export class PreviewStepComponent implements OnInit {
     return adjustment ? adjustment.adjusted_qty : item.gap_qty;
   }
 
-  startEdit(item: NeedsListItem): void {
-    const key = this.getItemKey(item);
-    this.editingItemKey = key;
-
-    const existing = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
-    this.adjustmentForm.patchValue({
-      adjusted_qty: existing?.adjusted_qty ?? item.gap_qty,
-      reason: existing?.reason || '',
-      notes: existing?.notes || ''
-    });
-  }
-
-  cancelEdit(): void {
-    this.editingItemKey = null;
-    this.adjustmentForm.reset();
-  }
-
-  isEditing(item: NeedsListItem): boolean {
-    return this.editingItemKey === this.getItemKey(item);
-  }
-
-  get editingItem(): NeedsListItem | undefined {
-    if (!this.editingItemKey) {
-      return undefined;
-    }
-    return this.items.find(item => this.getItemKey(item) === this.editingItemKey);
-  }
-
-  saveAdjustment(item: NeedsListItem): void {
-    if (this.adjustmentForm.invalid) {
-      this.adjustmentForm.markAllAsTouched();
+  // Inline editing methods
+  onQuantityChange(item: PreviewItem): void {
+    if (item.tempAdjustedQty === undefined || item.tempAdjustedQty < 0) {
       return;
     }
 
-    const adjustedQty = Number(this.adjustmentForm.value.adjusted_qty);
-
-    const adjustment: ItemAdjustment = {
-      item_id: item.item_id,
-      warehouse_id: item.warehouse_id || 0,
-      original_qty: item.gap_qty,
-      adjusted_qty: adjustedQty,
-      reason: this.adjustmentForm.value.reason,
-      notes: this.adjustmentForm.value.notes
-    };
-
-    this.wizardService.setAdjustment(item.item_id, item.warehouse_id || 0, adjustment);
-    this.editingItemKey = null;
-    this.adjustmentForm.reset();
+    // If quantity changed from original and reason is provided, save adjustment
+    if (item.tempAdjustedQty !== item.gap_qty && item.tempReason) {
+      const adjustment: ItemAdjustment = {
+        item_id: item.item_id,
+        warehouse_id: item.warehouse_id || 0,
+        original_qty: item.gap_qty,
+        adjusted_qty: item.tempAdjustedQty,
+        reason: item.tempReason,
+        notes: ''
+      };
+      this.wizardService.setAdjustment(item.item_id, item.warehouse_id || 0, adjustment);
+    } else if (item.tempAdjustedQty === item.gap_qty) {
+      // If quantity reverted to original, remove adjustment
+      this.wizardService.removeAdjustment(item.item_id, item.warehouse_id || 0);
+    }
   }
 
-  removeAdjustment(item: NeedsListItem): void {
-    this.wizardService.removeAdjustment(item.item_id, item.warehouse_id || 0);
+  onReasonChange(item: PreviewItem): void {
+    // Save adjustment when reason changes (if quantity is also different)
+    if (item.tempAdjustedQty !== undefined && item.tempAdjustedQty !== item.gap_qty && item.tempReason) {
+      this.onQuantityChange(item);
+    }
+  }
+
+  isQuantityAdjusted(item: PreviewItem): boolean {
+    return item.tempAdjustedQty !== undefined && item.tempAdjustedQty !== item.gap_qty;
+  }
+
+  showReasonField(item: PreviewItem): boolean {
+    return this.isQuantityAdjusted(item);
   }
 
   proceedToNext(): void {
+    // Validate that at least one item is selected
+    if (this.selectedCount === 0) {
+      this.errors = ['Please select at least one item before continuing. Use the checkboxes to select items you want to include in the needs list.'];
+      // Scroll to top to show error
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // Clear any errors
+    this.errors = [];
+
+    // Save selected item keys to wizard state
+    const selectedItemKeys = this.items
+      .filter(item => item.included)
+      .map(item => this.getItemKey(item));
+
+    this.wizardService.updateState({ selectedItemKeys });
+
     // Move to step 3
     this.next.emit();
   }

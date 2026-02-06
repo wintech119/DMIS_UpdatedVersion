@@ -7,20 +7,24 @@
 
     <mat-card-content>
       <!-- Loading indicator -->
-      <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
+      <mat-progress-bar *ngIf="loading || loadingInitialData" mode="indeterminate" class="loading-bar"></mat-progress-bar>
 
       <!-- Form -->
       <form [formGroup]="form" class="scope-form">
         <div class="form-row">
           <mat-form-field appearance="outline" class="form-field">
-            <mat-label>Event ID</mat-label>
-            <input matInput type="number" formControlName="event_id" min="1" />
+            <mat-label>Event</mat-label>
+            <mat-select formControlName="event_id" [disabled]="loadingInitialData">
+              <mat-option *ngIf="activeEvent" [value]="activeEvent.event_id">
+                {{ activeEvent.event_name }}
+              </mat-option>
+              <mat-option *ngIf="!activeEvent" disabled>
+                No active event available
+              </mat-option>
+            </mat-select>
             <mat-icon matSuffix>event</mat-icon>
             <mat-error *ngIf="form.get('event_id')?.hasError('required')">
-              Event ID is required
-            </mat-error>
-            <mat-error *ngIf="form.get('event_id')?.hasError('min')">
-              Event ID must be positive
+              Event is required
             </mat-error>
           </mat-form-field>
 
@@ -41,9 +45,9 @@
         <div class="form-row">
           <mat-form-field appearance="outline" class="form-field-full">
             <mat-label>Warehouses</mat-label>
-            <mat-select formControlName="warehouse_ids" multiple>
-              <mat-option *ngFor="let wh of availableWarehouses" [value]="wh.id">
-                {{ wh.name }}
+            <mat-select formControlName="warehouse_ids" multiple [disabled]="loadingInitialData">
+              <mat-option *ngFor="let wh of availableWarehouses" [value]="wh.warehouse_id">
+                {{ wh.warehouse_name }}
               </mat-option>
             </mat-select>
             <mat-icon matSuffix>warehouse</mat-icon>
@@ -93,6 +97,10 @@
             </div>
           </div>
         </div>
+        <div class="phase-note">
+          <mat-icon class="note-icon">info_outline</mat-icon>
+          <p>These parameters are set by your administrator for each phase. They determine how supply gaps are calculated.</p>
+        </div>
       </mat-card>
 
       <!-- Errors -->
@@ -106,7 +114,15 @@
       </div>
     </mat-card-content>
 
-    <mat-card-actions>
+    <mat-card-actions class="action-buttons">
+      <button
+        mat-stroked-button
+        (click)="cancel()"
+        [disabled]="loading"
+        class="cancel-btn"
+      >
+        Cancel
+      </button>
       <button
         mat-raised-button
         color="primary"
