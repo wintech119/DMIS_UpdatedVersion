@@ -228,7 +228,7 @@ def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]
     return categories, warnings
 
 
-def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, Dict[str, str]], List[str]]:
+def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, Dict[str, str | None]], List[str]]:
     """
     Fetch item names and codes for given item IDs.
     Returns a dict mapping item_id -> {"name": str, "code": str}, and any warnings.
