@@ -95,7 +95,7 @@ export class SubmitStepComponent implements OnInit {
           item.warehouse_id === curr.items[i]?.warehouse_id &&
           item.gap_qty === curr.items[i]?.gap_qty
         )) &&
-        prev.selectedItemKeys.length === curr.selectedItemKeys.length &&
+        this.areSelectedKeysEqual(prev.selectedItemKeys, curr.selectedItemKeys) &&
         prev.adjustments === curr.adjustments
       )),
       takeUntilDestroyed(this.destroyRef)
@@ -125,6 +125,16 @@ export class SubmitStepComponent implements OnInit {
     ).subscribe(values => {
       this.wizardService.updateState({ notes: values.notes });
     });
+  }
+
+  private areSelectedKeysEqual(prevKeys: string[], currKeys: string[]): boolean {
+    if (prevKeys === currKeys) return true;
+    if (prevKeys.length !== currKeys.length) return false;
+
+    const prevSet = new Set(prevKeys);
+    if (prevSet.size !== currKeys.length) return false;
+
+    return currKeys.every(key => prevSet.has(key));
   }
 
   calculateSummary(): void {
