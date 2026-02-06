@@ -120,11 +120,15 @@ export class ScopeStepComponent implements OnInit {
   private loadInitialData(): void {
     this.loadingInitialData = true;
     this.form.disable();
+  private loadInitialData(): void {
+    this.loadingInitialData = true;
 
     forkJoin({
       event: this.replenishmentService.getActiveEvent(),
       warehouses: this.replenishmentService.getAllWarehouses()
-    }).subscribe({
+    }).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
       next: ({ event, warehouses }) => {
         this.activeEvent = event;
         this.availableWarehouses = warehouses;
@@ -142,11 +146,9 @@ export class ScopeStepComponent implements OnInit {
         }
 
         this.loadingInitialData = false;
-        this.form.enable();
       },
       error: (error) => {
         this.loadingInitialData = false;
-        this.form.enable();
         this.errors = ['Failed to load event and warehouse data. Please try again.'];
         console.error('Error loading initial data:', error);
       }
