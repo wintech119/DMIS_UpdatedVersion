@@ -80,7 +80,7 @@ export class PreviewStepComponent implements OnInit {
   ngOnInit(): void {
     this.wizardService.getState$().pipe(
       map(state => state.previewResponse?.items || []),
-      distinctUntilChanged(),
+      distinctUntilChanged((prev, curr) => this.arePreviewItemsEqual(prev, curr)),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(items => {
       // Convert to PreviewItem and auto-select items with gap > 0
@@ -91,6 +91,44 @@ export class PreviewStepComponent implements OnInit {
         tempReason: this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0)?.reason
       }));
     });
+  }
+
+  private arePreviewItemsEqual(prev: NeedsListItem[], curr: NeedsListItem[]): boolean {
+    if (prev === curr) return true;
+    if (prev.length !== curr.length) return false;
+
+    for (let i = 0; i < prev.length; i += 1) {
+      const a = prev[i];
+      const b = curr[i];
+      if (!b) return false;
+
+      if (a.item_id !== b.item_id) return false;
+      if ((a.warehouse_id ?? 0) !== (b.warehouse_id ?? 0)) return false;
+      if (a.gap_qty !== b.gap_qty) return false;
+      if (a.required_qty !== b.required_qty) return false;
+      if (a.inbound_strict_qty !== b.inbound_strict_qty) return false;
+      if (a.severity !== b.severity) return false;
+
+      if (!this.areHorizonEqual(a.horizon, b.horizon)) return false;
+
+      const aProc = a.procurement;
+      const bProc = b.procurement;
+      if ((aProc?.est_total_cost ?? null) !== (bProc?.est_total_cost ?? null)) return false;
+      if ((aProc?.est_unit_cost ?? null) !== (bProc?.est_unit_cost ?? null)) return false;
+    }
+
+    return true;
+  }
+
+  private areHorizonEqual(a?: NeedsListItem['horizon'], b?: NeedsListItem['horizon']): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+
+    return (
+      (a.A?.recommended_qty ?? 0) === (b.A?.recommended_qty ?? 0) &&
+      (a.B?.recommended_qty ?? 0) === (b.B?.recommended_qty ?? 0) &&
+      (a.C?.recommended_qty ?? 0) === (b.C?.recommended_qty ?? 0)
+    );
   }
 
   getSeverityIcon(item: NeedsListItem): string {
