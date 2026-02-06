@@ -23,13 +23,6 @@ interface WarehouseBreakdown {
   cost: number;
 }
 
-interface HorizonBreakdown {
-  horizon: 'A' | 'B' | 'C';
-  label: string;
-  items: number;
-  units: number;
-  leadTime: string;
-}
 
 @Component({
   selector: 'app-submit-step',
@@ -56,7 +49,6 @@ export class SubmitStepComponent implements OnInit {
   items: NeedsListItem[] = [];
   selectedItems: NeedsListItem[] = [];  // Only selected items
   warehouseBreakdown: WarehouseBreakdown[] = [];
-  horizonBreakdown: HorizonBreakdown[] = [];
 
   totalItems = 0;
   totalUnits = 0;
@@ -143,7 +135,6 @@ export class SubmitStepComponent implements OnInit {
       this.totalUnits = 0;
       this.totalCost = 0;
       this.warehouseBreakdown = [];
-      this.horizonBreakdown = [];
       return;
     }
 
@@ -192,37 +183,6 @@ export class SubmitStepComponent implements OnInit {
       }))
       .sort((a, b) => a.warehouse_name.localeCompare(b.warehouse_name));
 
-    // Group by recommended horizon
-    const byHorizon = new Map<'A' | 'B' | 'C', { items: number; units: number }>();
-    byHorizon.set('A', { items: 0, units: 0 });
-    byHorizon.set('B', { items: 0, units: 0 });
-    byHorizon.set('C', { items: 0, units: 0 });
-
-    adjustedItems.forEach(item => {
-      const horizon = item.horizon;
-      if (!horizon) return;
-
-      // Count items by their primary recommended source (A -> B -> C)
-      if (horizon.A?.recommended_qty && horizon.A.recommended_qty > 0) {
-        const h = byHorizon.get('A')!;
-        h.items++;
-        h.units += horizon.A.recommended_qty;
-      } else if (horizon.B?.recommended_qty && horizon.B.recommended_qty > 0) {
-        const h = byHorizon.get('B')!;
-        h.items++;
-        h.units += horizon.B.recommended_qty;
-      } else if (horizon.C?.recommended_qty && horizon.C.recommended_qty > 0) {
-        const h = byHorizon.get('C')!;
-        h.items++;
-        h.units += horizon.C.recommended_qty;
-      }
-    });
-
-    this.horizonBreakdown = ([
-      { horizon: 'A' as const, label: 'Transfer (Horizon A)', items: byHorizon.get('A')!.items, units: byHorizon.get('A')!.units, leadTime: '6-8 hours' },
-      { horizon: 'B' as const, label: 'Donation (Horizon B)', items: byHorizon.get('B')!.items, units: byHorizon.get('B')!.units, leadTime: '2-7 days' },
-      { horizon: 'C' as const, label: 'Procurement (Horizon C)', items: byHorizon.get('C')!.items, units: byHorizon.get('C')!.units, leadTime: '14+ days' }
-    ] as HorizonBreakdown[]).filter(h => h.items > 0); // Only show horizons with items
   }
 
   getApprovalInfo(): string {
@@ -257,33 +217,45 @@ export class SubmitStepComponent implements OnInit {
   getHorizonItems(horizon: 'A' | 'B' | 'C'): number {
     if (!this.selectedItems.length) return 0;
 
-    return this.selectedItems.filter(item => {
-      if (!item.horizon) return false;
+    return this.selectedItems.reduce((count, item) => {
+      const horizons = item.horizon;
+      if (!horizons) return count;
 
-      if (horizon === 'A') {
-        return item.horizon.A?.recommended_qty && item.horizon.A.recommended_qty > 0;
-      } else if (horizon === 'B') {
-        return item.horizon.B?.recommended_qty && item.horizon.B.recommended_qty > 0;
-      } else if (horizon === 'C') {
-        return item.horizon.C?.recommended_qty && item.horizon.C.recommended_qty > 0;
+      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
+        return horizon === 'A' ? count + 1 : count;
       }
-      return false;
-    }).length;
+
+      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
+        return horizon === 'B' ? count + 1 : count;
+      }
+
+      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
+        return horizon === 'C' ? count + 1 : count;
+      }
+
+      return count;
+    }, 0);
   }
 
   getHorizonUnits(horizon: 'A' | 'B' | 'C'): number {
     if (!this.selectedItems.length) return 0;
 
     return this.selectedItems.reduce((sum, item) => {
-      if (!item.horizon) return sum;
+      const horizons = item.horizon;
+      if (!horizons) return sum;
 
-      if (horizon === 'A' && item.horizon.A?.recommended_qty) {
-        return sum + (item.horizon.A.recommended_qty || 0);
-      } else if (horizon === 'B' && item.horizon.B?.recommended_qty) {
-        return sum + (item.horizon.B.recommended_qty || 0);
-      } else if (horizon === 'C' && item.horizon.C?.recommended_qty) {
-        return sum + (item.horizon.C.recommended_qty || 0);
+      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
+        return horizon === 'A' ? sum + horizons.A.recommended_qty : sum;
       }
+
+      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
+        return horizon === 'B' ? sum + horizons.B.recommended_qty : sum;
+      }
+
+      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
+        return horizon === 'C' ? sum + horizons.C.recommended_qty : sum;
+      }
+
       return sum;
     }, 0);
   }
