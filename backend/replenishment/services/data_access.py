@@ -231,7 +231,7 @@ def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]
 def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, Dict[str, str | None]], List[str]]:
     """
     Fetch item names and codes for given item IDs.
-    Returns a dict mapping item_id -> {"name": str, "code": str}, and any warnings.
+    Returns a dict mapping item_id -> {"name": str, "code": str | None}, and any warnings.
     """
     if _is_sqlite():
         return {}, ["db_unavailable_preview_stub"]
@@ -239,7 +239,7 @@ def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, Dict[str, str | None]
         return {}, []
 
     schema = _schema_name()
-    item_data: Dict[int, Dict[str, str]] = {}
+    item_data: Dict[int, Dict[str, str | None]] = {}
     warnings: List[str] = []
     try:
         placeholders = ",".join(["%s"] * len(item_ids))
