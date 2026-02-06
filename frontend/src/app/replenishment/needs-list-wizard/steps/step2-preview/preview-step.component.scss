@@ -69,6 +69,35 @@
     }
 
     mat-card-content {
+      .bulk-actions {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding: 16px;
+        background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+        border-radius: 8px;
+        border: 1px solid #90caf9;
+
+        .bulk-action-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-weight: 500;
+          transition: all 0.2s ease;
+
+          mat-icon {
+            font-size: 20px;
+            width: 20px;
+            height: 20px;
+          }
+
+          &:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          }
+        }
+      }
+
       .loading-bar {
         margin-bottom: 16px;
       }
@@ -80,75 +109,230 @@
 
         .preview-table {
           width: 100%;
+          background: white;
+          table-layout: fixed;
 
           th {
             background: #f5f5f5;
             font-weight: 600;
             color: #333;
+            padding: 10px 8px;
+            font-size: 13px;
+            white-space: nowrap;
           }
 
           td {
-            padding: 12px 8px;
+            padding: 10px 8px;
+            background: white;
+            vertical-align: middle;
           }
+
+          // Column widths for better alignment
+          th:nth-child(1), td:nth-child(1) { width: 40px; text-align: center; } // Checkbox
+          th:nth-child(2), td:nth-child(2) { width: 36px; text-align: center; } // Severity
+          th:nth-child(3), td:nth-child(3) { width: 180px; } // Item
+          th:nth-child(4), td:nth-child(4) { width: 160px; } // Warehouse
+          th:nth-child(5), td:nth-child(5) { width: 100px; text-align: right; } // Calculated Gap
+          th:nth-child(6), td:nth-child(6) { width: 100px; text-align: right; } // Adjusted Qty
+          th:nth-child(7), td:nth-child(7) { width: 160px; } // Reason
+          th:nth-child(8), td:nth-child(8) { width: 100px; } // Source
+          th:nth-child(9), td:nth-child(9) { width: 90px; } // Lead Time
+          th:nth-child(10), td:nth-child(10) { width: 90px; text-align: right; } // Cost
 
           // Severity column styling
           .severity-critical {
             mat-icon {
               color: #dc3545;
+              font-size: 24px;
+              width: 24px;
+              height: 24px;
             }
           }
 
           .severity-warning {
             mat-icon {
               color: #fd7e14;
+              font-size: 24px;
+              width: 24px;
+              height: 24px;
             }
           }
 
           .severity-watch {
             mat-icon {
               color: #ffc107;
+              font-size: 24px;
+              width: 24px;
+              height: 24px;
             }
           }
 
           .severity-ok {
             mat-icon {
               color: #28a745;
+              font-size: 24px;
+              width: 24px;
+              height: 24px;
             }
           }
 
           .item-cell {
             display: flex;
             flex-direction: column;
-
-            .item-id {
-              font-weight: 600;
-              color: #1976d2;
-            }
+            overflow: hidden;
 
             .item-name {
-              font-size: 12px;
+              font-weight: 500;
+              font-size: 13px;
+              color: #1a1a1a;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+
+            .item-code {
+              font-size: 10px;
               color: #666;
+              font-family: 'Roboto Mono', 'Courier New', monospace;
+              margin-top: 2px;
+              letter-spacing: 0.2px;
             }
           }
 
-          .gap-cell {
+          .warehouse-cell {
+            span {
+              display: block;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              font-size: 13px;
+            }
+          }
+
+          .source-cell {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
+            font-size: 12px;
+
+            .source-icon {
+              font-size: 18px;
+              width: 18px;
+              height: 18px;
+              color: #666;
+              flex-shrink: 0;
+            }
+
+            span {
+              white-space: nowrap;
+            }
+          }
+
+          .lead-time-cell {
+            font-size: 12px;
+            color: #555;
+            white-space: nowrap;
+          }
+
+          .cost-cell {
+            font-size: 12px;
+            font-weight: 500;
+            color: #1976d2;
+            font-variant-numeric: tabular-nums;
+          }
+
+          // Inline form fields
+          .calculated-gap-cell {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
 
             .gap-value {
               font-weight: 600;
+              padding: 3px 6px;
+              border-radius: 3px;
+              display: inline-block;
+              font-size: 12px;
 
-              &.has-adjustment {
-                color: #1976d2;
+              &.gap-positive {
+                color: #d32f2f;
+                background: #ffebee;
+              }
+
+              &.gap-zero {
+                color: #388e3c;
+                background: #e8f5e9;
+              }
+            }
+          }
+
+          .adjusted-qty-cell {
+            .inline-qty-field {
+              width: 90px;
+              margin: 0;
+
+              ::ng-deep .mat-mdc-text-field-wrapper {
+                padding: 0;
+                background: white;
+              }
+
+              ::ng-deep .mat-mdc-form-field-infix {
+                padding: 6px 8px;
+                min-height: auto;
+              }
+
+              ::ng-deep .mat-mdc-notched-outline {
+                border-color: #ddd;
+              }
+
+              input {
+                text-align: right;
+                font-variant-numeric: tabular-nums;
+                font-weight: 500;
+                color: #333;
+                font-size: 13px;
+
+                &.qty-adjusted {
+                  font-weight: 600;
+                  color: #1976d2;
+                  background: #e3f2fd;
+                }
+
+                &:focus {
+                  background: #fff;
+                }
+              }
+            }
+          }
+
+          .reason-cell {
+            .inline-reason-field {
+              width: 150px;
+              margin: 0;
+
+              ::ng-deep .mat-mdc-text-field-wrapper {
+                padding: 0;
+                background: #fff3e0;
+              }
+
+              ::ng-deep .mat-mdc-form-field-infix {
+                padding: 6px 8px;
+                min-height: auto;
+              }
+
+              ::ng-deep .mat-mdc-notched-outline {
+                border-color: #ff9800;
+              }
+
+              ::ng-deep .mat-mdc-select {
+                font-weight: 500;
+                color: #e65100;
+                font-size: 12px;
               }
             }
 
-            .adjusted-icon {
-              font-size: 16px;
-              width: 16px;
-              height: 16px;
-              color: #1976d2;
+            .no-adjustment {
+              color: #bbb;
+              font-size: 14px;
             }
           }
 
@@ -162,53 +346,54 @@
             }
           }
 
-          .actions-cell {
-            display: flex;
-            gap: 4px;
-          }
+          // Row styling based on state
+          tr {
+            transition: background-color 0.2s ease;
 
-          // Uncovered item highlighting
-          .uncovered-item {
-            background-color: #fff3cd !important;
-            border-left: 4px solid #ffc107 !important;
+            // Selected items - subtle blue tint
+            &.selected-item {
+              background-color: #e3f2fd !important;
+              border-left: 3px solid #2196f3 !important;
 
-            &:hover {
-              background-color: #ffe69c !important;
-            }
-          }
-        }
-      }
-
-      .edit-panel {
-        margin-top: 24px;
-        padding: 16px;
-        background: #f8f9fa;
-        border-radius: 8px;
-
-        .edit-card {
-          max-width: 600px;
-          margin: 0 auto;
-
-          .adjustment-form {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-
-            .form-field-full {
-              grid-column: 1 / -1;
+              &:hover {
+                background-color: #bbdefb !important;
+              }
             }
 
-            mat-form-field {
-              width: 100%;
-            }
-          }
+            // Uncovered item highlighting
+            &.uncovered-item {
+              background-color: #fff3cd !important;
+              border-left: 4px solid #ffc107 !important;
 
-          mat-card-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            padding: 16px;
-            border-top: 1px solid #e0e0e0;
+              &:hover {
+                background-color: #ffe69c !important;
+              }
+
+              &.selected-item {
+                background-color: #fff8e1 !important;
+                border-left: 4px solid #ffc107 !important;
+              }
+            }
+
+            // Zero gap item styling - subtle, not harsh
+            &.zero-gap-item {
+              background-color: #fafafa !important;
+              color: #757575;
+
+              &:hover {
+                background-color: #f5f5f5 !important;
+              }
+
+              &.selected-item {
+                background-color: #e8f5e9 !important;
+                border-left: 3px solid #4caf50 !important;
+                color: inherit;
+
+                &:hover {
+                  background-color: #c8e6c9 !important;
+                }
+              }
+            }
           }
         }
       }
@@ -289,6 +474,16 @@
 
     .table-card {
       mat-card-content {
+        .bulk-actions {
+          flex-direction: column;
+          gap: 8px;
+
+          .bulk-action-btn {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+
         .table-container {
           .preview-table {
             font-size: 12px;
@@ -297,17 +492,13 @@
             th {
               padding: 8px 4px;
             }
-          }
-        }
 
-        .edit-panel {
-          .edit-card {
-            .adjustment-form {
-              grid-template-columns: 1fr;
+            .adjusted-qty-cell .inline-qty-field {
+              width: 80px;
+            }
 
-              .form-field-full {
-                grid-column: 1;
-              }
+            .reason-cell .inline-reason-field {
+              width: 140px;
             }
           }
         }
@@ -365,11 +556,34 @@
       }
 
       mat-card-content {
+        .bulk-actions {
+          padding: 8px;
+
+          .bulk-action-btn {
+            font-size: 12px;
+            padding: 6px 12px;
+
+            mat-icon {
+              font-size: 16px;
+              width: 16px;
+              height: 16px;
+            }
+          }
+        }
+
         .table-container {
           max-height: 400px;
 
           .preview-table {
             font-size: 11px;
+
+            .adjusted-qty-cell .inline-qty-field {
+              width: 70px;
+            }
+
+            .reason-cell .inline-reason-field {
+              width: 120px;
+            }
           }
         }
       }

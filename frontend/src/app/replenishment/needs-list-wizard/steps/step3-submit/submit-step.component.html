@@ -12,6 +12,7 @@
           <div class="summary-text">
             <span class="label">Total Items</span>
             <span class="value">{{ totalItems }}</span>
+            <span class="context" *ngIf="totalReviewed > 0">(of {{ totalReviewed }} reviewed)</span>
           </div>
         </div>
         <div class="summary-item">
@@ -25,7 +26,7 @@
           <mat-icon class="summary-icon">attach_money</mat-icon>
           <div class="summary-text">
             <span class="label">Estimated Cost</span>
-            <span class="value">${{ (totalCost ?? 0) | number:'1.2-2' }}</span>
+            <span class="value">${{ totalCost | number:'1.2-2' }}</span>
           </div>
         </div>
         <div class="summary-item" *ngIf="hasAdjustments">
@@ -74,7 +75,7 @@
 
             <div *ngIf="warehouseBreakdown.length === 0" class="empty-state">
               <mat-icon>info</mat-icon>
-              <p>No warehouses selected</p>
+              <p>No items selected</p>
             </div>
           </div>
         </mat-card-content>
@@ -88,34 +89,116 @@
         </mat-card-header>
         <mat-card-content>
           <div class="horizon-list">
-            <div *ngFor="let h of horizonBreakdown" class="horizon-item" [ngClass]="'horizon-' + h.horizon">
+            <!-- Horizon A: Transfer -->
+            <div class="horizon-item horizon-A">
               <div class="horizon-header">
-                <mat-icon class="horizon-icon">
-                  {{ h.horizon === 'A' ? 'local_shipping' : h.horizon === 'B' ? 'inventory' : 'shopping_cart' }}
-                </mat-icon>
+                <mat-icon class="horizon-icon">local_shipping</mat-icon>
                 <div class="horizon-info">
                   <div class="horizon-title">
-                    <span class="horizon-label">{{ h.label }}</span>
-                    <span class="horizon-tag" aria-label="Horizon {{ h.horizon }}">Horizon {{ h.horizon }}</span>
+                    <span class="horizon-label">Transfer (Horizon A)</span>
+                    <span class="horizon-tag" aria-label="Horizon A">Horizon A</span>
                   </div>
-                  <span class="horizon-lead-time">Lead Time: {{ h.leadTime }}</span>
+                  <span class="horizon-lead-time">Lead Time: 6-8 hours</span>
                 </div>
               </div>
-              <div class="horizon-stats">
+              <div class="horizon-stats" *ngIf="getHorizonItems('A') > 0">
                 <div class="stat">
                   <span class="stat-label">Items:</span>
-                  <span class="stat-value">{{ h.items }}</span>
+                  <span class="stat-value">{{ getHorizonItems('A') }}</span>
                 </div>
                 <div class="stat">
                   <span class="stat-label">Units:</span>
-                  <span class="stat-value">{{ h.units }}</span>
+                  <span class="stat-value">{{ getHorizonUnits('A') }}</span>
                 </div>
+              </div>
+              <div class="empty-notice" *ngIf="getHorizonItems('A') === 0">
+                <span class="empty-text">No items allocated</span>
               </div>
             </div>
 
-            <div *ngIf="horizonBreakdown.length === 0" class="empty-state">
-              <mat-icon>info</mat-icon>
-              <p>No horizon allocations available</p>
+            <!-- Horizon B: Donation -->
+            <div class="horizon-item horizon-B">
+              <div class="horizon-header">
+                <mat-icon class="horizon-icon">inventory</mat-icon>
+                <div class="horizon-info">
+                  <div class="horizon-title">
+                    <span class="horizon-label">Donation (Horizon B)</span>
+                    <span class="horizon-tag" aria-label="Horizon B">Horizon B</span>
+                  </div>
+                  <span class="horizon-lead-time">Lead Time: 2-7 days</span>
+                </div>
+              </div>
+              <div class="horizon-stats" *ngIf="getHorizonItems('B') > 0">
+                <div class="stat">
+                  <span class="stat-label">Items:</span>
+                  <span class="stat-value">{{ getHorizonItems('B') }}</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Units:</span>
+                  <span class="stat-value">{{ getHorizonUnits('B') }}</span>
+                </div>
+              </div>
+              <div class="empty-notice" *ngIf="getHorizonItems('B') === 0">
+                <span class="empty-text">No items allocated</span>
+              </div>
+            </div>
+
+            <!-- Horizon C: Procurement -->
+            <div class="horizon-item horizon-C">
+              <div class="horizon-header">
+                <mat-icon class="horizon-icon">shopping_cart</mat-icon>
+                <div class="horizon-info">
+                  <div class="horizon-title">
+                    <span class="horizon-label">Procurement (Horizon C)</span>
+                    <span class="horizon-tag" aria-label="Horizon C">Horizon C</span>
+                  </div>
+                  <span class="horizon-lead-time">Lead Time: 14+ days</span>
+                </div>
+              </div>
+              <div class="horizon-stats" *ngIf="getHorizonItems('C') > 0">
+                <div class="stat">
+                  <span class="stat-label">Items:</span>
+                  <span class="stat-value">{{ getHorizonItems('C') }}</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Units:</span>
+                  <span class="stat-value">{{ getHorizonUnits('C') }}</span>
+                </div>
+              </div>
+              <div class="empty-notice" *ngIf="getHorizonItems('C') === 0">
+                <span class="empty-text">No items allocated</span>
+              </div>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Items Preview -->
+      <mat-card class="items-preview-card" *ngIf="selectedItems.length > 0">
+        <mat-card-header>
+          <div class="header-content">
+            <div class="header-left">
+              <mat-icon class="card-icon">list</mat-icon>
+              <mat-card-title>Items to be Submitted ({{ selectedItems.length }})</mat-card-title>
+            </div>
+            <button mat-button (click)="toggleItemsList()" class="toggle-btn">
+              {{ showAllItems ? 'Collapse' : 'View All' }}
+              <mat-icon>{{ showAllItems ? 'expand_less' : 'expand_more' }}</mat-icon>
+            </button>
+          </div>
+        </mat-card-header>
+        <mat-card-content *ngIf="showAllItems">
+          <div class="items-list">
+            <div class="item-row" *ngFor="let item of selectedItems">
+              <div class="item-info">
+                <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+                <span class="item-id">ID: {{ item.item_id }}</span>
+              </div>
+              <div class="item-details">
+                <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
+                <span class="item-qty">{{ getAdjustedQty(item) }} units</span>
+                <span class="item-cost">{{ getItemCost(item) | currency:'USD':'symbol':'1.2-2' }}</span>
+              </div>
             </div>
           </div>
         </mat-card-content>
@@ -132,8 +215,8 @@
         </mat-card-header>
         <mat-card-content>
           <div class="info-row">
-            <span class="info-label">Event ID:</span>
-            <span class="info-value">{{ getEventId() || 'N/A' }}</span>
+            <span class="info-label">Event:</span>
+            <span class="info-value">{{ getEventName() }}</span>
           </div>
           <div class="info-row">
             <span class="info-label">Phase:</span>
@@ -145,8 +228,15 @@
       <!-- Approval Info -->
       <mat-card class="info-card approval-card">
         <mat-card-header>
-          <mat-icon class="card-icon">approval</mat-icon>
-          <mat-card-title>Approval Required</mat-card-title>
+          <div class="approval-header">
+            <div class="header-left">
+              <mat-icon class="card-icon">approval</mat-icon>
+              <mat-card-title>Approval Required</mat-card-title>
+            </div>
+            <button mat-icon-button (click)="toggleTierInfo()" class="info-toggle-btn" matTooltip="Show approval tier information">
+              <mat-icon>{{ showTierInfo ? 'expand_less' : 'info_outline' }}</mat-icon>
+            </button>
+          </div>
         </mat-card-header>
         <mat-card-content>
           <div class="approval-info">
@@ -156,6 +246,42 @@
               <span class="approval-value">{{ getApprovalInfo() }}</span>
             </div>
           </div>
+
+          <!-- Expandable Tier Information -->
+          <div class="tier-definitions" *ngIf="showTierInfo">
+            <div class="tier-info-header">
+              <mat-icon>info</mat-icon>
+              <span>Approval tiers are based on estimated request value:</span>
+            </div>
+
+            <div class="tier-list">
+              <div class="tier-item" [class.current]="getApprovalTierLevel() === 1">
+                <span class="tier-name">Tier 1</span>
+                <span class="tier-threshold">Up to $10,000</span>
+                <span class="tier-role">Warehouse Manager</span>
+                <mat-icon *ngIf="getApprovalTierLevel() === 1" class="current-indicator">arrow_back</mat-icon>
+              </div>
+              <div class="tier-item" [class.current]="getApprovalTierLevel() === 2">
+                <span class="tier-name">Tier 2</span>
+                <span class="tier-threshold">$10,001 - $50,000</span>
+                <span class="tier-role">Logistics Coordinator</span>
+                <mat-icon *ngIf="getApprovalTierLevel() === 2" class="current-indicator">arrow_back</mat-icon>
+              </div>
+              <div class="tier-item" [class.current]="getApprovalTierLevel() === 3">
+                <span class="tier-name">Tier 3</span>
+                <span class="tier-threshold">$50,001 - $250,000</span>
+                <span class="tier-role">Supply Chain Director</span>
+                <mat-icon *ngIf="getApprovalTierLevel() === 3" class="current-indicator">arrow_back</mat-icon>
+              </div>
+              <div class="tier-item" [class.current]="getApprovalTierLevel() === 4">
+                <span class="tier-name">Tier 4</span>
+                <span class="tier-threshold">Over $250,000</span>
+                <span class="tier-role">Executive Director</span>
+                <mat-icon *ngIf="getApprovalTierLevel() === 4" class="current-indicator">arrow_back</mat-icon>
+              </div>
+            </div>
+          </div>
+
           <p class="approval-note">
             They will be notified via email and in-app notification.
           </p>
