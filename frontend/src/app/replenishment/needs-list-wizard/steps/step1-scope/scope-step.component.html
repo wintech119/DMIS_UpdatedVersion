@@ -14,7 +14,7 @@
         <div class="form-row">
           <mat-form-field appearance="outline" class="form-field">
             <mat-label>Event</mat-label>
-            <mat-select formControlName="event_id" [disabled]="loadingInitialData">
+            <mat-select formControlName="event_id">
               <mat-option *ngIf="activeEvent" [value]="activeEvent.event_id">
                 {{ activeEvent.event_name }}
               </mat-option>
@@ -45,7 +45,7 @@
         <div class="form-row">
           <mat-form-field appearance="outline" class="form-field-full">
             <mat-label>Warehouses</mat-label>
-            <mat-select formControlName="warehouse_ids" multiple [disabled]="loadingInitialData">
+            <mat-select formControlName="warehouse_ids" multiple>
               <mat-option *ngFor="let wh of availableWarehouses" [value]="wh.warehouse_id">
                 {{ wh.warehouse_name }}
               </mat-option>
