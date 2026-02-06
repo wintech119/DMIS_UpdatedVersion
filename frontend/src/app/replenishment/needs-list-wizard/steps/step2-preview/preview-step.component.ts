@@ -294,6 +294,20 @@ export class PreviewStepComponent implements OnInit {
       return;
     }
 
+    const pendingReasonItems = this.items.filter(item =>
+      item.included &&
+      this.isQuantityAdjusted(item) &&
+      !item.tempReason
+    );
+
+    if (pendingReasonItems.length > 0) {
+      this.errors = [
+        `Please select a reason for all adjusted quantities before continuing (${pendingReasonItems.length} pending).`
+      ];
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     // Clear any errors
     this.errors = [];
 
