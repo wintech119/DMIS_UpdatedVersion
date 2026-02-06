@@ -355,7 +355,7 @@
                 </td>
                 <td class="col-required">{{ item.required_qty | number: '1.0-0' }}</td>
                 <td class="col-gap gap-cell"
-                    [matTooltip]="'Gap = Required (' + (item.required_qty ?? 0 | number: '1.0-0') + ') - Inbound (' + (item.inbound_strict_qty | number: '1.0-0') + ')'"
+                    [matTooltip]="'Gap = Required (' + ((item.required_qty ?? 0) | number: '1.0-0') + ') - Inbound (' + (item.inbound_strict_qty | number: '1.0-0') + ')'"
                     matTooltipPosition="above">
                   <span [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
                     {{ item.gap_qty | number: '1.0-0' }}
