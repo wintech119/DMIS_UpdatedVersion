@@ -336,15 +336,7 @@
             }
           }
 
-          .source-cell {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-
-            .source-icon {
-              color: #666;
-            }
-          }
+          // Consolidated to avoid overriding earlier .source-cell definition.
 
           // Row styling based on state
           tr {
