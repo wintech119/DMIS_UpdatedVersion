@@ -2,6 +2,7 @@ import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@an
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -11,9 +12,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { WizardStateService } from '../../services/wizard-state.service';
-import { ReplenishmentService } from '../../../services/replenishment.service';
+import { WizardState } from '../../models/wizard-state.model';
+import { ReplenishmentService, ActiveEvent, Warehouse } from '../../../services/replenishment.service';
 import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
 import { distinctUntilChanged, map } from 'rxjs/operators';
+import { forkJoin } from 'rxjs';
 
 interface ScopeFormValue {
   event_id: number | null;
@@ -56,22 +59,19 @@ export class ScopeStepComponent implements OnInit {
   form: FormGroup;
   phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   loading = false;
+  loadingInitialData = false;
   errors: string[] = [];
   private destroyRef = inject(DestroyRef);
 
-  // Hardcoded warehouse list for MVP (can be fetched from API later)
-  availableWarehouses = [
-    { id: 1, name: 'Kingston Central' },
-    { id: 2, name: 'Montego Bay' },
-    { id: 3, name: 'Spanish Town' },
-    { id: 4, name: 'Portmore' },
-    { id: 5, name: 'May Pen' }
-  ];
+  // Fetched from API
+  availableWarehouses: Warehouse[] = [];
+  activeEvent: ActiveEvent | null = null;
 
   constructor(
     private fb: FormBuilder,
     private wizardService: WizardStateService,
-    private replenishmentService: ReplenishmentService
+    private replenishmentService: ReplenishmentService,
+    private router: Router
   ) {
     this.form = this.fb.group({
       event_id: [null, [Validators.required, Validators.min(1)]],
@@ -82,6 +82,10 @@ export class ScopeStepComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Load initial data (event and warehouses)
+    this.loadInitialData();
+
+    // Sync form with wizard state
     this.wizardService.getState$().pipe(
       map(state => ({
         event_id: state.event_id ?? null,
@@ -99,12 +103,56 @@ export class ScopeStepComponent implements OnInit {
     this.form.valueChanges.pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(values => {
-      this.wizardService.updateState({
+      const update: Partial<WizardState> = {
         event_id: values.event_id,
         warehouse_ids: values.warehouse_ids,
         phase: values.phase,
         as_of_datetime: values.as_of_datetime
-      });
+      };
+
+      if (this.activeEvent?.event_name) {
+        update.event_name = this.activeEvent.event_name;
+      }
+
+      this.wizardService.updateState(update);
+    });
+  }
+
+  private loadInitialData(): void {
+    this.loadingInitialData = true;
+    this.form.disable();
+
+    forkJoin({
+      event: this.replenishmentService.getActiveEvent(),
+      warehouses: this.replenishmentService.getAllWarehouses()
+    }).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: ({ event, warehouses }) => {
+        this.activeEvent = event;
+        this.availableWarehouses = warehouses;
+
+        // If active event exists and form doesn't have event_id, set it
+        if (event && !this.form.value.event_id) {
+          this.form.patchValue({ event_id: event.event_id });
+        }
+
+        // Always save event_name to state when event is loaded
+        if (event) {
+          this.wizardService.updateState({
+            event_name: event.event_name
+          });
+        }
+
+        this.loadingInitialData = false;
+        this.form.enable();
+      },
+      error: (error) => {
+        this.loadingInitialData = false;
+        this.form.enable();
+        this.errors = ['Failed to load event and warehouse data. Please try again.'];
+        console.error('Error loading initial data:', error);
+      }
     });
   }
 
@@ -157,5 +205,13 @@ export class ScopeStepComponent implements OnInit {
 
   get isValid(): boolean {
     return this.form.valid;
+  }
+
+  cancel(): void {
+    const confirmed = confirm('Are you sure you want to cancel? Any unsaved changes will be lost.');
+    if (confirmed) {
+      this.wizardService.reset();
+      this.router.navigate(['/replenishment/dashboard']);
+    }
   }
 }
