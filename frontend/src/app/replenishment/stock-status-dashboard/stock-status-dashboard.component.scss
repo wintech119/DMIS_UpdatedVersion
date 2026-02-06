@@ -537,13 +537,40 @@
   cursor: help;
   text-align: right;
 
+  .gap-positive,
+  .gap-zero {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    gap: 6px;
+  }
+
   .gap-positive {
-    color: #d32f2f;
+    color: #dc3545;
     font-weight: 600;
+
+    &::before {
+      content: "−";
+      font-weight: 700;
+      font-size: 12px;
+      line-height: 1;
+      width: 10px;
+      text-align: center;
+    }
   }
 
   .gap-zero {
-    color: #388e3c;
+    color: #28a745;
+
+    &::before {
+      content: "✓";
+      font-weight: 700;
+      font-size: 12px;
+      line-height: 1;
+      width: 10px;
+      text-align: center;
+    }
   }
 }
 
