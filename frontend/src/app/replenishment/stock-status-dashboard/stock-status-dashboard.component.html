@@ -294,31 +294,32 @@
           <table class="dmis-table">
             <thead>
               <tr>
-                <th matTooltip="Stock health status based on days until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
-                <th matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
-                <th matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
-                <th matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
-                <th matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
-                <th matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
-                <th matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
-                <th matTooltip="Shortfall after accounting for available stock and confirmed inbound" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
-                <th matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
+                <th class="col-status" matTooltip="Stock health status based on days until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
+                <th class="col-item" matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
+                <th class="col-available" matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
+                <th class="col-inbound" matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
+                <th class="col-burn-rate" matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
+                <th class="col-time-to-stockout" matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
+                <th class="col-required" matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
+                <th class="col-gap" matTooltip="Shortfall after accounting for confirmed inbound (hover for calculation)" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
+                <th class="col-data" matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
               </tr>
             </thead>
             <tbody>
               <tr *ngFor="let item of group.items" [ngClass]="'row-' + getSeverityClass(item.severity)">
-                <td>
+                <td class="col-status">
                   <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
                     {{ item.severity || 'OK' }}
                   </span>
                 </td>
-                <td>
-                  <strong>{{ item.item_name || 'Item ' + item.item_id }}</strong>
+                <td class="col-item">
+                  <div class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</div>
+                  <div class="item-code" *ngIf="item.item_code">{{ item.item_code }}</div>
                   <div class="text-muted" *ngIf="item.category">{{ item.category }}</div>
                 </td>
-                <td>{{ item.available_qty | number: '1.0-0' }}</td>
-                <td>{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
-                <td>
+                <td class="col-available">{{ item.available_qty | number: '1.0-0' }}</td>
+                <td class="col-inbound">{{ item.inbound_strict_qty | number: '1.0-0' }}</td>
+                <td class="col-burn-rate">
                   <div class="burn-rate-cell" [matTooltip]="getBurnRateTooltip(item)" matTooltipPosition="above">
                     <div class="burn-rate-main">
                       <span class="burn-rate-value" [ngClass]="{
@@ -349,16 +350,18 @@
                     </div>
                   </div>
                 </td>
-                <td>
+                <td class="col-time-to-stockout">
                   <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
                 </td>
-                <td>{{ item.required_qty | number: '1.0-0' }}</td>
-                <td>
-                  <span [ngClass]="item.gap_qty > 0 ? 'text-danger' : 'text-success'">
+                <td class="col-required">{{ item.required_qty | number: '1.0-0' }}</td>
+                <td class="col-gap gap-cell"
+                    [matTooltip]="'Gap = Required (' + (item.required_qty ?? 0 | number: '1.0-0') + ') - Inbound (' + (item.inbound_strict_qty | number: '1.0-0') + ')'"
+                    matTooltipPosition="above">
+                  <span [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
                     {{ item.gap_qty | number: '1.0-0' }}
                   </span>
                 </td>
-                <td>
+                <td class="col-data">
                   <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
                     {{ item.freshness?.state || 'N/A' }}
                   </span>
