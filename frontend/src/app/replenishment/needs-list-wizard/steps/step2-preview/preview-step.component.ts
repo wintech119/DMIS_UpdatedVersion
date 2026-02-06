@@ -214,15 +214,21 @@ export class PreviewStepComponent implements OnInit {
 
   toggleAllSelection(): void {
     const newValue = !this.allSelected;
-    this.items.forEach(item => item.included = newValue);
+    this.items.forEach(item => {
+      item.included = newValue;
+    });
   }
 
   selectAll(): void {
-    this.items.forEach(item => item.included = true);
+    this.items.forEach(item => {
+      item.included = true;
+    });
   }
 
   selectNone(): void {
-    this.items.forEach(item => item.included = false);
+    this.items.forEach(item => {
+      item.included = false;
+    });
   }
 
   selectItemsWithGap(): void {
