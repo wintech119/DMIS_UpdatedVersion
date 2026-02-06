@@ -277,7 +277,7 @@ export class PreviewStepComponent implements OnInit {
   }
 
   getItemKey(item: PreviewItem): string {
-    return `${item.item_id}_${item.warehouse_id}`;
+    return `${item.item_id}_${item.warehouse_id || 0}`;
   }
 
   hasAdjustment(item: PreviewItem): boolean {
