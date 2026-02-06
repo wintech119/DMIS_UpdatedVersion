@@ -250,7 +250,7 @@ export class SubmitStepComponent implements OnInit {
 
   getItemCost(item: NeedsListItem): number {
     const unitCost = item.procurement?.est_unit_cost ?? 0;
-    const quantity = item.gap_qty ?? 0;
+    const quantity = this.getAdjustedQty(item) ?? 0;
     return quantity * unitCost;
   }
 
