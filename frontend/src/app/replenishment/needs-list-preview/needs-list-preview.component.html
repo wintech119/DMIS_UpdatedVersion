@@ -96,7 +96,7 @@
       <div>
         <div class="summary-label">Event / Warehouse</div>
         <div class="summary-value">
-          {{ draft.event_id }} / {{ draft.warehouse_id }}
+          {{ draft.event_id }} / {{ warehouseSummary(draft) }}
         </div>
       </div>
       <div>
@@ -108,7 +108,7 @@
     <!-- Approval Status Tracker -->
     <dmis-approval-status-tracker
       *ngIf="draft.needs_list_id"
-      [needsList]="$any(response)"
+      [needsList]="response"
       [horizon]="approvalHorizon"
       (sendReminder)="onSendReminder()">
     </dmis-approval-status-tracker>
