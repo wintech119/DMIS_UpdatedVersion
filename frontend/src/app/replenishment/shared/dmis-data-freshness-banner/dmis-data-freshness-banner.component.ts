@@ -36,8 +36,8 @@ export class DmisDataFreshnessBannerComponent implements OnInit {
   isRefreshing = false;
   isExpanded = false;
 
-  get isVisible(): boolean {
-    return this.bannerState !== null && this.bannerState.overallState !== 'ALL_FRESH';
+  get shouldRender(): boolean {
+    return this.bannerState !== null;
   }
 
   get isCritical(): boolean {
@@ -46,6 +46,10 @@ export class DmisDataFreshnessBannerComponent implements OnInit {
 
   get isWarning(): boolean {
     return this.bannerState?.overallState === 'SOME_STALE';
+  }
+
+  get isFresh(): boolean {
+    return this.bannerState?.overallState === 'ALL_FRESH';
   }
 
   ngOnInit(): void {
@@ -73,21 +77,28 @@ export class DmisDataFreshnessBannerComponent implements OnInit {
   }
 
   getBannerIcon(): string {
-    return this.isCritical ? 'error' : 'warning';
+    if (this.isCritical) return 'error';
+    if (this.isWarning) return 'warning';
+    return 'check_circle';
   }
 
   getBannerMessage(): string {
     if (!this.bannerState) return '';
+    const lastSync = this.formatLastSync();
 
     if (this.isCritical) {
       const names = this.bannerState.staleWarehouseNames.join(', ');
       const age = this.bannerState.maxAgeHours !== null
         ? `${this.bannerState.maxAgeHours.toFixed(1)} hours`
         : 'unknown duration';
-      return `Critical: ${names} data is ${age} old. Burn rate calculations may be inaccurate.`;
+      return `Critical: ${names} data is ${age} old. Burn rate calculations may be inaccurate. Last sync: ${lastSync}.`;
     }
 
-    return 'Warning: Some warehouse data is stale.';
+    if (this.isWarning) {
+      return `Warning: Some warehouse data is stale. Last sync: ${lastSync}.`;
+    }
+
+    return `All warehouse data is fresh. Last sync: ${lastSync}.`;
   }
 
   getFreshnessIcon(level: FreshnessLevel): string {
@@ -105,5 +116,15 @@ export class DmisDataFreshnessBannerComponent implements OnInit {
     const days = Math.floor(hours / 24);
     const remaining = Math.floor(hours % 24);
     return `${days}d ${remaining}h ago`;
+  }
+
+  private formatLastSync(): string {
+    const lastSync = this.bannerState?.lastSuccessfulSync;
+    if (!lastSync) return 'Unknown';
+    const parsed = new Date(lastSync);
+    if (Number.isNaN(parsed.getTime())) {
+      return lastSync;
+    }
+    return parsed.toLocaleString();
   }
 }
