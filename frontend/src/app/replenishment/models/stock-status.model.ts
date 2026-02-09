@@ -49,6 +49,7 @@ export interface WarehouseStockGroup {
   warehouse_id: number;
   warehouse_name: string;
   items: StockStatusItem[];
+  all_items?: StockStatusItem[];
   critical_count: number;
   warning_count: number;
   watch_count: number;
@@ -85,6 +86,25 @@ export function calculateSeverity(timeToStockoutHours: number | null): SeverityL
   if (timeToStockoutHours < 24) return 'WARNING';
   if (timeToStockoutHours < 72) return 'WATCH';
   return 'OK';
+}
+
+// Data Freshness Banner types
+export type BannerFreshnessState = 'ALL_FRESH' | 'SOME_STALE' | 'CRITICAL_STALE';
+
+export interface WarehouseFreshnessEntry {
+  warehouse_id: number;
+  warehouse_name: string;
+  freshness: FreshnessLevel;
+  last_sync: string | null;
+  age_hours: number | null;
+}
+
+export interface DataFreshnessBannerState {
+  overallState: BannerFreshnessState;
+  lastSuccessfulSync: string | null;
+  warehouses: WarehouseFreshnessEntry[];
+  staleWarehouseNames: string[];
+  maxAgeHours: number | null;
 }
 
 export function formatTimeToStockout(hours: number | null | string): string {

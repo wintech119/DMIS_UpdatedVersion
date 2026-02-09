@@ -1,0 +1,114 @@
+<div class="tracker-container" *ngIf="needsList?.needs_list_id">
+
+  <!-- Horizontal stepper row -->
+  <div class="stepper-row" role="list" aria-label="Approval workflow status">
+    <ng-container *ngFor="let step of steps; let i = index; let last = last">
+      <div class="step" [ngClass]="'step-' + step.state" role="listitem"
+           [attr.aria-current]="step.state === 'active' ? 'step' : null">
+        <div class="step-circle"
+             [matTooltip]="step.timestamp ? (step.timestamp | date:'medium') : null">
+          <mat-icon>{{ getStepIcon(step) }}</mat-icon>
+        </div>
+        <div class="step-label">{{ step.label }}</div>
+        <div class="step-meta" *ngIf="step.state === 'completed' || step.state === 'active'">
+          <span class="step-actor" *ngIf="step.actor">{{ step.actor }}</span>
+          <span class="step-time" *ngIf="step.timestamp">{{ step.timestamp | date:'shortDate' }}</span>
+        </div>
+      </div>
+      <div class="step-connector" *ngIf="!last"
+           [class.completed]="step.state === 'completed'">
+      </div>
+    </ng-container>
+  </div>
+
+  <!-- Branch indicator (rejection/return/cancel) -->
+  <div class="branch-indicator" *ngIf="branch"
+       [ngClass]="'branch-' + branch.type.toLowerCase()"
+       role="alert">
+    <mat-icon class="branch-icon">{{ getBranchIcon() }}</mat-icon>
+    <div class="branch-content">
+      <span class="branch-label">{{ getBranchLabel() }}</span>
+      <span class="branch-reason" *ngIf="branch.reason">{{ branch.reason }}</span>
+    </div>
+  </div>
+
+  <!-- Pending approval info -->
+  <div class="pending-info" *ngIf="isPendingApproval">
+    <div class="approver-info">
+      <mat-icon class="approver-icon">person</mat-icon>
+      <span class="approver-role">Awaiting: <strong>{{ pendingApproverRole }}</strong></span>
+      <span class="approval-tier" *ngIf="approvalTier">
+        <mat-icon class="tier-icon">shield</mat-icon>
+        Tier {{ approvalTier }}
+      </span>
+    </div>
+    <button mat-stroked-button color="warn" class="reminder-btn"
+            *ngIf="pendingHours > 4"
+            (click)="onSendReminder(); $event.stopPropagation()"
+            matTooltip="Send a notification to the approver">
+      <mat-icon>notifications_active</mat-icon>
+      Send Reminder ({{ pendingHours | number:'1.0-0' }}h pending)
+    </button>
+  </div>
+
+  <!-- Expandable detail panel -->
+  <div class="details-panel" *ngIf="detailsExpanded" id="detailsPanel">
+    <div class="timeline">
+      <div class="timeline-entry" *ngFor="let step of completedSteps">
+        <div class="timeline-dot" [ngClass]="'dot-' + step.state"></div>
+        <div class="timeline-content">
+          <div class="timeline-header">
+            <mat-icon class="timeline-icon">{{ step.icon }}</mat-icon>
+            <span class="timeline-label">{{ step.label }}</span>
+          </div>
+          <div class="timeline-meta">
+            <span class="timeline-actor" *ngIf="step.actor">
+              <mat-icon class="inline-icon">person</mat-icon>
+              {{ step.actor }}
+            </span>
+            <span class="timeline-time" *ngIf="step.timestamp">
+              <mat-icon class="inline-icon">schedule</mat-icon>
+              {{ step.timestamp | date:'medium' }}
+            </span>
+          </div>
+          <div class="timeline-comment" *ngIf="step.comment">
+            <mat-icon class="inline-icon">comment</mat-icon>
+            "{{ step.comment }}"
+          </div>
+        </div>
+      </div>
+
+      <!-- Branch entry in timeline -->
+      <div class="timeline-entry" *ngIf="branch">
+        <div class="timeline-dot" [ngClass]="'dot-' + branch.type.toLowerCase()"></div>
+        <div class="timeline-content">
+          <div class="timeline-header">
+            <mat-icon class="timeline-icon">{{ getBranchIcon() }}</mat-icon>
+            <span class="timeline-label">{{ getBranchLabel() }}</span>
+          </div>
+          <div class="timeline-meta" *ngIf="branch.actor">
+            <span class="timeline-actor">
+              <mat-icon class="inline-icon">person</mat-icon>
+              {{ branch.actor }}
+            </span>
+          </div>
+          <div class="timeline-comment" *ngIf="branch.reason">
+            <mat-icon class="inline-icon">comment</mat-icon>
+            "{{ branch.reason }}"
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toggle details button -->
+  <button
+    mat-button
+    class="toggle-details"
+    (click)="toggleDetails()"
+    [attr.aria-expanded]="detailsExpanded"
+    aria-controls="detailsPanel">
+    <mat-icon>{{ detailsExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+    {{ detailsExpanded ? 'Hide Details' : 'View History' }}
+  </button>
+</div>

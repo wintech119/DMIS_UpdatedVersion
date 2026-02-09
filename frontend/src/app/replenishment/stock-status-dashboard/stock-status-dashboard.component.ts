@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, DestroyRef, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -18,6 +19,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
+import { DataFreshnessService } from '../services/data-freshness.service';
 import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup, calculateSeverity } from '../models/stock-status.model';
 import { NeedsListItem } from '../models/needs-list.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
@@ -56,6 +58,9 @@ interface FilterState {
   styleUrl: './stock-status-dashboard.component.scss'
 })
 export class StockStatusDashboardComponent implements OnInit {
+  private destroyRef = inject(DestroyRef);
+  private dataFreshnessService = inject(DataFreshnessService);
+
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   readonly severityOptions: SeverityLevel[] = ['CRITICAL', 'WARNING', 'WATCH', 'OK'];
 
@@ -105,6 +110,13 @@ export class StockStatusDashboardComponent implements OnInit {
   ngOnInit(): void {
     this.loadFilterState();
     this.autoLoadDashboard();
+
+    // Listen for refresh requests from the freshness banner
+    this.dataFreshnessService.onRefreshRequested$().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {
+      this.loadMultiWarehouseStatus();
+    });
   }
 
   /**
@@ -163,10 +175,13 @@ export class StockStatusDashboardComponent implements OnInit {
       next: (data) => {
         const items = this.normalizePreviewItems(data.items);
         this.groupItemsByWarehouse(items, data.warnings ?? []);
+        this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
+        this.dataFreshnessService.refreshComplete();
         this.loading = false;
       },
       error: (error) => {
         this.loading = false;
+        this.dataFreshnessService.refreshComplete();
         this.errors = [error.message || 'Failed to load stock status.'];
       }
     });
@@ -239,6 +254,7 @@ export class StockStatusDashboardComponent implements OnInit {
       warehouse_id: warehouseId,
       warehouse_name: warehouseName,
       items: filteredItems,
+      all_items: warehouseItems,
       critical_count: severityCounts.critical,
       warning_count: severityCounts.warning,
       watch_count: severityCounts.watch,

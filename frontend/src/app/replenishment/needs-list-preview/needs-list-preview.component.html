@@ -96,22 +96,22 @@
       <div>
         <div class="summary-label">Event / Warehouse</div>
         <div class="summary-value">
-          {{ draft.event_id }} / {{ draft.warehouse_id }}
+          {{ draft.event_id }} / {{ warehouseSummary(draft) }}
         </div>
       </div>
       <div>
         <div class="summary-label">Phase</div>
         <div class="summary-value">{{ draft.phase }}</div>
       </div>
-      <div *ngIf="draft.needs_list_id">
-        <div class="summary-label">Status</div>
-        <div class="summary-value">
-          <span class="status-pill" [ngClass]="'status-' + statusValue().toLowerCase()">
-            {{ statusValue() }}
-          </span>
-        </div>
-      </div>
     </div>
+
+    <!-- Approval Status Tracker -->
+    <dmis-approval-status-tracker
+      *ngIf="draft.needs_list_id"
+      [needsList]="response"
+      [horizon]="approvalHorizon"
+      (sendReminder)="onSendReminder()">
+    </dmis-approval-status-tracker>
   </mat-card>
 
   <mat-card class="panel workflow" *ngIf="response as draft">

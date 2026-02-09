@@ -126,3 +126,26 @@ export type NeedsListStatus =
   | 'FULFILLED'
   | 'CANCELLED'
   | 'SUPERSEDED';
+
+// Approval Status Tracker types
+export type TrackerStepId = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'IN_PROGRESS' | 'FULFILLED';
+
+export type TrackerStepState = 'completed' | 'active' | 'pending' | 'rejected' | 'returned' | 'cancelled';
+
+export interface TrackerStep {
+  id: TrackerStepId;
+  label: string;
+  icon: string;
+  state: TrackerStepState;
+  timestamp: string | null;
+  actor: string | null;
+  comment: string | null;
+}
+
+export interface TrackerBranch {
+  type: 'REJECTED' | 'RETURNED' | 'CANCELLED' | 'SUPERSEDED';
+  reason: string | null;
+  actor: string | null;
+  timestamp: string | null;
+  fromStep: TrackerStepId;
+}
