@@ -322,6 +322,7 @@
                         <ng-container *ngSwitchCase="'escalation'">Step {{ step.step }} (Escalation)</ng-container>
                         <ng-container *ngSwitchCase="'conditional'">Step {{ step.step }} (If needed)</ng-container>
                         <ng-container *ngSwitchCase="'final'">Step {{ step.step }} (Final)</ng-container>
+                        <ng-container *ngSwitchDefault>Step {{ step.step }}</ng-container>
                       </ng-container>
                     </span>
                   </div>
