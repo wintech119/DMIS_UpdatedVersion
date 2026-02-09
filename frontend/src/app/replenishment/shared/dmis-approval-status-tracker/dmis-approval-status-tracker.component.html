@@ -52,7 +52,7 @@
   </div>
 
   <!-- Expandable detail panel -->
-  <div class="details-panel" *ngIf="detailsExpanded">
+  <div class="details-panel" *ngIf="detailsExpanded" id="detailsPanel">
     <div class="timeline">
       <div class="timeline-entry" *ngFor="let step of completedSteps">
         <div class="timeline-dot" [ngClass]="'dot-' + step.state"></div>
@@ -102,7 +102,12 @@
   </div>
 
   <!-- Toggle details button -->
-  <button mat-button class="toggle-details" (click)="toggleDetails()">
+  <button
+    mat-button
+    class="toggle-details"
+    (click)="toggleDetails()"
+    [attr.aria-expanded]="detailsExpanded"
+    aria-controls="detailsPanel">
     <mat-icon>{{ detailsExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
     {{ detailsExpanded ? 'Hide Details' : 'View History' }}
   </button>
