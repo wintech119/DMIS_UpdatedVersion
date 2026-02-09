@@ -17,6 +17,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
 import { HorizonType } from '../models/approval-workflows.model';
+import { NeedsListResponse } from '../models/needs-list.model';
 
 type HorizonBlock = { recommended_qty: number | null };
 
@@ -50,46 +51,6 @@ interface NeedsListItem {
     approval?: { tier: string; approver_role: string; methods_allowed: string[] };
     gojep_note?: { label: string; url: string };
   };
-}
-
-interface NeedsListResponse {
-  as_of_datetime: string;
-  planning_window_days: number;
-  event_id: number;
-  warehouse_id: number;
-  phase: string;
-  items: NeedsListItem[];
-  warnings: string[];
-  needs_list_id?: string;
-  status?: string;
-  created_by?: string | null;
-  created_at?: string | null;
-  updated_by?: string | null;
-  updated_at?: string | null;
-  submitted_by?: string | null;
-  submitted_at?: string | null;
-  reviewed_by?: string | null;
-  reviewed_at?: string | null;
-  review_comment?: string | null;
-  review_updated_by?: string | null;
-  review_updated_at?: string | null;
-  return_reason?: string | null;
-  reject_reason?: string | null;
-  approval_summary?: {
-    total_required_qty: number;
-    total_estimated_cost: number | null;
-    approval?: { tier: string; approver_role: string; methods_allowed: string[] };
-    warnings?: string[];
-    rationale?: string;
-    escalation_required?: boolean;
-  };
-  approval_tier?: string | null;
-  approval_rationale?: string | null;
-  approved_by?: string | null;
-  approved_at?: string | null;
-  escalated_by?: string | null;
-  escalated_at?: string | null;
-  escalation_reason?: string | null;
 }
 
 @Component({
@@ -754,6 +715,16 @@ export class NeedsListPreviewComponent implements OnInit, OnDestroy {
 
   isStatus(status: string): boolean {
     return this.response?.status === status;
+  }
+
+  warehouseSummary(response: NeedsListResponse): string {
+    if (response.warehouse_ids?.length) {
+      return response.warehouse_ids.join(', ');
+    }
+    if (response.warehouses?.length) {
+      return response.warehouses.map(w => w.warehouse_id).join(', ');
+    }
+    return 'N/A';
   }
 
   approvalWarnings(): string[] {
