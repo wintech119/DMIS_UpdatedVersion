@@ -243,8 +243,7 @@
 
             <div class="method-option"
                  *ngFor="let h of allHorizons"
-                 [class.selected]="selectedMethod === h"
-                 (click)="onMethodChange(h)">
+                 [class.selected]="selectedMethod === h">
               <mat-radio-button [value]="h">
                 <div class="method-content">
                   <span class="method-name">{{ methodMeta[h].label }}</span>
@@ -258,7 +257,6 @@
                 </div>
               </mat-radio-button>
             </div>
-
           </mat-radio-group>
         </mat-card-content>
       </mat-card>
