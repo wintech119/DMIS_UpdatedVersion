@@ -86,7 +86,10 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
   get pendingApproverRole(): string {
     const workflow = APPROVAL_WORKFLOWS[this.horizon];
     if (!workflow?.steps?.length) return 'Unknown';
-    return workflow.steps[0].role;
+    const tierValue = this.approvalTier ? Number(this.approvalTier) : NaN;
+    if (!Number.isFinite(tierValue)) return 'Unknown';
+    const index = Math.min(Math.max(tierValue - 1, 0), workflow.steps.length - 1);
+    return workflow.steps[index]?.role ?? 'Unknown';
   }
 
   get approvalTier(): string | null {
