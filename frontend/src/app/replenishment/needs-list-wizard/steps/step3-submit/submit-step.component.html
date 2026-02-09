@@ -296,7 +296,7 @@
             </p>
 
             <div class="workflow-section"
-                 *ngFor="let workflow of approvalWorkflows"
+                 *ngFor="let workflow of activeApprovalWorkflows"
                  [class.external]="!workflow.config.inDmis"
                  [ngClass]="'horizon-' + workflow.horizon">
 
@@ -350,7 +350,7 @@
             </div>
 
             <!-- Empty state -->
-            <div class="no-workflows" *ngIf="approvalWorkflows.length === 0">
+            <div class="no-workflows" *ngIf="activeApprovalWorkflows.length === 0">
               <mat-icon>info</mat-icon>
               <span>No items selected for approval</span>
             </div>
