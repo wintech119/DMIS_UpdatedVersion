@@ -1,0 +1,84 @@
+<div
+  class="freshness-banner"
+  *ngIf="isVisible"
+  [ngClass]="{
+    'banner-critical': isCritical,
+    'banner-warning': isWarning
+  }"
+  role="alert"
+  [attr.aria-label]="getBannerMessage()">
+
+  <!-- Refresh progress bar -->
+  <mat-progress-bar
+    *ngIf="isRefreshing"
+    mode="indeterminate"
+    class="refresh-progress">
+  </mat-progress-bar>
+
+  <!-- Main banner row -->
+  <div class="banner-main" (click)="toggleExpanded()">
+    <div class="banner-left">
+      <mat-icon class="banner-icon">{{ getBannerIcon() }}</mat-icon>
+      <span class="banner-message">{{ getBannerMessage() }}</span>
+      <button
+        mat-button
+        class="details-btn"
+        (click)="toggleExpanded(); $event.stopPropagation()">
+        {{ isExpanded ? 'Hide Details' : 'View Details' }}
+      </button>
+    </div>
+    <div class="banner-actions">
+      <span class="last-sync" *ngIf="bannerState?.lastSuccessfulSync">
+        Last sync: {{ bannerState!.lastSuccessfulSync! | date:'short' }}
+      </span>
+      <button
+        mat-stroked-button
+        class="refresh-btn"
+        (click)="refreshData(); $event.stopPropagation()"
+        [disabled]="isRefreshing"
+        matTooltip="Trigger a fresh data sync from all warehouses">
+        <mat-icon>refresh</mat-icon>
+        Refresh Data
+      </button>
+      <button
+        mat-icon-button
+        class="expand-btn"
+        (click)="toggleExpanded(); $event.stopPropagation()"
+        [matTooltip]="isExpanded ? 'Hide details' : 'Show warehouse details'">
+        <mat-icon>{{ isExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+      </button>
+    </div>
+  </div>
+
+  <!-- Expanded per-warehouse detail table -->
+  <div class="banner-detail" *ngIf="isExpanded">
+    <table class="freshness-table" aria-label="Per-warehouse data freshness">
+      <thead>
+        <tr>
+          <th>Warehouse</th>
+          <th>Status</th>
+          <th>Data Age</th>
+          <th>Last Sync</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          *ngFor="let wh of bannerState?.warehouses"
+          [ngClass]="'row-freshness-' + wh.freshness.toLowerCase()">
+          <td class="col-warehouse">
+            <mat-icon class="wh-icon">warehouse</mat-icon>
+            {{ wh.warehouse_name }}
+          </td>
+          <td>
+            <span class="status-badge" [ngClass]="'badge-freshness-' + wh.freshness.toLowerCase()">
+              <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness) }}</mat-icon>
+              {{ wh.freshness }}
+            </span>
+          </td>
+          <td>{{ formatAgeHours(wh.age_hours) }}</td>
+          <td>{{ wh.last_sync ? (wh.last_sync | date:'short') : 'Unknown' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

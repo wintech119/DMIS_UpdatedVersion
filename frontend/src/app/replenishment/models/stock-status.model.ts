@@ -87,6 +87,25 @@ export function calculateSeverity(timeToStockoutHours: number | null): SeverityL
   return 'OK';
 }
 
+// Data Freshness Banner types
+export type BannerFreshnessState = 'ALL_FRESH' | 'SOME_STALE' | 'CRITICAL_STALE';
+
+export interface WarehouseFreshnessEntry {
+  warehouse_id: number;
+  warehouse_name: string;
+  freshness: FreshnessLevel;
+  last_sync: string | null;
+  age_hours: number | null;
+}
+
+export interface DataFreshnessBannerState {
+  overallState: BannerFreshnessState;
+  lastSuccessfulSync: string | null;
+  warehouses: WarehouseFreshnessEntry[];
+  staleWarehouseNames: string[];
+  maxAgeHours: number | null;
+}
+
 export function formatTimeToStockout(hours: number | null | string): string {
   if (hours === null || hours === undefined || hours === 'N/A') {
     return 'N/A';
