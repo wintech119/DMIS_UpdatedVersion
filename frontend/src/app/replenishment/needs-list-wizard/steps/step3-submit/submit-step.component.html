@@ -73,10 +73,15 @@
               </div>
             </div>
 
-            <div *ngIf="warehouseBreakdown.length === 0" class="empty-state">
-              <mat-icon>info</mat-icon>
-              <p>No items selected</p>
-            </div>
+            <dmis-empty-state
+              *ngIf="warehouseBreakdown.length === 0"
+              icon="inventory_2"
+              title="No Items Selected"
+              message="No items have been selected for submission. Go back to Step 2 to review and select items."
+              actionLabel="Go Back"
+              actionIcon="arrow_back"
+              (action)="goBack()"
+            ></dmis-empty-state>
           </div>
         </mat-card-content>
       </mat-card>
@@ -398,11 +403,17 @@
     </mat-card>
   </div>
 
+  <!-- Submission Overlay -->
+  <div class="submission-overlay" *ngIf="submitting">
+    <mat-progress-spinner diameter="48" mode="indeterminate"></mat-progress-spinner>
+    <span class="submission-text">Submitting needs list for approval...</span>
+  </div>
+
   <!-- Actions -->
   <mat-card class="actions-card">
     <mat-card-content>
       <div class="step-actions">
-        <button mat-button (click)="goBack()" class="back-btn">
+        <button mat-button (click)="goBack()" class="back-btn" [disabled]="submitting || savingDraft">
           <mat-icon>arrow_back</mat-icon>
           Back
         </button>
@@ -412,27 +423,38 @@
             mat-stroked-button
             color="accent"
             (click)="saveDraft()"
-            [disabled]="loading || totalItems === 0"
+            [disabled]="submitting || savingDraft || totalItems === 0"
             class="draft-btn"
           >
-            <mat-icon>save</mat-icon>
-            Save as Draft
+            <mat-progress-spinner
+              *ngIf="savingDraft"
+              diameter="18"
+              mode="indeterminate"
+              class="btn-spinner"
+            ></mat-progress-spinner>
+            <mat-icon *ngIf="!savingDraft">save</mat-icon>
+            <span *ngIf="!savingDraft">Save as Draft</span>
+            <span *ngIf="savingDraft">Saving...</span>
           </button>
           <button
             mat-raised-button
             color="primary"
             (click)="submitForApproval()"
-            [disabled]="loading || totalItems === 0"
+            [disabled]="submitting || savingDraft || totalItems === 0"
             class="submit-btn"
           >
-            <mat-icon>send</mat-icon>
-            Submit for Approval
+            <mat-progress-spinner
+              *ngIf="submitting"
+              diameter="18"
+              mode="indeterminate"
+              class="btn-spinner"
+            ></mat-progress-spinner>
+            <mat-icon *ngIf="!submitting">send</mat-icon>
+            <span *ngIf="!submitting">Submit for Approval</span>
+            <span *ngIf="submitting">Submitting...</span>
           </button>
         </div>
       </div>
     </mat-card-content>
   </mat-card>
-
-  <!-- Loading indicator -->
-  <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
 </div>

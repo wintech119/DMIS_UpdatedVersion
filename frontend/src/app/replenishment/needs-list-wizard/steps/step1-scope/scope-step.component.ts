@@ -10,8 +10,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import { DmisNotificationService } from '../../../services/notification.service';
+import { DmisSkeletonLoaderComponent } from '../../../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { WizardState } from '../../models/wizard-state.model';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../../../services/replenishment.service';
 import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
@@ -48,7 +51,9 @@ const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => 
     MatButtonModule,
     MatCardModule,
     MatIconModule,
-    MatProgressBarModule
+    MatProgressBarModule,
+    MatProgressSpinnerModule,
+    DmisSkeletonLoaderComponent
   ],
   templateUrl: './scope-step.component.html',
   styleUrl: './scope-step.component.scss'
@@ -61,7 +66,19 @@ export class ScopeStepComponent implements OnInit {
   loading = false;
   loadingInitialData = false;
   errors: string[] = [];
+  calculationProgress = '';
+  private calculationTimer: ReturnType<typeof setInterval> | null = null;
   private destroyRef = inject(DestroyRef);
+  private notificationService = inject(DmisNotificationService);
+
+  private readonly calculationSteps = [
+    'Loading warehouse data...',
+    'Calculating burn rates...',
+    'Analyzing Horizon A (Transfers)...',
+    'Analyzing Horizon B (Donations)...',
+    'Analyzing Horizon C (Procurement)...',
+    'Computing gaps...'
+  ];
 
   // Fetched from API
   availableWarehouses: Warehouse[] = [];
@@ -150,7 +167,10 @@ export class ScopeStepComponent implements OnInit {
       error: (error) => {
         this.loadingInitialData = false;
         this.form.enable();
-        this.errors = ['Failed to load event and warehouse data. Please try again.'];
+        this.notificationService.showNetworkError(
+          'Failed to load event and warehouse data.',
+          () => this.loadInitialData()
+        );
         console.error('Error loading initial data:', error);
       }
     });
@@ -177,6 +197,7 @@ export class ScopeStepComponent implements OnInit {
     const { event_id, warehouse_ids, phase, as_of_datetime } = this.form.value;
 
     this.loading = true;
+    this.startCalculationProgress();
 
     // Call preview-multi API
     this.replenishmentService.getStockStatusMulti(
@@ -186,6 +207,7 @@ export class ScopeStepComponent implements OnInit {
       as_of_datetime || undefined
     ).subscribe({
       next: (response) => {
+        this.stopCalculationProgress();
         // Store preview response in wizard state
         this.wizardService.updateState({
           previewResponse: response
@@ -194,13 +216,32 @@ export class ScopeStepComponent implements OnInit {
         this.next.emit();  // Move to next step
       },
       error: (error) => {
+        this.stopCalculationProgress();
         this.loading = false;
         const errorMessage = error.error?.errors
           ? Object.values(error.error.errors).join(', ')
           : error.message || 'Failed to calculate gaps. Please try again.';
-        this.errors = [errorMessage];
+        this.notificationService.showNetworkError(errorMessage, () => this.calculateGaps());
       }
     });
+  }
+
+  private startCalculationProgress(): void {
+    let stepIndex = 0;
+    this.calculationProgress = this.calculationSteps[0];
+
+    this.calculationTimer = setInterval(() => {
+      stepIndex = (stepIndex + 1) % this.calculationSteps.length;
+      this.calculationProgress = this.calculationSteps[stepIndex];
+    }, 600);
+  }
+
+  private stopCalculationProgress(): void {
+    if (this.calculationTimer) {
+      clearInterval(this.calculationTimer);
+      this.calculationTimer = null;
+    }
+    this.calculationProgress = '';
   }
 
   get isValid(): boolean {
