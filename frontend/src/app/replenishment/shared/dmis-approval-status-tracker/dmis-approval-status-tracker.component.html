@@ -6,7 +6,7 @@
       <div class="step" [ngClass]="'step-' + step.state" role="listitem"
            [attr.aria-current]="step.state === 'active' ? 'step' : null">
         <div class="step-circle"
-             [matTooltip]="step.timestamp ? (step.timestamp | date:'medium') : ''">
+             [matTooltip]="step.timestamp ? (step.timestamp | date:'medium') : null">
           <mat-icon>{{ getStepIcon(step) }}</mat-icon>
         </div>
         <div class="step-label">{{ step.label }}</div>
