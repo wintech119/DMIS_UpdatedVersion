@@ -25,8 +25,10 @@ const STEP_META: Record<TrackerStepId, { label: string; icon: string }> = {
   FULFILLED: { label: 'Fulfilled', icon: 'task_alt' }
 };
 
+type TerminalStepId = 'CANCELLED' | 'SUPERSEDED';
+
 /** Maps backend NeedsListStatus to our simplified TrackerStepId */
-function mapStatusToStep(status: NeedsListStatus): TrackerStepId {
+function mapStatusToStep(status: NeedsListStatus): TrackerStepId | TerminalStepId {
   switch (status) {
     case 'DRAFT':
     case 'RETURNED':
@@ -43,8 +45,9 @@ function mapStatusToStep(status: NeedsListStatus): TrackerStepId {
     case 'REJECTED':
       return 'PENDING_APPROVAL';
     case 'CANCELLED':
+      return 'CANCELLED';
     case 'SUPERSEDED':
-      return 'APPROVED';
+      return 'SUPERSEDED';
     default:
       return 'DRAFT';
   }
@@ -159,7 +162,9 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
 
     const status = nl.status ?? 'DRAFT';
     const activeStep = mapStatusToStep(status);
-    const activeIndex = STEP_ORDER.indexOf(activeStep);
+    const isTerminated = status === 'CANCELLED' || status === 'SUPERSEDED';
+    const displayStepId = isTerminated ? this.getTerminationStepId(nl) : (activeStep as TrackerStepId);
+    const activeIndex = STEP_ORDER.indexOf(displayStepId);
 
     // Check for branch states
     this.branch = null;
@@ -185,7 +190,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
         reason: null,
         actor: null,
         timestamp: null,
-        fromStep: activeStep
+        fromStep: displayStepId
       };
     } else if (status === 'SUPERSEDED') {
       this.branch = {
@@ -193,7 +198,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
         reason: null,
         actor: null,
         timestamp: null,
-        fromStep: activeStep
+        fromStep: displayStepId
       };
     }
 
@@ -207,6 +212,8 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
         } else if (status === 'RETURNED') {
           // RETURNED goes back to DRAFT, so DRAFT is active again
           state = i === 0 ? 'active' : 'pending';
+        } else if (isTerminated) {
+          state = 'cancelled';
         } else {
           state = 'active';
         }
@@ -228,6 +235,12 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
         comment
       };
     });
+  }
+
+  private getTerminationStepId(nl: NeedsListResponse): TrackerStepId {
+    if (nl.approved_at) return 'APPROVED';
+    if (nl.submitted_at) return 'PENDING_APPROVAL';
+    return 'DRAFT';
   }
 
   private getStepAuditData(
