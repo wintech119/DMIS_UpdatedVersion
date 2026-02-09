@@ -225,66 +225,142 @@
         </mat-card-content>
       </mat-card>
 
+      <!-- Replenishment Method (with radio selection) -->
+      <mat-card class="info-card replenishment-method-card">
+        <mat-card-header>
+          <mat-icon class="card-icon">local_shipping</mat-icon>
+          <mat-card-title>Replenishment Method</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <p class="method-intro">
+            Recommended method based on stock availability:
+          </p>
+
+          <mat-radio-group
+            [(ngModel)]="selectedMethod"
+            (change)="onMethodChange($event.value)"
+            class="method-radio-group">
+
+            <div class="method-option"
+                 *ngFor="let h of allHorizons"
+                 [class.selected]="selectedMethod === h">
+              <mat-radio-button [value]="h">
+                <div class="method-content">
+                  <span class="method-name">{{ methodMeta[h].label }}</span>
+                  <span class="method-sublabel">({{ methodMeta[h].sublabel }})</span>
+                  <span class="badge recommended" *ngIf="recommendedMethod === h">Recommended</span>
+                  <span class="badge in-dmis" *ngIf="methodMeta[h].inDmis">In DMIS</span>
+                  <span class="badge external" *ngIf="!methodMeta[h].inDmis">External</span>
+                </div>
+                <div class="method-details">
+                  {{ getMethodItemCount(h) }} &middot; Estimated: {{ methodMeta[h].timeframe }}
+                </div>
+              </mat-radio-button>
+            </div>
+          </mat-radio-group>
+        </mat-card-content>
+      </mat-card>
+
       <!-- Approval Info -->
       <mat-card class="info-card approval-card">
         <mat-card-header>
-          <div class="approval-header">
+          <div class="approval-header"
+               role="button"
+               tabindex="0"
+               [attr.aria-expanded]="showApprovalDetails"
+               aria-controls="approval-details"
+               (click)="toggleApprovalDetails()"
+               (keydown.enter)="toggleApprovalDetails()"
+               (keydown.space)="toggleApprovalDetails(); $event.preventDefault()">
             <div class="header-left">
               <mat-icon class="card-icon">approval</mat-icon>
               <mat-card-title>Approval Required</mat-card-title>
             </div>
-            <button mat-icon-button (click)="toggleTierInfo()" class="info-toggle-btn" matTooltip="Show approval tier information">
-              <mat-icon>{{ showTierInfo ? 'expand_less' : 'info_outline' }}</mat-icon>
-            </button>
+            <mat-icon class="expand-icon">{{ showApprovalDetails ? 'expand_less' : 'expand_more' }}</mat-icon>
           </div>
         </mat-card-header>
         <mat-card-content>
-          <div class="approval-info">
-            <mat-icon class="approval-icon">person</mat-icon>
-            <div class="approval-text">
-              <span class="approval-label">This needs list will be sent to:</span>
-              <span class="approval-value">{{ getApprovalInfo() }}</span>
-            </div>
+          <!-- Summary when collapsed -->
+          <div class="approval-summary" *ngIf="!showApprovalDetails && approvalWorkflows.length > 0">
+            <p>This needs list requires approval for:
+              <span *ngFor="let wf of approvalWorkflows; let last = last">
+                <strong>{{ wf.config.name }}</strong><span *ngIf="!last">, </span>
+              </span>
+            </p>
           </div>
 
-          <!-- Expandable Tier Information -->
-          <div class="tier-definitions" *ngIf="showTierInfo">
-            <div class="tier-info-header">
+          <!-- Detailed view when expanded -->
+          <div class="approval-details" *ngIf="showApprovalDetails" id="approval-details">
+            <p class="intro-text" *ngIf="approvalWorkflows.length > 1">
+              This needs list contains items requiring different approval workflows:
+            </p>
+
+            <div class="workflow-section"
+                 *ngFor="let workflow of activeApprovalWorkflows"
+                 [class.external]="!workflow.config.inDmis"
+                 [ngClass]="'horizon-' + workflow.horizon">
+
+              <div class="workflow-header">
+                <mat-icon [ngClass]="'horizon-icon-' + workflow.horizon">{{ workflow.config.icon }}</mat-icon>
+                <span class="workflow-name">{{ workflow.config.name | uppercase }}</span>
+                <span class="workflow-stats">({{ workflow.itemCount }} items, {{ workflow.totalUnits | number }} units)</span>
+                <span class="workflow-badge" [class.external]="!workflow.config.inDmis">
+                  <mat-icon>{{ workflow.config.inDmis ? 'check_circle' : 'open_in_new' }}</mat-icon>
+                  {{ workflow.config.inDmis ? 'In DMIS' : 'External' }}
+                </span>
+              </div>
+
+              <div class="approval-steps">
+                <div class="step"
+                     *ngFor="let step of workflow.config.steps"
+                     [ngClass]="step.type">
+
+                  <div class="step-indicator">
+                    <span class="step-label">
+                      <ng-container [ngSwitch]="step.type">
+                        <ng-container *ngSwitchCase="'primary'">Step {{ step.step }}</ng-container>
+                        <ng-container *ngSwitchCase="'escalation'">Step {{ step.step }} (Escalation)</ng-container>
+                        <ng-container *ngSwitchCase="'conditional'">Step {{ step.step }} (If needed)</ng-container>
+                        <ng-container *ngSwitchCase="'final'">Step {{ step.step }} (Final)</ng-container>
+                        <ng-container *ngSwitchDefault>Step {{ step.step }}</ng-container>
+                      </ng-container>
+                    </span>
+                  </div>
+
+                  <div class="step-content">
+                    <div class="step-role">
+                      <mat-icon>person</mat-icon>
+                      <span>{{ step.role }}</span>
+                      <span class="alternate" *ngIf="step.alternateRole"> or {{ step.alternateRole }}</span>
+                    </div>
+                    <div class="step-description">{{ step.description }}</div>
+                    <div class="external-indicator" *ngIf="step.external">
+                      <mat-icon>open_in_new</mat-icon>
+                      <span>External to DMIS</span>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              <div class="external-note" *ngIf="workflow.config.externalNote">
+                <mat-icon>info</mat-icon>
+                <span>{{ workflow.config.externalNote }}</span>
+              </div>
+
+            </div>
+
+            <!-- Empty state -->
+            <div class="no-workflows" *ngIf="activeApprovalWorkflows.length === 0">
               <mat-icon>info</mat-icon>
-              <span>Approval tiers are based on estimated request value:</span>
-            </div>
-
-            <div class="tier-list">
-              <div class="tier-item" [class.current]="getApprovalTierLevel() === 1">
-                <span class="tier-name">Tier 1</span>
-                <span class="tier-threshold">Up to $10,000</span>
-                <span class="tier-role">Warehouse Manager</span>
-                <mat-icon *ngIf="getApprovalTierLevel() === 1" class="current-indicator">arrow_back</mat-icon>
-              </div>
-              <div class="tier-item" [class.current]="getApprovalTierLevel() === 2">
-                <span class="tier-name">Tier 2</span>
-                <span class="tier-threshold">$10,001 - $50,000</span>
-                <span class="tier-role">Logistics Coordinator</span>
-                <mat-icon *ngIf="getApprovalTierLevel() === 2" class="current-indicator">arrow_back</mat-icon>
-              </div>
-              <div class="tier-item" [class.current]="getApprovalTierLevel() === 3">
-                <span class="tier-name">Tier 3</span>
-                <span class="tier-threshold">$50,001 - $250,000</span>
-                <span class="tier-role">Supply Chain Director</span>
-                <mat-icon *ngIf="getApprovalTierLevel() === 3" class="current-indicator">arrow_back</mat-icon>
-              </div>
-              <div class="tier-item" [class.current]="getApprovalTierLevel() === 4">
-                <span class="tier-name">Tier 4</span>
-                <span class="tier-threshold">Over $250,000</span>
-                <span class="tier-role">Executive Director</span>
-                <mat-icon *ngIf="getApprovalTierLevel() === 4" class="current-indicator">arrow_back</mat-icon>
-              </div>
+              <span>No items selected for approval</span>
             </div>
           </div>
 
-          <p class="approval-note">
-            They will be notified via email and in-app notification.
-          </p>
+          <div class="notification-footer" *ngIf="approvalWorkflows.length > 0">
+            <mat-icon>email</mat-icon>
+            <span>Approvers will be notified via email and in-app notification.</span>
+          </div>
         </mat-card-content>
       </mat-card>
 
