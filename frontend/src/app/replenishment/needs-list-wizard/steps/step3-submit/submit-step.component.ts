@@ -71,6 +71,8 @@ export class SubmitStepComponent implements OnInit {
 
   // Horizon-based approval workflows
   approvalWorkflows: ApprovalWorkflowData[] = [];
+  activeWorkflow: ApprovalWorkflowData | null = null;
+  activeApprovalWorkflows: ApprovalWorkflowData[] = [];
 
   // Method override
   selectedMethod: HorizonType = 'A';
@@ -141,6 +143,8 @@ export class SubmitStepComponent implements OnInit {
       this.totalCost = 0;
       this.warehouseBreakdown = [];
       this.approvalWorkflows = [];
+      this.activeWorkflow = null;
+      this.activeApprovalWorkflows = [];
       return;
     }
 
@@ -273,6 +277,8 @@ export class SubmitStepComponent implements OnInit {
         this.selectedMethod = primary.horizon;
       }
     }
+
+    this.updateActiveApprovalWorkflow();
   }
 
   // Get the primary replenishment method (the one with most items)
@@ -300,18 +306,32 @@ export class SubmitStepComponent implements OnInit {
 
   /** Recalculate which approval workflow to display based on selectedMethod */
   private updateActiveApprovalWorkflow(): void {
+    if (this.approvalWorkflows.length === 0) {
+      this.activeWorkflow = null;
+      this.activeApprovalWorkflows = [];
+      return;
+    }
+
+    const existing = this.approvalWorkflows.find(wf => wf.horizon === this.selectedMethod);
+    if (existing) {
+      this.activeWorkflow = existing;
+      this.activeApprovalWorkflows = [existing];
+      return;
+    }
+
     // Build a single workflow entry for the currently selected method
     const config = APPROVAL_WORKFLOWS[this.selectedMethod];
     const horizonItems = this.getHorizonItems(this.selectedMethod);
     const horizonUnits = this.getHorizonUnits(this.selectedMethod);
 
     // If the selected method has no items of its own, show all items count
-    this.approvalWorkflows = [{
+    this.activeWorkflow = {
       horizon: this.selectedMethod,
       config,
       itemCount: horizonItems > 0 ? horizonItems : this.totalItems,
       totalUnits: horizonUnits > 0 ? horizonUnits : this.totalUnits
-    }];
+    };
+    this.activeApprovalWorkflows = [this.activeWorkflow];
   }
 
   getMethodItemCount(horizon: HorizonType): string {
