@@ -264,7 +264,14 @@
       <!-- Approval Info -->
       <mat-card class="info-card approval-card">
         <mat-card-header>
-          <div class="approval-header" (click)="toggleApprovalDetails()">
+          <div class="approval-header"
+               role="button"
+               tabindex="0"
+               [attr.aria-expanded]="showApprovalDetails"
+               aria-controls="approval-details"
+               (click)="toggleApprovalDetails()"
+               (keydown.enter)="toggleApprovalDetails()"
+               (keydown.space)="toggleApprovalDetails(); $event.preventDefault()">
             <div class="header-left">
               <mat-icon class="card-icon">approval</mat-icon>
               <mat-card-title>Approval Required</mat-card-title>
@@ -283,7 +290,7 @@
           </div>
 
           <!-- Detailed view when expanded -->
-          <div class="approval-details" *ngIf="showApprovalDetails">
+          <div class="approval-details" *ngIf="showApprovalDetails" id="approval-details">
             <p class="intro-text" *ngIf="approvalWorkflows.length > 1">
               This needs list contains items requiring different approval workflows:
             </p>
