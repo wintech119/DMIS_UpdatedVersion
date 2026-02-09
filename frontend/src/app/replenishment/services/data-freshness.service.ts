@@ -71,6 +71,10 @@ export class DataFreshnessService {
 
   triggerRefresh(): void {
     this.refreshing$.next(true);
+    if (this.refreshRequested$.observers.length === 0) {
+      this.refreshing$.next(false);
+      return;
+    }
     this.refreshRequested$.next();
   }
 
