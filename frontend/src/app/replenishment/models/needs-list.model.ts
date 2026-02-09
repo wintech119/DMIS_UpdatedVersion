@@ -130,7 +130,7 @@ export type NeedsListStatus =
 // Approval Status Tracker types
 export type TrackerStepId = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'IN_PROGRESS' | 'FULFILLED';
 
-export type TrackerStepState = 'completed' | 'active' | 'pending' | 'rejected' | 'returned';
+export type TrackerStepState = 'completed' | 'active' | 'pending' | 'rejected' | 'returned' | 'cancelled';
 
 export interface TrackerStep {
   id: TrackerStepId;
