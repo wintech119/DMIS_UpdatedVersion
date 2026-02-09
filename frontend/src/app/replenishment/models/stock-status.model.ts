@@ -49,6 +49,7 @@ export interface WarehouseStockGroup {
   warehouse_id: number;
   warehouse_name: string;
   items: StockStatusItem[];
+  all_items?: StockStatusItem[];
   critical_count: number;
   warning_count: number;
   watch_count: number;

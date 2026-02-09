@@ -40,11 +40,12 @@ export class DataFreshnessService {
    */
   updateFromWarehouseGroups(groups: WarehouseStockGroup[]): void {
     const entries: WarehouseFreshnessEntry[] = groups.map(g => {
+      const itemsForFreshness = (g.all_items && g.all_items.length > 0) ? g.all_items : g.items;
       // Find worst age_hours across items in this group
       let worstAge: number | null = null;
       let latestSync: string | null = null;
 
-      g.items.forEach(item => {
+      itemsForFreshness.forEach(item => {
         const ageH = item.freshness?.age_hours;
         if (ageH !== null && ageH !== undefined) {
           if (worstAge === null || ageH > worstAge) {
