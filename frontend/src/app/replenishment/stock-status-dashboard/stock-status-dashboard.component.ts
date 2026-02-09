@@ -254,6 +254,7 @@ export class StockStatusDashboardComponent implements OnInit {
       warehouse_id: warehouseId,
       warehouse_name: warehouseName,
       items: filteredItems,
+      all_items: warehouseItems,
       critical_count: severityCounts.critical,
       warning_count: severityCounts.warning,
       watch_count: severityCounts.watch,
