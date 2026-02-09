@@ -349,7 +349,7 @@
             </div>
           </div>
 
-          <div class="notification-footer">
+          <div class="notification-footer" *ngIf="approvalWorkflows.length > 0">
             <mat-icon>email</mat-icon>
             <span>Approvers will be notified via email and in-app notification.</span>
           </div>
