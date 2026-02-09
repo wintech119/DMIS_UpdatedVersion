@@ -22,8 +22,42 @@
     }
 
     mat-card-content {
-      .loading-bar {
-        margin-bottom: 16px;
+      &.card-content-relative {
+        position: relative;
+      }
+
+      .skeleton-form {
+        padding: 0 0 24px;
+      }
+
+      .form-hidden {
+        visibility: hidden;
+        height: 0;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+      }
+
+      .calculation-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.92);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 4px;
+        gap: 1rem;
+      }
+
+      .calculation-text {
+        font-size: 0.95rem;
+        color: #475569;
+        font-weight: 500;
       }
 
       .scope-form {

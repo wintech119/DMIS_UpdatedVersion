@@ -53,8 +53,19 @@
       <!-- Loading indicator -->
       <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
 
-      <!-- Table -->
-      <div class="table-container">
+      <!-- Empty State -->
+      <dmis-empty-state
+        *ngIf="!loading && items.length === 0"
+        icon="inventory_2"
+        title="No Items to Review"
+        message="No items were found that need replenishment. Go back to adjust your scope parameters."
+        actionLabel="Go Back"
+        actionIcon="arrow_back"
+        (action)="goBack()"
+      ></dmis-empty-state>
+
+      <!-- Table (Desktop) -->
+      <div class="table-container desktop-only">
         <table mat-table [dataSource]="items" class="preview-table">
 
           <!-- Checkbox Column -->
@@ -180,6 +191,69 @@
             [ngClass]="getRowClass(row)"
           ></tr>
         </table>
+      </div>
+
+      <!-- Mobile Card List -->
+      <div class="mobile-card-list mobile-only">
+        <div class="mobile-preview-card" *ngFor="let item of items"
+             [ngClass]="getRowClass(item)">
+          <div class="mobile-preview-header">
+            <mat-checkbox [(ngModel)]="item.included" class="mobile-checkbox"></mat-checkbox>
+            <mat-icon [ngClass]="getSeverityClass(item)" class="mobile-severity-icon">{{ getSeverityIcon(item) }}</mat-icon>
+            <div class="mobile-preview-title">
+              <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+              <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
+            </div>
+          </div>
+          <div class="mobile-preview-metrics">
+            <div class="metric">
+              <span class="metric-label">Gap</span>
+              <span class="metric-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
+                {{ item.gap_qty | number: '1.0-0' }}
+              </span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Source</span>
+              <span class="metric-value">
+                <mat-icon class="source-icon-sm">{{ getSourceIcon(getRecommendedSource(item)) }}</mat-icon>
+                {{ getSourceLabel(getRecommendedSource(item)) }}
+              </span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Lead Time</span>
+              <span class="metric-value">{{ getLeadTime(item) }}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Cost</span>
+              <span class="metric-value cost-value">{{ getEstimatedCost(item) }}</span>
+            </div>
+          </div>
+          <div class="mobile-preview-edit">
+            <mat-form-field appearance="outline" class="mobile-qty-field">
+              <mat-label>Adjusted Qty</mat-label>
+              <input
+                matInput
+                type="number"
+                [(ngModel)]="item.tempAdjustedQty"
+                (ngModelChange)="onQuantityChange(item)"
+                min="0"
+                [class.qty-adjusted]="isQuantityAdjusted(item)"
+              />
+            </mat-form-field>
+            <mat-form-field appearance="outline" class="mobile-reason-field" *ngIf="showReasonField(item)">
+              <mat-label>Reason</mat-label>
+              <mat-select
+                [(ngModel)]="item.tempReason"
+                (ngModelChange)="onReasonChange(item)"
+                placeholder="Select reason"
+              >
+                <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
+                  {{ option.label }}
+                </mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+        </div>
       </div>
 
       <!-- Errors -->

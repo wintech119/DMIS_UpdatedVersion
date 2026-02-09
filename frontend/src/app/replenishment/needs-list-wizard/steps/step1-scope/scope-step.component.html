@@ -5,12 +5,20 @@
       <mat-card-subtitle>Set parameters before calculating supply gaps</mat-card-subtitle>
     </mat-card-header>
 
-    <mat-card-content>
-      <!-- Loading indicator -->
-      <mat-progress-bar *ngIf="loading || loadingInitialData" mode="indeterminate" class="loading-bar"></mat-progress-bar>
+    <mat-card-content class="card-content-relative">
+      <!-- Skeleton Loading (Initial Data) -->
+      <div class="skeleton-form" *ngIf="loadingInitialData">
+        <dmis-skeleton-loader variant="form-field" [count]="3"></dmis-skeleton-loader>
+      </div>
+
+      <!-- Calculation Overlay -->
+      <div class="calculation-overlay" *ngIf="loading && !loadingInitialData">
+        <mat-progress-spinner diameter="48" mode="indeterminate"></mat-progress-spinner>
+        <span class="calculation-text">{{ calculationProgress }}</span>
+      </div>
 
       <!-- Form -->
-      <form [formGroup]="form" class="scope-form">
+      <form [formGroup]="form" class="scope-form" [class.form-hidden]="loadingInitialData">
         <div class="form-row">
           <mat-form-field appearance="outline" class="form-field">
             <mat-label>Event</mat-label>

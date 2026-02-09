@@ -1,0 +1,59 @@
+.error-dialog {
+  min-width: 320px;
+  max-width: 500px;
+}
+
+.error-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.error-dialog-icon {
+  color: #c62828;
+  font-size: 28px;
+  width: 28px;
+  height: 28px;
+}
+
+h2[mat-dialog-title] {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.error-dialog-message {
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+}
+
+.error-details {
+  margin-top: 0.5rem;
+
+  summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: 600;
+    user-select: none;
+  }
+}
+
+.error-details-content {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: #475569;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
