@@ -10,10 +10,16 @@ import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatRadioModule } from '@angular/material/radio';
+import { FormsModule } from '@angular/forms';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { NeedsListItem } from '../../../models/needs-list.model';
-import { distinctUntilChanged, map } from 'rxjs/operators';
+import {
+  APPROVAL_WORKFLOWS,
+  ApprovalWorkflowData,
+  HorizonType
+} from '../../../models/approval-workflows.model';
 
 interface WarehouseBreakdown {
   warehouse_id: number;
@@ -29,6 +35,7 @@ interface WarehouseBreakdown {
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     ReactiveFormsModule,
     MatCardModule,
     MatButtonModule,
@@ -37,7 +44,8 @@ interface WarehouseBreakdown {
     MatInputModule,
     MatChipsModule,
     MatDividerModule,
-    MatProgressBarModule
+    MatProgressBarModule,
+    MatRadioModule
   ],
   templateUrl: './submit-step.component.html',
   styleUrl: './submit-step.component.scss'
@@ -59,7 +67,25 @@ export class SubmitStepComponent implements OnInit {
   loading = false;
   errors: string[] = [];
   showAllItems = false;  // For items preview expansion
-  showTierInfo = false;  // For approval tier explanation
+  showApprovalDetails = true;  // For approval workflow details (expanded by default)
+
+  // Horizon-based approval workflows
+  approvalWorkflows: ApprovalWorkflowData[] = [];
+
+  // Method override
+  selectedMethod: HorizonType = 'A';
+  recommendedMethod: HorizonType = 'A';
+  itemsExpanded = false;
+
+  // All horizons for template iteration (typed to avoid strict template errors)
+  allHorizons: HorizonType[] = ['A', 'B', 'C'];
+
+  // Method display metadata
+  methodMeta: Record<HorizonType, { label: string; sublabel: string; timeframe: string; inDmis: boolean }> = {
+    A: { label: 'TRANSFER', sublabel: 'Inter-Warehouse', timeframe: '6-24 hours', inDmis: true },
+    B: { label: 'DONATION', sublabel: 'From Verified Donations', timeframe: '2-7 days', inDmis: true },
+    C: { label: 'PROCUREMENT', sublabel: 'Purchase New Stock', timeframe: '14+ days', inDmis: false }
+  };
 
   private destroyRef = inject(DestroyRef);
 
@@ -74,24 +100,13 @@ export class SubmitStepComponent implements OnInit {
 
   ngOnInit(): void {
     // Subscribe to wizard state changes
+    // Note: mat-stepper renders all steps at once, so we need to react to ALL state changes
     this.wizardService.getState$().pipe(
-      map(state => ({
-        items: state.previewResponse?.items || [],
-        selectedItemKeys: state.selectedItemKeys || [],
-        adjustments: state.adjustments
-      })),
-      distinctUntilChanged((prev, curr) => (
-        prev.items.length === curr.items.length &&
-        prev.items.every((item, i) => (
-          item.item_id === curr.items[i]?.item_id &&
-          item.warehouse_id === curr.items[i]?.warehouse_id &&
-          item.gap_qty === curr.items[i]?.gap_qty
-        )) &&
-        this.areSelectedKeysEqual(prev.selectedItemKeys, curr.selectedItemKeys) &&
-        prev.adjustments === curr.adjustments
-      )),
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(({ items, selectedItemKeys }) => {
+    ).subscribe(state => {
+      const items = state.previewResponse?.items || [];
+      const selectedItemKeys = state.selectedItemKeys || [];
+
       this.items = items;
       this.totalReviewed = items.length;
 
@@ -119,31 +134,25 @@ export class SubmitStepComponent implements OnInit {
     });
   }
 
-  private areSelectedKeysEqual(prevKeys: string[], currKeys: string[]): boolean {
-    if (prevKeys === currKeys) return true;
-    if (prevKeys.length !== currKeys.length) return false;
-
-    const prevSet = new Set(prevKeys);
-    if (prevSet.size !== currKeys.length) return false;
-
-    return currKeys.every(key => prevSet.has(key));
-  }
-
   calculateSummary(): void {
     if (!this.selectedItems.length) {
       this.totalItems = 0;
       this.totalUnits = 0;
       this.totalCost = 0;
       this.warehouseBreakdown = [];
+      this.approvalWorkflows = [];
       return;
     }
 
     // Apply adjustments to selected items only
     const adjustedItems = this.selectedItems.map(item => {
       const adjustment = this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0);
+      const adjustedQty = adjustment ? adjustment.adjusted_qty : item.gap_qty;
       return {
         ...item,
-        gap_qty: adjustment ? adjustment.adjusted_qty : item.gap_qty
+        gap_qty: adjustedQty,
+        // Ensure we have a positive quantity for workflow calculation
+        effective_qty: Math.max(adjustedQty, 0)
       };
     });
 
@@ -183,29 +192,144 @@ export class SubmitStepComponent implements OnInit {
       }))
       .sort((a, b) => a.warehouse_name.localeCompare(b.warehouse_name));
 
+    // Calculate approval workflows based on horizons (use adjusted items)
+    this.calculateApprovalWorkflows(adjustedItems);
   }
 
-  getApprovalInfo(): string {
-    const state = this.wizardService.getState();
-    const response = state.previewResponse;
+  private calculateApprovalWorkflows(adjustedItems: (NeedsListItem & { effective_qty: number })[]): void {
+    const horizonData: Record<HorizonType, { items: number; units: number }> = {
+      A: { items: 0, units: 0 },
+      B: { items: 0, units: 0 },
+      C: { items: 0, units: 0 }
+    };
 
-    if (response?.approval_summary?.approval) {
-      const approval = response.approval_summary.approval;
-      return `${approval.tier} - ${approval.approver_role}`;
+    // Count items and units by horizon using adjusted quantities
+    adjustedItems.forEach(item => {
+      const horizons = item.horizon;
+      let hasAnyHorizonQty = false;
+      const effectiveQty = item.effective_qty || item.gap_qty || 0;
+
+      if (horizons) {
+        // Count for each horizon independently (not mutually exclusive)
+        const aQty = horizons.A?.recommended_qty;
+        const bQty = horizons.B?.recommended_qty;
+        const cQty = horizons.C?.recommended_qty;
+
+        if (aQty && aQty > 0) {
+          horizonData.A.items++;
+          horizonData.A.units += aQty;
+          hasAnyHorizonQty = true;
+        }
+        if (bQty && bQty > 0) {
+          horizonData.B.items++;
+          horizonData.B.units += bQty;
+          hasAnyHorizonQty = true;
+        }
+        if (cQty && cQty > 0) {
+          horizonData.C.items++;
+          horizonData.C.units += cQty;
+          hasAnyHorizonQty = true;
+        }
+      }
+
+      // Fallback: If no horizon data OR all horizon quantities are 0/null,
+      // default to Transfer (A) with the effective quantity
+      if (!hasAnyHorizonQty && effectiveQty > 0) {
+        horizonData.A.items++;
+        horizonData.A.units += effectiveQty;
+      }
+    });
+
+    // Build approval workflows for horizons that have items
+    this.approvalWorkflows = (['A', 'B', 'C'] as HorizonType[])
+      .filter(horizon => horizonData[horizon].items > 0)
+      .map(horizon => ({
+        horizon,
+        config: APPROVAL_WORKFLOWS[horizon],
+        itemCount: horizonData[horizon].items,
+        totalUnits: horizonData[horizon].units
+      }));
+
+    // Final fallback: If still no workflows but we have selected items, default to Transfer
+    if (this.approvalWorkflows.length === 0 && adjustedItems.length > 0) {
+      this.approvalWorkflows = [{
+        horizon: 'A' as HorizonType,
+        config: APPROVAL_WORKFLOWS.A,
+        itemCount: adjustedItems.length,
+        totalUnits: adjustedItems.reduce((sum, i) => sum + (i.effective_qty || i.gap_qty || 0), 0)
+      }];
     }
 
-    // Default based on phase
-    const phase = state.phase || 'BASELINE';
-    switch (phase) {
-      case 'SURGE':
-        return 'Tier 1 - Emergency Coordinator';
-      case 'STABILIZED':
-        return 'Tier 2 - Logistics Manager';
-      case 'BASELINE':
-        return 'Tier 3 - Supply Chain Director';
-      default:
-        return 'To be determined';
+    // Determine recommended method (the horizon with most items)
+    if (this.approvalWorkflows.length > 0) {
+      const primary = this.approvalWorkflows.reduce((max, wf) =>
+        wf.itemCount > max.itemCount ? wf : max
+      );
+      this.recommendedMethod = primary.horizon;
+      this.selectedMethod = primary.horizon;
     }
+  }
+
+  // Get the primary replenishment method (the one with most items)
+  getPrimaryHorizon(): ApprovalWorkflowData | null {
+    if (this.approvalWorkflows.length === 0) return null;
+    return this.approvalWorkflows.reduce((max, wf) =>
+      wf.itemCount > max.itemCount ? wf : max
+    );
+  }
+
+  // Get timeframe for a horizon
+  getHorizonTimeframe(horizon: HorizonType): string {
+    const timeframes: Record<HorizonType, string> = {
+      A: '6-24 hours',
+      B: '2-7 days',
+      C: '14+ days'
+    };
+    return timeframes[horizon];
+  }
+
+  onMethodChange(method: HorizonType): void {
+    this.selectedMethod = method;
+    this.updateActiveApprovalWorkflow();
+  }
+
+  /** Recalculate which approval workflow to display based on selectedMethod */
+  private updateActiveApprovalWorkflow(): void {
+    // Build a single workflow entry for the currently selected method
+    const config = APPROVAL_WORKFLOWS[this.selectedMethod];
+    const horizonItems = this.getHorizonItems(this.selectedMethod);
+    const horizonUnits = this.getHorizonUnits(this.selectedMethod);
+
+    // If the selected method has no items of its own, show all items count
+    this.approvalWorkflows = [{
+      horizon: this.selectedMethod,
+      config,
+      itemCount: horizonItems > 0 ? horizonItems : this.totalItems,
+      totalUnits: horizonUnits > 0 ? horizonUnits : this.totalUnits
+    }];
+  }
+
+  getMethodItemCount(horizon: HorizonType): string {
+    const count = this.getHorizonItems(horizon);
+    if (count > 0) return `${count} items`;
+    if (horizon === 'C') return 'All items';
+    return '0 items available';
+  }
+
+  toggleItemsExpanded(): void {
+    this.itemsExpanded = !this.itemsExpanded;
+  }
+
+  getApprovalSummary(): string {
+    if (this.approvalWorkflows.length === 0) {
+      return 'No items requiring approval';
+    }
+
+    const workflowNames = this.approvalWorkflows.map(wf => wf.config.name);
+    if (workflowNames.length === 1) {
+      return `${workflowNames[0]} approval required`;
+    }
+    return `${workflowNames.slice(0, -1).join(', ')} and ${workflowNames[workflowNames.length - 1]} approvals required`;
   }
 
   getItemCost(item: NeedsListItem): number {
@@ -219,18 +343,26 @@ export class SubmitStepComponent implements OnInit {
 
     return this.selectedItems.reduce((count, item) => {
       const horizons = item.horizon;
-      if (!horizons) return count;
 
-      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
-        return horizon === 'A' ? count + 1 : count;
-      }
+      if (horizons) {
+        // Check the specific horizon requested
+        const qty = horizons[horizon]?.recommended_qty;
+        if (qty && qty > 0) {
+          return count + 1;
+        }
 
-      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
-        return horizon === 'B' ? count + 1 : count;
-      }
+        // Check if item has ANY horizon qty - if not, fallback to A
+        const hasAnyHorizonQty =
+          (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) ||
+          (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) ||
+          (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0);
 
-      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
-        return horizon === 'C' ? count + 1 : count;
+        if (!hasAnyHorizonQty && horizon === 'A' && item.gap_qty > 0) {
+          return count + 1;
+        }
+      } else if (horizon === 'A' && item.gap_qty > 0) {
+        // Fallback: items without horizon data default to Transfer (A)
+        return count + 1;
       }
 
       return count;
@@ -242,18 +374,26 @@ export class SubmitStepComponent implements OnInit {
 
     return this.selectedItems.reduce((sum, item) => {
       const horizons = item.horizon;
-      if (!horizons) return sum;
 
-      if (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) {
-        return horizon === 'A' ? sum + horizons.A.recommended_qty : sum;
-      }
+      if (horizons) {
+        // Get the quantity for the specific horizon requested
+        const qty = horizons[horizon]?.recommended_qty;
+        if (qty && qty > 0) {
+          return sum + qty;
+        }
 
-      if (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) {
-        return horizon === 'B' ? sum + horizons.B.recommended_qty : sum;
-      }
+        // Check if item has ANY horizon qty - if not, fallback to A
+        const hasAnyHorizonQty =
+          (horizons.A?.recommended_qty && horizons.A.recommended_qty > 0) ||
+          (horizons.B?.recommended_qty && horizons.B.recommended_qty > 0) ||
+          (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0);
 
-      if (horizons.C?.recommended_qty && horizons.C.recommended_qty > 0) {
-        return horizon === 'C' ? sum + horizons.C.recommended_qty : sum;
+        if (!hasAnyHorizonQty && horizon === 'A' && item.gap_qty > 0) {
+          return sum + item.gap_qty;
+        }
+      } else if (horizon === 'A' && item.gap_qty > 0) {
+        // Fallback: items without horizon data default to Transfer (A)
+        return sum + item.gap_qty;
       }
 
       return sum;
@@ -278,8 +418,8 @@ export class SubmitStepComponent implements OnInit {
     this.showAllItems = !this.showAllItems;
   }
 
-  toggleTierInfo(): void {
-    this.showTierInfo = !this.showTierInfo;
+  toggleApprovalDetails(): void {
+    this.showApprovalDetails = !this.showApprovalDetails;
   }
 
   getAdjustedQty(item: NeedsListItem): number {
@@ -287,13 +427,33 @@ export class SubmitStepComponent implements OnInit {
     return adjustment ? adjustment.adjusted_qty : item.gap_qty;
   }
 
-  getApprovalTierLevel(): number {
-    const approvalInfo = this.getApprovalInfo();
-    if (approvalInfo.includes('Tier 1')) return 1;
-    if (approvalInfo.includes('Tier 2')) return 2;
-    if (approvalInfo.includes('Tier 3')) return 3;
-    if (approvalInfo.includes('Tier 4')) return 4;
-    return 0;
+  hasExternalWorkflow(): boolean {
+    return this.approvalWorkflows.some(wf => !wf.config.inDmis);
+  }
+
+  getApprovalWorkflowNames(): string {
+    return this.approvalWorkflows.map(wf => wf.config.name).join(', ');
+  }
+
+  getApprovalInfo(): string {
+    if (this.approvalWorkflows.length === 0) {
+      return 'No approvers required';
+    }
+
+    // Build a summary of the primary approvers for each workflow
+    const approvers = this.approvalWorkflows.map(wf => {
+      const primaryStep = wf.config.steps.find(s => s.type === 'primary');
+      return primaryStep ? primaryStep.role : wf.config.steps[0]?.role || 'Unknown';
+    });
+
+    // Remove duplicates
+    const uniqueApprovers = [...new Set(approvers)];
+
+    if (uniqueApprovers.length === 1) {
+      return uniqueApprovers[0];
+    }
+
+    return uniqueApprovers.slice(0, -1).join(', ') + ' and ' + uniqueApprovers[uniqueApprovers.length - 1];
   }
 
   saveDraft(): void {
