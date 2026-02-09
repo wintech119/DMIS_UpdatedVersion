@@ -99,6 +99,8 @@ export class ScopeStepComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.stopCalculationProgress());
+
     // Load initial data (event and warehouses)
     this.loadInitialData();
 
