@@ -15,6 +15,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
 
 type HorizonBlock = { recommended_qty: number | null };
 
@@ -107,7 +108,8 @@ interface NeedsListResponse {
     MatProgressBarModule,
     MatSelectModule,
     MatTableModule,
-    MatTooltipModule
+    MatTooltipModule,
+    DmisApprovalStatusTrackerComponent
   ],
   templateUrl: './needs-list-preview.component.html',
   styleUrl: './needs-list-preview.component.scss'
@@ -755,6 +757,10 @@ export class NeedsListPreviewComponent implements OnInit, OnDestroy {
 
   approvalWarnings(): string[] {
     return this.response?.approval_summary?.warnings ?? [];
+  }
+
+  onSendReminder(): void {
+    console.log('Send reminder requested for needs list:', this.response?.needs_list_id);
   }
 
   overrideQty(item: NeedsListItem): number | null {
