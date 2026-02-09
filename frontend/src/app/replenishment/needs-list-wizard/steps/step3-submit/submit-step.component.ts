@@ -266,7 +266,12 @@ export class SubmitStepComponent implements OnInit {
         wf.itemCount > max.itemCount ? wf : max
       );
       this.recommendedMethod = primary.horizon;
-      this.selectedMethod = primary.horizon;
+      // Only set selectedMethod if it hasn't been initialized yet,
+      // or if the current selection is no longer valid
+      const validHorizons = this.approvalWorkflows.map(wf => wf.horizon);
+      if (!validHorizons.includes(this.selectedMethod)) {
+        this.selectedMethod = primary.horizon;
+      }
     }
   }
 
