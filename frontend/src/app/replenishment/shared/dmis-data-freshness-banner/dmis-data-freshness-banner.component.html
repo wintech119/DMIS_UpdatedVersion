@@ -1,9 +1,10 @@
 <div
   class="freshness-banner"
-  *ngIf="isVisible"
+  *ngIf="shouldRender"
   [ngClass]="{
     'banner-critical': isCritical,
-    'banner-warning': isWarning
+    'banner-warning': isWarning,
+    'banner-fresh': isFresh
   }"
   role="alert"
   [attr.aria-label]="getBannerMessage()">
