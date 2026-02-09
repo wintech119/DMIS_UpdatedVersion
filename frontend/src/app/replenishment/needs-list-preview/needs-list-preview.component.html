@@ -109,7 +109,7 @@
     <dmis-approval-status-tracker
       *ngIf="draft.needs_list_id"
       [needsList]="$any(response)"
-      [horizon]="'A'"
+      [horizon]="approvalHorizon"
       (sendReminder)="onSendReminder()">
     </dmis-approval-status-tracker>
   </mat-card>

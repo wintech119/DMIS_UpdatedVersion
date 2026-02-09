@@ -16,6 +16,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
+import { HorizonType } from '../models/approval-workflows.model';
 
 type HorizonBlock = { recommended_qty: number | null };
 
@@ -757,6 +758,31 @@ export class NeedsListPreviewComponent implements OnInit, OnDestroy {
 
   approvalWarnings(): string[] {
     return this.response?.approval_summary?.warnings ?? [];
+  }
+
+  get approvalHorizon(): HorizonType {
+    let hasB = false;
+    let hasA = false;
+
+    for (const item of this.items) {
+      const horizons = item.horizon;
+      if (!horizons) {
+        continue;
+      }
+      if ((horizons.C?.recommended_qty ?? 0) > 0) {
+        return 'C';
+      }
+      if ((horizons.B?.recommended_qty ?? 0) > 0) {
+        hasB = true;
+      }
+      if ((horizons.A?.recommended_qty ?? 0) > 0) {
+        hasA = true;
+      }
+    }
+
+    if (hasB) return 'B';
+    if (hasA) return 'A';
+    return 'A';
   }
 
   onSendReminder(): void {
