@@ -55,6 +55,7 @@ export class PreviewStepComponent implements OnInit {
   @Output() next = new EventEmitter<void>();
 
   items: PreviewItem[] = [];
+  itemFilter = '';
   loading = false;
   errors: string[] = [];
   private destroyRef = inject(DestroyRef);
@@ -203,38 +204,57 @@ export class PreviewStepComponent implements OnInit {
 
   // Selection management
   get selectedCount(): number {
-    return this.items.filter(item => item.included).length;
+    return this.selectionScope.filter(item => item.included).length;
+  }
+
+  get filteredItems(): PreviewItem[] {
+    const term = this.itemFilter.trim().toLowerCase();
+    if (!term) {
+      return this.items;
+    }
+    return this.items.filter(item => {
+      const name = item.item_name || `Item ${item.item_id}`;
+      return name.toLowerCase().includes(term);
+    });
+  }
+
+  private get selectionScope(): PreviewItem[] {
+    return this.itemFilter.trim() ? this.filteredItems : this.items;
   }
 
   get allSelected(): boolean {
-    return this.items.length > 0 && this.items.every(item => item.included);
+    const scope = this.selectionScope;
+    return scope.length > 0 && scope.every(item => item.included);
   }
 
   get someSelected(): boolean {
-    return this.items.some(item => item.included) && !this.allSelected;
+    const scope = this.selectionScope;
+    return scope.some(item => item.included) && !this.allSelected;
   }
 
   toggleAllSelection(): void {
+    const scope = this.selectionScope;
+    if (scope.length === 0) return;
     const newValue = !this.allSelected;
-    this.items.forEach(item => {
+    scope.forEach(item => {
       item.included = newValue;
     });
   }
 
   selectAll(): void {
-    this.items.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = true;
     });
   }
 
   selectNone(): void {
-    this.items.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = false;
     });
   }
 
   selectItemsWithGap(): void {
-    this.items.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = item.gap_qty > 0;
     });
   }
@@ -370,11 +390,12 @@ export class PreviewStepComponent implements OnInit {
   }
 
   private scrollToErrors(): void {
-    // Give Angular a tick to render the error container, then scroll to it
+    // Give Angular a tick to render the error container, then scroll and focus it
     setTimeout(() => {
-      const errorEl = document.querySelector('.errors-container');
+      const errorEl = document.querySelector('.errors-container') as HTMLElement;
       if (errorEl) {
         errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        errorEl.focus();
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }

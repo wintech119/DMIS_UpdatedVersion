@@ -8,7 +8,7 @@
     <mat-card-content>
       <div class="summary-grid">
         <div class="summary-item">
-          <mat-icon class="summary-icon">inventory_2</mat-icon>
+          <mat-icon class="summary-icon" aria-hidden="true">inventory_2</mat-icon>
           <div class="summary-text">
             <span class="label">Total Items</span>
             <span class="value">{{ totalItems }}</span>
@@ -16,21 +16,21 @@
           </div>
         </div>
         <div class="summary-item">
-          <mat-icon class="summary-icon">widgets</mat-icon>
+          <mat-icon class="summary-icon" aria-hidden="true">widgets</mat-icon>
           <div class="summary-text">
             <span class="label">Total Units</span>
             <span class="value">{{ totalUnits }}</span>
           </div>
         </div>
         <div class="summary-item">
-          <mat-icon class="summary-icon">attach_money</mat-icon>
+          <mat-icon class="summary-icon" aria-hidden="true">attach_money</mat-icon>
           <div class="summary-text">
             <span class="label">Estimated Cost</span>
             <span class="value">${{ totalCost | number:'1.2-2' }}</span>
           </div>
         </div>
         <div class="summary-item" *ngIf="hasAdjustments">
-          <mat-icon class="summary-icon">edit</mat-icon>
+          <mat-icon class="summary-icon" aria-hidden="true">edit</mat-icon>
           <div class="summary-text">
             <span class="label">Adjustments</span>
             <span class="value">{{ adjustmentCount }}</span>
@@ -47,7 +47,7 @@
       <!-- Warehouse Breakdown -->
       <mat-card class="breakdown-card">
         <mat-card-header>
-          <mat-icon class="card-icon">store</mat-icon>
+          <mat-icon class="card-icon" aria-hidden="true">store</mat-icon>
           <mat-card-title>Warehouse Breakdown</mat-card-title>
         </mat-card-header>
         <mat-card-content>
@@ -89,7 +89,7 @@
       <!-- Horizon Breakdown -->
       <mat-card class="breakdown-card">
         <mat-card-header>
-          <mat-icon class="card-icon">timeline</mat-icon>
+          <mat-icon class="card-icon" aria-hidden="true">timeline</mat-icon>
           <mat-card-title>Replenishment Horizons</mat-card-title>
         </mat-card-header>
         <mat-card-content>
@@ -183,7 +183,7 @@
         <mat-card-header>
           <div class="header-content">
             <div class="header-left">
-              <mat-icon class="card-icon">list</mat-icon>
+              <mat-icon class="card-icon" aria-hidden="true">list</mat-icon>
               <mat-card-title>Items to be Submitted ({{ selectedItems.length }})</mat-card-title>
             </div>
             <button mat-button (click)="toggleItemsList()" class="toggle-btn">
@@ -215,7 +215,7 @@
       <!-- Event & Phase Info -->
       <mat-card class="info-card">
         <mat-card-header>
-          <mat-icon class="card-icon">event</mat-icon>
+          <mat-icon class="card-icon" aria-hidden="true">event</mat-icon>
           <mat-card-title>Event Information</mat-card-title>
         </mat-card-header>
         <mat-card-content>
@@ -233,7 +233,7 @@
       <!-- Replenishment Method (with radio selection) -->
       <mat-card class="info-card replenishment-method-card">
         <mat-card-header>
-          <mat-icon class="card-icon">local_shipping</mat-icon>
+          <mat-icon class="card-icon" aria-hidden="true">local_shipping</mat-icon>
           <mat-card-title>Replenishment Method</mat-card-title>
         </mat-card-header>
         <mat-card-content>
@@ -278,7 +278,7 @@
                (keydown.enter)="toggleApprovalDetails()"
                (keydown.space)="toggleApprovalDetails(); $event.preventDefault()">
             <div class="header-left">
-              <mat-icon class="card-icon">approval</mat-icon>
+              <mat-icon class="card-icon" aria-hidden="true">approval</mat-icon>
               <mat-card-title>Approval Required</mat-card-title>
             </div>
             <mat-icon class="expand-icon">{{ showApprovalDetails ? 'expand_less' : 'expand_more' }}</mat-icon>
@@ -372,7 +372,7 @@
       <!-- Notes -->
       <mat-card class="notes-card">
         <mat-card-header>
-          <mat-icon class="card-icon">notes</mat-icon>
+          <mat-icon class="card-icon" aria-hidden="true">notes</mat-icon>
           <mat-card-title>Additional Notes</mat-card-title>
         </mat-card-header>
         <mat-card-content>
@@ -394,9 +394,9 @@
   </div>
 
   <!-- Errors -->
-  <div class="errors-container" *ngIf="errors?.length">
-    <mat-card class="error-card">
-      <mat-icon class="error-icon">error</mat-icon>
+  <div class="errors-container" role="alert" aria-live="assertive">
+    <mat-card class="error-card" [hidden]="!errors?.length">
+      <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
       <div class="error-list">
         <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
       </div>
@@ -404,8 +404,8 @@
   </div>
 
   <!-- Submission Overlay -->
-  <div class="submission-overlay" *ngIf="submitting">
-    <mat-progress-spinner diameter="48" mode="indeterminate"></mat-progress-spinner>
+  <div class="submission-overlay" [hidden]="!submitting" role="alert" aria-live="assertive">
+    <mat-progress-spinner diameter="48" mode="indeterminate" aria-label="Submitting needs list"></mat-progress-spinner>
     <span class="submission-text">Submitting needs list for approval...</span>
   </div>
 
@@ -431,6 +431,7 @@
               diameter="18"
               mode="indeterminate"
               class="btn-spinner"
+              aria-label="Saving draft"
             ></mat-progress-spinner>
             <mat-icon *ngIf="!savingDraft">save</mat-icon>
             <span *ngIf="!savingDraft">Save as Draft</span>
@@ -448,6 +449,7 @@
               diameter="18"
               mode="indeterminate"
               class="btn-spinner"
+              aria-label="Submitting"
             ></mat-progress-spinner>
             <mat-icon *ngIf="!submitting">send</mat-icon>
             <span *ngIf="!submitting">Submit for Approval</span>

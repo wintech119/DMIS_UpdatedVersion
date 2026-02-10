@@ -866,6 +866,10 @@
       }
     }
   }
+
+  .error-card[hidden] {
+    display: none !important;
+  }
 }
 
 // Actions
@@ -932,6 +936,10 @@
   z-index: 100;
   gap: 1rem;
   pointer-events: none;
+}
+
+.submission-overlay[hidden] {
+  display: none !important;
 }
 
 .submission-text {
