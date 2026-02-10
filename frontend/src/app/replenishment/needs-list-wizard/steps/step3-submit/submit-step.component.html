@@ -394,8 +394,8 @@
   </div>
 
   <!-- Errors -->
-  <div class="errors-container" role="alert" aria-live="assertive" *ngIf="errors?.length">
-    <mat-card class="error-card">
+  <div class="errors-container" role="alert" aria-live="assertive">
+    <mat-card class="error-card" [hidden]="!errors?.length">
       <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
       <div class="error-list">
         <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
@@ -404,7 +404,7 @@
   </div>
 
   <!-- Submission Overlay -->
-  <div class="submission-overlay" *ngIf="submitting" role="alert" aria-live="assertive">
+  <div class="submission-overlay" [hidden]="!submitting" role="alert" aria-live="assertive">
     <mat-progress-spinner diameter="48" mode="indeterminate" aria-label="Submitting needs list"></mat-progress-spinner>
     <span class="submission-text">Submitting needs list for approval...</span>
   </div>
