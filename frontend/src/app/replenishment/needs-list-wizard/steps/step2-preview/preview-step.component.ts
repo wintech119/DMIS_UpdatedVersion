@@ -55,6 +55,7 @@ export class PreviewStepComponent implements OnInit {
   @Output() next = new EventEmitter<void>();
 
   items: PreviewItem[] = [];
+  itemFilter = '';
   loading = false;
   errors: string[] = [];
   private destroyRef = inject(DestroyRef);
@@ -204,6 +205,17 @@ export class PreviewStepComponent implements OnInit {
   // Selection management
   get selectedCount(): number {
     return this.items.filter(item => item.included).length;
+  }
+
+  get filteredItems(): PreviewItem[] {
+    const term = this.itemFilter.trim().toLowerCase();
+    if (!term) {
+      return this.items;
+    }
+    return this.items.filter(item => {
+      const name = item.item_name || `Item ${item.item_id}`;
+      return name.toLowerCase().includes(term);
+    });
   }
 
   get allSelected(): boolean {
