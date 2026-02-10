@@ -382,11 +382,12 @@ export class PreviewStepComponent implements OnInit {
   }
 
   private scrollToErrors(): void {
-    // Give Angular a tick to render the error container, then scroll to it
+    // Give Angular a tick to render the error container, then scroll and focus it
     setTimeout(() => {
-      const errorEl = document.querySelector('.errors-container');
+      const errorEl = document.querySelector('.errors-container') as HTMLElement;
       if (errorEl) {
         errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        errorEl.focus();
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }

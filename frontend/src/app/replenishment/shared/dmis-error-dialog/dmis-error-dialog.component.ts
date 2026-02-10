@@ -18,7 +18,7 @@ export interface ErrorDialogData {
   template: `
     <div class="error-dialog">
       <div class="error-dialog-header">
-        <mat-icon class="error-dialog-icon">error</mat-icon>
+        <mat-icon class="error-dialog-icon" aria-hidden="true">error</mat-icon>
         <h2 mat-dialog-title>{{ data.title }}</h2>
       </div>
 

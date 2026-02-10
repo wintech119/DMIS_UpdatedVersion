@@ -1032,7 +1032,7 @@
 
     &.help-text {
       font-size: 13px;
-      color: #999;
+      color: #595959; // Fixed: #999 failed WCAG AA (3.0:1), #595959 passes (~7:1)
       margin-top: 5px;
     }
 
@@ -1251,6 +1251,11 @@ mat-chip-option {
   &:active {
     transform: scale(0.92);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  &:focus-visible {
+    outline: 3px solid #1565c0;
+    outline-offset: 3px;
   }
 }
 

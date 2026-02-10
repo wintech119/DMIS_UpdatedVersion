@@ -32,7 +32,7 @@ body {
 .dmis-snackbar-warning {
   --mdc-snackbar-container-color: #f57f17;
   --mdc-snackbar-supporting-text-color: #1e293b;
-  --mat-snack-bar-button-color: #1e293b;
+  --mat-snack-bar-button-color: #000;
 }
 
 .dmis-snackbar-error {
@@ -45,6 +45,35 @@ body {
   --mdc-snackbar-container-color: #e65100;
   --mdc-snackbar-supporting-text-color: #fff;
   --mat-snack-bar-button-color: #ffe0b2;
+}
+
+// ===== GLOBAL ACCESSIBILITY =====
+
+// Focus indicators for all interactive elements (WCAG 2.1 AA)
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+mat-checkbox:focus-visible,
+mat-radio-button:focus-visible,
+mat-select:focus-visible {
+  outline: 2px solid #1565c0;
+  outline-offset: 2px;
+}
+
+// Screen-reader-only utility (visually hidden but accessible)
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 // ===== GLOBAL MOBILE STYLES =====
