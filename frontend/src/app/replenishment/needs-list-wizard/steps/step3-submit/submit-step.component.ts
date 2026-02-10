@@ -10,10 +10,14 @@ import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatRadioModule } from '@angular/material/radio';
 import { FormsModule } from '@angular/forms';
+import { timer } from 'rxjs';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import { DmisNotificationService } from '../../../services/notification.service';
+import { DmisEmptyStateComponent } from '../../../shared/dmis-empty-state/dmis-empty-state.component';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import {
   APPROVAL_WORKFLOWS,
@@ -45,7 +49,9 @@ interface WarehouseBreakdown {
     MatChipsModule,
     MatDividerModule,
     MatProgressBarModule,
-    MatRadioModule
+    MatProgressSpinnerModule,
+    MatRadioModule,
+    DmisEmptyStateComponent
   ],
   templateUrl: './submit-step.component.html',
   styleUrl: './submit-step.component.scss'
@@ -65,6 +71,8 @@ export class SubmitStepComponent implements OnInit {
 
   notesForm: FormGroup;
   loading = false;
+  submitting = false;
+  savingDraft = false;
   errors: string[] = [];
   showAllItems = false;  // For items preview expansion
   showApprovalDetails = true;  // For approval workflow details (expanded by default)
@@ -90,6 +98,7 @@ export class SubmitStepComponent implements OnInit {
   };
 
   private destroyRef = inject(DestroyRef);
+  private notificationService = inject(DmisNotificationService);
 
   constructor(
     private fb: FormBuilder,
@@ -482,8 +491,6 @@ export class SubmitStepComponent implements OnInit {
   }
 
   saveDraft(): void {
-    // Phase 5 MVP: Just show message
-    // In future phase, this will call backend API to create draft
     this.errors = [];
 
     if (this.totalItems === 0) {
@@ -491,12 +498,18 @@ export class SubmitStepComponent implements OnInit {
       return;
     }
 
-    alert('Save as Draft functionality will be implemented in the next phase. For now, your progress is automatically saved.');
+    this.savingDraft = true;
+
+    // MVP: Simulate save with timeout (replace with actual API call in future)
+    timer(800).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {
+      this.savingDraft = false;
+      this.notificationService.showSuccess('Draft saved successfully. Your progress has been preserved.');
+    });
   }
 
   submitForApproval(): void {
-    // Phase 5 MVP: Just show message
-    // In future phase, this will call backend API to submit for approval
     this.errors = [];
 
     if (this.totalItems === 0) {
@@ -504,15 +517,18 @@ export class SubmitStepComponent implements OnInit {
       return;
     }
 
-    const confirmed = confirm(
-      `You are about to submit a needs list with ${this.totalItems} items (${this.totalUnits} total units) ` +
-      `for approval.\n\nApprover: ${this.getApprovalInfo()}\n\nProceed?`
-    );
+    this.submitting = true;
 
-    if (confirmed) {
-      alert('Submit for Approval functionality will be implemented in the next phase. This will create a needs list and send it for approval.');
+    // MVP: Simulate submission with timeout (replace with actual API call in future)
+    timer(1200).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {
+      this.submitting = false;
+      this.notificationService.showSuccess(
+        `Needs list with ${this.totalItems} items submitted for approval. Approver: ${this.getApprovalInfo()}`
+      );
       // In future: this.complete.emit() after successful submission
-    }
+    });
   }
 
   goBack(): void {

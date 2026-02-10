@@ -246,16 +246,38 @@
 
 // Responsive
 @media (max-width: 768px) {
+  .freshness-banner {
+    top: 56px; // smaller toolbar on mobile
+
+    &.banner-critical {
+      // More prominent critical alert on mobile
+      font-size: 1rem;
+      font-weight: 600;
+      border-bottom-width: 3px;
+
+      .banner-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+      }
+    }
+  }
+
   .banner-main {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
+    min-height: 48px; // touch target
   }
 
   .banner-actions {
     width: 100%;
     justify-content: space-between;
+
+    button {
+      min-height: 44px; // touch target
+    }
   }
 
   .banner-message {
@@ -269,5 +291,27 @@
 
   .freshness-table {
     min-width: 480px;
+  }
+}
+
+@media (max-width: 480px) {
+  .freshness-banner {
+    top: 48px;
+  }
+
+  .banner-main {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .banner-message {
+    font-size: 0.8rem;
+  }
+
+  .last-sync {
+    font-size: 0.7rem;
+  }
+
+  .refresh-btn {
+    font-size: 0.7rem;
   }
 }

@@ -1,17 +1,16 @@
 <div class="dmis-page">
   <!-- Page Header -->
   <div class="page-header">
-    <h1 class="page-title">Stock Status Dashboard</h1>
+    <div class="page-header-row">
+      <h1 class="page-title">Stock Status Dashboard</h1>
+      <mat-progress-spinner
+        *ngIf="refreshing"
+        diameter="20"
+        mode="indeterminate"
+        class="refreshing-indicator"
+      ></mat-progress-spinner>
+    </div>
     <p class="page-subtitle">Monitor burn rates and replenishment needs across all warehouses</p>
-  </div>
-
-  <!-- Loading State -->
-  <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
-
-  <!-- Errors -->
-  <div class="alert alert-danger" *ngIf="errors.length">
-    <mat-icon>error</mat-icon>
-    <strong>Error:</strong> {{ errors[0] }}
   </div>
 
   <!-- Context Display -->
@@ -228,6 +227,12 @@
     </div>
   </mat-expansion-panel>
 
+  <!-- Skeleton Loading State (Initial Load) -->
+  <div class="skeleton-loading" *ngIf="loading && warehouseGroups.length === 0">
+    <dmis-skeleton-loader variant="stat-box" [count]="3"></dmis-skeleton-loader>
+    <dmis-skeleton-loader variant="warehouse-card" [count]="3"></dmis-skeleton-loader>
+  </div>
+
   <!-- Warehouse Cards (Multi-Warehouse View) -->
   <div class="warehouses-container" *ngIf="!loading && warehouseGroups.length">
     <div class="warehouse-card" *ngFor="let group of warehouseGroups">
@@ -288,9 +293,9 @@
         {{ warning }}
       </div>
 
-      <!-- Stock Items Table -->
+      <!-- Stock Items Table (Desktop) -->
       <div class="warehouse-content" *ngIf="group.items.length > 0">
-        <div class="table-responsive">
+        <div class="table-responsive desktop-only">
           <table class="dmis-table">
             <thead>
               <tr>
@@ -373,28 +378,102 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Stock Items Card List (Mobile) -->
+        <div class="mobile-card-list mobile-only">
+          <div class="mobile-item-card" *ngFor="let item of group.items"
+               [ngClass]="'card-' + getSeverityClass(item.severity)">
+            <div class="mobile-card-header">
+              <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
+                {{ item.severity || 'OK' }}
+              </span>
+              <div class="mobile-card-title">
+                <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+                <span class="item-category" *ngIf="item.category">{{ item.category }}</span>
+              </div>
+              <span class="badge badge-sm" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
+                {{ item.freshness?.state || 'N/A' }}
+              </span>
+            </div>
+            <div class="mobile-card-metrics">
+              <div class="metric">
+                <span class="metric-label">Available</span>
+                <span class="metric-value">{{ item.available_qty | number: '1.0-0' }}</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Burn Rate</span>
+                <span class="metric-value" [ngClass]="{
+                  'burn-rate-zero-stale': shouldShowZeroWarning(item),
+                  'burn-rate-zero-fresh': item.burn_rate_per_hour === 0 && !shouldShowZeroWarning(item)
+                }">{{ getBurnRateDisplay(item) }}</span>
+              </div>
+              <div class="metric metric-highlight">
+                <span class="metric-label">Time to Stockout</span>
+                <app-time-to-stockout [data]="getTimeToStockoutData(item)"></app-time-to-stockout>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Gap</span>
+                <span class="metric-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
+                  {{ item.gap_qty | number: '1.0-0' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- No Items in Warehouse -->
-      <div class="warehouse-content empty-state" *ngIf="group.items.length === 0">
-        <mat-icon>inventory_2</mat-icon>
-        <p>No items match the current filters or all items have sufficient coverage.</p>
+      <!-- No Items in Warehouse (filtered) -->
+      <div class="warehouse-content" *ngIf="group.items.length === 0">
+        <dmis-empty-state
+          icon="search_off"
+          title="No Matching Items"
+          message="No items match your current filters for this warehouse."
+          [actionLabel]="hasActiveFilters() ? 'Clear Filters' : ''"
+          actionIcon="filter_list_off"
+          (action)="resetFilters()"
+        ></dmis-empty-state>
       </div>
     </div>
   </div>
 
   <!-- Empty State (No Active Event) -->
-  <div class="empty-state-card" *ngIf="!loading && !activeEvent">
-    <mat-icon>event_busy</mat-icon>
-    <h3>No Active Events</h3>
-    <p>There are currently no active events in the system.</p>
-    <p class="help-text">To view stock status and burn rates, an event must be declared and marked as active in the Event Management module.</p>
-  </div>
+  <dmis-empty-state
+    *ngIf="!loading && !activeEvent"
+    icon="event_busy"
+    title="No Active Events"
+    message="There are currently no active events in the system. To view stock status and burn rates, an event must be declared and marked as active in the Event Management module."
+  ></dmis-empty-state>
 
-  <!-- No Warehouses State -->
-  <div class="empty-state-card" *ngIf="!loading && activeEvent && warehouseGroups.length === 0">
-    <mat-icon>warehouse</mat-icon>
-    <h3>No Warehouses Available</h3>
-    <p>No warehouses found or all selected warehouses have no stock data.</p>
-  </div>
+  <!-- Empty State (No Warehouses / All Healthy) -->
+  <dmis-empty-state
+    *ngIf="!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0"
+    icon="verified"
+    title="All Clear"
+    message="All items have healthy stock levels. No replenishment action needed."
+    actionLabel="Refresh Data"
+    actionIcon="refresh"
+    (action)="loadMultiWarehouseStatus()"
+  ></dmis-empty-state>
+
+  <!-- Empty State (Load Error) -->
+  <dmis-empty-state
+    *ngIf="!loading && activeEvent && errors.length > 0 && warehouseGroups.length === 0"
+    icon="error"
+    title="Unable to Load Stock Status"
+    [message]="errors[0] || 'Failed to load stock status.'"
+    actionLabel="Retry"
+    actionIcon="refresh"
+    (action)="loadMultiWarehouseStatus()"
+  ></dmis-empty-state>
+
+  <!-- Mobile FAB: Generate Needs List -->
+  <button
+    class="mobile-fab mobile-only"
+    *ngIf="activeEvent && warehouseGroups.length > 0"
+    (click)="generateNeedsList()"
+    [attr.aria-label]="'Generate Needs List'"
+    matTooltip="Generate a replenishment needs list"
+  >
+    <mat-icon>add_shopping_cart</mat-icon>
+  </button>
 </div>

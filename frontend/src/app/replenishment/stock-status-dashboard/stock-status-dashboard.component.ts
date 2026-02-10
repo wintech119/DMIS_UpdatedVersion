@@ -16,14 +16,18 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
+import { DmisNotificationService } from '../services/notification.service';
 import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup, calculateSeverity } from '../models/stock-status.model';
 import { NeedsListItem } from '../models/needs-list.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
+import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 
 interface FilterState {
   categories: string[];
@@ -52,7 +56,10 @@ interface FilterState {
     MatMenuModule,
     MatDividerModule,
     MatDialogModule,
-    TimeToStockoutComponent
+    MatProgressSpinnerModule,
+    TimeToStockoutComponent,
+    DmisSkeletonLoaderComponent,
+    DmisEmptyStateComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
@@ -60,6 +67,7 @@ interface FilterState {
 export class StockStatusDashboardComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private dataFreshnessService = inject(DataFreshnessService);
+  private notificationService = inject(DmisNotificationService);
 
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
   readonly severityOptions: SeverityLevel[] = ['CRITICAL', 'WARNING', 'WATCH', 'OK'];
@@ -73,6 +81,8 @@ export class StockStatusDashboardComponent implements OnInit {
   viewMode: 'multi' | 'single' = 'multi';
 
   loading = false;
+  refreshing = false;
+  dataLoadedSuccessfully = false;
   warehouseGroups: WarehouseStockGroup[] = [];
   private warehouseItemsById: Map<number, StockStatusItem[]> = new Map();
   warnings: string[] = [];
@@ -145,7 +155,8 @@ export class StockStatusDashboardComponent implements OnInit {
       },
       error: (error) => {
         this.loading = false;
-        this.errors = [error.error?.errors?.event || error.message || 'Failed to load dashboard data.'];
+        const msg = error.error?.errors?.event || error.message || 'Failed to load dashboard data.';
+        this.notificationService.showNetworkError(msg, () => this.autoLoadDashboard());
       }
     });
   }
@@ -156,17 +167,26 @@ export class StockStatusDashboardComponent implements OnInit {
   loadMultiWarehouseStatus(): void {
     if (!this.activeEvent) return;
 
+    this.errors = [];
     const warehouseIds = this.selectedWarehouseIds.length > 0
       ? this.selectedWarehouseIds
       : this.allWarehouses.map(w => w.warehouse_id);
 
     if (warehouseIds.length === 0) {
       this.loading = false;
-      this.errors = ['No warehouses available.'];
+      this.notificationService.showWarning('No warehouses available.');
       return;
     }
 
-    this.loading = true;
+    this.dataLoadedSuccessfully = false;
+
+    // Use refreshing for subsequent loads (when data already exists)
+    if (this.warehouseGroups.length > 0) {
+      this.refreshing = true;
+    } else {
+      this.loading = true;
+    }
+
     this.replenishmentService.getStockStatusMulti(
       this.activeEvent.event_id,
       warehouseIds,
@@ -177,12 +197,19 @@ export class StockStatusDashboardComponent implements OnInit {
         this.groupItemsByWarehouse(items, data.warnings ?? []);
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
+        this.dataLoadedSuccessfully = true;
+        this.errors = [];
         this.loading = false;
+        this.refreshing = false;
       },
       error: (error) => {
         this.loading = false;
+        this.refreshing = false;
         this.dataFreshnessService.refreshComplete();
-        this.errors = [error.message || 'Failed to load stock status.'];
+        this.dataLoadedSuccessfully = false;
+        const msg = error.message || 'Failed to load stock status.';
+        this.errors = [msg];
+        this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
       }
     });
   }
