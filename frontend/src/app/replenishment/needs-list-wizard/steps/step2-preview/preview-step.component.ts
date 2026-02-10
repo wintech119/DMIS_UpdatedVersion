@@ -219,34 +219,38 @@ export class PreviewStepComponent implements OnInit {
   }
 
   get allSelected(): boolean {
-    return this.items.length > 0 && this.items.every(item => item.included);
+    const scope = this.filteredItems;
+    return scope.length > 0 && scope.every(item => item.included);
   }
 
   get someSelected(): boolean {
-    return this.items.some(item => item.included) && !this.allSelected;
+    const scope = this.filteredItems;
+    return scope.some(item => item.included) && !this.allSelected;
   }
 
   toggleAllSelection(): void {
+    const scope = this.filteredItems;
+    if (scope.length === 0) return;
     const newValue = !this.allSelected;
-    this.items.forEach(item => {
+    scope.forEach(item => {
       item.included = newValue;
     });
   }
 
   selectAll(): void {
-    this.items.forEach(item => {
+    this.filteredItems.forEach(item => {
       item.included = true;
     });
   }
 
   selectNone(): void {
-    this.items.forEach(item => {
+    this.filteredItems.forEach(item => {
       item.included = false;
     });
   }
 
   selectItemsWithGap(): void {
-    this.items.forEach(item => {
+    this.filteredItems.forEach(item => {
       item.included = item.gap_qty > 0;
     });
   }
