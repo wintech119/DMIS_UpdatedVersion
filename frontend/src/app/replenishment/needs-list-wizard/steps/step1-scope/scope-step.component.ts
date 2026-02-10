@@ -11,8 +11,10 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisNotificationService } from '../../../services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../../../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { WizardState } from '../../models/wizard-state.model';
@@ -53,6 +55,7 @@ const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => 
     MatIconModule,
     MatProgressBarModule,
     MatProgressSpinnerModule,
+    MatDialogModule,
     DmisSkeletonLoaderComponent
   ],
   templateUrl: './scope-step.component.html',
@@ -83,6 +86,8 @@ export class ScopeStepComponent implements OnInit {
   // Fetched from API
   availableWarehouses: Warehouse[] = [];
   activeEvent: ActiveEvent | null = null;
+
+  private dialog = inject(MatDialog);
 
   constructor(
     private fb: FormBuilder,
@@ -251,10 +256,22 @@ export class ScopeStepComponent implements OnInit {
   }
 
   cancel(): void {
-    const confirmed = confirm('Are you sure you want to cancel? Any unsaved changes will be lost.');
-    if (confirmed) {
-      this.wizardService.reset();
-      this.router.navigate(['/replenishment/dashboard']);
-    }
+    const data: ConfirmDialogData = {
+      title: 'Cancel Wizard',
+      message: 'Are you sure you want to cancel? Any unsaved changes will be lost.',
+      confirmLabel: 'Yes, Cancel',
+      cancelLabel: 'Keep Working'
+    };
+
+    this.dialog.open(DmisConfirmDialogComponent, {
+      data,
+      width: '400px',
+      ariaLabel: 'Confirm cancel wizard'
+    }).afterClosed().subscribe((confirmed: boolean) => {
+      if (confirmed) {
+        this.wizardService.reset();
+        this.router.navigate(['/replenishment/dashboard']);
+      }
+    });
   }
 }

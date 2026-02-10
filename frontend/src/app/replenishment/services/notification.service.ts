@@ -31,7 +31,8 @@ export class DmisNotificationService {
       duration: 8000,
       panelClass: ['dmis-snackbar-error'],
       horizontalPosition: 'center',
-      verticalPosition: 'bottom'
+      verticalPosition: 'bottom',
+      politeness: 'assertive'
     });
 
     ref.onAction().subscribe(() => {
@@ -59,7 +60,8 @@ export class DmisNotificationService {
       duration: 0, // No auto-dismiss
       panelClass: ['dmis-snackbar-partial'],
       horizontalPosition: 'center',
-      verticalPosition: 'bottom'
+      verticalPosition: 'bottom',
+      politeness: 'assertive'
     });
 
     ref.onAction().subscribe(() => {

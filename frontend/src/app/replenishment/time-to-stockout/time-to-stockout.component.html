@@ -3,6 +3,7 @@
   [ngClass]="getSeverityClass()"
   [matTooltip]="getTooltip()"
   matTooltipPosition="above"
+  [attr.aria-label]="getDisplayText() + '. ' + getActionLabel()"
 >
   <!-- Main Display -->
   <div class="stockout-main">
@@ -11,6 +12,7 @@
       class="action-icon"
       [ngClass]="{'pulse-animation': shouldPulse()}"
       inline="true"
+      aria-hidden="true"
     >
       {{ getActionIcon() }}
     </mat-icon>
@@ -30,6 +32,7 @@
       mode="determinate"
       [value]="getProgressValue()"
       [ngClass]="getProgressColorClass()"
+      [attr.aria-label]="'Stock level: ' + getProgressValue() + '% remaining'"
     ></mat-progress-bar>
   </div>
 </div>

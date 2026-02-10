@@ -173,6 +173,14 @@
   animation: pulse-text 2s ease-in-out infinite;
 }
 
+// Respect user preference for reduced motion
+@media (prefers-reduced-motion: reduce) {
+  .pulse-animation,
+  .pulse-text {
+    animation: none;
+  }
+}
+
 // Mobile responsiveness
 @media (max-width: 768px) {
   .time-to-stockout-container {
