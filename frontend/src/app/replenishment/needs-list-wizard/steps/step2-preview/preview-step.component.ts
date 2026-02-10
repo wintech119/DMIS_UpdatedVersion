@@ -204,7 +204,7 @@ export class PreviewStepComponent implements OnInit {
 
   // Selection management
   get selectedCount(): number {
-    return this.items.filter(item => item.included).length;
+    return this.selectionScope.filter(item => item.included).length;
   }
 
   get filteredItems(): PreviewItem[] {
@@ -218,18 +218,22 @@ export class PreviewStepComponent implements OnInit {
     });
   }
 
+  private get selectionScope(): PreviewItem[] {
+    return this.itemFilter.trim() ? this.filteredItems : this.items;
+  }
+
   get allSelected(): boolean {
-    const scope = this.filteredItems;
+    const scope = this.selectionScope;
     return scope.length > 0 && scope.every(item => item.included);
   }
 
   get someSelected(): boolean {
-    const scope = this.filteredItems;
+    const scope = this.selectionScope;
     return scope.some(item => item.included) && !this.allSelected;
   }
 
   toggleAllSelection(): void {
-    const scope = this.filteredItems;
+    const scope = this.selectionScope;
     if (scope.length === 0) return;
     const newValue = !this.allSelected;
     scope.forEach(item => {
@@ -238,19 +242,19 @@ export class PreviewStepComponent implements OnInit {
   }
 
   selectAll(): void {
-    this.filteredItems.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = true;
     });
   }
 
   selectNone(): void {
-    this.filteredItems.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = false;
     });
   }
 
   selectItemsWithGap(): void {
-    this.filteredItems.forEach(item => {
+    this.selectionScope.forEach(item => {
       item.included = item.gap_qty > 0;
     });
   }
