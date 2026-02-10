@@ -13,6 +13,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatRadioModule } from '@angular/material/radio';
 import { FormsModule } from '@angular/forms';
+import { timer } from 'rxjs';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { DmisNotificationService } from '../../../services/notification.service';
@@ -500,10 +501,12 @@ export class SubmitStepComponent implements OnInit {
     this.savingDraft = true;
 
     // MVP: Simulate save with timeout (replace with actual API call in future)
-    setTimeout(() => {
+    timer(800).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {
       this.savingDraft = false;
       this.notificationService.showSuccess('Draft saved successfully. Your progress has been preserved.');
-    }, 800);
+    });
   }
 
   submitForApproval(): void {
@@ -517,13 +520,15 @@ export class SubmitStepComponent implements OnInit {
     this.submitting = true;
 
     // MVP: Simulate submission with timeout (replace with actual API call in future)
-    setTimeout(() => {
+    timer(1200).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {
       this.submitting = false;
       this.notificationService.showSuccess(
         `Needs list with ${this.totalItems} items submitted for approval. Approver: ${this.getApprovalInfo()}`
       );
       // In future: this.complete.emit() after successful submission
-    }, 1200);
+    });
   }
 
   goBack(): void {
