@@ -58,7 +58,13 @@ textarea:focus-visible,
 [tabindex]:focus-visible,
 mat-checkbox:focus-visible,
 mat-radio-button:focus-visible,
-mat-select:focus-visible {
+mat-select:focus-visible,
+.mat-mdc-checkbox .mdc-checkbox__native-control:focus-visible,
+.mat-mdc-radio-button .mdc-radio__native-control:focus-visible,
+.mat-mdc-select .mat-mdc-select-trigger:focus-visible,
+.mat-mdc-checkbox.cdk-keyboard-focused .mdc-checkbox__background,
+.mat-mdc-radio-button.cdk-keyboard-focused .mdc-radio__background,
+.mat-mdc-select.cdk-keyboard-focused .mat-mdc-select-trigger {
   outline: 2px solid #1565c0;
   outline-offset: 2px;
 }
