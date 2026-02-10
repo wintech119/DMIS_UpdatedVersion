@@ -167,6 +167,7 @@ export class StockStatusDashboardComponent implements OnInit {
   loadMultiWarehouseStatus(): void {
     if (!this.activeEvent) return;
 
+    this.errors = [];
     const warehouseIds = this.selectedWarehouseIds.length > 0
       ? this.selectedWarehouseIds
       : this.allWarehouses.map(w => w.warehouse_id);
@@ -197,6 +198,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
         this.dataLoadedSuccessfully = true;
+        this.errors = [];
         this.loading = false;
         this.refreshing = false;
       },
@@ -206,6 +208,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.dataFreshnessService.refreshComplete();
         this.dataLoadedSuccessfully = false;
         const msg = error.message || 'Failed to load stock status.';
+        this.errors = [msg];
         this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
       }
     });

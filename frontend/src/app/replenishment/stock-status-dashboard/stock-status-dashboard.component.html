@@ -446,11 +446,22 @@
 
   <!-- Empty State (No Warehouses / All Healthy) -->
   <dmis-empty-state
-    *ngIf="!loading && activeEvent && dataLoadedSuccessfully && warehouseGroups.length === 0"
+    *ngIf="!loading && activeEvent && dataLoadedSuccessfully && errors.length === 0 && warehouseGroups.length === 0"
     icon="verified"
     title="All Clear"
     message="All items have healthy stock levels. No replenishment action needed."
     actionLabel="Refresh Data"
+    actionIcon="refresh"
+    (action)="loadMultiWarehouseStatus()"
+  ></dmis-empty-state>
+
+  <!-- Empty State (Load Error) -->
+  <dmis-empty-state
+    *ngIf="!loading && activeEvent && errors.length > 0 && warehouseGroups.length === 0"
+    icon="error"
+    title="Unable to Load Stock Status"
+    [message]="errors[0] || 'Failed to load stock status.'"
+    actionLabel="Retry"
     actionIcon="refresh"
     (action)="loadMultiWarehouseStatus()"
   ></dmis-empty-state>
