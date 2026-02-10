@@ -82,6 +82,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   loading = false;
   refreshing = false;
+  dataLoadedSuccessfully = false;
   warehouseGroups: WarehouseStockGroup[] = [];
   private warehouseItemsById: Map<number, StockStatusItem[]> = new Map();
   warnings: string[] = [];
@@ -176,6 +177,8 @@ export class StockStatusDashboardComponent implements OnInit {
       return;
     }
 
+    this.dataLoadedSuccessfully = false;
+
     // Use refreshing for subsequent loads (when data already exists)
     if (this.warehouseGroups.length > 0) {
       this.refreshing = true;
@@ -193,6 +196,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.groupItemsByWarehouse(items, data.warnings ?? []);
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
+        this.dataLoadedSuccessfully = true;
         this.loading = false;
         this.refreshing = false;
       },
@@ -200,6 +204,7 @@ export class StockStatusDashboardComponent implements OnInit {
         this.loading = false;
         this.refreshing = false;
         this.dataFreshnessService.refreshComplete();
+        this.dataLoadedSuccessfully = false;
         const msg = error.message || 'Failed to load stock status.';
         this.notificationService.showNetworkError(msg, () => this.loadMultiWarehouseStatus());
       }
