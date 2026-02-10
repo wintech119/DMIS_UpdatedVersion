@@ -15,6 +15,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import { DmisEmptyStateComponent } from '../../../shared/dmis-empty-state/dmis-empty-state.component';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import { ItemAdjustment, ADJUSTMENT_REASON_LABELS, AdjustmentReason } from '../../models/wizard-state.model';
 import { distinctUntilChanged, map } from 'rxjs/operators';
@@ -43,7 +44,8 @@ interface PreviewItem extends NeedsListItem {
     MatSelectModule,
     MatTooltipModule,
     MatProgressBarModule,
-    MatCheckboxModule
+    MatCheckboxModule,
+    DmisEmptyStateComponent
   ],
   templateUrl: './preview-step.component.html',
   styleUrl: './preview-step.component.scss'
@@ -331,8 +333,7 @@ export class PreviewStepComponent implements OnInit {
     // Validate that at least one item is selected
     if (this.selectedCount === 0) {
       this.errors = ['Please select at least one item before continuing. Use the checkboxes to select items you want to include in the needs list.'];
-      // Scroll to top to show error
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.scrollToErrors();
       return;
     }
 
@@ -346,7 +347,7 @@ export class PreviewStepComponent implements OnInit {
       this.errors = [
         `Please select a reason for all adjusted quantities before continuing (${pendingReasonItems.length} pending).`
       ];
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.scrollToErrors();
       return;
     }
 
@@ -366,5 +367,17 @@ export class PreviewStepComponent implements OnInit {
 
   goBack(): void {
     this.back.emit();
+  }
+
+  private scrollToErrors(): void {
+    // Give Angular a tick to render the error container, then scroll to it
+    setTimeout(() => {
+      const errorEl = document.querySelector('.errors-container');
+      if (errorEl) {
+        errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 50);
   }
 }

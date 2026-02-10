@@ -21,3 +21,61 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
 }
+
+// ===== DMIS SNACKBAR STYLES =====
+.dmis-snackbar-success {
+  --mdc-snackbar-container-color: #2e7d32;
+  --mdc-snackbar-supporting-text-color: #fff;
+  --mat-snack-bar-button-color: #c8e6c9;
+}
+
+.dmis-snackbar-warning {
+  --mdc-snackbar-container-color: #f57f17;
+  --mdc-snackbar-supporting-text-color: #1e293b;
+  --mat-snack-bar-button-color: #1e293b;
+}
+
+.dmis-snackbar-error {
+  --mdc-snackbar-container-color: #c62828;
+  --mdc-snackbar-supporting-text-color: #fff;
+  --mat-snack-bar-button-color: #ffcdd2;
+}
+
+.dmis-snackbar-partial {
+  --mdc-snackbar-container-color: #e65100;
+  --mdc-snackbar-supporting-text-color: #fff;
+  --mat-snack-bar-button-color: #ffe0b2;
+}
+
+// ===== GLOBAL MOBILE STYLES =====
+@media (max-width: 768px) {
+  // Minimum touch target size (44px per WCAG, 48px preferred)
+  button,
+  .mat-mdc-button,
+  .mat-mdc-icon-button,
+  .mat-mdc-raised-button,
+  .mat-mdc-stroked-button,
+  .mat-mdc-flat-button,
+  .mat-mdc-fab,
+  .mat-mdc-mini-fab {
+    min-height: 44px;
+  }
+
+  .mat-mdc-icon-button {
+    min-width: 44px;
+  }
+
+  // Checkboxes bigger on mobile
+  .mat-mdc-checkbox .mdc-checkbox {
+    width: 24px;
+    height: 24px;
+  }
+
+  // Disable hover tooltips on mobile (no hover on touch)
+  .mat-mdc-tooltip {
+    .mdc-tooltip__surface {
+      font-size: 12px;
+      padding: 8px 12px;
+    }
+  }
+}
