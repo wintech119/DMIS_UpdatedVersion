@@ -8,6 +8,7 @@
         diameter="20"
         mode="indeterminate"
         class="refreshing-indicator"
+        aria-label="Refreshing data"
       ></mat-progress-spinner>
     </div>
     <p class="page-subtitle">Monitor burn rates and replenishment needs across all warehouses</p>
@@ -228,7 +229,7 @@
   </mat-expansion-panel>
 
   <!-- Skeleton Loading State (Initial Load) -->
-  <div class="skeleton-loading" *ngIf="loading && warehouseGroups.length === 0">
+  <div class="skeleton-loading" *ngIf="loading && warehouseGroups.length === 0" aria-live="polite">
     <dmis-skeleton-loader variant="stat-box" [count]="3"></dmis-skeleton-loader>
     <dmis-skeleton-loader variant="warehouse-card" [count]="3"></dmis-skeleton-loader>
   </div>
@@ -288,8 +289,8 @@
       </div>
 
       <!-- Data Freshness Warning -->
-      <div class="alert alert-warning" *ngIf="getDataFreshnessWarning(group) as warning">
-        <mat-icon>schedule</mat-icon>
+      <div class="alert alert-warning" role="alert" *ngIf="getDataFreshnessWarning(group) as warning">
+        <mat-icon aria-hidden="true">schedule</mat-icon>
         {{ warning }}
       </div>
 
@@ -297,23 +298,24 @@
       <div class="warehouse-content" *ngIf="group.items.length > 0">
         <div class="table-responsive desktop-only">
           <table class="dmis-table">
+            <caption class="sr-only">Stock status items for {{ group.warehouse_name }}</caption>
             <thead>
               <tr>
-                <th class="col-status" matTooltip="Stock health status based on hours until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
-                <th class="col-item" matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
-                <th class="col-available" matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
-                <th class="col-inbound" matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
-                <th class="col-burn-rate" matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
-                <th class="col-time-to-stockout" matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
-                <th class="col-required" matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
-                <th class="col-gap" matTooltip="Shortfall after accounting for confirmed inbound (hover for calculation)" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
-                <th class="col-data" matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
+                <th scope="col" class="col-status" matTooltip="Stock health status based on hours until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
+                <th scope="col" class="col-item" matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
+                <th scope="col" class="col-available" matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
+                <th scope="col" class="col-inbound" matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
+                <th scope="col" class="col-burn-rate" matTooltip="Average consumption rate based on recent demand (units per hour)" matTooltipPosition="above" matTooltipShowDelay="300">Burn Rate</th>
+                <th scope="col" class="col-time-to-stockout" matTooltip="Estimated time until stock runs out at current consumption rate" matTooltipPosition="above" matTooltipShowDelay="300">Time to Stockout</th>
+                <th scope="col" class="col-required" matTooltip="Quantity needed to reach target stock level for this phase" matTooltipPosition="above" matTooltipShowDelay="300">Required</th>
+                <th scope="col" class="col-gap" matTooltip="Shortfall after accounting for confirmed inbound (hover for calculation)" matTooltipPosition="above" matTooltipShowDelay="300">Gap</th>
+                <th scope="col" class="col-data" matTooltip="Data freshness indicator - how recent the inventory counts are" matTooltipPosition="above" matTooltipShowDelay="300">Data</th>
               </tr>
             </thead>
             <tbody>
               <tr *ngFor="let item of group.items" [ngClass]="'row-' + getSeverityClass(item.severity)">
                 <td class="col-status">
-                  <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
+                  <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
                     {{ item.severity || 'OK' }}
                   </span>
                 </td>
@@ -370,7 +372,7 @@
                   </span>
                 </td>
                 <td class="col-data">
-                  <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
+                  <span class="badge" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')" [attr.aria-label]="'Data freshness: ' + (item.freshness?.state || 'Unknown')">
                     {{ item.freshness?.state || 'N/A' }}
                   </span>
                 </td>
@@ -384,14 +386,14 @@
           <div class="mobile-item-card" *ngFor="let item of group.items"
                [ngClass]="'card-' + getSeverityClass(item.severity)">
             <div class="mobile-card-header">
-              <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')">
+              <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
                 {{ item.severity || 'OK' }}
               </span>
               <div class="mobile-card-title">
                 <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
                 <span class="item-category" *ngIf="item.category">{{ item.category }}</span>
               </div>
-              <span class="badge badge-sm" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')">
+              <span class="badge badge-sm" [ngClass]="'badge-freshness-' + (item.freshness?.state?.toLowerCase() || 'unknown')" [attr.aria-label]="'Data freshness: ' + (item.freshness?.state || 'Unknown')">
                 {{ item.freshness?.state || 'N/A' }}
               </span>
             </div>

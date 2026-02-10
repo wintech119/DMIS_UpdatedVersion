@@ -48,6 +48,16 @@
           <mat-icon>filter_list</mat-icon>
           Select Items with Gap &gt; 0
         </button>
+        <mat-form-field appearance="outline" class="filter-field">
+          <mat-label>Filter by item name</mat-label>
+          <mat-icon matPrefix>search</mat-icon>
+          <input
+            matInput
+            type="text"
+            placeholder="Filter by item name"
+            [(ngModel)]="itemFilter"
+          />
+        </mat-form-field>
       </div>
 
       <!-- Loading indicator -->
@@ -66,7 +76,7 @@
 
       <!-- Table (Desktop) -->
       <div class="table-container desktop-only">
-        <table mat-table [dataSource]="items" class="preview-table">
+        <table mat-table [dataSource]="filteredItems" class="preview-table">
 
           <!-- Checkbox Column -->
           <ng-container matColumnDef="select">
@@ -75,10 +85,11 @@
                 (change)="toggleAllSelection()"
                 [checked]="allSelected"
                 [indeterminate]="someSelected"
+                aria-label="Select all items"
               ></mat-checkbox>
             </th>
             <td mat-cell *matCellDef="let item">
-              <mat-checkbox [(ngModel)]="item.included"></mat-checkbox>
+              <mat-checkbox [(ngModel)]="item.included" [attr.aria-label]="'Select ' + (item.item_name || 'Item ' + item.item_id)"></mat-checkbox>
             </td>
           </ng-container>
 
@@ -86,7 +97,7 @@
           <ng-container matColumnDef="severity">
             <th mat-header-cell *matHeaderCellDef></th>
             <td mat-cell *matCellDef="let item" [ngClass]="getSeverityClass(item)">
-              <mat-icon [matTooltip]="item.severity || 'OK'">{{ getSeverityIcon(item) }}</mat-icon>
+              <mat-icon [matTooltip]="item.severity || 'OK'" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">{{ getSeverityIcon(item) }}</mat-icon>
             </td>
           </ng-container>
 
@@ -133,6 +144,7 @@
                   (ngModelChange)="onQuantityChange(item)"
                   min="0"
                   [class.qty-adjusted]="isQuantityAdjusted(item)"
+                  [attr.aria-label]="'Adjusted quantity for ' + (item.item_name || 'Item ' + item.item_id)"
                 />
               </mat-form-field>
             </td>
@@ -147,6 +159,7 @@
                   [(ngModel)]="item.tempReason"
                   (ngModelChange)="onReasonChange(item)"
                   placeholder="Select reason"
+                  [attr.aria-label]="'Adjustment reason for ' + (item.item_name || 'Item ' + item.item_id)"
                 >
                   <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
                     {{ option.label }}
@@ -195,11 +208,11 @@
 
       <!-- Mobile Card List -->
       <div class="mobile-card-list mobile-only">
-        <div class="mobile-preview-card" *ngFor="let item of items"
+        <div class="mobile-preview-card" *ngFor="let item of filteredItems"
              [ngClass]="getRowClass(item)">
           <div class="mobile-preview-header">
-            <mat-checkbox [(ngModel)]="item.included" class="mobile-checkbox"></mat-checkbox>
-            <mat-icon [ngClass]="getSeverityClass(item)" class="mobile-severity-icon">{{ getSeverityIcon(item) }}</mat-icon>
+            <mat-checkbox [(ngModel)]="item.included" class="mobile-checkbox" [attr.aria-label]="'Select ' + (item.item_name || 'Item ' + item.item_id)"></mat-checkbox>
+            <mat-icon [ngClass]="getSeverityClass(item)" class="mobile-severity-icon" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">{{ getSeverityIcon(item) }}</mat-icon>
             <div class="mobile-preview-title">
               <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
               <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
@@ -257,9 +270,9 @@
       </div>
 
       <!-- Errors -->
-      <div class="errors-container" *ngIf="errors.length">
+      <div class="errors-container" role="alert" aria-live="assertive" tabindex="-1" *ngIf="errors.length">
         <mat-card class="error-card">
-          <mat-icon class="error-icon">error</mat-icon>
+          <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
           <div class="error-list">
             <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
           </div>

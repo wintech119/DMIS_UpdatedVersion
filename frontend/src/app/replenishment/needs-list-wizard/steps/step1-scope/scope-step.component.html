@@ -12,8 +12,8 @@
       </div>
 
       <!-- Calculation Overlay -->
-      <div class="calculation-overlay" *ngIf="loading && !loadingInitialData">
-        <mat-progress-spinner diameter="48" mode="indeterminate"></mat-progress-spinner>
+      <div class="calculation-overlay" *ngIf="loading && !loadingInitialData" role="alert" aria-live="assertive">
+        <mat-progress-spinner diameter="48" mode="indeterminate" aria-label="Calculating supply gaps"></mat-progress-spinner>
         <span class="calculation-text">{{ calculationProgress }}</span>
       </div>
 
@@ -112,9 +112,9 @@
       </mat-card>
 
       <!-- Errors -->
-      <div class="errors-container" *ngIf="errors.length">
+      <div class="errors-container" role="alert" *ngIf="errors.length">
         <mat-card class="error-card">
-          <mat-icon class="error-icon">error</mat-icon>
+          <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
           <div class="error-list">
             <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
           </div>
