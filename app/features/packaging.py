@@ -13,6 +13,7 @@ import uuid
 from app.db import db
 from app.security.log_sanitizer import sanitize_for_log, sanitize_exception_for_log
 from app.security.audit_logger import log_data_event, AuditAction, AuditOutcome
+from app.security.url_safety import get_safe_redirect_url
 from app.utils.timezone import now as jamaica_now
 from app.db.models import (
     ReliefRqst, ReliefRqstItem, Item, Warehouse, Inventory, ItemBatch,
@@ -351,7 +352,7 @@ def cancel_package(reliefpkg_id):
         if not success:
             db.session.rollback()
             flash(error_msg, 'danger')
-            return redirect(request.referrer or url_for('packaging.pending_approval'))
+            return redirect(get_safe_redirect_url(request.referrer, 'packaging.pending_approval'))
         
         # Commit the transaction
         db.session.commit()
@@ -381,7 +382,7 @@ def cancel_package(reliefpkg_id):
         
         # Show user-friendly error message
         flash('An unexpected error occurred while canceling the package. Please contact system administrator if this persists.', 'danger')
-        return redirect(request.referrer or url_for('packaging.pending_approval'))
+        return redirect(get_safe_redirect_url(request.referrer, 'packaging.pending_approval'))
 
 
 @packaging_bp.route('/<int:reliefrqst_id>/approve', methods=['GET', 'POST'])

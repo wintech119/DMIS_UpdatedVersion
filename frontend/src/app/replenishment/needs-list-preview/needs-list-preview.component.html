@@ -67,19 +67,19 @@
       </button>
     </div>
 
-    `@if` (errors.length) {
+    @if (errors.length) {
       <div class="errors">
         <div class="error-title">Request errors</div>
-        `@for` (err of errors; track $index) {
+        @for (err of errors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
     }
 
-    `@if` (workflowErrors.length) {
+    @if (workflowErrors.length) {
       <div class="errors">
         <div class="error-title">Workflow errors</div>
-        `@for` (err of workflowErrors; track $index) {
+        @for (err of workflowErrors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
@@ -162,7 +162,7 @@
             class="review-panel"
             >
             <div class="section-label">Review Panel</div>
-            @if (response?.approval_summary; as summary) {
+            @if (response.approval_summary; as summary) {
               <div class="approval-summary">
                 <div class="approval-row">
                   <span class="approval-label">Total required</span>
