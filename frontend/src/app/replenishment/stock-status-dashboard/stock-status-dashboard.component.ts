@@ -21,9 +21,9 @@ import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
+import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
 import { DmisNotificationService } from '../services/notification.service';
-import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup, calculateSeverity } from '../models/stock-status.model';
-import { NeedsListItem } from '../models/needs-list.model';
+import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup } from '../models/stock-status.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
@@ -67,6 +67,7 @@ interface FilterState {
 export class StockStatusDashboardComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private dataFreshnessService = inject(DataFreshnessService);
+  private dashboardDataService = inject(DashboardDataService);
   private notificationService = inject(DmisNotificationService);
 
   readonly phaseOptions: EventPhase[] = ['SURGE', 'STABILIZED', 'BASELINE'];
@@ -84,7 +85,6 @@ export class StockStatusDashboardComponent implements OnInit {
   refreshing = false;
   dataLoadedSuccessfully = false;
   warehouseGroups: WarehouseStockGroup[] = [];
-  private warehouseItemsById: Map<number, StockStatusItem[]> = new Map();
   warnings: string[] = [];
   errors: string[] = [];
 
@@ -98,6 +98,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   // For single warehouse drill-down
   selectedWarehouseId: number | null = null;
+  private singleWarehouseRequestToken = 0;
 
   displayedColumns = [
     'severity',
@@ -125,6 +126,7 @@ export class StockStatusDashboardComponent implements OnInit {
     this.dataFreshnessService.onRefreshRequested$().pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(() => {
+      this.dashboardDataService.invalidateCache();
       this.loadMultiWarehouseStatus();
     });
   }
@@ -163,6 +165,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   /**
    * Load stock status for all warehouses (or filtered warehouses)
+   * via the DashboardDataService (handles enrichment, grouping, sorting, caching)
    */
   loadMultiWarehouseStatus(): void {
     if (!this.activeEvent) return;
@@ -187,14 +190,17 @@ export class StockStatusDashboardComponent implements OnInit {
       this.loading = true;
     }
 
-    this.replenishmentService.getStockStatusMulti(
+    this.dashboardDataService.getDashboardData(
       this.activeEvent.event_id,
       warehouseIds,
-      this.activeEvent.phase
+      this.activeEvent.phase as EventPhase,
+      this.buildFilterOptions()
     ).subscribe({
       next: (data) => {
-        const items = this.normalizePreviewItems(data.items);
-        this.groupItemsByWarehouse(items, data.warnings ?? []);
+        this.warehouseGroups = data.groups;
+        this.warnings = data.warnings;
+        this.availableCategories = data.availableCategories;
+
         this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
         this.dataFreshnessService.refreshComplete();
         this.dataLoadedSuccessfully = true;
@@ -214,163 +220,110 @@ export class StockStatusDashboardComponent implements OnInit {
     });
   }
 
-  /**
-   * Group items by warehouse and calculate statistics
-   */
-  private groupItemsByWarehouse(items: StockStatusItem[], warnings: string[]): void {
-    // Group items by warehouse_id
-    const warehouseMap = new Map<number, StockStatusItem[]>();
-
-    items.forEach(item => {
-      const warehouseId = item.warehouse_id;
-      if (!warehouseId) return;
-
-      if (!warehouseMap.has(warehouseId)) {
-        warehouseMap.set(warehouseId, []);
-      }
-      warehouseMap.get(warehouseId)!.push(item);
-    });
-
-    this.warehouseItemsById = new Map(warehouseMap);
-
-    // Create warehouse groups
-    this.warehouseGroups = Array.from(warehouseMap.entries()).map(([warehouseId, warehouseItems]) =>
-      this.buildWarehouseGroup(warehouseId, warehouseItems)
-    );
-
-    // Sort warehouses by critical count (most critical first)
-    this.warehouseGroups.sort((a, b) => b.critical_count - a.critical_count);
-
-    this.warnings = warnings;
-
-    // Extract available categories from all items
-    this.availableCategories = [...new Set(
-      items
-        .map(item => item.category)
-        .filter((cat): cat is string => !!cat)
-    )].sort();
-  }
-
-  private buildWarehouseGroup(warehouseId: number, warehouseItems: StockStatusItem[]): WarehouseStockGroup {
-    const warehouseName = warehouseItems[0]?.warehouse_name || `Warehouse ${warehouseId}`;
-
-    // Apply filters and sort to each warehouse's items
-    let filteredItems = this.applyFiltersToItems(warehouseItems);
-    filteredItems = this.sortItems(filteredItems);
-
-    // Calculate severity counts
-    const severityCounts = {
-      critical: filteredItems.filter(i => i.severity === 'CRITICAL').length,
-      warning: filteredItems.filter(i => i.severity === 'WARNING').length,
-      watch: filteredItems.filter(i => i.severity === 'WATCH').length,
-      ok: filteredItems.filter(i => i.severity === 'OK').length
-    };
-
-    // Overall freshness (worst of all items, regardless of filters)
-    const freshnessLevels: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
-    const worstFreshness = warehouseItems
-      .map(i => i.freshness?.state)
-      .filter((f): f is FreshnessLevel => !!f)
-      .reduce((worst, current) => {
-        const worstIndex = freshnessLevels.indexOf(worst);
-        const currentIndex = freshnessLevels.indexOf(current);
-        return currentIndex < worstIndex ? current : worst;
-      }, 'HIGH' as FreshnessLevel);
-
+  /** Build DashboardDataOptions from current filter state */
+  private buildFilterOptions(): DashboardDataOptions {
     return {
-      warehouse_id: warehouseId,
-      warehouse_name: warehouseName,
-      items: filteredItems,
-      all_items: warehouseItems,
-      critical_count: severityCounts.critical,
-      warning_count: severityCounts.warning,
-      watch_count: severityCounts.watch,
-      ok_count: severityCounts.ok,
-      overall_freshness: worstFreshness
+      categories: this.selectedCategories,
+      severities: this.selectedSeverities,
+      sortBy: this.sortBy,
+      sortDirection: this.sortDirection
     };
   }
 
-  private refreshSingleWarehouseView(): void {
-    if (!this.selectedWarehouseId) return;
-    const items = this.warehouseItemsById.get(this.selectedWarehouseId);
-    if (!items) return;
-    this.warehouseGroups = [this.buildWarehouseGroup(this.selectedWarehouseId, items)];
-  }
-
-  private normalizePreviewItems(items: NeedsListItem[]): StockStatusItem[] {
-    return items.map(item => {
-      const parsedStockout = this.parseTimeToStockout(item.time_to_stockout);
-      const normalizedFreshness = this.normalizeFreshness(item.freshness);
-      const severity = item.severity ?? calculateSeverity(parsedStockout);
-
-      return {
-        ...item,
-        time_to_stockout_hours: item.time_to_stockout_hours ?? (parsedStockout ?? undefined),
-        severity,
-        freshness: normalizedFreshness ?? undefined
-      } as StockStatusItem;
-    });
-  }
-
-  private normalizeFreshness(
-    freshness: NeedsListItem['freshness']
-  ): StockStatusItem['freshness'] | null {
-    if (!freshness) return null;
-    const state = String(freshness.state).toUpperCase();
-    if (state !== 'HIGH' && state !== 'MEDIUM' && state !== 'LOW') {
-      return null;
-    }
-    return {
-      ...freshness,
-      state: state as FreshnessLevel
-    };
-  }
-
-  private parseTimeToStockout(value: number | string | undefined): number | null {
-    if (value === undefined || value === null || value === 'N/A') {
-      return null;
-    }
-    if (typeof value === 'number') {
-      return value;
-    }
-    const parsed = parseFloat(value);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-
   /**
-   * Apply category and severity filters to items
-   */
-  private applyFiltersToItems(items: StockStatusItem[]): StockStatusItem[] {
-    let filtered = [...items];
-
-    // Filter by category
-    if (this.selectedCategories.length > 0) {
-      filtered = filtered.filter(item =>
-        item.category && this.selectedCategories.includes(item.category)
-      );
-    }
-
-    // Filter by severity
-    if (this.selectedSeverities.length > 0) {
-      filtered = filtered.filter(item => {
-        const sev = item.severity ?? 'OK';
-        return this.selectedSeverities.includes(sev);
-      });
-    }
-
-    return filtered;
-  }
-
-  /**
-   * Reload data when filters change
+   * Reload data when filters change.
+   * The service caches enriched items, so filter changes are served locally
+   * (no API call) as long as the base data is still fresh.
    */
   onFiltersChanged(): void {
     this.saveFilterState();
     if (this.viewMode === 'multi') {
       this.loadMultiWarehouseStatus();
     } else {
-      this.refreshSingleWarehouseView();
+      this.loadSingleWarehouseStatus();
     }
+  }
+
+  /**
+   * Load single-warehouse view via the service.
+   * Uses the same cache as multi-warehouse if the base params match.
+   */
+  private loadSingleWarehouseStatus(): void {
+    if (!this.activeEvent || this.selectedWarehouseId == null) return;
+
+    const requestedWarehouseId = this.selectedWarehouseId;
+    const requestedEventId = this.activeEvent.event_id;
+    const requestToken = ++this.singleWarehouseRequestToken;
+
+    this.errors = [];
+    this.dataLoadedSuccessfully = false;
+    if (this.warehouseGroups.length > 0) {
+      this.refreshing = true;
+    } else {
+      this.loading = true;
+    }
+
+    this.dashboardDataService.getDashboardData(
+      requestedEventId,
+      this.allWarehouses.map(w => w.warehouse_id),
+      this.activeEvent.phase as EventPhase,
+      this.buildFilterOptions()
+    ).subscribe({
+      next: (data) => {
+        if (!this.shouldApplySingleWarehouseResult(requestToken, requestedWarehouseId, requestedEventId)) {
+          return;
+        }
+
+        // Filter to just the selected warehouse
+        this.warehouseGroups = data.groups.filter(
+          g => g.warehouse_id === requestedWarehouseId
+        );
+        this.warnings = data.warnings;
+        this.availableCategories = data.availableCategories;
+        this.dataFreshnessService.updateFromWarehouseGroups(this.warehouseGroups);
+        this.dataFreshnessService.refreshComplete();
+        this.dataLoadedSuccessfully = true;
+        this.errors = [];
+        this.loading = false;
+        this.refreshing = false;
+      },
+      error: (error) => {
+        if (!this.shouldApplySingleWarehouseResult(requestToken, requestedWarehouseId, requestedEventId)) {
+          return;
+        }
+
+        this.loading = false;
+        this.refreshing = false;
+        this.dataFreshnessService.refreshComplete();
+        this.dataLoadedSuccessfully = false;
+        const msg = error.message || 'Failed to load stock status.';
+        this.errors = [msg];
+        this.notificationService.showNetworkError(msg, () => this.retryCurrentView());
+      }
+    });
+  }
+
+  private shouldApplySingleWarehouseResult(
+    requestToken: number,
+    requestedWarehouseId: number,
+    requestedEventId: number
+  ): boolean {
+    return this.viewMode === 'single' &&
+      this.singleWarehouseRequestToken === requestToken &&
+      this.selectedWarehouseId === requestedWarehouseId &&
+      this.activeEvent?.event_id === requestedEventId;
+  }
+
+  private invalidateSingleWarehouseRequest(): void {
+    this.singleWarehouseRequestToken++;
+  }
+
+  retryCurrentView(): void {
+    if (this.viewMode === 'single') {
+      this.loadSingleWarehouseStatus();
+      return;
+    }
+    this.loadMultiWarehouseStatus();
   }
 
   /**
@@ -402,17 +355,17 @@ export class StockStatusDashboardComponent implements OnInit {
    * Drill down to single warehouse detail view
    */
   drillDownToWarehouse(warehouseId: number): void {
-    // Navigate to single warehouse view (could also be done with routing)
+    this.invalidateSingleWarehouseRequest();
     this.viewMode = 'single';
     this.selectedWarehouseId = warehouseId;
-
-    this.refreshSingleWarehouseView();
+    this.loadSingleWarehouseStatus();
   }
 
   /**
    * Return to multi-warehouse view
    */
   returnToMultiView(): void {
+    this.invalidateSingleWarehouseRequest();
     this.viewMode = 'multi';
     this.selectedWarehouseId = null;
     this.loadMultiWarehouseStatus();
@@ -438,6 +391,7 @@ export class StockStatusDashboardComponent implements OnInit {
         return;
       }
       this.activeEvent = { ...this.activeEvent, phase: newPhase };
+      this.dashboardDataService.invalidateCache();
       this.loadMultiWarehouseStatus();
     });
   }
@@ -691,46 +645,6 @@ export class StockStatusDashboardComponent implements OnInit {
 
   getEventName(): string {
     return this.activeEvent?.event_name ?? 'No Active Event';
-  }
-
-  private sortItems(items: StockStatusItem[]): StockStatusItem[] {
-    const severityOrder: Record<SeverityLevel, number> = {
-      CRITICAL: 0,
-      WARNING: 1,
-      WATCH: 2,
-      OK: 3
-    };
-
-    return [...items].sort((a, b) => {
-      let comparison = 0;
-
-      switch (this.sortBy) {
-        case 'time_to_stockout': {
-          const normalizeTime = (value: unknown): number => {
-            const numeric = typeof value === 'number' ? value : Number(value);
-            return Number.isFinite(numeric) ? numeric : Infinity;
-          };
-          const timeA = normalizeTime(a.time_to_stockout_hours ?? a.time_to_stockout);
-          const timeB = normalizeTime(b.time_to_stockout_hours ?? b.time_to_stockout);
-          comparison = timeA - timeB;
-          break;
-        }
-        case 'severity': {
-          const severityA = severityOrder[a.severity ?? 'OK'];
-          const severityB = severityOrder[b.severity ?? 'OK'];
-          comparison = severityA - severityB;
-          break;
-        }
-        case 'item_name': {
-          const nameA = (a.item_name || `Item ${a.item_id}`).toLowerCase();
-          const nameB = (b.item_name || `Item ${b.item_id}`).toLowerCase();
-          comparison = nameA.localeCompare(nameB);
-          break;
-        }
-      }
-
-      return this.sortDirection === 'asc' ? comparison : -comparison;
-    });
   }
 
   private saveFilterState(): void {
