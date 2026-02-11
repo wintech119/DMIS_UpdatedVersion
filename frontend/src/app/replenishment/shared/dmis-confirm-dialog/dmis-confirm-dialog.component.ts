@@ -1,5 +1,5 @@
-import { Component, Inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,7 +14,7 @@ export interface ConfirmDialogData {
 @Component({
   selector: 'dmis-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, MatIconModule, MatButtonModule],
+  imports: [MatDialogModule, MatIconModule, MatButtonModule],
   template: `
     <div class="confirm-dialog">
       <div class="confirm-dialog-header">
@@ -55,6 +55,6 @@ export interface ConfirmDialogData {
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class DmisConfirmDialogComponent {
-  constructor(@Inject(MAT_DIALOG_DATA) public data: ConfirmDialogData) {}
+export class DmisConfirmDialogComponent {  data = inject<ConfirmDialogData>(MAT_DIALOG_DATA);
+
 }

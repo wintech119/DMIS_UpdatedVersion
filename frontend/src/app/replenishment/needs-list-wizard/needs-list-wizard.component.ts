@@ -2,7 +2,7 @@ import { Component, OnInit, ViewChild, DestroyRef, inject } from '@angular/core'
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { MatStepperModule, MatStepper } from '@angular/material/stepper';
+import { MatStepperModule, MatStepper, StepperSelectionEvent } from '@angular/material/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -40,8 +40,6 @@ export class NeedsListWizardComponent implements OnInit {
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
 
-  constructor() {}
-
   ngOnInit(): void {
     // Load query params from dashboard navigation
     this.route.queryParams.pipe(
@@ -77,7 +75,7 @@ export class NeedsListWizardComponent implements OnInit {
     this.router.navigate(['/replenishment/dashboard']);
   }
 
-  onStepChange(event: any): void {
+  onStepChange(event: StepperSelectionEvent): void {
     // Track step changes for analytics
     console.log('Step changed:', event.selectedIndex);
   }

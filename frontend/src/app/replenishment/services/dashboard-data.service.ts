@@ -162,16 +162,31 @@ export class DashboardDataService {
       const freshness = this.normalizeFreshness(item.freshness);
       const severity = item.severity ?? calculateSeverity(parsedStockout);
       const { action, urgency } = getRecommendedAction(severity);
+      const stockStatusFields = item as Partial<StockStatusItem>;
 
       return {
-        ...item,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        item_code: stockStatusFields.item_code,
+        category: stockStatusFields.category,
+        warehouse_id: item.warehouse_id,
+        warehouse_name: item.warehouse_name,
+        available_qty: item.available_qty,
+        inbound_strict_qty: item.inbound_strict_qty,
+        burn_rate_per_hour: item.burn_rate_per_hour,
+        burn_rate_trend: stockStatusFields.burn_rate_trend,
+        time_to_stockout: item.time_to_stockout,
         time_to_stockout_hours: item.time_to_stockout_hours ?? (parsedStockout ?? undefined),
+        required_qty: item.required_qty,
+        gap_qty: item.gap_qty,
         severity,
+        confidence: item.confidence,
         freshness: freshness ?? undefined,
+        warnings: item.warnings,
         is_estimated: (item.warnings ?? []).includes('burn_rate_estimated'),
         recommended_action: action,
         action_urgency: urgency
-      } as DashboardStockItem;
+      };
     });
   }
 

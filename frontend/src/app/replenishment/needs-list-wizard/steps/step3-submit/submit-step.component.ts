@@ -57,6 +57,9 @@ interface WarehouseBreakdown {
   styleUrl: './submit-step.component.scss'
 })
 export class SubmitStepComponent implements OnInit {
+  private fb = inject(FormBuilder);
+  private wizardService = inject(WizardStateService);
+
   @Output() back = new EventEmitter<void>();
   @Output() complete = new EventEmitter<void>();
 
@@ -100,10 +103,7 @@ export class SubmitStepComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private notificationService = inject(DmisNotificationService);
 
-  constructor(
-    private fb: FormBuilder,
-    private wizardService: WizardStateService
-  ) {
+  constructor() {
     this.notesForm = this.fb.group({
       notes: ['']
     });

@@ -1,7 +1,7 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -51,6 +51,9 @@ interface PreviewItem extends NeedsListItem {
   styleUrl: './preview-step.component.scss'
 })
 export class PreviewStepComponent implements OnInit {
+  private fb = inject(FormBuilder);
+  private wizardService = inject(WizardStateService);
+
   @Output() back = new EventEmitter<void>();
   @Output() next = new EventEmitter<void>();
 
@@ -74,11 +77,6 @@ export class PreviewStepComponent implements OnInit {
   ];
 
   adjustmentReasonOptions = Object.entries(ADJUSTMENT_REASON_LABELS).map(([key, label]) => ({ key, label }));
-
-  constructor(
-    private fb: FormBuilder,
-    private wizardService: WizardStateService
-  ) {}
 
   ngOnInit(): void {
     this.wizardService.getState$().pipe(

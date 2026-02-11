@@ -4,7 +4,7 @@
   [matTooltip]="getTooltip()"
   matTooltipPosition="above"
   [attr.aria-label]="getDisplayText() + '. ' + getActionLabel()"
->
+  >
   <!-- Main Display -->
   <div class="stockout-main">
     <!-- Action Icon -->
@@ -13,26 +13,30 @@
       [ngClass]="{'pulse-animation': shouldPulse()}"
       inline="true"
       aria-hidden="true"
-    >
+      >
       {{ getActionIcon() }}
     </mat-icon>
 
     <!-- Countdown Text -->
     <div class="stockout-text" [ngClass]="{'pulse-text': shouldPulse()}">
       <span class="countdown">{{ getDisplayText() }}</span>
-      <span class="urgency-badge" *ngIf="getUrgencyBadge() as badge">
-        {{ badge }}
-      </span>
+      @if (getUrgencyBadge(); as badge) {
+        <span class="urgency-badge">
+          {{ badge }}
+        </span>
+      }
     </div>
   </div>
 
   <!-- Progress Bar -->
-  <div class="progress-container" *ngIf="data.hasBurnRate">
-    <mat-progress-bar
-      mode="determinate"
-      [value]="getProgressValue()"
-      [ngClass]="getProgressColorClass()"
-      [attr.aria-label]="'Stock level: ' + getProgressValue() + '% remaining'"
-    ></mat-progress-bar>
-  </div>
+  @if (data.hasBurnRate) {
+    <div class="progress-container">
+      <mat-progress-bar
+        mode="determinate"
+        [value]="getProgressValue()"
+        [ngClass]="getProgressColorClass()"
+        [attr.aria-label]="'Stock level: ' + getProgressValue() + '% remaining'"
+      ></mat-progress-bar>
+    </div>
+  }
 </div>
