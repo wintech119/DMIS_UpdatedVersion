@@ -24,7 +24,9 @@
       <mat-form-field appearance="outline">
         <mat-label>Phase</mat-label>
         <mat-select formControlName="phase">
-          <mat-option *ngFor="let phase of phaseOptions" [value]="phase">{{ phase }}</mat-option>
+          @for (phase of phaseOptions; track phase) {
+            <mat-option [value]="phase">{{ phase }}</mat-option>
+          }
         </mat-select>
       </mat-form-field>
 
@@ -43,7 +45,7 @@
           type="button"
           [disabled]="loading || !can('replenishment.needs_list.create_draft')"
           (click)="createDraft()"
-        >
+          >
           Create Draft
         </button>
       </div>
@@ -60,428 +62,483 @@
         type="button"
         [disabled]="loading"
         (click)="loadDraftById()"
-      >
+        >
         Load Draft
       </button>
     </div>
 
-    <mat-progress-bar *ngIf="loading" mode="indeterminate"></mat-progress-bar>
+    @if (loading) {
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+    }
 
-    <div class="errors" *ngIf="errors.length">
-      <div class="error-title">Request errors</div>
-      <div class="error-item" *ngFor="let err of errors">{{ err }}</div>
-    </div>
+    @if (errors.length) {
+      <div class="errors">
+        <div class="error-title">Request errors</div>
+        @for (err of errors; track err) {
+          <div class="error-item">{{ err }}</div>
+        }
+      </div>
+    }
 
-    <div class="errors" *ngIf="workflowErrors.length">
-      <div class="error-title">Workflow errors</div>
-      <div class="error-item" *ngFor="let err of workflowErrors">{{ err }}</div>
-    </div>
+    @if (workflowErrors.length) {
+      <div class="errors">
+        <div class="error-title">Workflow errors</div>
+        @for (err of workflowErrors; track err) {
+          <div class="error-item">{{ err }}</div>
+        }
+      </div>
+    }
 
-    <div class="data-note" *ngIf="dataNotes().length">
-      <div class="note-title">Data note</div>
-      <div class="note-item" *ngFor="let note of dataNotes()">{{ note }}</div>
-    </div>
+    @if (dataNotes().length) {
+      <div class="data-note">
+        <div class="note-title">Data note</div>
+        @for (note of dataNotes(); track note) {
+          <div class="note-item">{{ note }}</div>
+        }
+      </div>
+    }
   </mat-card>
 
-  <mat-card class="panel" *ngIf="response as draft">
-    <div class="summary-grid">
-      <div>
-        <div class="summary-label">As of</div>
-        <div class="summary-value">{{ draft.as_of_datetime }}</div>
-      </div>
-      <div>
-        <div class="summary-label">Planning window (days)</div>
-        <div class="summary-value">{{ draft.planning_window_days }}</div>
-      </div>
-      <div>
-        <div class="summary-label">Event / Warehouse</div>
-        <div class="summary-value">
-          {{ draft.event_id }} / {{ warehouseSummary(draft) }}
+  @if (response; as draft) {
+    <mat-card class="panel">
+      <div class="summary-grid">
+        <div>
+          <div class="summary-label">As of</div>
+          <div class="summary-value">{{ draft.as_of_datetime }}</div>
         </div>
-      </div>
-      <div>
-        <div class="summary-label">Phase</div>
-        <div class="summary-value">{{ draft.phase }}</div>
-      </div>
-    </div>
-
-    <!-- Approval Status Tracker -->
-    <dmis-approval-status-tracker
-      *ngIf="draft.needs_list_id"
-      [needsList]="response"
-      [horizon]="approvalHorizon"
-      (sendReminder)="onSendReminder()">
-    </dmis-approval-status-tracker>
-  </mat-card>
-
-  <mat-card class="panel workflow" *ngIf="response as draft">
-    <ng-container *ngIf="draft.needs_list_id">
-    <div class="workflow-header">
-      <div>
-        <h2>Needs List Workflow</h2>
-        <p>Drafts are stored locally for dev-only workflow testing.</p>
-      </div>
-      <div class="status-pill" [ngClass]="'status-' + statusValue().toLowerCase()">
-        {{ statusValue() }}
-      </div>
-    </div>
-    <div class="workflow-actions">
-      <button
-        mat-flat-button
-        color="primary"
-        type="button"
-        [disabled]="!isDraftEditable() || !can('replenishment.needs_list.submit')"
-        (click)="submitDraft()"
-      >
-        Submit
-      </button>
-    </div>
-    <div
-      class="review-panel"
-      *ngIf="
-        can('replenishment.needs_list.review_start') ||
-        can('replenishment.needs_list.return') ||
-        can('replenishment.needs_list.reject') ||
-        can('replenishment.needs_list.approve') ||
-        can('replenishment.needs_list.escalate')
-      "
-    >
-      <div class="section-label">Review Panel</div>
-      <div class="approval-summary" *ngIf="response?.approval_summary as summary">
-        <div class="approval-row">
-          <span class="approval-label">Total required</span>
-          <span>{{ summary.total_required_qty | number : '1.0-2' }}</span>
+        <div>
+          <div class="summary-label">Planning window (days)</div>
+          <div class="summary-value">{{ draft.planning_window_days }}</div>
         </div>
-        <div class="approval-row">
-          <span class="approval-label">Est. cost (JMD)</span>
-          <span>
-            {{ summary.total_estimated_cost === null ? 'N/A' : (summary.total_estimated_cost | number : '1.0-2') }}
-          </span>
-        </div>
-        <div class="approval-row" *ngIf="summary.approval">
-          <span class="approval-label">Tier</span>
-          <span>{{ summary.approval.tier }}</span>
-        </div>
-        <div class="approval-row" *ngIf="summary.approval">
-          <span class="approval-label">Approver</span>
-          <span>{{ summary.approval.approver_role }}</span>
-        </div>
-        <div class="approval-row" *ngIf="summary.approval">
-          <span class="approval-label">Methods</span>
-          <span>{{ summary.approval.methods_allowed.join(', ') }}</span>
-        </div>
-        <div class="approval-row" *ngIf="summary.rationale">
-          <span class="approval-label">Rationale</span>
-          <span>{{ summary.rationale }}</span>
-        </div>
-        <div class="approval-row" *ngIf="summary.escalation_required">
-          <span class="approval-label">Escalation</span>
-          <span>Required by Appendix C authority rules</span>
-        </div>
-        <div class="approval-warnings" *ngIf="approvalWarnings().length">
-          <div class="approval-warning" *ngFor="let warn of approvalWarnings()">
-            {{ warningLabel(warn) }}
+        <div>
+          <div class="summary-label">Event / Warehouse</div>
+          <div class="summary-value">
+            {{ draft.event_id }} / {{ warehouseSummary(draft) }}
           </div>
         </div>
+        <div>
+          <div class="summary-label">Phase</div>
+          <div class="summary-value">{{ draft.phase }}</div>
+        </div>
       </div>
-      <div class="workflow-actions">
-        <button
-          mat-stroked-button
-          color="primary"
-          type="button"
-          [disabled]="!isStatus('SUBMITTED') || !can('replenishment.needs_list.review_start')"
-          (click)="startReview()"
-        >
-          Start Review
-        </button>
-        <button
-          mat-stroked-button
-          type="button"
-          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.return')"
-          (click)="returnDraft()"
-        >
-          Return
-        </button>
-        <button
-          mat-stroked-button
-          color="warn"
-          type="button"
-          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.reject')"
-          (click)="rejectDraft()"
-        >
-          Reject
-        </button>
-        <button
-          mat-flat-button
-          color="primary"
-          type="button"
-          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.approve')"
-          (click)="approveDraft()"
-        >
-          Approve
-        </button>
-        <button
-          mat-stroked-button
-          type="button"
-          [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.escalate')"
-          (click)="escalateDraft()"
-        >
-          Escalate
-        </button>
-      </div>
-      <div class="status-hint" *ngIf="!isStatus('SUBMITTED')">
-        Start Review is available only when status is SUBMITTED.
-      </div>
-      <div
-        class="review-panel execution-panel"
-        *ngIf="canExecute() || canCancel()"
-      >
-        <div class="section-label">Execution</div>
+      <!-- Approval Status Tracker -->
+      @if (draft.needs_list_id) {
+        <dmis-approval-status-tracker
+          [needsList]="response"
+          [horizon]="approvalHorizon"
+          (sendReminder)="onSendReminder()">
+        </dmis-approval-status-tracker>
+      }
+    </mat-card>
+  }
+
+  @if (response; as draft) {
+    <mat-card class="panel workflow">
+      @if (draft.needs_list_id) {
+        <div class="workflow-header">
+          <div>
+            <h2>Needs List Workflow</h2>
+            <p>Drafts are stored locally for dev-only workflow testing.</p>
+          </div>
+          <div class="status-pill" [ngClass]="'status-' + statusValue().toLowerCase()">
+            {{ statusValue() }}
+          </div>
+        </div>
         <div class="workflow-actions">
           <button
-            mat-stroked-button
+            mat-flat-button
             color="primary"
             type="button"
-            [disabled]="!isStatus('APPROVED') || !canExecute()"
-            (click)="startPreparation()"
-          >
-            Start Preparation
-          </button>
-          <button
-            mat-stroked-button
-            type="button"
-            [disabled]="!isStatus('IN_PREPARATION') || !canExecute()"
-            (click)="markDispatched()"
-          >
-            Mark Dispatched
-          </button>
-          <button
-            mat-stroked-button
-            type="button"
-            [disabled]="!isStatus('DISPATCHED') || !canExecute()"
-            (click)="markReceived()"
-          >
-            Mark Received
-          </button>
-          <button
-            mat-stroked-button
-            color="primary"
-            type="button"
-            [disabled]="!isStatus('RECEIVED') || !canExecute()"
-            (click)="markCompleted()"
-          >
-            Mark Completed
-          </button>
-          <button
-            mat-stroked-button
-            color="warn"
-            type="button"
-            [disabled]="!canCancel() || !(isStatus('APPROVED') || isStatus('IN_PREPARATION'))"
-            (click)="cancelExecution()"
-          >
-            Cancel
+            [disabled]="!isDraftEditable() || !can('replenishment.needs_list.submit')"
+            (click)="submitDraft()"
+            >
+            Submit
           </button>
         </div>
-      </div>
-    </div>
-    </ng-container>
-  </mat-card>
-
-  <mat-card class="panel" *ngIf="response">
-    <h2>Preview Results</h2>
-    <div class="table-wrapper">
-      <table mat-table [dataSource]="items" class="preview-table">
-        <ng-container matColumnDef="item">
-          <th mat-header-cell *matHeaderCellDef>Item</th>
-          <td mat-cell *matCellDef="let item">{{ item.item_id }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="available">
-          <th mat-header-cell *matHeaderCellDef>Available</th>
-          <td mat-cell *matCellDef="let item">{{ item.available_qty | number : '1.0-2' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="inbound">
-          <th mat-header-cell *matHeaderCellDef>Inbound (Strict)</th>
-          <td mat-cell *matCellDef="let item">
-            {{ item.inbound_strict_qty | number : '1.0-2' }}
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="burn">
-          <th mat-header-cell *matHeaderCellDef>Burn Rate / hr</th>
-          <td mat-cell *matCellDef="let item">
-            {{ item.burn_rate_per_hour | number : '1.0-4' }}
-            <mat-chip class="chip chip-estimated" *ngIf="isEstimated(item)">Estimated</mat-chip>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="required">
-          <th mat-header-cell *matHeaderCellDef>
-            {{ isDraftEditable() && canEditLines() ? 'Override Qty' : 'Required Qty' }}
-          </th>
-          <td mat-cell *matCellDef="let item">
-            <div *ngIf="isDraftEditable() && canEditLines()" class="qty-stack">
-              <div class="qty-line">
-                <span class="qty-label">Recommended</span>
-                <span>{{ recommendedQty(item) | number : '1.0-2' }}</span>
-              </div>
-              <div class="qty-line">
-                <span class="qty-label">Override</span>
-                <input
-                  matInput
-                  type="number"
-                  class="qty-input"
-                  [value]="overrideQty(item) ?? item.required_qty"
-                  (input)="updateOverrideQty(item, $any($event.target).value)"
-                />
-              </div>
-              <div class="qty-line">
-                <span class="qty-label">Reason</span>
-                <input
-                  matInput
-                  type="text"
-                  class="qty-input"
-                  [value]="overrideReason(item)"
-                  (input)="updateOverrideReason(item, $any($event.target).value)"
-                />
-              </div>
-              <button
-                mat-stroked-button
-                color="primary"
-                type="button"
-                class="override-action"
-                (click)="applyOverride(item)"
-              >
-                Apply
-              </button>
-            </div>
-            <div *ngIf="!isDraftEditable() || !canEditLines()">
-              {{ requiredQty(item) | number : '1.0-2' }}
-            </div>
-            <div
-              class="review-comment"
-              *ngIf="canReviewComments() && isStatus('UNDER_REVIEW')"
+        @if (
+          can('replenishment.needs_list.review_start') ||
+          can('replenishment.needs_list.return') ||
+          can('replenishment.needs_list.reject') ||
+          can('replenishment.needs_list.approve') ||
+          can('replenishment.needs_list.escalate')
+          ) {
+          <div
+            class="review-panel"
             >
-              <span class="qty-label">Review Comment</span>
-              <input
-                matInput
-                type="text"
-                class="qty-input"
-                [value]="(reviewEdits[item.item_id] && reviewEdits[item.item_id].comment) || item.review_comment || ''"
-                (input)="updateReviewComment(item, $any($event.target).value)"
-              />
+            <div class="section-label">Review Panel</div>
+            @if (response?.approval_summary; as summary) {
+              <div class="approval-summary">
+                <div class="approval-row">
+                  <span class="approval-label">Total required</span>
+                  <span>{{ summary.total_required_qty | number : '1.0-2' }}</span>
+                </div>
+                <div class="approval-row">
+                  <span class="approval-label">Est. cost (JMD)</span>
+                  <span>
+                    {{ summary.total_estimated_cost === null ? 'N/A' : (summary.total_estimated_cost | number : '1.0-2') }}
+                  </span>
+                </div>
+                @if (summary.approval) {
+                  <div class="approval-row">
+                    <span class="approval-label">Tier</span>
+                    <span>{{ summary.approval.tier }}</span>
+                  </div>
+                }
+                @if (summary.approval) {
+                  <div class="approval-row">
+                    <span class="approval-label">Approver</span>
+                    <span>{{ summary.approval.approver_role }}</span>
+                  </div>
+                }
+                @if (summary.approval) {
+                  <div class="approval-row">
+                    <span class="approval-label">Methods</span>
+                    <span>{{ summary.approval.methods_allowed.join(', ') }}</span>
+                  </div>
+                }
+                @if (summary.rationale) {
+                  <div class="approval-row">
+                    <span class="approval-label">Rationale</span>
+                    <span>{{ summary.rationale }}</span>
+                  </div>
+                }
+                @if (summary.escalation_required) {
+                  <div class="approval-row">
+                    <span class="approval-label">Escalation</span>
+                    <span>Required by Appendix C authority rules</span>
+                  </div>
+                }
+                @if (approvalWarnings().length) {
+                  <div class="approval-warnings">
+                    @for (warn of approvalWarnings(); track warn) {
+                      <div class="approval-warning">
+                        {{ warningLabel(warn) }}
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+            <div class="workflow-actions">
               <button
                 mat-stroked-button
                 color="primary"
                 type="button"
-                class="override-action"
-                (click)="applyReviewComment(item)"
-              >
-                Save Comment
+                [disabled]="!isStatus('SUBMITTED') || !can('replenishment.needs_list.review_start')"
+                (click)="startReview()"
+                >
+                Start Review
+              </button>
+              <button
+                mat-stroked-button
+                type="button"
+                [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.return')"
+                (click)="returnDraft()"
+                >
+                Return
+              </button>
+              <button
+                mat-stroked-button
+                color="warn"
+                type="button"
+                [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.reject')"
+                (click)="rejectDraft()"
+                >
+                Reject
+              </button>
+              <button
+                mat-flat-button
+                color="primary"
+                type="button"
+                [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.approve')"
+                (click)="approveDraft()"
+                >
+                Approve
+              </button>
+              <button
+                mat-stroked-button
+                type="button"
+                [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.escalate')"
+                (click)="escalateDraft()"
+                >
+                Escalate
               </button>
             </div>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="gap">
-          <th mat-header-cell *matHeaderCellDef>Gap Qty</th>
-          <td mat-cell *matCellDef="let item">{{ item.gap_qty | number : '1.0-2' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="stockout">
-          <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
-          <td mat-cell *matCellDef="let item">{{ timeToStockout(item) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="horizonA">
-          <th mat-header-cell *matHeaderCellDef>Horizon A</th>
-          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.A) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="horizonB">
-          <th mat-header-cell *matHeaderCellDef>Horizon B</th>
-          <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.B) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="horizonC">
-          <th mat-header-cell *matHeaderCellDef>Horizon C</th>
-          <td mat-cell *matCellDef="let item">
-            {{ horizonValue(item.horizon?.C) }}
-            <div class="procurement-block" *ngIf="item.procurement">
-              <div class="procurement-title">Procurement (GOJEP)</div>
-              <div class="procurement-row">
-                <span class="procurement-label">Status</span>
-                <span>{{ item.procurement_status || 'RECOMMENDED' }}</span>
+            @if (!isStatus('SUBMITTED')) {
+              <div class="status-hint">
+                Start Review is available only when status is SUBMITTED.
               </div>
-              <div class="procurement-row" *ngIf="item.procurement?.approval">
-                <span class="procurement-label">Approver</span>
-                <span>{{ item.procurement?.approval?.approver_role }}</span>
+            }
+            @if (canExecute() || canCancel()) {
+              <div
+                class="review-panel execution-panel"
+                >
+                <div class="section-label">Execution</div>
+                <div class="workflow-actions">
+                  <button
+                    mat-stroked-button
+                    color="primary"
+                    type="button"
+                    [disabled]="!isStatus('APPROVED') || !canExecute()"
+                    (click)="startPreparation()"
+                    >
+                    Start Preparation
+                  </button>
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    [disabled]="!isStatus('IN_PREPARATION') || !canExecute()"
+                    (click)="markDispatched()"
+                    >
+                    Mark Dispatched
+                  </button>
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    [disabled]="!isStatus('DISPATCHED') || !canExecute()"
+                    (click)="markReceived()"
+                    >
+                    Mark Received
+                  </button>
+                  <button
+                    mat-stroked-button
+                    color="primary"
+                    type="button"
+                    [disabled]="!isStatus('RECEIVED') || !canExecute()"
+                    (click)="markCompleted()"
+                    >
+                    Mark Completed
+                  </button>
+                  <button
+                    mat-stroked-button
+                    color="warn"
+                    type="button"
+                    [disabled]="!canCancel() || !(isStatus('APPROVED') || isStatus('IN_PREPARATION'))"
+                    (click)="cancelExecution()"
+                    >
+                    Cancel
+                  </button>
+                </div>
               </div>
-              <div class="procurement-row" *ngIf="item.procurement?.approval">
-                <span class="procurement-label">Methods</span>
-                <span>{{ item.procurement?.approval?.methods_allowed?.join(', ') }}</span>
+            }
+          </div>
+        }
+      }
+    </mat-card>
+  }
+
+  @if (response) {
+    <mat-card class="panel">
+      <h2>Preview Results</h2>
+      <div class="table-wrapper">
+        <table mat-table [dataSource]="items" class="preview-table">
+          <ng-container matColumnDef="item">
+            <th mat-header-cell *matHeaderCellDef>Item</th>
+            <td mat-cell *matCellDef="let item">{{ item.item_id }}</td>
+          </ng-container>
+          <ng-container matColumnDef="available">
+            <th mat-header-cell *matHeaderCellDef>Available</th>
+            <td mat-cell *matCellDef="let item">{{ item.available_qty | number : '1.0-2' }}</td>
+          </ng-container>
+          <ng-container matColumnDef="inbound">
+            <th mat-header-cell *matHeaderCellDef>Inbound (Strict)</th>
+            <td mat-cell *matCellDef="let item">
+              {{ item.inbound_strict_qty | number : '1.0-2' }}
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="burn">
+            <th mat-header-cell *matHeaderCellDef>Burn Rate / hr</th>
+            <td mat-cell *matCellDef="let item">
+              {{ item.burn_rate_per_hour | number : '1.0-4' }}
+              @if (isEstimated(item)) {
+                <mat-chip class="chip chip-estimated">Estimated</mat-chip>
+              }
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="required">
+            <th mat-header-cell *matHeaderCellDef>
+              {{ isDraftEditable() && canEditLines() ? 'Override Qty' : 'Required Qty' }}
+            </th>
+            <td mat-cell *matCellDef="let item">
+              @if (isDraftEditable() && canEditLines()) {
+                <div class="qty-stack">
+                  <div class="qty-line">
+                    <span class="qty-label">Recommended</span>
+                    <span>{{ recommendedQty(item) | number : '1.0-2' }}</span>
+                  </div>
+                  <div class="qty-line">
+                    <span class="qty-label">Override</span>
+                    <input
+                      matInput
+                      type="number"
+                      class="qty-input"
+                      [value]="overrideQty(item) ?? item.required_qty"
+                      (input)="updateOverrideQty(item, $any($event.target).value)"
+                      />
+                  </div>
+                  <div class="qty-line">
+                    <span class="qty-label">Reason</span>
+                    <input
+                      matInput
+                      type="text"
+                      class="qty-input"
+                      [value]="overrideReason(item)"
+                      (input)="updateOverrideReason(item, $any($event.target).value)"
+                      />
+                  </div>
+                  <button
+                    mat-stroked-button
+                    color="primary"
+                    type="button"
+                    class="override-action"
+                    (click)="applyOverride(item)"
+                    >
+                    Apply
+                  </button>
+                </div>
+              }
+              @if (!isDraftEditable() || !canEditLines()) {
+                <div>
+                  {{ requiredQty(item) | number : '1.0-2' }}
+                </div>
+              }
+              @if (canReviewComments() && isStatus('UNDER_REVIEW')) {
+                <div
+                  class="review-comment"
+                  >
+                  <span class="qty-label">Review Comment</span>
+                  <input
+                    matInput
+                    type="text"
+                    class="qty-input"
+                    [value]="(reviewEdits[item.item_id] && reviewEdits[item.item_id].comment) || item.review_comment || ''"
+                    (input)="updateReviewComment(item, $any($event.target).value)"
+                    />
+                  <button
+                    mat-stroked-button
+                    color="primary"
+                    type="button"
+                    class="override-action"
+                    (click)="applyReviewComment(item)"
+                    >
+                    Save Comment
+                  </button>
+                </div>
+              }
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="gap">
+            <th mat-header-cell *matHeaderCellDef>Gap Qty</th>
+            <td mat-cell *matCellDef="let item">{{ item.gap_qty | number : '1.0-2' }}</td>
+          </ng-container>
+          <ng-container matColumnDef="stockout">
+            <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
+            <td mat-cell *matCellDef="let item">{{ timeToStockout(item) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="horizonA">
+            <th mat-header-cell *matHeaderCellDef>Horizon A</th>
+            <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.A) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="horizonB">
+            <th mat-header-cell *matHeaderCellDef>Horizon B</th>
+            <td mat-cell *matCellDef="let item">{{ horizonValue(item.horizon?.B) }}</td>
+          </ng-container>
+          <ng-container matColumnDef="horizonC">
+            <th mat-header-cell *matHeaderCellDef>Horizon C</th>
+            <td mat-cell *matCellDef="let item">
+              {{ horizonValue(item.horizon?.C) }}
+              @if (item.procurement) {
+                <div class="procurement-block">
+                  <div class="procurement-title">Procurement (GOJEP)</div>
+                  <div class="procurement-row">
+                    <span class="procurement-label">Status</span>
+                    <span>{{ item.procurement_status || 'RECOMMENDED' }}</span>
+                  </div>
+                  @if (item.procurement?.approval) {
+                    <div class="procurement-row">
+                      <span class="procurement-label">Approver</span>
+                      <span>{{ item.procurement?.approval?.approver_role }}</span>
+                    </div>
+                  }
+                  @if (item.procurement?.approval) {
+                    <div class="procurement-row">
+                      <span class="procurement-label">Methods</span>
+                      <span>{{ item.procurement?.approval?.methods_allowed?.join(', ') }}</span>
+                    </div>
+                  }
+                  <div class="procurement-row">
+                    <span class="procurement-label">Lead time</span>
+                    <span>{{ item.procurement?.lead_time_hours_default }}h</span>
+                  </div>
+                  @if (item.procurement?.gojep_note) {
+                    <div class="procurement-note">
+                      {{ item.procurement?.gojep_note?.label }} ({{ item.procurement?.gojep_note?.url }})
+                    </div>
+                  }
+                </div>
+              }
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="confidence">
+            <th mat-header-cell *matHeaderCellDef>Confidence</th>
+            <td mat-cell *matCellDef="let item">
+              <mat-chip class="chip" [ngClass]="'chip-' + confidenceLevel(item)">
+                {{ confidenceLevel(item) }}
+              </mat-chip>
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="freshness">
+            <th mat-header-cell *matHeaderCellDef>Freshness</th>
+            <td mat-cell *matCellDef="let item">
+              <mat-chip class="chip" [ngClass]="'chip-' + freshnessState(item)">
+                {{ freshnessLabel(item) }}
+              </mat-chip>
+            </td>
+          </ng-container>
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
+      </div>
+    </mat-card>
+  }
+
+  @if (response) {
+    <mat-card class="panel warnings">
+      <h2>Warnings</h2>
+      @if (topWarnings.length) {
+        <div class="warnings-section">
+          <div class="section-label">Top-level warnings</div>
+          <div class="warnings-summary" role="status" aria-live="polite">
+            @for (warn of topWarnings; track warn) {
+              <div class="warning-item">
+                <span class="warning-icon" aria-hidden="true">!</span>
+                <div class="warning-text">
+                  <div class="warning-title">{{ warningLabel(warn) }}</div>
+                  <div class="warning-code">Code: {{ warn }}</div>
+                </div>
               </div>
-              <div class="procurement-row">
-                <span class="procurement-label">Lead time</span>
-                <span>{{ item.procurement?.lead_time_hours_default }}h</span>
-              </div>
-              <div class="procurement-note" *ngIf="item.procurement?.gojep_note">
-                {{ item.procurement?.gojep_note?.label }} ({{ item.procurement?.gojep_note?.url }})
-              </div>
-            </div>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="confidence">
-          <th mat-header-cell *matHeaderCellDef>Confidence</th>
-          <td mat-cell *matCellDef="let item">
-            <mat-chip class="chip" [ngClass]="'chip-' + confidenceLevel(item)">
-              {{ confidenceLevel(item) }}
-            </mat-chip>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="freshness">
-          <th mat-header-cell *matHeaderCellDef>Freshness</th>
-          <td mat-cell *matCellDef="let item">
-            <mat-chip class="chip" [ngClass]="'chip-' + freshnessState(item)">
-              {{ freshnessLabel(item) }}
-            </mat-chip>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
-      </table>
-    </div>
-  </mat-card>
-
-  <mat-card class="panel warnings" *ngIf="response">
-    <h2>Warnings</h2>
-    <div class="warnings-section" *ngIf="topWarnings.length">
-      <div class="section-label">Top-level warnings</div>
-      <div class="warnings-summary" role="status" aria-live="polite">
-        <div class="warning-item" *ngFor="let warn of topWarnings">
-          <span class="warning-icon" aria-hidden="true">!</span>
-          <div class="warning-text">
-            <div class="warning-title">{{ warningLabel(warn) }}</div>
-            <div class="warning-code">Code: {{ warn }}</div>
+            }
           </div>
         </div>
-      </div>
-    </div>
-
-    <mat-divider *ngIf="topWarnings.length && perItemWarnings.length"></mat-divider>
-
-    <div class="warnings-section" *ngIf="perItemWarnings.length">
-      <div class="section-label">Per-item warnings</div>
-      <details class="item-warning" *ngFor="let entry of perItemWarnings">
-        <summary class="item-label">Item {{ entry.item_id }}</summary>
-        <mat-chip-listbox>
-          <mat-chip-option *ngFor="let warn of entry.warnings">{{ warn }}</mat-chip-option>
-        </mat-chip-listbox>
-      </details>
-    </div>
-  </mat-card>
+      }
+      @if (topWarnings.length && perItemWarnings.length) {
+        <mat-divider></mat-divider>
+      }
+      @if (perItemWarnings.length) {
+        <div class="warnings-section">
+          <div class="section-label">Per-item warnings</div>
+          @for (entry of perItemWarnings; track entry) {
+            <details class="item-warning">
+              <summary class="item-label">Item {{ entry.item_id }}</summary>
+              <mat-chip-listbox>
+                @for (warn of entry.warnings; track warn) {
+                  <mat-chip-option>{{ warn }}</mat-chip-option>
+                }
+              </mat-chip-listbox>
+            </details>
+          }
+        </div>
+      }
+    </mat-card>
+  }
 </section>

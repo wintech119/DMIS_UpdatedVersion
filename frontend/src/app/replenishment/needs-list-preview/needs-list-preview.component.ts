@@ -19,7 +19,9 @@ import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-stat
 import { HorizonType } from '../models/approval-workflows.model';
 import { NeedsListResponse } from '../models/needs-list.model';
 
-type HorizonBlock = { recommended_qty: number | null };
+interface HorizonBlock {
+  recommended_qty: number | null;
+}
 
 interface NeedsListItem {
   item_id: number;
@@ -77,6 +79,11 @@ interface NeedsListItem {
   styleUrl: './needs-list-preview.component.scss'
 })
 export class NeedsListPreviewComponent implements OnInit, OnDestroy {
+  private readonly fb = inject(FormBuilder);
+  private readonly http = inject(HttpClient);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
   readonly phaseOptions = ['SURGE', 'STABILIZED', 'BASELINE'] as const;
 
   readonly form: FormGroup;
@@ -135,12 +142,7 @@ export class NeedsListPreviewComponent implements OnInit, OnDestroy {
     'freshness'
   ];
 
-  constructor(
-    private readonly fb: FormBuilder,
-    private readonly http: HttpClient,
-    private readonly route: ActivatedRoute,
-    private readonly router: Router
-  ) {
+  constructor() {
     this.form = this.fb.group({
       event_id: [null, [Validators.required, Validators.min(1)]],
       warehouse_id: [null, [Validators.required, Validators.min(1)]],

@@ -1,4 +1,4 @@
-import { EventPhase, SeverityLevel, FreshnessLevel } from '../models/stock-status.model';
+import { EventPhase, SeverityLevel } from '../models/stock-status.model';
 
 export interface NeedsListItem {
   item_id: number;

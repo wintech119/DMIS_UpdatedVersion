@@ -65,6 +65,10 @@ interface FilterState {
   styleUrl: './stock-status-dashboard.component.scss'
 })
 export class StockStatusDashboardComponent implements OnInit {
+  private replenishmentService = inject(ReplenishmentService);
+  private router = inject(Router);
+  private dialog = inject(MatDialog);
+
   private destroyRef = inject(DestroyRef);
   private dataFreshnessService = inject(DataFreshnessService);
   private dashboardDataService = inject(DashboardDataService);
@@ -111,12 +115,6 @@ export class StockStatusDashboardComponent implements OnInit {
     'gap',
     'freshness'
   ];
-
-  constructor(
-    private replenishmentService: ReplenishmentService,
-    private router: Router,
-    private dialog: MatDialog
-  ) {}
 
   ngOnInit(): void {
     this.loadFilterState();
