@@ -254,10 +254,10 @@ export class DashboardDataService {
         warehouse_name: name,
         items: sorted,
         all_items: warehouseAllItems,
-        critical_count: sorted.filter(i => i.severity === 'CRITICAL').length,
-        warning_count: sorted.filter(i => i.severity === 'WARNING').length,
-        watch_count: sorted.filter(i => i.severity === 'WATCH').length,
-        ok_count: sorted.filter(i => i.severity === 'OK').length,
+        critical_count: warehouseAllItems.filter(i => i.severity === 'CRITICAL').length,
+        warning_count: warehouseAllItems.filter(i => i.severity === 'WARNING').length,
+        watch_count: warehouseAllItems.filter(i => i.severity === 'WATCH').length,
+        ok_count: warehouseAllItems.filter(i => i.severity === 'OK').length,
         overall_freshness: overallFreshness
       });
     }
