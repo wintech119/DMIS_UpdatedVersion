@@ -25,10 +25,10 @@ export interface ConfirmDialogData {
         <p class="confirm-dialog-message">{{ data.message }}</p>
       </mat-dialog-content>
       <mat-dialog-actions align="end">
-        <button mat-stroked-button [mat-dialog-close]="false">
+        <button matButton="outlined" [mat-dialog-close]="false">
           {{ data.cancelLabel || 'Cancel' }}
         </button>
-        <button mat-flat-button class="confirm-action-btn" [mat-dialog-close]="true" cdkFocusInitial>
+        <button matButton="filled" class="confirm-action-btn" [mat-dialog-close]="true" cdkFocusInitial>
           <mat-icon aria-hidden="true">check_circle</mat-icon>
           {{ data.confirmLabel || 'Confirm' }}
         </button>
@@ -66,3 +66,4 @@ export interface ConfirmDialogData {
 export class DmisConfirmDialogComponent {  data = inject<ConfirmDialogData>(MAT_DIALOG_DATA);
 
 }
+

@@ -36,11 +36,11 @@
       </mat-form-field>
 
       <div class="form-actions">
-        <button mat-flat-button color="primary" type="submit" [disabled]="loading">
+        <button matButton="filled" color="primary" type="submit" [disabled]="loading">
           Generate Preview
         </button>
         <button
-          mat-stroked-button
+          matButton="outlined"
           color="primary"
           type="button"
           [disabled]="loading || !can('replenishment.needs_list.create_draft')"
@@ -57,7 +57,7 @@
         <input matInput type="text" [(ngModel)]="draftIdInput" name="draftIdInput" />
       </mat-form-field>
       <button
-        mat-stroked-button
+        matButton="outlined"
         color="primary"
         type="button"
         [disabled]="loading"
@@ -88,7 +88,7 @@
     @if (dataNotes().length) {
       <div class="data-note">
         <div class="note-title">Data note</div>
-        @for (note of dataNotes(); track note) {
+        @for (note of dataNotes(); track $index) {
           <div class="note-item">{{ note }}</div>
         }
       </div>
@@ -142,7 +142,7 @@
         </div>
         <div class="workflow-actions">
           <button
-            mat-flat-button
+            matButton="filled"
             color="primary"
             type="button"
             [disabled]="!isDraftEditable() || !can('replenishment.needs_list.submit')"
@@ -217,7 +217,7 @@
             }
             <div class="workflow-actions">
               <button
-                mat-stroked-button
+                matButton="outlined"
                 color="primary"
                 type="button"
                 [disabled]="!isStatus('SUBMITTED') || !can('replenishment.needs_list.review_start')"
@@ -226,7 +226,7 @@
                 Start Review
               </button>
               <button
-                mat-stroked-button
+                matButton="outlined"
                 type="button"
                 [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.return')"
                 (click)="returnDraft()"
@@ -234,7 +234,7 @@
                 Return
               </button>
               <button
-                mat-stroked-button
+                matButton="outlined"
                 color="warn"
                 type="button"
                 [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.reject')"
@@ -243,7 +243,7 @@
                 Reject
               </button>
               <button
-                mat-flat-button
+                matButton="filled"
                 color="primary"
                 type="button"
                 [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.approve')"
@@ -252,7 +252,7 @@
                 Approve
               </button>
               <button
-                mat-stroked-button
+                matButton="outlined"
                 type="button"
                 [disabled]="!isStatus('UNDER_REVIEW') || !can('replenishment.needs_list.escalate')"
                 (click)="escalateDraft()"
@@ -272,7 +272,7 @@
                 <div class="section-label">Execution</div>
                 <div class="workflow-actions">
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     color="primary"
                     type="button"
                     [disabled]="!isStatus('APPROVED') || !canExecute()"
@@ -281,7 +281,7 @@
                     Start Preparation
                   </button>
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     type="button"
                     [disabled]="!isStatus('IN_PREPARATION') || !canExecute()"
                     (click)="markDispatched()"
@@ -289,7 +289,7 @@
                     Mark Dispatched
                   </button>
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     type="button"
                     [disabled]="!isStatus('DISPATCHED') || !canExecute()"
                     (click)="markReceived()"
@@ -297,7 +297,7 @@
                     Mark Received
                   </button>
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     color="primary"
                     type="button"
                     [disabled]="!isStatus('RECEIVED') || !canExecute()"
@@ -306,7 +306,7 @@
                     Mark Completed
                   </button>
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     color="warn"
                     type="button"
                     [disabled]="!canCancel() || !(isStatus('APPROVED') || isStatus('IN_PREPARATION'))"
@@ -383,7 +383,7 @@
                       />
                   </div>
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     color="primary"
                     type="button"
                     class="override-action"
@@ -411,7 +411,7 @@
                     (input)="updateReviewComment(item, $any($event.target).value)"
                     />
                   <button
-                    mat-stroked-button
+                    matButton="outlined"
                     color="primary"
                     type="button"
                     class="override-action"
@@ -538,3 +538,4 @@
     </mat-card>
   }
 </section>
+
