@@ -67,23 +67,19 @@
       </button>
     </div>
 
-    @if (loading) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    }
-
-    @if (errors.length) {
+    `@if` (errors.length) {
       <div class="errors">
         <div class="error-title">Request errors</div>
-        @for (err of errors; track $index) {
+        `@for` (err of errors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
     }
 
-    @if (workflowErrors.length) {
+    `@if` (workflowErrors.length) {
       <div class="errors">
         <div class="error-title">Workflow errors</div>
-        @for (err of workflowErrors; track $index) {
+        `@for` (err of workflowErrors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
