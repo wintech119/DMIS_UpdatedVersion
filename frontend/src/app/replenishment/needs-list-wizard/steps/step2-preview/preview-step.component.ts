@@ -1,7 +1,7 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { FormBuilder, ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -51,7 +51,6 @@ interface PreviewItem extends NeedsListItem {
   styleUrl: './preview-step.component.scss'
 })
 export class PreviewStepComponent implements OnInit {
-  private fb = inject(FormBuilder);
   private wizardService = inject(WizardStateService);
 
   @Output() back = new EventEmitter<void>();

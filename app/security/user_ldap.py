@@ -5,6 +5,7 @@ from flask import current_app
 from flask import session
 from flask_login import login_user, logout_user
 from ldap3 import Connection, Server
+from ldap3.utils.conv import escape_filter_chars
 
 from .audit_logger import (log_authentication_event, log_user_management_event,
                            AuditAction, AuditOutcome)
@@ -72,8 +73,25 @@ def _make_user_filter(user_name, search_attr=None):
     '''
     if search_attr is None:
         search_attr = _get_conf('user_login_attr')
-    _fltr = [f'(objectClass={fc})' for fc in _get_conf('user_object_class')]
-    _fltr.append('({}={})'.format(search_attr, user_name))
+    search_attr = str(search_attr).strip()
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', search_attr):
+        raise ValueError(f'Invalid LDAP search attribute: {search_attr!r}')
+
+    normalized_user_name = str(user_name or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9._%+\-@]+', normalized_user_name):
+        # Reject unsafe filter characters in user-supplied search values.
+        return '(objectClass=__invalid_input__)'
+    safe_user_name = escape_filter_chars(normalized_user_name)
+
+    object_classes = []
+    for object_class in _get_conf('user_object_class'):
+        normalized_class = str(object_class).strip()
+        if not re.fullmatch(r'[A-Za-z0-9._:-]+', normalized_class):
+            raise ValueError(f'Invalid LDAP objectClass value: {normalized_class!r}')
+        object_classes.append(f'(objectClass={escape_filter_chars(normalized_class)})')
+
+    _fltr = object_classes
+    _fltr.append('({}={})'.format(search_attr, safe_user_name))
     return '(&{})'.format(''.join(_fltr))
 
 
