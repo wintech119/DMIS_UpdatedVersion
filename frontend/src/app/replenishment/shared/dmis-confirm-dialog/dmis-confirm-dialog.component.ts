@@ -28,7 +28,8 @@ export interface ConfirmDialogData {
         <button mat-stroked-button [mat-dialog-close]="false">
           {{ data.cancelLabel || 'Cancel' }}
         </button>
-        <button mat-flat-button color="warn" [mat-dialog-close]="true" cdkFocusInitial>
+        <button mat-flat-button class="confirm-action-btn" [mat-dialog-close]="true" cdkFocusInitial>
+          <mat-icon aria-hidden="true">check_circle</mat-icon>
           {{ data.confirmLabel || 'Confirm' }}
         </button>
       </mat-dialog-actions>
@@ -42,15 +43,22 @@ export interface ConfirmDialogData {
       margin-bottom: 8px;
     }
     .confirm-dialog-icon {
-      color: #f57f17;
+      color: var(--mat-sys-tertiary);
       font-size: 28px;
       width: 28px;
       height: 28px;
     }
     .confirm-dialog-message {
-      color: #475569;
+      color: var(--mat-sys-on-surface-variant);
       font-size: 14px;
       line-height: 1.5;
+    }
+    .confirm-action-btn {
+      --mdc-filled-button-container-color: var(--mat-sys-primary);
+      --mdc-filled-button-label-text-color: var(--mat-sys-on-primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
