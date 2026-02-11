@@ -78,9 +78,11 @@ def _make_user_filter(user_name, search_attr=None):
         raise ValueError(f'Invalid LDAP search attribute: {search_attr!r}')
 
     normalized_user_name = str(user_name or '').strip()
+    # Intentional allowlist: we only support ASCII-style local-part/domain chars.
+    # RFC 5321 quoted local-parts and internationalized addresses are excluded by design.
     if not re.fullmatch(r'[A-Za-z0-9._%+\-@]+', normalized_user_name):
-        # Reject unsafe filter characters in user-supplied search values.
-        return '(objectClass=__invalid_input__)'
+        raise ValueError(f'Invalid LDAP user identifier: {normalized_user_name!r}')
+    # Escape before inserting user-supplied value into the LDAP filter.
     safe_user_name = escape_filter_chars(normalized_user_name)
 
     object_classes = []
@@ -116,7 +118,11 @@ def ldap_login(user_email, user_pwd):
     '''
     login the user or return false
     '''
-    user_filter = _make_user_filter(user_email)
+    try:
+        user_filter = _make_user_filter(user_email)
+    except ValueError:
+        _log().info('Failing authentication for invalid LDAP user identifier: %r', user_email)
+        return False
     search_base = _get_conf('user_base_dn')
     user_info = None
     result = None

@@ -219,8 +219,18 @@ def create():
                 )
                 flash(f'User {email} created successfully.', 'success')
                 return redirect(url_for('user_admin.index'))
-            except (KCDuplicate, LDAPDuplicate):
+            except (KCDuplicate, LDAPDuplicate) as e:
                 flash('A user with this email already exists.', 'danger')
+                form_valid = False
+                log_user_management_event(
+                    action=AuditAction.USER_CREATE,
+                    actor_id=current_user.user_id,
+                    target_user_id=0,
+                    details={'email': email, 'error': type(e).__name__},
+                    outcome=AuditOutcome.ERROR
+                )
+            except ValueError as e:
+                flash('Invalid email format for backend user provisioning.', 'danger')
                 form_valid = False
                 log_user_management_event(
                     action=AuditAction.USER_CREATE,
