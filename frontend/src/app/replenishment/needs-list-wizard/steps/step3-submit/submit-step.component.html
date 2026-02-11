@@ -124,8 +124,7 @@
                     <span class="stat-value">{{ getHorizonUnits('A') }}</span>
                   </div>
                 </div>
-              }
-              @if (getHorizonItems('A') === 0) {
+              } @else {
                 <div class="empty-notice">
                   <span class="empty-text">No items allocated</span>
                 </div>
@@ -155,8 +154,7 @@
                     <span class="stat-value">{{ getHorizonUnits('B') }}</span>
                   </div>
                 </div>
-              }
-              @if (getHorizonItems('B') === 0) {
+              } @else {
                 <div class="empty-notice">
                   <span class="empty-text">No items allocated</span>
                 </div>
@@ -186,8 +184,7 @@
                     <span class="stat-value">{{ getHorizonUnits('C') }}</span>
                   </div>
                 </div>
-              }
-              @if (getHorizonItems('C') === 0) {
+              } @else {
                 <div class="empty-notice">
                   <span class="empty-text">No items allocated</span>
                 </div>
