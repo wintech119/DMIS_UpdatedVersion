@@ -309,7 +309,7 @@ export class DashboardDataService {
   private computeTotals(groups: WarehouseStockGroup[]): DashboardTotals {
     return groups.reduce(
       (acc, g) => ({
-        items: acc.items + g.items.length,
+        items: acc.items + (g.all_items?.length ?? g.items.length),
         critical: acc.critical + g.critical_count,
         warning: acc.warning + g.warning_count,
         watch: acc.watch + g.watch_count,

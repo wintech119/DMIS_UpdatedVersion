@@ -52,7 +52,7 @@
         <div class="context-actions">
           @if (viewMode === 'multi') {
             <button
-              mat-stroked-button
+              matButton="outlined"
               (click)="changeEventOrPhase()"
               matTooltip="Switch to a different disaster event or view a different response phase (Surge, Stabilized, Baseline)"
               matTooltipPosition="above"
@@ -64,7 +64,7 @@
           }
           @if (viewMode === 'multi') {
             <button
-              mat-stroked-button
+              matButton="outlined"
               [matMenuTriggerFor]="warehouseMenu"
               matTooltip="Show stock status for specific warehouses only"
               matTooltipPosition="above"
@@ -92,7 +92,7 @@
           </mat-menu>
           @if (viewMode === 'single') {
             <button
-              mat-stroked-button
+              matButton="outlined"
               (click)="returnToMultiView()"
               matTooltip="Return to multi-warehouse overview"
               matTooltipPosition="above"
@@ -152,7 +152,7 @@
         <span class="filter-label">Sort By:</span>
         <div class="sort-buttons">
           <button
-            mat-stroked-button
+            matButton="outlined"
             [color]="sortBy === 'time_to_stockout' ? 'primary' : undefined"
             (click)="changeSortBy('time_to_stockout')"
             class="sort-btn"
@@ -168,7 +168,7 @@
             }
           </button>
           <button
-            mat-stroked-button
+            matButton="outlined"
             [color]="sortBy === 'severity' ? 'primary' : undefined"
             (click)="changeSortBy('severity')"
             class="sort-btn"
@@ -184,7 +184,7 @@
             }
           </button>
           <button
-            mat-stroked-button
+            matButton="outlined"
             [color]="sortBy === 'item_name' ? 'primary' : undefined"
             (click)="changeSortBy('item_name')"
             class="sort-btn"
@@ -317,7 +317,7 @@
               </button>
               @if (viewMode === 'multi') {
                 <button
-                  mat-stroked-button
+                  matButton="outlined"
                   (click)="drillDownToWarehouse(group.warehouse_id)"
                   matTooltip="View detailed stock information and history for this warehouse"
                   matTooltipPosition="above"
@@ -542,3 +542,4 @@
     </button>
   }
 </div>
+

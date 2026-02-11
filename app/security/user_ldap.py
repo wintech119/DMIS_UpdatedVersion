@@ -85,8 +85,12 @@ def _make_user_filter(user_name, search_attr=None):
     # Escape before inserting user-supplied value into the LDAP filter.
     safe_user_name = escape_filter_chars(normalized_user_name)
 
+    object_class_values = _get_conf('user_object_class')
+    if not object_class_values:
+        raise ValueError('Invalid LDAP configuration: user_object_class must include at least one value')
+
     object_classes = []
-    for object_class in _get_conf('user_object_class'):
+    for object_class in object_class_values:
         normalized_class = str(object_class).strip()
         if not re.fullmatch(r'[A-Za-z0-9._:-]+', normalized_class):
             raise ValueError(f'Invalid LDAP objectClass value: {normalized_class!r}')

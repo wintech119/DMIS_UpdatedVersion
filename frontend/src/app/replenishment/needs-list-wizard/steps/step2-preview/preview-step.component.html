@@ -39,15 +39,15 @@
       <!-- Bulk Actions -->
       @if (items.length > 0) {
         <div class="bulk-actions">
-          <button mat-stroked-button (click)="selectAll()" class="bulk-action-btn">
+          <button matButton="outlined" (click)="selectAll()" class="bulk-action-btn">
             <mat-icon>done_all</mat-icon>
             Select All
           </button>
-          <button mat-stroked-button (click)="selectNone()" class="bulk-action-btn">
+          <button matButton="outlined" (click)="selectNone()" class="bulk-action-btn">
             <mat-icon>remove_done</mat-icon>
             Select None
           </button>
-          <button mat-stroked-button (click)="selectItemsWithGap()" class="bulk-action-btn">
+          <button matButton="outlined" (click)="selectItemsWithGap()" class="bulk-action-btn">
             <mat-icon>filter_list</mat-icon>
             Select Items with Gap &gt; 0
           </button>
@@ -317,3 +317,4 @@
     </mat-card-actions>
   </mat-card>
 </div>
+

@@ -36,7 +36,7 @@ export interface ErrorDialogData {
       <mat-dialog-actions align="end">
         @if (data.showReport) {
           <button
-            mat-stroked-button
+            matButton="outlined"
             color="warn"
             (click)="reportIssue()"
             >
@@ -44,7 +44,7 @@ export interface ErrorDialogData {
             Report Issue
           </button>
         }
-        <button mat-flat-button color="primary" mat-dialog-close>Close</button>
+        <button matButton="filled" color="primary" mat-dialog-close>Close</button>
       </mat-dialog-actions>
     </div>
     `,
@@ -67,3 +67,4 @@ export class DmisErrorDialogComponent {
     this.dialogRef.close('reported');
   }
 }
+

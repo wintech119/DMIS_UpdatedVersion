@@ -14,7 +14,7 @@ import { MatButtonModule } from '@angular/material/button';
       <p class="empty-message">{{ message }}</p>
       @if (actionLabel) {
         <button
-          mat-stroked-button
+          matButton="outlined"
           class="empty-action"
           (click)="action.emit()"
           >
@@ -38,3 +38,4 @@ export class DmisEmptyStateComponent {
 
   @Output() action = new EventEmitter<void>();
 }
+

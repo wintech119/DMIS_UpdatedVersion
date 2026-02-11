@@ -42,7 +42,7 @@
           </span>
         }
         <button
-          mat-stroked-button
+          matButton="outlined"
           class="refresh-btn"
           (click)="refreshData(); $event.stopPropagation()"
           [disabled]="isRefreshing"
@@ -95,3 +95,4 @@
     }
   </div>
 }
+
