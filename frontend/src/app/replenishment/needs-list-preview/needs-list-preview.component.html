@@ -74,7 +74,7 @@
     @if (errors.length) {
       <div class="errors">
         <div class="error-title">Request errors</div>
-        @for (err of errors; track err) {
+        @for (err of errors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
@@ -83,7 +83,7 @@
     @if (workflowErrors.length) {
       <div class="errors">
         <div class="error-title">Workflow errors</div>
-        @for (err of workflowErrors; track err) {
+        @for (err of workflowErrors; track $index) {
           <div class="error-item">{{ err }}</div>
         }
       </div>
