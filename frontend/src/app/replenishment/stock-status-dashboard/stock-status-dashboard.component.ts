@@ -265,7 +265,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
     this.dashboardDataService.getDashboardData(
       requestedEventId,
-      this.allWarehouses.map(w => w.warehouse_id),
+      [requestedWarehouseId],
       this.activeEvent.phase as EventPhase,
       this.buildFilterOptions()
     ).subscribe({
