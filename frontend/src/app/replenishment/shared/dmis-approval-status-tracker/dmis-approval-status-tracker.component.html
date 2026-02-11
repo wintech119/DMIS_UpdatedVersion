@@ -67,7 +67,7 @@
     }
     <!-- Expandable detail panel -->
     @if (detailsExpanded) {
-      <div class="details-panel" id="detailsPanel">
+      <div class="details-panel" [id]="panelId">
         <div class="timeline">
           @for (step of completedSteps; track step) {
             <div class="timeline-entry">
@@ -135,7 +135,7 @@
       class="toggle-details"
       (click)="toggleDetails()"
       [attr.aria-expanded]="detailsExpanded"
-      aria-controls="detailsPanel">
+      [attr.aria-controls]="panelId">
       <mat-icon>{{ detailsExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
       {{ detailsExpanded ? 'Hide Details' : 'View History' }}
     </button>
