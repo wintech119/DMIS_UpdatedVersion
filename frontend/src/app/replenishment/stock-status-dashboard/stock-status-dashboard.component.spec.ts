@@ -137,6 +137,9 @@ describe('StockStatusDashboardComponent', () => {
     const retrySpy = spyOn(component, 'retryCurrentView').and.callThrough();
     component.drillDownToWarehouse(1);
 
+    const firstCallArgs = dashboardDataService.getDashboardData.calls.argsFor(0);
+    expect(firstCallArgs[1]).toEqual([1]);
+
     expect(component.dataLoadedSuccessfully).toBeFalse();
     expect(component.errors).toEqual(['single fetch failed']);
     expect(component.loading).toBeFalse();
