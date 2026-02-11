@@ -465,7 +465,7 @@
     [message]="errors[0] || 'Failed to load stock status.'"
     actionLabel="Retry"
     actionIcon="refresh"
-    (action)="loadMultiWarehouseStatus()"
+    (action)="retryCurrentView()"
   ></dmis-empty-state>
 
   <!-- Mobile FAB: Generate Needs List -->
