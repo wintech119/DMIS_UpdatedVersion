@@ -346,14 +346,17 @@ export class DashboardDataService {
   private worstFreshness(items: StockStatusItem[]): FreshnessLevel {
     const order: FreshnessLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
     let worst: FreshnessLevel = 'HIGH';
+    let hasFreshnessData = false;
 
     for (const item of items) {
       const state = item.freshness?.state;
       if (!state) continue;
+      hasFreshnessData = true;
       if (order.indexOf(state) < order.indexOf(worst)) worst = state;
     }
 
-    return worst;
+    // Treat missing freshness metadata as stale rather than implicitly fresh.
+    return hasFreshnessData ? worst : 'LOW';
   }
 
   private worstFreshnessFromItems(items: DashboardStockItem[]): FreshnessLevel {
