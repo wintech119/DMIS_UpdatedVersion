@@ -639,27 +639,29 @@ export class SubmitStepComponent implements OnInit {
     const expectedWarehouseIds = new Set(warehouseIds);
     const expectedMethod = this.selectedMethod;
 
-    return forkJoin(
-      existingDraftIds.map((draftId) =>
-        this.replenishmentService.getNeedsList(draftId).pipe(
-          map((record) => ({ draftId, record })),
-          catchError(() => of(null))
-        )
-      )
-    ).pipe(
-      map((results) => {
+    return this.replenishmentService.listNeedsLists(['DRAFT']).pipe(
+      map(({ needs_lists }) => {
+        const recordsById = new Map<string, NeedsListResponse>();
+        for (const record of needs_lists) {
+          const id = record.needs_list_id;
+          if (typeof id === 'string' && id.trim().length > 0) {
+            recordsById.set(id, record);
+          }
+        }
+
         const reusableDraftsByWarehouse = new Map<number, string>();
-        for (const result of results) {
-          if (!result) {
+        for (const draftId of existingDraftIds) {
+          const record = recordsById.get(draftId);
+          if (!record) {
             continue;
           }
 
-          const warehouseId = result.record.warehouse_id;
+          const warehouseId = record.warehouse_id;
           if (
             warehouseId &&
             !reusableDraftsByWarehouse.has(warehouseId) &&
             this.isReusableDraftRecord(
-              result.record,
+              record,
               expectedEventId,
               expectedPhase,
               expectedMethod,
@@ -667,11 +669,12 @@ export class SubmitStepComponent implements OnInit {
               expectedCountsByWarehouse
             )
           ) {
-            reusableDraftsByWarehouse.set(warehouseId, result.draftId);
+            reusableDraftsByWarehouse.set(warehouseId, draftId);
           }
         }
         return reusableDraftsByWarehouse;
-      })
+      }),
+      catchError(() => of(new Map<number, string>()))
     );
   }
 
