@@ -11,7 +11,7 @@ PROJECT: DMIS (Disaster Management Information System) - Jamaica ODPEM
 MODULE: EP-02 Supply Replenishment / Needs List Generation
 
 TECH STACK:
-- Frontend: Angular 18+, Angular Material, TypeScript
+- Frontend: Angular 21+, Angular Material, TypeScript
 - Backend: Django 6.0, Django REST Framework
 - Database: PostgreSQL 16+
 
