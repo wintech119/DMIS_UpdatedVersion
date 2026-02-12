@@ -81,7 +81,7 @@
                 </td>
                 <td>
                   <span class="status-badge" [ngClass]="'badge-freshness-' + (wh.freshness || '').toLowerCase()">
-                    <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness ?? 'HIGH') }}</mat-icon>
+                    <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness) }}</mat-icon>
                     {{ wh.freshness }}
                   </span>
                 </td>
