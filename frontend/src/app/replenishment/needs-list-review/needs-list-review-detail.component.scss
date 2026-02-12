@@ -15,13 +15,13 @@
   padding: 16px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 
   .header-text {
     flex: 1;
 
     h1 {
-      margin: 0 0 4px 0;
+      margin: 0 0 4px;
       font-size: 24px;
       font-weight: 600;
       color: #1a1a1a;
@@ -123,13 +123,13 @@
 .info-card {
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
   border: 1px solid #e0e0e0;
   transition: all 0.2s ease;
 
   &:hover {
     border-color: #667eea;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    box-shadow: 0 2px 8px rgb(102 126 234 / 10%);
   }
 
   .card-title {
@@ -162,7 +162,7 @@
 
 .info-label {
   font-size: 0.75rem;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgb(0 0 0 / 60%);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 500;
@@ -189,7 +189,7 @@
   }
 
   .info-item {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(255 255 255 / 10%);
     border-radius: 8px;
     padding: 1rem;
     backdrop-filter: blur(10px);
@@ -197,7 +197,7 @@
   }
 
   .info-label {
-    color: rgba(255, 255, 255, 0.9);
+    color: rgb(255 255 255 / 90%);
     font-size: 0.875rem;
   }
 
@@ -222,7 +222,7 @@
   gap: 4px;
   margin: 0 0 8px;
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.95);
+  color: rgb(255 255 255 / 95%);
 
   .warning-icon {
     font-size: 18px;
@@ -238,7 +238,7 @@
   gap: 4px;
   padding: 6px 10px;
   margin-bottom: 4px;
-  background-color: rgba(255, 193, 7, 0.2);
+  background-color: rgb(255 193 7 / 20%);
   border-radius: 6px;
   font-size: 0.8125rem;
   color: white;
@@ -257,8 +257,8 @@
   gap: 8px;
   margin-top: 12px;
   padding: 12px;
-  background-color: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background-color: rgb(255 255 255 / 15%);
+  border: 1px solid rgb(255 255 255 / 30%);
   border-radius: 8px;
   color: white;
   font-weight: 500;
@@ -273,7 +273,7 @@
   margin-bottom: 16px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 }
 
 // ── Items card (matches wizard table-card) ──
@@ -281,7 +281,7 @@
   margin-bottom: 16px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 
   .card-title {
     margin: 0 0 16px;
@@ -292,9 +292,8 @@
 }
 
 .table-container {
-  overflow-x: auto;
+  overflow: auto;
   max-height: 600px;
-  overflow-y: auto;
 }
 
 // ── Items table (matches wizard preview-table) ──
@@ -323,7 +322,7 @@
     transition: background-color 0.2s ease;
 
     &:hover {
-      background-color: rgba(102, 126, 234, 0.04) !important;
+      background-color: rgb(102 126 234 / 4%) !important;
     }
   }
 }
@@ -389,7 +388,7 @@
 
   &:hover {
     border-color: #667eea;
-    box-shadow: 0 1px 4px rgba(102, 126, 234, 0.1);
+    box-shadow: 0 1px 4px rgb(102 126 234 / 10%);
   }
 }
 
@@ -444,7 +443,7 @@
 .review-comments-section {
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  border-top: 1px solid rgb(0 0 0 / 12%);
 
   h4 {
     margin: 0 0 4px;
@@ -472,7 +471,7 @@
 
   &:hover {
     border-color: #667eea;
-    background: rgba(102, 126, 234, 0.02);
+    background: rgb(102 126 234 / 2%);
   }
 }
 
@@ -498,7 +497,7 @@
   padding: 16px 24px;
   margin: 0 -20px;
   background-color: white;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 10%);
   border-radius: 8px 8px 0 0;
 
   button {
@@ -523,13 +522,13 @@
   display: none;
 }
 
-@media (max-width: 968px) {
+@media (width <= 968px) {
   .summary-row {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .review-detail-page {
     padding: 10px;
     padding-bottom: 100px;
@@ -573,7 +572,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (width <= 480px) {
   .review-detail-page {
     padding: 5px;
     padding-bottom: 100px;
