@@ -12,10 +12,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { WizardStateService } from './services/wizard-state.service';
 import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
 import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
-import {
-  SubmitStepComponent,
-  SubmitStepCompleteEvent
-} from './steps/step3-submit/submit-step.component';
+import { SubmitStepComponent } from './steps/step3-submit/submit-step.component';
+
+interface SubmitStepCompleteEvent {
+  action: 'draft_saved' | 'submitted_for_approval';
+  totalItems: number;
+  completedAt: string;
+  approver?: string;
+}
 
 interface WizardConfirmationState {
   action: 'draft_saved' | 'submitted_for_approval';
