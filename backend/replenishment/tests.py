@@ -944,7 +944,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_submit_allowed_for_create_draft_permission(
+    def test_submit_requires_submit_permission(
         self,
         mock_available,
         mock_donations,
@@ -973,8 +973,7 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
 
-        self.assertEqual(submit.status_code, 200)
-        self.assertEqual(submit.json().get("status"), "SUBMITTED")
+        self.assertEqual(submit.status_code, 403)
 
     @override_settings(
         AUTH_ENABLED=False,

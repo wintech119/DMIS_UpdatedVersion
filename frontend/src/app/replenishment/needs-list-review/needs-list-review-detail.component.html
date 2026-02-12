@@ -89,7 +89,7 @@
               <div class="info-item">
                 <span class="info-label">Estimated Cost</span>
                 <span class="info-value bold">
-                  @if (summary.total_estimated_cost !== null) {
+                  @if (summary.total_estimated_cost !== null && summary.total_estimated_cost !== undefined) {
                     J${{ summary.total_estimated_cost | number:'1.2-2' }}
                   } @else {
                     Not available

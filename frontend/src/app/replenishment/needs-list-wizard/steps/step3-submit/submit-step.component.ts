@@ -14,8 +14,8 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
-import { Observable, forkJoin, of, throwError } from 'rxjs';
-import { catchError, finalize, map, switchMap } from 'rxjs/operators';
+import { Observable, forkJoin, from, of, throwError } from 'rxjs';
+import { catchError, concatMap, finalize, map, switchMap, toArray } from 'rxjs/operators';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { DmisNotificationService } from '../../../services/notification.service';
@@ -25,7 +25,7 @@ import {
   ConfirmDialogData,
   DmisConfirmDialogComponent
 } from '../../../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
-import { NeedsListItem } from '../../../models/needs-list.model';
+import { NeedsListItem, NeedsListResponse } from '../../../models/needs-list.model';
 import {
   APPROVAL_WORKFLOWS,
   ApprovalWorkflowData,
@@ -541,79 +541,12 @@ export class SubmitStepComponent implements OnInit {
   }
 
   private ensureDraftIds(): Observable<string[]> {
-    const existingDraftIds = this.getExistingDraftIds();
-    if (existingDraftIds.length === 0) {
-      return this.createDrafts();
-    }
-
-    return this.validateDraftIds(existingDraftIds).pipe(
-      switchMap((isValid) => {
-        if (isValid) {
-          return of(existingDraftIds);
-        }
-        return this.createDrafts();
-      })
-    );
+    return this.createDrafts();
   }
 
   private getExistingDraftIds(): string[] {
     return (this.wizardService.getState().draft_ids || []).filter(
       (id): id is string => typeof id === 'string' && id.trim().length > 0
-    );
-  }
-
-  private validateDraftIds(draftIds: string[]): Observable<boolean> {
-    const state = this.wizardService.getState();
-    const expectedEventId = state.event_id;
-    const expectedPhase = String(state.phase || 'BASELINE').toUpperCase();
-    const expectedWarehouseIds = new Set(this.getSubmissionWarehouseIds());
-    const expectedCountsByWarehouse = this.getSelectedCountsByWarehouse();
-    const expectedMethod = this.selectedMethod;
-    if (!expectedEventId || expectedWarehouseIds.size === 0) {
-      return of(false);
-    }
-
-    return forkJoin(draftIds.map((id) => this.replenishmentService.getNeedsList(id))).pipe(
-      map((records) => {
-        if (records.length !== expectedWarehouseIds.size) {
-          return false;
-        }
-
-        const seenWarehouses = new Set<number>();
-        for (const record of records) {
-          if (record.status !== 'DRAFT') {
-            return false;
-          }
-
-          if (record.event_id !== expectedEventId) {
-            return false;
-          }
-
-          const recordPhase = String(record.phase || '').toUpperCase();
-          if (recordPhase !== expectedPhase) {
-            return false;
-          }
-
-          const warehouseId = record.warehouse_id;
-          if (!warehouseId || !expectedWarehouseIds.has(warehouseId)) {
-            return false;
-          }
-
-          if ((record.selected_method || '') !== expectedMethod) {
-            return false;
-          }
-
-          const expectedCount = expectedCountsByWarehouse.get(warehouseId) || 0;
-          if ((record.items?.length || 0) !== expectedCount) {
-            return false;
-          }
-
-          seenWarehouses.add(warehouseId);
-        }
-
-        return seenWarehouses.size === expectedWarehouseIds.size;
-      }),
-      catchError(() => of(false))
     );
   }
 
@@ -631,31 +564,158 @@ export class SubmitStepComponent implements OnInit {
 
     const phase = state.phase || 'BASELINE';
     const asOfDatetime = state.as_of_datetime || state.previewResponse?.as_of_datetime;
-    const requests = warehouseIds.map((warehouseId) =>
-      this.replenishmentService.createNeedsListDraft({
-        event_id: eventId,
-        warehouse_id: warehouseId,
-        phase,
-        as_of_datetime: asOfDatetime,
-        selected_item_keys: this.getSelectedItemKeysForWarehouse(warehouseId),
-        selected_method: this.selectedMethod
-      })
-    );
+    const expectedCountsByWarehouse = this.getSelectedCountsByWarehouse();
 
-    return forkJoin(requests).pipe(
-      map((draftResponses) => {
-        const draftIds = draftResponses
-          .map((response) => response.needs_list_id)
-          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
-
-        if (draftIds.length !== draftResponses.length) {
-          throw new Error('Draft creation succeeded, but one or more draft IDs were missing.');
+    return this.collectReusableDraftIds(
+      eventId,
+      phase,
+      warehouseIds,
+      expectedCountsByWarehouse
+    ).pipe(
+      switchMap((draftIdsByWarehouse) => {
+        const reusableDraftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
+        if (reusableDraftIds.length > 0) {
+          this.wizardService.updateState({ draft_ids: reusableDraftIds });
         }
 
-        this.wizardService.updateState({ draft_ids: draftIds });
-        return draftIds;
+        const missingWarehouseIds = warehouseIds.filter(
+          (warehouseId) => !draftIdsByWarehouse.has(warehouseId)
+        );
+
+        if (missingWarehouseIds.length === 0) {
+          return of(reusableDraftIds);
+        }
+
+        return from(missingWarehouseIds).pipe(
+          concatMap((warehouseId) =>
+            this.replenishmentService.createNeedsListDraft({
+              event_id: eventId,
+              warehouse_id: warehouseId,
+              phase,
+              as_of_datetime: asOfDatetime,
+              selected_item_keys: this.getSelectedItemKeysForWarehouse(warehouseId),
+              selected_method: this.selectedMethod
+            }).pipe(
+              map((response) => {
+                const draftId = response.needs_list_id;
+                if (typeof draftId !== 'string' || draftId.trim().length === 0) {
+                  throw new Error(
+                    `Draft creation succeeded, but no draft ID was returned for warehouse ${warehouseId}.`
+                  );
+                }
+
+                draftIdsByWarehouse.set(warehouseId, draftId);
+                const partialDraftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
+                this.wizardService.updateState({ draft_ids: partialDraftIds });
+                return draftId;
+              })
+            )
+          ),
+          toArray(),
+          map(() => {
+            const draftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
+            if (draftIds.length !== warehouseIds.length) {
+              throw new Error('Failed to create all required drafts for submission.');
+            }
+            return draftIds;
+          })
+        );
       })
     );
+  }
+
+  private collectReusableDraftIds(
+    expectedEventId: number,
+    phase: string,
+    warehouseIds: number[],
+    expectedCountsByWarehouse: Map<number, number>
+  ): Observable<Map<number, string>> {
+    const existingDraftIds = this.getExistingDraftIds();
+    if (existingDraftIds.length === 0) {
+      return of(new Map<number, string>());
+    }
+
+    const expectedPhase = String(phase || 'BASELINE').toUpperCase();
+    const expectedWarehouseIds = new Set(warehouseIds);
+    const expectedMethod = this.selectedMethod;
+
+    return forkJoin(
+      existingDraftIds.map((draftId) =>
+        this.replenishmentService.getNeedsList(draftId).pipe(
+          map((record) => ({ draftId, record })),
+          catchError(() => of(null))
+        )
+      )
+    ).pipe(
+      map((results) => {
+        const reusableDraftsByWarehouse = new Map<number, string>();
+        for (const result of results) {
+          if (!result) {
+            continue;
+          }
+
+          const warehouseId = result.record.warehouse_id;
+          if (
+            warehouseId &&
+            !reusableDraftsByWarehouse.has(warehouseId) &&
+            this.isReusableDraftRecord(
+              result.record,
+              expectedEventId,
+              expectedPhase,
+              expectedMethod,
+              expectedWarehouseIds,
+              expectedCountsByWarehouse
+            )
+          ) {
+            reusableDraftsByWarehouse.set(warehouseId, result.draftId);
+          }
+        }
+        return reusableDraftsByWarehouse;
+      })
+    );
+  }
+
+  private isReusableDraftRecord(
+    record: NeedsListResponse,
+    expectedEventId: number,
+    expectedPhase: string,
+    expectedMethod: HorizonType,
+    expectedWarehouseIds: Set<number>,
+    expectedCountsByWarehouse: Map<number, number>
+  ): boolean {
+    if (record.status !== 'DRAFT') {
+      return false;
+    }
+
+    if (record.event_id !== expectedEventId) {
+      return false;
+    }
+
+    const recordPhase = String(record.phase || '').toUpperCase();
+    if (recordPhase !== expectedPhase) {
+      return false;
+    }
+
+    const warehouseId = record.warehouse_id;
+    if (!warehouseId || !expectedWarehouseIds.has(warehouseId)) {
+      return false;
+    }
+
+    if ((record.selected_method || '') !== expectedMethod) {
+      return false;
+    }
+
+    const expectedCount = expectedCountsByWarehouse.get(warehouseId) || 0;
+    return (record.items?.length || 0) === expectedCount;
+  }
+
+  private orderDraftIdsByWarehouse(
+    warehouseIds: number[],
+    draftIdsByWarehouse: Map<number, string>
+  ): string[] {
+    return warehouseIds
+      .map((warehouseId) => draftIdsByWarehouse.get(warehouseId))
+      .filter((draftId): draftId is string => typeof draftId === 'string' && draftId.trim().length > 0);
   }
 
   private getSubmissionWarehouseIds(): number[] {

@@ -13,6 +13,7 @@ import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { formatStatusLabel } from './status-label.util';
 
 @Component({
   selector: 'app-needs-list-review-queue',
@@ -104,10 +105,6 @@ export class NeedsListReviewQueueComponent implements OnInit {
   }
 
   statusLabel(status: string | undefined): string {
-    switch (status) {
-      case 'SUBMITTED': return 'Submitted';
-      case 'UNDER_REVIEW': return 'Under Review';
-      default: return status ?? 'Unknown';
-    }
+    return formatStatusLabel(status);
   }
 }
