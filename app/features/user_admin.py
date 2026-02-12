@@ -189,48 +189,51 @@ def create():
                     phone=phone if phone else None,
                     is_active=is_active
                 )
-                kc_user_uuid = create_backend_user(new_user, password=password)
-                new_user.user_uuid = kc_user_uuid
-                new_user.password_hash = 'x'  # invalid hash, use LDAP
-                
-                db.session.add(new_user)
-                db.session.flush()
-                
-                for role_id in role_ids:
-                    user_role = UserRole(user_id=new_user.user_id, role_id=int(role_id))
-                    db.session.add(user_role)
-                
-                warehouse_ids = request.form.getlist('warehouses')
-                for warehouse_id in warehouse_ids:
-                    user_warehouse = UserWarehouse(user_id=new_user.user_id, warehouse_id=int(warehouse_id))
-                    db.session.add(user_warehouse)
-                
-                db.session.commit()
-                log_user_management_event(
-                    action=AuditAction.USER_CREATE,
-                    actor_id=current_user.user_id,
-                    target_user_id=new_user.user_id,
-                    details={
-                        'email': email,
-                        'roles': role_ids,
-                        'is_active': is_active
-                    },
-                    outcome=AuditOutcome.SUCCESS
-                )
-                flash(f'User {email} created successfully.', 'success')
-                return redirect(url_for('user_admin.index'))
+                try:
+                    kc_user_uuid = create_backend_user(new_user, password=password)
+                except ValueError as e:
+                    flash('Invalid email format for backend user provisioning.', 'danger')
+                    form_valid = False
+                    log_user_management_event(
+                        action=AuditAction.USER_CREATE,
+                        actor_id=current_user.user_id,
+                        target_user_id=0,
+                        details={'email': email, 'error': type(e).__name__},
+                        outcome=AuditOutcome.ERROR
+                    )
+
+                if form_valid:
+                    new_user.user_uuid = kc_user_uuid
+                    new_user.password_hash = 'x'  # invalid hash, use LDAP
+                    
+                    db.session.add(new_user)
+                    db.session.flush()
+                    
+                    for role_id in role_ids:
+                        user_role = UserRole(user_id=new_user.user_id, role_id=int(role_id))
+                        db.session.add(user_role)
+                    
+                    warehouse_ids = request.form.getlist('warehouses')
+                    for warehouse_id in warehouse_ids:
+                        user_warehouse = UserWarehouse(user_id=new_user.user_id, warehouse_id=int(warehouse_id))
+                        db.session.add(user_warehouse)
+                    
+                    db.session.commit()
+                    log_user_management_event(
+                        action=AuditAction.USER_CREATE,
+                        actor_id=current_user.user_id,
+                        target_user_id=new_user.user_id,
+                        details={
+                            'email': email,
+                            'roles': role_ids,
+                            'is_active': is_active
+                        },
+                        outcome=AuditOutcome.SUCCESS
+                    )
+                    flash(f'User {email} created successfully.', 'success')
+                    return redirect(url_for('user_admin.index'))
             except (KCDuplicate, LDAPDuplicate) as e:
                 flash('A user with this email already exists.', 'danger')
-                form_valid = False
-                log_user_management_event(
-                    action=AuditAction.USER_CREATE,
-                    actor_id=current_user.user_id,
-                    target_user_id=0,
-                    details={'email': email, 'error': type(e).__name__},
-                    outcome=AuditOutcome.ERROR
-                )
-            except ValueError as e:
-                flash('Invalid email format for backend user provisioning.', 'danger')
                 form_valid = False
                 log_user_management_event(
                     action=AuditAction.USER_CREATE,
