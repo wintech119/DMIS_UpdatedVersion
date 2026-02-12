@@ -1,28 +1,31 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 
 @Component({
   selector: 'dmis-empty-state',
   standalone: true,
-  imports: [CommonModule, MatIconModule, MatButtonModule],
+  imports: [MatIconModule, MatButtonModule],
   template: `
     <div class="empty-state-container" role="status">
       <mat-icon class="empty-icon" aria-hidden="true">{{ icon }}</mat-icon>
       <h3 class="empty-title">{{ title }}</h3>
       <p class="empty-message">{{ message }}</p>
-      <button
-        *ngIf="actionLabel"
-        mat-stroked-button
-        class="empty-action"
-        (click)="action.emit()"
-      >
-        <mat-icon *ngIf="actionIcon">{{ actionIcon }}</mat-icon>
-        {{ actionLabel }}
-      </button>
+      @if (actionLabel) {
+        <button
+          matButton="outlined"
+          class="empty-action"
+          (click)="action.emit()"
+          >
+          @if (actionIcon) {
+            <mat-icon>{{ actionIcon }}</mat-icon>
+          }
+          {{ actionLabel }}
+        </button>
+      }
     </div>
-  `,
+    `,
   styleUrl: './dmis-empty-state.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -35,3 +38,4 @@ export class DmisEmptyStateComponent {
 
   @Output() action = new EventEmitter<void>();
 }
+

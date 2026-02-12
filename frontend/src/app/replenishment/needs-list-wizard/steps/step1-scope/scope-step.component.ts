@@ -1,6 +1,6 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -45,7 +45,6 @@ const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => 
   selector: 'app-scope-step',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     MatFormFieldModule,
     MatInputModule,
@@ -57,11 +56,16 @@ const isSameScopeFormValue = (a: ScopeFormValue, b: ScopeFormValue): boolean => 
     MatProgressSpinnerModule,
     MatDialogModule,
     DmisSkeletonLoaderComponent
-  ],
+],
   templateUrl: './scope-step.component.html',
   styleUrl: './scope-step.component.scss'
 })
 export class ScopeStepComponent implements OnInit {
+  private fb = inject(FormBuilder);
+  private wizardService = inject(WizardStateService);
+  private replenishmentService = inject(ReplenishmentService);
+  private router = inject(Router);
+
   @Output() next = new EventEmitter<void>();
 
   form: FormGroup;
@@ -89,12 +93,7 @@ export class ScopeStepComponent implements OnInit {
 
   private dialog = inject(MatDialog);
 
-  constructor(
-    private fb: FormBuilder,
-    private wizardService: WizardStateService,
-    private replenishmentService: ReplenishmentService,
-    private router: Router
-  ) {
+  constructor() {
     this.form = this.fb.group({
       event_id: [null, [Validators.required, Validators.min(1)]],
       warehouse_ids: [[], [Validators.required, Validators.minLength(1)]],

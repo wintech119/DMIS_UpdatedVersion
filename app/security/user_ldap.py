@@ -5,6 +5,7 @@ from flask import current_app
 from flask import session
 from flask_login import login_user, logout_user
 from ldap3 import Connection, Server
+from ldap3.utils.conv import escape_filter_chars
 
 from .audit_logger import (log_authentication_event, log_user_management_event,
                            AuditAction, AuditOutcome)
@@ -72,8 +73,31 @@ def _make_user_filter(user_name, search_attr=None):
     '''
     if search_attr is None:
         search_attr = _get_conf('user_login_attr')
-    _fltr = [f'(objectClass={fc})' for fc in _get_conf('user_object_class')]
-    _fltr.append('({}={})'.format(search_attr, user_name))
+    search_attr = str(search_attr).strip()
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', search_attr):
+        raise ValueError(f'Invalid LDAP search attribute: {search_attr!r}')
+
+    normalized_user_name = str(user_name or '').strip()
+    # Intentional allowlist: we only support ASCII-style local-part/domain chars.
+    # RFC 5321 quoted local-parts and internationalized addresses are excluded by design.
+    if not re.fullmatch(r'[A-Za-z0-9._%+\-@]+', normalized_user_name):
+        raise ValueError(f'Invalid LDAP user identifier: {normalized_user_name!r}')
+    # Escape before inserting user-supplied value into the LDAP filter.
+    safe_user_name = escape_filter_chars(normalized_user_name)
+
+    object_class_values = _get_conf('user_object_class')
+    if not object_class_values:
+        raise ValueError('Invalid LDAP configuration: user_object_class must include at least one value')
+
+    object_classes = []
+    for object_class in object_class_values:
+        normalized_class = str(object_class).strip()
+        if not re.fullmatch(r'[A-Za-z0-9._:-]+', normalized_class):
+            raise ValueError(f'Invalid LDAP objectClass value: {normalized_class!r}')
+        object_classes.append(f'(objectClass={escape_filter_chars(normalized_class)})')
+
+    _fltr = object_classes
+    _fltr.append('({}={})'.format(search_attr, safe_user_name))
     return '(&{})'.format(''.join(_fltr))
 
 
@@ -98,7 +122,11 @@ def ldap_login(user_email, user_pwd):
     '''
     login the user or return false
     '''
-    user_filter = _make_user_filter(user_email)
+    try:
+        user_filter = _make_user_filter(user_email)
+    except ValueError:
+        _log().info('Failing authentication for invalid LDAP user identifier: %r', user_email)
+        return False
     search_base = _get_conf('user_base_dn')
     user_info = None
     result = None

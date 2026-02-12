@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { ActivatedRoute } from '@angular/router';
+import { Observable } from 'rxjs';
 import { of } from 'rxjs';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
@@ -11,7 +12,7 @@ describe('NeedsListWizardComponent', () => {
   let component: NeedsListWizardComponent;
   let fixture: ComponentFixture<NeedsListWizardComponent>;
   let mockRouter: jasmine.SpyObj<Router>;
-  let mockActivatedRoute: any;
+  let mockActivatedRoute: Pick<ActivatedRoute, 'queryParams'>;
   let wizardService: WizardStateService;
 
   beforeEach(async () => {
@@ -21,7 +22,7 @@ describe('NeedsListWizardComponent', () => {
         event_id: '1',
         warehouse_id: '2',
         phase: 'BASELINE'
-      })
+      }) as Observable<Record<string, string>>
     };
 
     await TestBed.configureTestingModule({

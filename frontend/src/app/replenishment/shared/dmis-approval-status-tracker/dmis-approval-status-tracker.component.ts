@@ -76,6 +76,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
   steps: TrackerStep[] = [];
   branch: TrackerBranch | null = null;
   detailsExpanded = false;
+  readonly panelId = `detailsPanel-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 
   get completedSteps(): TrackerStep[] {
     return this.steps.filter(s => s.state === 'completed' || s.state === 'active');

@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -27,9 +27,9 @@ export interface WarehousesResponse {
   providedIn: 'root'
 })
 export class ReplenishmentService {
-  private readonly apiUrl = '/api/v1/replenishment';
+  private http = inject(HttpClient);
 
-  constructor(private http: HttpClient) {}
+  private readonly apiUrl = '/api/v1/replenishment';
 
   /**
    * Get the currently active event
@@ -67,7 +67,12 @@ export class ReplenishmentService {
     phase: string,
     asOfDatetime?: string
   ): Observable<NeedsListResponse> {
-    const payload: any = {
+    const payload: {
+      event_id: number;
+      warehouse_ids: number[];
+      phase: string;
+      as_of_datetime?: string;
+    } = {
       event_id: eventId,
       warehouse_ids: warehouseIds,
       phase: phase

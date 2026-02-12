@@ -238,7 +238,7 @@ def login():
         success = _do_login(email, password)
         if success:
             next_page = request.args.get('next')
-            return redirect(next_page if next_page else url_for('dashboard.index'))
+            return redirect(get_safe_redirect_url(next_page, 'dashboard.index'))
         else:
             flash('Invalid email or password', 'danger')
     

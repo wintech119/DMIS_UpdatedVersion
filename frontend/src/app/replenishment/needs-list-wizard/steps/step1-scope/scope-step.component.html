@@ -7,15 +7,19 @@
 
     <mat-card-content class="card-content-relative">
       <!-- Skeleton Loading (Initial Data) -->
-      <div class="skeleton-form" *ngIf="loadingInitialData">
-        <dmis-skeleton-loader variant="form-field" [count]="3"></dmis-skeleton-loader>
-      </div>
+      @if (loadingInitialData) {
+        <div class="skeleton-form">
+          <dmis-skeleton-loader variant="form-field" [count]="3"></dmis-skeleton-loader>
+        </div>
+      }
 
       <!-- Calculation Overlay -->
-      <div class="calculation-overlay" *ngIf="loading && !loadingInitialData" role="alert" aria-live="assertive">
-        <mat-progress-spinner diameter="48" mode="indeterminate" aria-label="Calculating supply gaps"></mat-progress-spinner>
-        <span class="calculation-text">{{ calculationProgress }}</span>
-      </div>
+      @if (loading && !loadingInitialData) {
+        <div class="calculation-overlay" role="alert" aria-live="assertive">
+          <mat-progress-spinner diameter="48" mode="indeterminate" aria-label="Calculating supply gaps"></mat-progress-spinner>
+          <span class="calculation-text">{{ calculationProgress }}</span>
+        </div>
+      }
 
       <!-- Form -->
       <form [formGroup]="form" class="scope-form" [class.form-hidden]="loadingInitialData">
@@ -23,30 +27,40 @@
           <mat-form-field appearance="outline" class="form-field">
             <mat-label>Event</mat-label>
             <mat-select formControlName="event_id">
-              <mat-option *ngIf="activeEvent" [value]="activeEvent.event_id">
-                {{ activeEvent.event_name }}
-              </mat-option>
-              <mat-option *ngIf="!activeEvent" disabled>
-                No active event available
-              </mat-option>
+              @if (activeEvent) {
+                <mat-option [value]="activeEvent.event_id">
+                  {{ activeEvent.event_name }}
+                </mat-option>
+              }
+              @if (!activeEvent) {
+                <mat-option disabled>
+                  No active event available
+                </mat-option>
+              }
             </mat-select>
             <mat-icon matSuffix>event</mat-icon>
-            <mat-error *ngIf="form.get('event_id')?.hasError('required')">
-              Event is required
-            </mat-error>
+            @if (form.get('event_id')?.hasError('required')) {
+              <mat-error>
+                Event is required
+              </mat-error>
+            }
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="form-field">
             <mat-label>Event Phase</mat-label>
             <mat-select formControlName="phase">
-              <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
-                {{ phase }}
-              </mat-option>
+              @for (phase of phaseOptions; track phase) {
+                <mat-option [value]="phase">
+                  {{ phase }}
+                </mat-option>
+              }
             </mat-select>
             <mat-icon matSuffix>timeline</mat-icon>
-            <mat-error *ngIf="form.get('phase')?.hasError('required')">
-              Phase is required
-            </mat-error>
+            @if (form.get('phase')?.hasError('required')) {
+              <mat-error>
+                Phase is required
+              </mat-error>
+            }
           </mat-form-field>
         </div>
 
@@ -54,15 +68,19 @@
           <mat-form-field appearance="outline" class="form-field-full">
             <mat-label>Warehouses</mat-label>
             <mat-select formControlName="warehouse_ids" multiple>
-              <mat-option *ngFor="let wh of availableWarehouses" [value]="wh.warehouse_id">
-                {{ wh.warehouse_name }}
-              </mat-option>
+              @for (wh of availableWarehouses; track wh.warehouse_id) {
+                <mat-option [value]="wh.warehouse_id">
+                  {{ wh.warehouse_name }}
+                </mat-option>
+              }
             </mat-select>
             <mat-icon matSuffix>warehouse</mat-icon>
             <mat-hint>Select one or more warehouses to analyze</mat-hint>
-            <mat-error *ngIf="form.get('warehouse_ids')?.hasError('required')">
-              At least one warehouse is required
-            </mat-error>
+            @if (form.get('warehouse_ids')?.hasError('required')) {
+              <mat-error>
+                At least one warehouse is required
+              </mat-error>
+            }
           </mat-form-field>
         </div>
 
@@ -77,58 +95,64 @@
       </form>
 
       <!-- Phase Information -->
-      <mat-card class="phase-info" *ngIf="selectedPhaseInfo">
-        <h3>
-          <mat-icon>info</mat-icon>
-          Current Event Phase: {{ form.value.phase }}
-        </h3>
-        <div class="phase-details">
-          <div class="detail-item">
-            <mat-icon class="detail-icon">schedule</mat-icon>
-            <div class="detail-content">
-              <span class="label">Demand Window:</span>
-              <span class="value">{{ selectedPhaseInfo.demand_hours }} hours</span>
+      @if (selectedPhaseInfo) {
+        <mat-card class="phase-info">
+          <h3>
+            <mat-icon>info</mat-icon>
+            Current Event Phase: {{ form.value.phase }}
+          </h3>
+          <div class="phase-details">
+            <div class="detail-item">
+              <mat-icon class="detail-icon">schedule</mat-icon>
+              <div class="detail-content">
+                <span class="label">Demand Window:</span>
+                <span class="value">{{ selectedPhaseInfo.demand_hours }} hours</span>
+              </div>
+            </div>
+            <div class="detail-item">
+              <mat-icon class="detail-icon">event</mat-icon>
+              <div class="detail-content">
+                <span class="label">Planning Window:</span>
+                <span class="value">{{ selectedPhaseInfo.planning_hours }} hours ({{ selectedPhaseInfo.planning_hours / 24 }} days)</span>
+              </div>
+            </div>
+            <div class="detail-item">
+              <mat-icon class="detail-icon">security</mat-icon>
+              <div class="detail-content">
+                <span class="label">Safety Factor:</span>
+                <span class="value">{{ selectedPhaseInfo.safety_factor }}x</span>
+              </div>
             </div>
           </div>
-          <div class="detail-item">
-            <mat-icon class="detail-icon">event</mat-icon>
-            <div class="detail-content">
-              <span class="label">Planning Window:</span>
-              <span class="value">{{ selectedPhaseInfo.planning_hours }} hours ({{ selectedPhaseInfo.planning_hours / 24 }} days)</span>
-            </div>
-          </div>
-          <div class="detail-item">
-            <mat-icon class="detail-icon">security</mat-icon>
-            <div class="detail-content">
-              <span class="label">Safety Factor:</span>
-              <span class="value">{{ selectedPhaseInfo.safety_factor }}x</span>
-            </div>
-          </div>
-        </div>
-        <div class="phase-note">
-          <mat-icon class="note-icon">info_outline</mat-icon>
-          <p>These parameters are set by your administrator for each phase. They determine how supply gaps are calculated.</p>
-        </div>
-      </mat-card>
-
-      <!-- Errors -->
-      <div class="errors-container" role="alert" *ngIf="errors.length">
-        <mat-card class="error-card">
-          <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
-          <div class="error-list">
-            <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
+          <div class="phase-note">
+            <mat-icon class="note-icon">info_outline</mat-icon>
+            <p>These parameters are set by your administrator for each phase. They determine how supply gaps are calculated.</p>
           </div>
         </mat-card>
-      </div>
+      }
+
+      <!-- Errors -->
+      @if (errors.length) {
+        <div class="errors-container" role="alert">
+          <mat-card class="error-card">
+            <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
+            <div class="error-list">
+              @for (err of errors; track err) {
+                <div class="error-item">{{ err }}</div>
+              }
+            </div>
+          </mat-card>
+        </div>
+      }
     </mat-card-content>
 
     <mat-card-actions class="action-buttons">
       <button
-        mat-stroked-button
+        matButton="outlined"
         (click)="cancel()"
         [disabled]="loading"
         class="cancel-btn"
-      >
+        >
         Cancel
       </button>
       <button
@@ -137,10 +161,11 @@
         (click)="calculateGaps()"
         [disabled]="!isValid || loading"
         class="calculate-btn"
-      >
+        >
         <mat-icon>calculate</mat-icon>
         {{ loading ? 'Calculating...' : 'Calculate Gaps' }}
       </button>
     </mat-card-actions>
   </mat-card>
 </div>
+
