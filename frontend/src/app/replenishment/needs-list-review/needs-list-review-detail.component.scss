@@ -1,0 +1,595 @@
+// ── Layout ──
+.review-detail-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  padding-bottom: 100px; // room for sticky action bar
+}
+
+// ── Header (matches wizard-header) ──
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+  .header-text {
+    flex: 1;
+
+    h1 {
+      margin: 0 0 4px 0;
+      font-size: 24px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .nl-id {
+    font-family: 'Roboto Mono', 'Courier New', monospace;
+    font-size: 0.8125rem;
+    color: #666;
+    cursor: help;
+    letter-spacing: 0.02em;
+  }
+}
+
+// ── Status chips ──
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+
+  &[data-status='SUBMITTED'] {
+    background-color: #e3f2fd;
+    color: #1565c0;
+  }
+
+  &[data-status='UNDER_REVIEW'] {
+    background-color: #fff8e1;
+    color: #f57f17;
+  }
+
+  &[data-status='APPROVED'] {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+  }
+
+  &[data-status='REJECTED'] {
+    background-color: #fce4ec;
+    color: #c62828;
+  }
+
+  &[data-status='RETURNED'] {
+    background-color: #fff3e0;
+    color: #e65100;
+  }
+
+  &[data-status='ESCALATED'] {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+  }
+}
+
+// ── Phase chip ──
+.phase-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+
+  &[data-phase='SURGE'] {
+    background-color: #fce4ec;
+    color: #c62828;
+  }
+
+  &[data-phase='STABILIZED'] {
+    background-color: #fff8e1;
+    color: #f57f17;
+  }
+
+  &[data-phase='BASELINE'] {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+  }
+}
+
+// ── Summary row (purple gradient card + info card) ──
+.summary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 16px;
+}
+
+// ── Scope info card (purple gradient — matches wizard summary-card) ──
+.info-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e0e0e0;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  }
+
+  .card-title {
+    margin: 0 0 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.75rem 0;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid #f0f0f0;
+  }
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: rgba(0, 0, 0, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.info-value {
+  font-size: 0.875rem;
+  font-weight: 500;
+
+  &.bold {
+    font-weight: 600;
+    font-size: 1rem;
+  }
+}
+
+// ── Approval Summary Card (purple gradient — matches wizard summary-card) ──
+.approval-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+
+  .card-title {
+    color: white;
+  }
+
+  .info-item {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1rem;
+    backdrop-filter: blur(10px);
+    border-bottom: none !important;
+  }
+
+  .info-label {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.875rem;
+  }
+
+  .info-value {
+    color: white;
+    font-size: 1rem;
+
+    &.bold {
+      font-size: 1.75rem;
+    }
+  }
+}
+
+// ── Warnings ──
+.warnings-section {
+  margin-top: 12px;
+}
+
+.warnings-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.95);
+
+  .warning-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: #ffc107;
+  }
+}
+
+.warning-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background-color: rgba(255, 193, 7, 0.2);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: white;
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    color: #ffc107;
+  }
+}
+
+.escalation-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+
+  mat-icon {
+    color: #ffc107;
+  }
+}
+
+// ── Tracker card ──
+.tracker-card {
+  margin-bottom: 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+// ── Items card (matches wizard table-card) ──
+.items-card {
+  margin-bottom: 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+  .card-title {
+    margin: 0 0 16px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+}
+
+.table-container {
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+// ── Items table (matches wizard preview-table) ──
+.items-table {
+  width: 100%;
+  background: white;
+  table-layout: fixed;
+
+  th {
+    background: #f5f5f5;
+    font-weight: 600;
+    color: #333;
+    padding: 10px 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 8px;
+    background: white;
+    vertical-align: middle;
+    font-size: 0.875rem;
+  }
+
+  tr {
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background-color: rgba(102, 126, 234, 0.04) !important;
+    }
+  }
+}
+
+.gap-value {
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  font-size: 0.8125rem;
+
+  &.gap-positive {
+    color: #d32f2f;
+    background: #ffebee;
+  }
+}
+
+// ── Severity chips (matches wizard severity colors) ──
+.severity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+
+  .severity-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+
+  &[data-severity='CRITICAL'] {
+    background-color: #fce4ec;
+    color: #dc3545;
+  }
+
+  &[data-severity='WARNING'] {
+    background-color: #fff8e1;
+    color: #fd7e14;
+  }
+
+  &[data-severity='WATCH'] {
+    background-color: #fffde7;
+    color: #ffc107;
+  }
+
+  &[data-severity='OK'] {
+    background-color: #e8f5e9;
+    color: #28a745;
+  }
+}
+
+// ── Mobile item cards (matches wizard mobile-preview-card) ──
+.item-card {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #667eea;
+    box-shadow: 0 1px 4px rgba(102, 126, 234, 0.1);
+  }
+}
+
+.item-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.item-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a1a;
+}
+
+.item-code {
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.item-card-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.item-field {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+
+  .field-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #6c757d;
+    text-transform: uppercase;
+  }
+}
+
+.item-comment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+// ── Review comments section ──
+.review-comments-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+
+  h4 {
+    margin: 0 0 4px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+
+  .comments-hint {
+    margin: 0 0 12px;
+    font-size: 0.8125rem;
+    color: #666;
+  }
+}
+
+.comment-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 0.75rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: #667eea;
+    background: rgba(102, 126, 234, 0.02);
+  }
+}
+
+.comment-item-label {
+  min-width: 150px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.comment-field {
+  flex: 1;
+}
+
+// ── Action bar (matches wizard actions-card) ──
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 16px 24px;
+  margin: 0 -20px;
+  background-color: white;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 8px 8px 0 0;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 140px;
+  }
+
+  .approve-btn {
+    background-color: #28a745;
+    color: white;
+  }
+}
+
+// ── Responsive breakpoints ──
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 968px) {
+  .summary-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .review-detail-page {
+    padding: 10px;
+    padding-bottom: 100px;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+
+  .page-header {
+    padding: 12px;
+
+    h1 {
+      font-size: 18px;
+    }
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .action-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    border-radius: 0;
+    flex-wrap: wrap;
+    padding: 12px;
+
+    button {
+      flex: 1;
+      min-width: 120px;
+      min-height: 48px; // touch target
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .review-detail-page {
+    padding: 5px;
+    padding-bottom: 100px;
+  }
+
+  .page-header {
+    .header-text h1 {
+      font-size: 16px;
+    }
+  }
+
+  .approval-card .info-value.bold {
+    font-size: 1.25rem;
+  }
+
+  .item-card-body {
+    grid-template-columns: 1fr;
+  }
+}

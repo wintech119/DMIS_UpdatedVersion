@@ -1,0 +1,371 @@
+<div class="review-detail-page">
+
+  <!-- Header -->
+  <div class="page-header">
+    <button mat-icon-button (click)="backToQueue()" aria-label="Back to review queue">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h1>Review Needs List</h1>
+      @if (needsList(); as nl) {
+        <div class="header-meta">
+          <span class="nl-id" [matTooltip]="nl.needs_list_id ?? ''">
+            {{ nl.needs_list_id | slice:0:8 }}...
+          </span>
+          <span class="status-chip" [attr.data-status]="nl.status">
+            {{ statusLabel(nl.status ?? 'DRAFT') }}
+          </span>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Loading -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="2"></dmis-skeleton-loader>
+    <dmis-skeleton-loader variant="table-row" [count]="5"></dmis-skeleton-loader>
+  }
+
+  <!-- Error -->
+  @if (error() && !loading()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Failed to load needs list"
+      message="There was an error loading this needs list. Please try again."
+      actionLabel="Retry"
+      actionIcon="refresh"
+      (action)="loadNeedsList()">
+    </dmis-empty-state>
+  }
+
+  @if (!loading() && !error() && needsList(); as nl) {
+
+    <!-- Summary row -->
+    <div class="summary-row">
+
+      <!-- Event & Scope info -->
+      <mat-card class="info-card">
+        <mat-card-content>
+          <h3 class="card-title">Scope</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Event</span>
+              <span class="info-value">{{ nl.event_name ?? ('Event ' + nl.event_id) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Phase</span>
+              <span class="phase-chip" [attr.data-phase]="nl.phase">{{ nl.phase }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Warehouse</span>
+              <span class="info-value">{{ warehouseLabel(nl) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">As Of</span>
+              <span class="info-value">{{ nl.as_of_datetime | date:'medium' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Submitted By</span>
+              <span class="info-value">{{ nl.submitted_by ?? '—' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Submitted At</span>
+              <span class="info-value">{{ nl.submitted_at ? (nl.submitted_at | date:'medium') : '—' }}</span>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Approval Summary -->
+      @if (nl.approval_summary; as summary) {
+        <mat-card class="info-card approval-card">
+          <mat-card-content>
+            <h3 class="card-title">Approval Summary</h3>
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Total Required Qty</span>
+                <span class="info-value bold">{{ summary.total_required_qty | number:'1.0-1' }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Estimated Cost</span>
+                <span class="info-value bold">
+                  @if (summary.total_estimated_cost !== null) {
+                    J${{ summary.total_estimated_cost | number:'1.2-2' }}
+                  } @else {
+                    Not available
+                  }
+                </span>
+              </div>
+              @if (summary.approval; as tier) {
+                <div class="info-item">
+                  <span class="info-label">Approval Tier</span>
+                  <span class="info-value">{{ tier.tier }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Required Approver</span>
+                  <span class="info-value">{{ tier.approver_role }}</span>
+                </div>
+              }
+            </div>
+
+            @if (summary.warnings?.length) {
+              <mat-divider></mat-divider>
+              <div class="warnings-section">
+                <h4 class="warnings-title">
+                  <mat-icon class="warning-icon">warning_amber</mat-icon>
+                  Warnings
+                </h4>
+                @for (warning of summary.warnings; track warning) {
+                  <div class="warning-chip">
+                    <mat-icon>info_outline</mat-icon>
+                    {{ warning }}
+                  </div>
+                }
+              </div>
+            }
+
+            @if (summary.escalation_required) {
+              <div class="escalation-alert" role="alert">
+                <mat-icon>priority_high</mat-icon>
+                <span>Escalation required — this needs list requires higher-level approval.</span>
+              </div>
+            }
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+
+    <!-- Approval Status Tracker -->
+    <mat-card class="tracker-card">
+      <mat-card-content>
+        <dmis-approval-status-tracker
+          [needsList]="nl"
+          [horizon]="approvalHorizon()"
+          (sendReminder)="onSendReminder()">
+        </dmis-approval-status-tracker>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Items Table -->
+    <mat-card class="items-card">
+      <mat-card-content>
+        <h3 class="card-title">Line Items ({{ items().length }})</h3>
+
+        <!-- Desktop table -->
+        <div class="table-container desktop-only">
+          <table mat-table [dataSource]="items()" class="items-table">
+
+            <ng-container matColumnDef="item_name">
+              <th mat-header-cell *matHeaderCellDef>Item</th>
+              <td mat-cell *matCellDef="let item">
+                <div class="item-name">{{ item.item_name ?? ('Item ' + item.item_id) }}</div>
+                @if (item.item_code) {
+                  <div class="item-code">{{ item.item_code }}</div>
+                }
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="warehouse">
+              <th mat-header-cell *matHeaderCellDef>Warehouse</th>
+              <td mat-cell *matCellDef="let item">{{ item.warehouse_name ?? (item.warehouse_id ?? '—') }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="available">
+              <th mat-header-cell *matHeaderCellDef>Available</th>
+              <td mat-cell *matCellDef="let item">{{ item.available_qty | number:'1.0-1' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="inbound">
+              <th mat-header-cell *matHeaderCellDef>Inbound</th>
+              <td mat-cell *matCellDef="let item">{{ item.inbound_strict_qty | number:'1.0-1' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="burn_rate">
+              <th mat-header-cell *matHeaderCellDef>Burn Rate</th>
+              <td mat-cell *matCellDef="let item">{{ item.burn_rate_per_hour | number:'1.0-2' }} /hr</td>
+            </ng-container>
+
+            <ng-container matColumnDef="required">
+              <th mat-header-cell *matHeaderCellDef>Required</th>
+              <td mat-cell *matCellDef="let item">{{ (item.required_qty ?? 0) | number:'1.0-1' }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="gap">
+              <th mat-header-cell *matHeaderCellDef>Gap</th>
+              <td mat-cell *matCellDef="let item">
+                <span class="gap-value" [class.gap-positive]="item.gap_qty > 0">
+                  {{ item.gap_qty | number:'1.0-1' }}
+                </span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="stockout">
+              <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
+              <td mat-cell *matCellDef="let item">{{ timeToStockout(item) }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="horizon_a">
+              <th mat-header-cell *matHeaderCellDef>Horizon A</th>
+              <td mat-cell *matCellDef="let item">{{ horizonQty(item.horizon, 'A') }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="horizon_b">
+              <th mat-header-cell *matHeaderCellDef>Horizon B</th>
+              <td mat-cell *matCellDef="let item">{{ horizonQty(item.horizon, 'B') }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="horizon_c">
+              <th mat-header-cell *matHeaderCellDef>Horizon C</th>
+              <td mat-cell *matCellDef="let item">{{ horizonQty(item.horizon, 'C') }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="severity">
+              <th mat-header-cell *matHeaderCellDef>Severity</th>
+              <td mat-cell *matCellDef="let item">
+                <span class="severity-chip" [attr.data-severity]="item.severity">
+                  <mat-icon class="severity-icon">{{ severityIcon(item) }}</mat-icon>
+                  {{ item.severity ?? 'Unknown' }}
+                </span>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+          </table>
+        </div>
+
+        <!-- Mobile card list -->
+        <div class="mobile-only">
+          @for (item of items(); track item.item_id) {
+            <div class="item-card">
+              <div class="item-card-header">
+                <div>
+                  <span class="item-name">{{ item.item_name ?? ('Item ' + item.item_id) }}</span>
+                  @if (item.item_code) {
+                    <div class="item-code">{{ item.item_code }}</div>
+                  }
+                </div>
+                <span class="severity-chip" [attr.data-severity]="item.severity">
+                  <mat-icon class="severity-icon">{{ severityIcon(item) }}</mat-icon>
+                  {{ item.severity ?? 'Unknown' }}
+                </span>
+              </div>
+              <div class="item-card-body">
+                <div class="item-field">
+                  <span class="field-label">Gap</span>
+                  <span class="gap-value" [class.gap-positive]="item.gap_qty > 0">{{ item.gap_qty | number:'1.0-1' }}</span>
+                </div>
+                <div class="item-field">
+                  <span class="field-label">Burn Rate</span>
+                  <span>{{ item.burn_rate_per_hour | number:'1.0-2' }} /hr</span>
+                </div>
+                <div class="item-field">
+                  <span class="field-label">Stockout</span>
+                  <span>{{ timeToStockout(item) }}</span>
+                </div>
+                <div class="item-field">
+                  <span class="field-label">Horizon A / B / C</span>
+                  <span>{{ horizonQty(item.horizon, 'A') }} / {{ horizonQty(item.horizon, 'B') }} / {{ horizonQty(item.horizon, 'C') }}</span>
+                </div>
+              </div>
+              @if (canAddComments()) {
+                <div class="item-comment">
+                  <mat-form-field appearance="outline" class="comment-field">
+                    <mat-label>Review comment</mat-label>
+                    <input matInput
+                           [value]="reviewComments()[item.item_id] || item.review_comment || ''"
+                           (input)="updateComment(item.item_id, $any($event.target).value)"
+                           placeholder="Add a review note...">
+                  </mat-form-field>
+                  <button mat-button (click)="saveComment(item)" [disabled]="!reviewComments()[item.item_id]?.trim()">
+                    Save
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Per-item review comments (desktop, shown below table when UNDER_REVIEW) -->
+        @if (canAddComments()) {
+          <div class="review-comments-section desktop-only">
+            <h4>Review Comments</h4>
+            <p class="comments-hint">Add review notes for specific items below.</p>
+            @for (item of items(); track item.item_id) {
+              <div class="comment-row">
+                <span class="comment-item-label">{{ item.item_name ?? ('Item ' + item.item_id) }}</span>
+                <mat-form-field appearance="outline" class="comment-field">
+                  <mat-label>Comment</mat-label>
+                  <input matInput
+                         [value]="reviewComments()[item.item_id] || item.review_comment || ''"
+                         (input)="updateComment(item.item_id, $any($event.target).value)"
+                         placeholder="Enter review comment...">
+                </mat-form-field>
+                <button mat-stroked-button
+                        (click)="saveComment(item)"
+                        [disabled]="!reviewComments()[item.item_id]?.trim()">
+                  Save
+                </button>
+              </div>
+            }
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Action bar -->
+    @if (hasActions()) {
+      <div class="action-bar" role="toolbar" aria-label="Approval actions">
+
+        @if (canStartReview()) {
+          <button mat-flat-button
+                  color="primary"
+                  (click)="startReview()"
+                  [disabled]="actionLoading() !== null">
+            <mat-icon>rate_review</mat-icon>
+            {{ actionLoading() === 'start_review' ? 'Starting...' : 'Start Review' }}
+          </button>
+        }
+
+        @if (canApprove()) {
+          <button mat-flat-button
+                  class="approve-btn"
+                  (click)="approve()"
+                  [disabled]="actionLoading() !== null">
+            <mat-icon>check_circle</mat-icon>
+            {{ actionLoading() === 'approve' ? 'Approving...' : 'Approve' }}
+          </button>
+        }
+
+        @if (canReject()) {
+          <button mat-flat-button
+                  color="warn"
+                  (click)="reject()"
+                  [disabled]="actionLoading() !== null">
+            <mat-icon>cancel</mat-icon>
+            {{ actionLoading() === 'reject' ? 'Rejecting...' : 'Reject' }}
+          </button>
+        }
+
+        @if (canReturn()) {
+          <button mat-stroked-button
+                  color="warn"
+                  (click)="returnForRevision()"
+                  [disabled]="actionLoading() !== null">
+            <mat-icon>undo</mat-icon>
+            {{ actionLoading() === 'return' ? 'Returning...' : 'Return for Revision' }}
+          </button>
+        }
+
+        @if (canEscalate()) {
+          <button mat-stroked-button
+                  (click)="escalate()"
+                  [disabled]="actionLoading() !== null">
+            <mat-icon>north_east</mat-icon>
+            {{ actionLoading() === 'escalate' ? 'Escalating...' : 'Escalate' }}
+          </button>
+        }
+      </div>
+    }
+  }
+</div>

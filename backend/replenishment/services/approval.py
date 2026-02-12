@@ -48,8 +48,24 @@ def compute_needs_list_totals(
 
 
 def determine_approval_tier(
-    phase: str, total_cost: float | None, cost_missing: bool
+    phase: str,
+    total_cost: float | None,
+    cost_missing: bool,
+    selected_method: str | None = None,
 ) -> Tuple[Dict[str, object], List[str], str]:
+    method = str(selected_method or "").upper()
+    if method == "A":
+        # Transfer approvals are not procurement-cost driven.
+        return (
+            {
+                "tier": "Below Tier 1",
+                "approver_role": "Logistics Manager (Kemar)",
+                "methods_allowed": ["Transfer"],
+            },
+            [],
+            "Transfer workflow selected; transfer approval path applied.",
+        )
+
     warnings: List[str] = []
     if cost_missing or total_cost is None:
         ruleset = rules.PROCUREMENT_APPROVAL_RULES[rules.DEFAULT_PROCUREMENT_CATEGORY]
