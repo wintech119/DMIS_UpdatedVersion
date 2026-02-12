@@ -68,13 +68,46 @@ describe('NeedsListWizardComponent', () => {
     expect(mockRouter.navigate).not.toHaveBeenCalled();
   });
 
-  it('should handle wizard completion', () => {
-    spyOn(window, 'confirm').and.returnValue(true);
-    wizardService.updateState({ event_id: 1 });
+  it('should set confirmation state on completion', () => {
+    component.onComplete({
+      action: 'submitted_for_approval',
+      totalItems: 3,
+      completedAt: new Date().toISOString(),
+      approver: 'Senior Director'
+    });
 
-    component.onComplete();
+    expect(component.confirmationState).not.toBeNull();
+    expect(component.confirmationState?.action).toBe('submitted_for_approval');
+    expect(component.confirmationState?.totalItems).toBe(3);
+  });
+
+  it('should reset and navigate from confirmation page', () => {
+    wizardService.updateState({ event_id: 1 });
+    component.confirmationState = {
+      action: 'draft_saved',
+      totalItems: 2,
+      completedAt: new Date().toISOString()
+    };
+
+    component.returnToDashboardFromConfirmation();
 
     expect(wizardService.getState().event_id).toBeUndefined();
+    expect(component.confirmationState).toBeNull();
     expect(mockRouter.navigate).toHaveBeenCalledWith(['/replenishment/dashboard']);
+  });
+
+  it('should return to submit step from draft confirmation', () => {
+    component.confirmationState = {
+      action: 'draft_saved',
+      totalItems: 2,
+      completedAt: new Date().toISOString()
+    };
+    const mockStepper = { selectedIndex: 3 };
+    (component as unknown as { stepper: { selectedIndex: number } }).stepper = mockStepper;
+
+    component.returnToSubmitStepFromConfirmation();
+
+    expect(component.confirmationState).toBeNull();
+    expect(mockStepper.selectedIndex).toBe(2);
   });
 });

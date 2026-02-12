@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild, DestroyRef, inject } from '@angular/core';
+import { Component, OnInit, ViewChild, DestroyRef, ChangeDetectorRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -12,7 +12,17 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { WizardStateService } from './services/wizard-state.service';
 import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
 import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
-import { SubmitStepComponent } from './steps/step3-submit/submit-step.component';
+import {
+  SubmitStepComponent,
+  SubmitStepCompleteEvent
+} from './steps/step3-submit/submit-step.component';
+
+interface WizardConfirmationState {
+  action: 'draft_saved' | 'submitted_for_approval';
+  totalItems: number;
+  completedAt: string;
+  approver?: string;
+}
 
 @Component({
   selector: 'app-needs-list-wizard',
@@ -34,12 +44,14 @@ import { SubmitStepComponent } from './steps/step3-submit/submit-step.component'
 export class NeedsListWizardComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
   private destroyRef = inject(DestroyRef);
+  private cdr = inject(ChangeDetectorRef);
   public wizardService = inject(WizardStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
+  confirmationState: WizardConfirmationState | null = null;
 
   ngOnInit(): void {
     // Load query params from dashboard navigation
@@ -81,15 +93,39 @@ export class NeedsListWizardComponent implements OnInit {
     console.log('Step changed:', event.selectedIndex);
   }
 
-  onComplete(): void {
-    // Handle wizard completion (after successful submission)
-    console.log('Wizard completed');
-    // In future: navigate to confirmation page or back to dashboard
-    // For now, just reset state and navigate to dashboard
-    const confirmed = confirm('Needs list submitted successfully! Return to dashboard?');
-    if (confirmed) {
-      this.wizardService.reset();
-      this.router.navigate(['/replenishment/dashboard']);
+  onComplete(event: SubmitStepCompleteEvent): void {
+    this.confirmationState = {
+      action: event.action,
+      totalItems: event.totalItems,
+      completedAt: event.completedAt,
+      approver: event.approver
+    };
+
+    // Force navigation to step 4 confirmation without requiring header click.
+    this.cdr.detectChanges();
+    queueMicrotask(() => {
+      if (this.stepper) {
+        this.stepper.selectedIndex = 3;
+      }
+    });
+  }
+
+  returnToDashboardFromConfirmation(): void {
+    this.wizardService.reset();
+    this.confirmationState = null;
+    this.router.navigate(['/replenishment/dashboard']);
+  }
+
+  returnToSubmitStepFromConfirmation(): void {
+    this.confirmationState = null;
+    if (this.stepper) {
+      this.stepper.selectedIndex = 2;
     }
+  }
+
+  startNewNeedsList(): void {
+    this.wizardService.reset();
+    this.confirmationState = null;
+    this.stepper.reset();
   }
 }
