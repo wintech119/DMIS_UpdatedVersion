@@ -14,7 +14,7 @@
   padding: 16px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
 
   .back-btn {
     color: #666;
@@ -28,7 +28,7 @@
     flex: 1;
 
     h1 {
-      margin: 0 0 4px 0;
+      margin: 0 0 4px;
       font-size: 24px;
       font-weight: 600;
       color: #1a1a1a;
@@ -52,7 +52,7 @@
 .table-container {
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
   overflow: hidden;
 }
 
@@ -82,7 +82,7 @@
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: rgba(102, 126, 234, 0.04) !important;
+    background-color: rgb(102 126 234 / 4%) !important;
     box-shadow: inset 3px 0 0 #667eea;
   }
 
@@ -167,7 +167,7 @@
 
   &:hover {
     border-color: #667eea;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+    box-shadow: 0 2px 8px rgb(102 126 234 / 15%);
   }
 
   &:focus-visible {
@@ -207,7 +207,7 @@
 
 .card-label {
   font-size: 0.8125rem;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgb(0 0 0 / 60%);
   font-weight: 500;
 }
 
@@ -220,7 +220,7 @@
   display: none;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .review-queue-page {
     padding: 10px;
   }
@@ -252,7 +252,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (width <= 480px) {
   .review-queue-page {
     padding: 5px;
   }
