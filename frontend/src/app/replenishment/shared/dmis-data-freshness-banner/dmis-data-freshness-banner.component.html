@@ -72,16 +72,16 @@
             </tr>
           </thead>
           <tbody>
-            @for (wh of bannerState?.warehouses; track wh) {
+            @for (wh of bannerState?.warehouses; track wh.warehouse_id) {
               <tr
-                [ngClass]="'row-freshness-' + wh.freshness.toLowerCase()">
+                [ngClass]="'row-freshness-' + (wh.freshness || '').toLowerCase()">
                 <td class="col-warehouse">
                   <mat-icon class="wh-icon">warehouse</mat-icon>
                   {{ wh.warehouse_name }}
                 </td>
                 <td>
-                  <span class="status-badge" [ngClass]="'badge-freshness-' + wh.freshness.toLowerCase()">
-                    <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness) }}</mat-icon>
+                  <span class="status-badge" [ngClass]="'badge-freshness-' + (wh.freshness || '').toLowerCase()">
+                    <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness ?? 'HIGH') }}</mat-icon>
                     {{ wh.freshness }}
                   </span>
                 </td>
