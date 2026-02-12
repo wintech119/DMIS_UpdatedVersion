@@ -1,6 +1,20 @@
 # Disaster Recovery Inventory Management System Frontend
 
+## Django backend (venv)
 
+The Python venv lives in the **project root**. Activate it from there, or use the path that goes up from subfolders:
+
+```powershell
+# From project root (DMIS_UpdatedVersion):
+.\.venv\Scripts\Activate.ps1
+
+# From backend\ or frontend\:
+..\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks the script:
+- Run once in that terminal: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+- Or use **Command Prompt (cmd)** instead: `cd` to project root, then run `.venv\Scripts\activate.bat`
 
 ## Getting started
 
