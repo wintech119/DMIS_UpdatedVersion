@@ -505,7 +505,7 @@
         <div class="warnings-section">
           <div class="section-label">Top-level warnings</div>
           <div class="warnings-summary" role="status" aria-live="polite">
-            @for (warn of topWarnings; track warn) {
+            @for (warn of topWarnings; track $index) {
               <div class="warning-item">
                 <span class="warning-icon" aria-hidden="true">!</span>
                 <div class="warning-text">
@@ -527,7 +527,7 @@
             <details class="item-warning">
               <summary class="item-label">Item {{ entry.item_id }}</summary>
               <mat-chip-listbox>
-                @for (warn of entry.warnings; track warn) {
+                @for (warn of entry.warnings; track $index) {
                   <mat-chip-option>{{ warn }}</mat-chip-option>
                 }
               </mat-chip-listbox>
