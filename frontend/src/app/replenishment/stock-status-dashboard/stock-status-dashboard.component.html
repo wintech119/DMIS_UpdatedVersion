@@ -80,7 +80,7 @@
               Show All Warehouses
             </button>
             <mat-divider></mat-divider>
-            @for (warehouse of allWarehouses; track warehouse) {
+            @for (warehouse of allWarehouses; track warehouse.warehouse_id) {
               <button
                 mat-menu-item
                 (click)="toggleWarehouseFilter(warehouse.warehouse_id); $event.stopPropagation()"
@@ -270,7 +270,7 @@
   <!-- Warehouse Cards (Multi-Warehouse View) -->
   @if (!loading && warehouseGroups.length) {
     <div class="warehouses-container">
-      @for (group of warehouseGroups; track group) {
+      @for (group of warehouseGroups; track group.warehouse_id) {
         <div class="warehouse-card">
           <!-- Warehouse Header -->
       <div class="warehouse-header" [ngClass]="{
@@ -356,7 +356,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    @for (item of group.items; track item) {
+                    @for (item of group.items; track item.item_id) {
                       <tr [ngClass]="'row-' + getSeverityClass(item.severity)">
                         <td class="col-status">
                           <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
@@ -434,7 +434,7 @@
               </div>
               <!-- Stock Items Card List (Mobile) -->
               <div class="mobile-card-list mobile-only">
-                @for (item of group.items; track item) {
+                @for (item of group.items; track item.item_id) {
                   <div class="mobile-item-card"
                     [ngClass]="'card-' + getSeverityClass(item.severity)">
                     <div class="mobile-card-header">

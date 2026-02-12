@@ -223,7 +223,7 @@
 
       <!-- Mobile Card List -->
       <div class="mobile-card-list mobile-only">
-        @for (item of filteredItems; track item) {
+        @for (item of filteredItems; track getItemKey(item)) {
           <div class="mobile-preview-card"
             [ngClass]="getRowClass(item)">
             <div class="mobile-preview-header">
