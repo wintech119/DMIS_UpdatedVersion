@@ -33,6 +33,7 @@ import {
 } from '../shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { formatStatusLabel } from './status-label.util';
 
 @Component({
   selector: 'app-needs-list-review-detail',
@@ -350,7 +351,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
   }
 
   statusLabel(status: string): string {
-    return status.replace(/_/g, ' ');
+    return formatStatusLabel(status);
   }
 
   // ── Private helpers ──

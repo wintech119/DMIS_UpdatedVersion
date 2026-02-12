@@ -1276,10 +1276,7 @@ needs_list_get.required_permission = [
 ]
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
 needs_list_review_comments.required_permission = PERM_NEEDS_LIST_REVIEW_COMMENTS
-needs_list_submit.required_permission = [
-    PERM_NEEDS_LIST_SUBMIT,
-    PERM_NEEDS_LIST_CREATE_DRAFT,
-]
+needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
 needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
 needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
 needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT
