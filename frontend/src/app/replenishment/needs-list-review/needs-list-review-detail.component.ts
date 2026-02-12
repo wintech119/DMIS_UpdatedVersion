@@ -16,6 +16,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { FormsModule } from '@angular/forms';
+import { EMPTY, of } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
 
 import { NeedsListResponse, NeedsListItem, HorizonAllocation } from '../models/needs-list.model';
 import { HorizonType } from '../models/approval-workflows.model';
@@ -150,7 +152,23 @@ export class NeedsListReviewDetailComponent implements OnInit {
   loadNeedsList(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.replenishmentService.getNeedsList(this.needsListId).subscribe({
+    this.replenishmentService.listNeedsLists().pipe(
+      map(({ needs_lists }) =>
+        needs_lists.some((row) => row.needs_list_id === this.needsListId)
+      ),
+      // If queue check fails, attempt direct fetch so transient list failures do not block detail view.
+      catchError(() => of(true)),
+      switchMap((existsInQueue) => {
+        if (!existsInQueue) {
+          this.loading.set(false);
+          this.error.set(true);
+          this.notifications.showWarning('Needs list not found. It may have expired or been removed.');
+          this.router.navigate(['/replenishment/needs-list-review']);
+          return EMPTY;
+        }
+        return this.replenishmentService.getNeedsList(this.needsListId);
+      })
+    ).subscribe({
       next: (data) => {
         this.needsList.set(data);
         this.loading.set(false);
