@@ -7,6 +7,7 @@ from app.security.audit_logger import (
     log_user_management_event, log_data_event,
     AuditAction, AuditOutcome
 )
+from sqlalchemy.exc import SQLAlchemyError
 from ..security.user_keycloak import create_keycloak_user, DuplicateUserException as KCDuplicate
 from ..security.user_ldap import create_ldap_user, DuplicateUserException as LDAPDuplicate
 
@@ -233,6 +234,7 @@ def create():
                     flash(f'User {email} created successfully.', 'success')
                     return redirect(url_for('user_admin.index'))
             except (KCDuplicate, LDAPDuplicate) as e:
+                db.session.rollback()
                 flash('A user with this email already exists.', 'danger')
                 form_valid = False
                 log_user_management_event(
@@ -242,10 +244,18 @@ def create():
                     details={'email': email, 'error': type(e).__name__},
                     outcome=AuditOutcome.ERROR
                 )
-            # except Exception as e:
-            #     db.session.rollback()
-            #     flash(f'Error creating user: {str(e)}', 'danger')
-            #     form_valid = False
+            except SQLAlchemyError as e:
+                db.session.rollback()
+                current_app.logger.exception('Failed to create user in database: %s', email)
+                flash('Unable to create user due to a database error. Please try again.', 'danger')
+                log_user_management_event(
+                    action=AuditAction.USER_CREATE,
+                    actor_id=current_user.user_id,
+                    target_user_id=0,
+                    details={'email': email, 'error': type(e).__name__},
+                    outcome=AuditOutcome.ERROR
+                )
+                return redirect(url_for('user_admin.create'))
     
     roles = get_assignable_roles(current_user)
     warehouses = Warehouse.query.filter_by(status_code='A').all()
