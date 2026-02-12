@@ -23,6 +23,24 @@ export interface WarehousesResponse {
   count: number;
 }
 
+export interface ApproveNeedsListPayload {
+  notes?: string;
+}
+
+export interface RejectNeedsListPayload {
+  reason: string;
+  notes?: string;
+}
+
+export interface CreateNeedsListDraftPayload {
+  event_id: number;
+  warehouse_id: number;
+  phase: string;
+  as_of_datetime?: string;
+  selected_item_keys?: string[];
+  selected_method?: 'A' | 'B' | 'C';
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -94,6 +112,92 @@ export class ReplenishmentService {
           severity: calculateSeverity(this.parseTimeToStockout(item.time_to_stockout))
         }))
       }))
+    );
+  }
+
+  createNeedsListDraft(payload: CreateNeedsListDraftPayload): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/draft`,
+      payload
+    );
+  }
+
+  submitNeedsListForApproval(needsListId: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/submit`,
+      {}
+    );
+  }
+
+  approveNeedsList(
+    needsListId: string,
+    payload: ApproveNeedsListPayload = {}
+  ): Observable<NeedsListResponse> {
+    const notes = payload.notes?.trim();
+    const body = notes
+      ? {
+          comment: notes,
+          notes
+        }
+      : {};
+
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/approve`,
+      body
+    );
+  }
+
+  rejectNeedsList(
+    needsListId: string,
+    payload: RejectNeedsListPayload
+  ): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/reject`,
+      payload
+    );
+  }
+
+  listNeedsLists(statuses?: string[]): Observable<{ needs_lists: NeedsListResponse[]; count: number }> {
+    const params = statuses?.length ? `?status=${statuses.join(',')}` : '';
+    return this.http.get<{ needs_lists: NeedsListResponse[]; count: number }>(
+      `${this.apiUrl}/needs-list/${params}`
+    );
+  }
+
+  getNeedsList(id: string): Observable<NeedsListResponse> {
+    return this.http.get<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}`
+    );
+  }
+
+  startReview(id: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review/start`,
+      {}
+    );
+  }
+
+  returnNeedsList(id: string, reason: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/return`,
+      { reason }
+    );
+  }
+
+  escalateNeedsList(id: string, reason: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/escalate`,
+      { reason }
+    );
+  }
+
+  addReviewComments(
+    id: string,
+    comments: { item_id: number; comment: string }[]
+  ): Observable<NeedsListResponse> {
+    return this.http.patch<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review-comments`,
+      comments
     );
   }
 

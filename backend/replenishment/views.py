@@ -52,6 +52,30 @@ def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> 
     return parsed
 
 
+def _parse_selected_item_keys(
+    raw_keys: Any,
+    errors: Dict[str, str],
+    field_name: str = "selected_item_keys",
+) -> set[str] | None:
+    if raw_keys is None:
+        return None
+    if not isinstance(raw_keys, list):
+        errors[field_name] = "Must be an array of item keys."
+        return None
+
+    parsed: set[str] = set()
+    for idx, key in enumerate(raw_keys):
+        if not isinstance(key, str):
+            errors[field_name] = f"Invalid key at index {idx}."
+            return None
+        normalized = key.strip()
+        if not re.fullmatch(r"\d+_\d+", normalized):
+            errors[field_name] = f"Invalid key format at index {idx}."
+            return None
+        parsed.add(normalized)
+    return parsed
+
+
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
 
@@ -199,14 +223,23 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
         if include_overrides
         else dict(record.get("snapshot") or {})
     )
+    selected_method = (
+        str(record.get("selected_method") or snapshot.get("selected_method") or "")
+        .strip()
+        .upper()
+        or None
+    )
     total_required_qty, total_estimated_cost, approval_warnings = (
         approval_service.compute_needs_list_totals(snapshot.get("items") or [])
     )
+    if selected_method == "A":
+        approval_warnings = []
     approval, approval_warnings_extra, approval_rationale = (
         approval_service.determine_approval_tier(
             str(record.get("phase") or "BASELINE"),
             total_estimated_cost,
             bool(approval_warnings),
+            selected_method=selected_method,
         )
     )
     authority_warnings, escalation_required = (
@@ -221,7 +254,10 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "needs_list_id": record.get("needs_list_id"),
             "status": record.get("status"),
             "event_id": record.get("event_id"),
+            "event_name": record.get("event_name"),
             "warehouse_id": record.get("warehouse_id"),
+            "warehouse_ids": record.get("warehouse_ids"),
+            "warehouses": record.get("warehouses"),
             "phase": record.get("phase"),
             "planning_window_days": record.get("planning_window_days"),
             "as_of_datetime": record.get("as_of_datetime"),
@@ -237,6 +273,7 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "approved_at": record.get("approved_at"),
             "approval_tier": record.get("approval_tier"),
             "approval_rationale": record.get("approval_rationale"),
+            "selected_method": record.get("selected_method"),
             "prep_started_by": record.get("prep_started_by"),
             "prep_started_at": record.get("prep_started_at"),
             "dispatched_by": record.get("dispatched_by"),
@@ -273,6 +310,31 @@ def _workflow_disabled_response() -> Response:
         {"errors": {"workflow": "Workflow dev store is disabled."}},
         status=501,
     )
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_list(request):
+    """
+    List needs lists, optionally filtered by status.
+    Query params:
+        status - comma-separated list of statuses (e.g. SUBMITTED,UNDER_REVIEW)
+    """
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    status_param = request.query_params.get("status")
+    statuses = [s.strip() for s in status_param.split(",") if s.strip()] if status_param else None
+
+    records = workflow_store.list_records(statuses)
+    serialized = [_serialize_workflow_record(r) for r in records]
+    # Sort by submitted_at ascending (oldest first), nulls last
+    serialized.sort(key=lambda r: r.get("submitted_at") or "9999")
+
+    return Response({"needs_lists": serialized, "count": len(serialized)})
 
 
 @api_view(["GET"])
@@ -476,6 +538,14 @@ def needs_list_preview_multi(request):
 def needs_list_draft(request):
     payload = request.data or {}
     response, errors = _build_preview_response(payload)
+    selected_item_keys = _parse_selected_item_keys(payload.get("selected_item_keys"), errors)
+    selected_method_raw = payload.get("selected_method")
+    selected_method = None
+    if selected_method_raw is not None:
+        selected_method = str(selected_method_raw).strip().upper()
+        if selected_method not in {"A", "B", "C"}:
+            errors["selected_method"] = "Must be one of: A, B, C."
+
     if errors:
         return Response({"errors": errors}, status=400)
 
@@ -484,17 +554,58 @@ def needs_list_draft(request):
     except RuntimeError:
         return _workflow_disabled_response()
 
+    event_id = response.get("event_id")
+    warehouse_id = response.get("warehouse_id")
+    all_items = response.get("items", []) or []
+    if selected_item_keys is not None:
+        filtered_items = [
+            item
+            for item in all_items
+            if (
+                f"{item.get('item_id')}_{item.get('warehouse_id') or warehouse_id}"
+                in selected_item_keys
+            )
+        ]
+    else:
+        filtered_items = all_items
+
+    if not filtered_items:
+        return Response(
+            {"errors": {"items": "At least one selected item is required."}},
+            status=400,
+        )
+
+    event_name = (
+        data_access.get_event_name(int(event_id))
+        if event_id is not None
+        else None
+    )
+    warehouse_name = (
+        data_access.get_warehouse_name(int(warehouse_id))
+        if warehouse_id is not None
+        else None
+    )
+
     record_payload = {
-        "event_id": response.get("event_id"),
-        "warehouse_id": response.get("warehouse_id"),
+        "event_id": event_id,
+        "event_name": event_name,
+        "warehouse_id": warehouse_id,
+        "warehouse_ids": [warehouse_id] if warehouse_id is not None else [],
+        "warehouses": (
+            [{"warehouse_id": warehouse_id, "warehouse_name": warehouse_name}]
+            if warehouse_id is not None
+            else []
+        ),
         "phase": response.get("phase"),
         "as_of_datetime": response.get("as_of_datetime"),
         "planning_window_days": response.get("planning_window_days"),
         "filters": payload.get("filters"),
+        "selected_method": selected_method,
+        "selected_item_keys": sorted(selected_item_keys) if selected_item_keys is not None else None,
     }
     record = workflow_store.create_draft(
         record_payload,
-        response.get("items", []),
+        filtered_items,
         response.get("warnings", []),
         _actor_id(request),
     )
@@ -506,9 +617,10 @@ def needs_list_draft(request):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": record.get("needs_list_id"),
-            "event_id": response.get("event_id"),
-            "warehouse_id": response.get("warehouse_id"),
-            "item_count": len(response.get("items", [])),
+            "event_id": event_id,
+            "warehouse_id": warehouse_id,
+            "item_count": len(filtered_items),
+            "selected_method": selected_method,
         },
     )
 
@@ -865,11 +977,20 @@ def needs_list_approve(request, needs_list_id: str):
     total_required_qty, total_estimated_cost, total_warnings = (
         approval_service.compute_needs_list_totals(snapshot.get("items") or [])
     )
+    selected_method = (
+        str(record.get("selected_method") or snapshot.get("selected_method") or "")
+        .strip()
+        .upper()
+        or None
+    )
+    if selected_method == "A":
+        total_warnings = []
     approval, approval_warnings, approval_rationale = (
         approval_service.determine_approval_tier(
             str(record.get("phase") or "BASELINE"),
             total_estimated_cost,
             bool(total_warnings),
+            selected_method=selected_method,
         )
     )
     authority_warnings, escalation_required = (
@@ -1155,7 +1276,10 @@ needs_list_get.required_permission = [
 ]
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
 needs_list_review_comments.required_permission = PERM_NEEDS_LIST_REVIEW_COMMENTS
-needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
+needs_list_submit.required_permission = [
+    PERM_NEEDS_LIST_SUBMIT,
+    PERM_NEEDS_LIST_CREATE_DRAFT,
+]
 needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
 needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
 needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT

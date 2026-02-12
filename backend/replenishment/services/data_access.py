@@ -431,6 +431,41 @@ def get_active_event() -> Dict[str, object] | None:
     return None
 
 
+def get_event_name(event_id: int) -> str:
+    """
+    Fetch event name by event ID.
+    Returns a fallback format "Event {id}" when not found.
+    """
+    if _is_sqlite():
+        if int(event_id) == 1:
+            return "Development Test Event"
+        return f"Event {event_id}"
+
+    schema = _schema_name()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT event_name
+                FROM {schema}.event
+                WHERE event_id = %s
+                LIMIT 1
+                """,
+                [event_id],
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return str(row[0])
+    except DatabaseError as exc:
+        logger.warning("Event name query failed for event_id=%s: %s", event_id, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after event query error: %s", rollback_exc)
+
+    return f"Event {event_id}"
+
+
 def get_all_warehouses() -> List[Dict[str, object]]:
     """
     Fetch all active warehouses from the warehouse table.

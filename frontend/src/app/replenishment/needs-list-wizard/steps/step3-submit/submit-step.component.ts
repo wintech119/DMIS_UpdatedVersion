@@ -12,12 +12,19 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatRadioModule } from '@angular/material/radio';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
-import { timer } from 'rxjs';
+import { Observable, forkJoin, of, throwError } from 'rxjs';
+import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { DmisNotificationService } from '../../../services/notification.service';
+import { ReplenishmentService } from '../../../services/replenishment.service';
 import { DmisEmptyStateComponent } from '../../../shared/dmis-empty-state/dmis-empty-state.component';
+import {
+  ConfirmDialogData,
+  DmisConfirmDialogComponent
+} from '../../../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import {
   APPROVAL_WORKFLOWS,
@@ -31,6 +38,13 @@ interface WarehouseBreakdown {
   items: number;
   units: number;
   cost: number;
+}
+
+export interface SubmitStepCompleteEvent {
+  action: 'draft_saved' | 'submitted_for_approval';
+  totalItems: number;
+  completedAt: string;
+  approver?: string;
 }
 
 
@@ -50,6 +64,7 @@ interface WarehouseBreakdown {
     MatDividerModule,
     MatProgressBarModule,
     MatProgressSpinnerModule,
+    MatDialogModule,
     MatRadioModule,
     DmisEmptyStateComponent
   ],
@@ -59,9 +74,10 @@ interface WarehouseBreakdown {
 export class SubmitStepComponent implements OnInit {
   private fb = inject(FormBuilder);
   private wizardService = inject(WizardStateService);
+  private replenishmentService = inject(ReplenishmentService);
 
   @Output() back = new EventEmitter<void>();
-  @Output() complete = new EventEmitter<void>();
+  @Output() complete = new EventEmitter<SubmitStepCompleteEvent>();
 
   items: NeedsListItem[] = [];
   selectedItems: NeedsListItem[] = [];  // Only selected items
@@ -102,6 +118,7 @@ export class SubmitStepComponent implements OnInit {
 
   private destroyRef = inject(DestroyRef);
   private notificationService = inject(DmisNotificationService);
+  private dialog = inject(MatDialog);
 
   constructor() {
     this.notesForm = this.fb.group({
@@ -500,12 +517,230 @@ export class SubmitStepComponent implements OnInit {
 
     this.savingDraft = true;
 
-    // MVP: Simulate save with timeout (replace with actual API call in future)
-    timer(800).pipe(
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe(() => {
-      this.savingDraft = false;
-      this.notificationService.showSuccess('Draft saved successfully. Your progress has been preserved.');
+    this.ensureDraftIds().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => {
+        this.savingDraft = false;
+      })
+    ).subscribe({
+      next: (draftIds) => {
+        const countText = draftIds.length === 1 ? 'Draft' : `${draftIds.length} drafts`;
+        this.notificationService.showSuccess(`${countText} saved successfully. Your progress has been preserved.`);
+        this.complete.emit({
+          action: 'draft_saved',
+          totalItems: this.totalItems,
+          completedAt: new Date().toISOString()
+        });
+      },
+      error: (error: unknown) => {
+        const message = this.extractErrorMessage(error, 'Failed to save draft.');
+        this.errors = [message];
+        this.notificationService.showError(message);
+      }
+    });
+  }
+
+  private ensureDraftIds(): Observable<string[]> {
+    const existingDraftIds = this.getExistingDraftIds();
+    if (existingDraftIds.length === 0) {
+      return this.createDrafts();
+    }
+
+    return this.validateDraftIds(existingDraftIds).pipe(
+      switchMap((isValid) => {
+        if (isValid) {
+          return of(existingDraftIds);
+        }
+        return this.createDrafts();
+      })
+    );
+  }
+
+  private getExistingDraftIds(): string[] {
+    return (this.wizardService.getState().draft_ids || []).filter(
+      (id): id is string => typeof id === 'string' && id.trim().length > 0
+    );
+  }
+
+  private validateDraftIds(draftIds: string[]): Observable<boolean> {
+    const state = this.wizardService.getState();
+    const expectedEventId = state.event_id;
+    const expectedPhase = String(state.phase || 'BASELINE').toUpperCase();
+    const expectedWarehouseIds = new Set(this.getSubmissionWarehouseIds());
+    const expectedCountsByWarehouse = this.getSelectedCountsByWarehouse();
+    const expectedMethod = this.selectedMethod;
+    if (!expectedEventId || expectedWarehouseIds.size === 0) {
+      return of(false);
+    }
+
+    return forkJoin(draftIds.map((id) => this.replenishmentService.getNeedsList(id))).pipe(
+      map((records) => {
+        if (records.length !== expectedWarehouseIds.size) {
+          return false;
+        }
+
+        const seenWarehouses = new Set<number>();
+        for (const record of records) {
+          if (record.status !== 'DRAFT') {
+            return false;
+          }
+
+          if (record.event_id !== expectedEventId) {
+            return false;
+          }
+
+          const recordPhase = String(record.phase || '').toUpperCase();
+          if (recordPhase !== expectedPhase) {
+            return false;
+          }
+
+          const warehouseId = record.warehouse_id;
+          if (!warehouseId || !expectedWarehouseIds.has(warehouseId)) {
+            return false;
+          }
+
+          if ((record.selected_method || '') !== expectedMethod) {
+            return false;
+          }
+
+          const expectedCount = expectedCountsByWarehouse.get(warehouseId) || 0;
+          if ((record.items?.length || 0) !== expectedCount) {
+            return false;
+          }
+
+          seenWarehouses.add(warehouseId);
+        }
+
+        return seenWarehouses.size === expectedWarehouseIds.size;
+      }),
+      catchError(() => of(false))
+    );
+  }
+
+  private createDrafts(): Observable<string[]> {
+    const state = this.wizardService.getState();
+    const eventId = state.event_id;
+    if (!eventId) {
+      return throwError(() => new Error('Event is required before saving or submitting.'));
+    }
+
+    const warehouseIds = this.getSubmissionWarehouseIds();
+    if (warehouseIds.length === 0) {
+      return throwError(() => new Error('At least one warehouse is required before saving or submitting.'));
+    }
+
+    const phase = state.phase || 'BASELINE';
+    const asOfDatetime = state.as_of_datetime || state.previewResponse?.as_of_datetime;
+    const requests = warehouseIds.map((warehouseId) =>
+      this.replenishmentService.createNeedsListDraft({
+        event_id: eventId,
+        warehouse_id: warehouseId,
+        phase,
+        as_of_datetime: asOfDatetime,
+        selected_item_keys: this.getSelectedItemKeysForWarehouse(warehouseId),
+        selected_method: this.selectedMethod
+      })
+    );
+
+    return forkJoin(requests).pipe(
+      map((draftResponses) => {
+        const draftIds = draftResponses
+          .map((response) => response.needs_list_id)
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+
+        if (draftIds.length !== draftResponses.length) {
+          throw new Error('Draft creation succeeded, but one or more draft IDs were missing.');
+        }
+
+        this.wizardService.updateState({ draft_ids: draftIds });
+        return draftIds;
+      })
+    );
+  }
+
+  private getSubmissionWarehouseIds(): number[] {
+    const selectedWarehouseIds = this.selectedItems
+      .map((item) => item.warehouse_id)
+      .filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0);
+    if (selectedWarehouseIds.length > 0) {
+      return [...new Set(selectedWarehouseIds)];
+    }
+
+    const stateWarehouses = this.wizardService.getState().warehouse_ids || [];
+    const stateWarehouseIds = stateWarehouses.filter(
+      (id): id is number => Number.isInteger(id) && id > 0
+    );
+    return [...new Set(stateWarehouseIds)];
+  }
+
+  private getSelectedItemKeysForWarehouse(warehouseId: number): string[] {
+    return this.selectedItems
+      .filter((item) => (item.warehouse_id || 0) === warehouseId)
+      .map((item) => `${item.item_id}_${item.warehouse_id || 0}`);
+  }
+
+  private getSelectedCountsByWarehouse(): Map<number, number> {
+    const counts = new Map<number, number>();
+    for (const item of this.selectedItems) {
+      const warehouseId = item.warehouse_id || 0;
+      counts.set(warehouseId, (counts.get(warehouseId) || 0) + 1);
+    }
+    return counts;
+  }
+
+  private extractErrorMessage(error: unknown, fallbackMessage: string): string {
+    const maybeHttpError = error as { error?: { errors?: Record<string, unknown> } };
+    const errorMap = maybeHttpError?.error?.errors;
+    if (errorMap && typeof errorMap === 'object') {
+      const firstValue = Object.values(errorMap)[0];
+      if (Array.isArray(firstValue) && firstValue.length > 0) {
+        return String(firstValue[0]);
+      }
+      if (typeof firstValue === 'string' && firstValue.trim().length > 0) {
+        return firstValue;
+      }
+    }
+
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return fallbackMessage;
+  }
+
+  private performSubmitForApproval(): void {
+    this.submitting = true;
+
+    this.ensureDraftIds().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      switchMap((draftIds) => {
+        if (draftIds.length === 0) {
+          return throwError(() => new Error('No draft was available for submission.'));
+        }
+
+        return forkJoin(
+          draftIds.map((needsListId) => this.replenishmentService.submitNeedsListForApproval(needsListId))
+        ).pipe(map(() => draftIds));
+      }),
+      finalize(() => {
+        this.submitting = false;
+      })
+    ).subscribe({
+      next: () => {
+        const approver = this.getApprovalInfo();
+        this.notificationService.showSuccess(`Needs list with ${this.totalItems} items submitted for approval.`);
+        this.complete.emit({
+          action: 'submitted_for_approval',
+          totalItems: this.totalItems,
+          completedAt: new Date().toISOString(),
+          approver
+        });
+      },
+      error: (error: unknown) => {
+        const message = this.extractErrorMessage(error, 'Failed to submit needs list for approval.');
+        this.errors = [message];
+        this.notificationService.showError(message);
+      }
     });
   }
 
@@ -517,17 +752,26 @@ export class SubmitStepComponent implements OnInit {
       return;
     }
 
-    this.submitting = true;
+    const confirmData: ConfirmDialogData = {
+      title: 'Submit Needs List for Approval?',
+      message:
+        'Are you sure you want to submit this needs list for approval? You can still track it in the wizard confirmation screen.',
+      confirmLabel: 'Submit',
+      cancelLabel: 'Cancel'
+    };
 
-    // MVP: Simulate submission with timeout (replace with actual API call in future)
-    timer(1200).pipe(
+    this.dialog.open(DmisConfirmDialogComponent, {
+      width: '460px',
+      autoFocus: false,
+      data: confirmData
+    }).afterClosed().pipe(
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(() => {
-      this.submitting = false;
-      this.notificationService.showSuccess(
-        `Needs list with ${this.totalItems} items submitted for approval. Approver: ${this.getApprovalInfo()}`
-      );
-      // In future: this.complete.emit() after successful submission
+    ).subscribe((confirmed: boolean) => {
+      if (!confirmed) {
+        return;
+      }
+
+      this.performSubmitForApproval();
     });
   }
 
