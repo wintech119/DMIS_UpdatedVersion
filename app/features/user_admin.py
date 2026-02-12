@@ -167,10 +167,24 @@ def create():
 
         role_ids = request.form.getlist('roles')
         if form_valid and role_ids:
-            role_ids = list(map(int, role_ids))
+            try:
+                role_ids = list(map(int, role_ids))
+            except ValueError:
+                flash('Invalid role selection. Role IDs must be numeric.', 'danger')
+                form_valid = False
+
+        if form_valid and role_ids:
             is_valid, error_msg = validate_role_assignment(current_user, role_ids)
             if not is_valid:
                 flash(error_msg, 'danger')
+                form_valid = False
+
+        warehouse_ids = request.form.getlist('warehouses')
+        if form_valid and warehouse_ids:
+            try:
+                warehouse_ids = list(map(int, warehouse_ids))
+            except ValueError:
+                flash('Invalid warehouse selection. Warehouse IDs must be numeric.', 'danger')
                 form_valid = False
 
         if form_valid:
@@ -211,12 +225,11 @@ def create():
                     db.session.flush()
                     
                     for role_id in role_ids:
-                        user_role = UserRole(user_id=new_user.user_id, role_id=int(role_id))
+                        user_role = UserRole(user_id=new_user.user_id, role_id=role_id)
                         db.session.add(user_role)
                     
-                    warehouse_ids = request.form.getlist('warehouses')
                     for warehouse_id in warehouse_ids:
-                        user_warehouse = UserWarehouse(user_id=new_user.user_id, warehouse_id=int(warehouse_id))
+                        user_warehouse = UserWarehouse(user_id=new_user.user_id, warehouse_id=warehouse_id)
                         db.session.add(user_warehouse)
                     
                     db.session.commit()
@@ -503,8 +516,35 @@ def edit(user_id):
             UserRole.query.filter_by(user_id=user.user_id).delete()
             role_ids = request.form.getlist('roles')
             if role_ids:
-                role_ids_int = [int(r) for r in role_ids]
-                is_valid, error_msg = validate_role_assignment(current_user, role_ids_int)
+                try:
+                    role_ids = [int(r) for r in role_ids]
+                except ValueError:
+                    db.session.rollback()
+                    flash('Invalid role selection. Role IDs must be numeric.', 'danger')
+                    agencies = Agency.query.filter_by(status_code='A').order_by(Agency.agency_name).all()
+                    custodians = Custodian.query.order_by(Custodian.custodian_name).all()
+                    roles = get_assignable_roles(current_user)
+                    warehouses = Warehouse.query.filter_by(status_code='A').all()
+                    user_role_ids = [r.id for r in user.roles]
+                    user_warehouse_ids = [w.warehouse_id for w in user.warehouses]
+                    current_org_value = ''
+                    if user.agency_id:
+                        current_org_value = f'AGENCY:{user.agency_id}'
+                    elif user.organization:
+                        custodian = Custodian.query.filter_by(custodian_name=user.organization).first()
+                        if custodian:
+                            current_org_value = f'CUSTODIAN:{custodian.custodian_id}'
+                    return render_template('user_admin/edit.html',
+                                         user=user,
+                                         roles=roles,
+                                         warehouses=warehouses,
+                                         agencies=agencies,
+                                         custodians=custodians,
+                                         user_role_ids=user_role_ids,
+                                         user_warehouse_ids=user_warehouse_ids,
+                                         current_org_value=current_org_value)
+
+                is_valid, error_msg = validate_role_assignment(current_user, role_ids)
                 if not is_valid:
                     db.session.rollback()
                     flash(error_msg, 'danger')
@@ -532,13 +572,42 @@ def edit(user_id):
                                          current_org_value=current_org_value)
             
             for role_id in role_ids:
-                user_role = UserRole(user_id=user.user_id, role_id=int(role_id))
+                user_role = UserRole(user_id=user.user_id, role_id=role_id)
                 db.session.add(user_role)
             
             UserWarehouse.query.filter_by(user_id=user.user_id).delete()
             warehouse_ids = request.form.getlist('warehouses')
+            if warehouse_ids:
+                try:
+                    warehouse_ids = [int(w) for w in warehouse_ids]
+                except ValueError:
+                    db.session.rollback()
+                    flash('Invalid warehouse selection. Warehouse IDs must be numeric.', 'danger')
+                    agencies = Agency.query.filter_by(status_code='A').order_by(Agency.agency_name).all()
+                    custodians = Custodian.query.order_by(Custodian.custodian_name).all()
+                    roles = get_assignable_roles(current_user)
+                    warehouses = Warehouse.query.filter_by(status_code='A').all()
+                    user_role_ids = [r.id for r in user.roles]
+                    user_warehouse_ids = [w.warehouse_id for w in user.warehouses]
+                    current_org_value = ''
+                    if user.agency_id:
+                        current_org_value = f'AGENCY:{user.agency_id}'
+                    elif user.organization:
+                        custodian = Custodian.query.filter_by(custodian_name=user.organization).first()
+                        if custodian:
+                            current_org_value = f'CUSTODIAN:{custodian.custodian_id}'
+                    return render_template('user_admin/edit.html',
+                                         user=user,
+                                         roles=roles,
+                                         warehouses=warehouses,
+                                         agencies=agencies,
+                                         custodians=custodians,
+                                         user_role_ids=user_role_ids,
+                                         user_warehouse_ids=user_warehouse_ids,
+                                         current_org_value=current_org_value)
+
             for warehouse_id in warehouse_ids:
-                user_warehouse = UserWarehouse(user_id=user.user_id, warehouse_id=int(warehouse_id))
+                user_warehouse = UserWarehouse(user_id=user.user_id, warehouse_id=warehouse_id)
                 db.session.add(user_warehouse)
             
             db.session.commit()
