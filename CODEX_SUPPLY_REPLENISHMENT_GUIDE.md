@@ -6,7 +6,7 @@
 
 ## 🔹 CONTEXT BLOCK (Paste at start of every session)
 
-```
+```text
 PROJECT: DMIS (Disaster Management Information System) - Jamaica ODPEM
 MODULE: EP-02 Supply Replenishment / Needs List Generation
 
