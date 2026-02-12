@@ -68,7 +68,7 @@
           <mat-form-field appearance="outline" class="form-field-full">
             <mat-label>Warehouses</mat-label>
             <mat-select formControlName="warehouse_ids" multiple>
-              @for (wh of availableWarehouses; track wh) {
+              @for (wh of availableWarehouses; track wh.warehouse_id) {
                 <mat-option [value]="wh.warehouse_id">
                   {{ wh.warehouse_name }}
                 </mat-option>
