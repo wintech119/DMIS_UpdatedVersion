@@ -7,7 +7,7 @@
       </button>
       <div class="header-text">
         <h1>Generate Needs List</h1>
-        <p>3-step wizard for supply replenishment planning</p>
+        <p>4-step wizard for supply replenishment planning</p>
       </div>
     </div>
   </mat-card>
@@ -31,12 +31,57 @@
     </mat-step>
 
     <!-- Step 3: Submit for Approval -->
-    <mat-step>
+    <mat-step [completed]="confirmationState !== null">
       <ng-template matStepLabel>Submit</ng-template>
       <app-submit-step
         (back)="stepper.previous()"
-        (complete)="onComplete()"
+        (complete)="onComplete($event)"
       ></app-submit-step>
+    </mat-step>
+
+    <!-- Step 4: Confirmation -->
+    <mat-step [editable]="false">
+      <ng-template matStepLabel>Confirmation</ng-template>
+      <div class="step-content confirmation-step">
+        @if (confirmationState; as confirmation) {
+          <mat-card>
+            <mat-card-content>
+              <h2>
+                {{ confirmation.action === 'submitted_for_approval' ? 'Needs List Submitted' : 'Draft Saved' }}
+              </h2>
+              @if (confirmation.action === 'submitted_for_approval') {
+                <p>
+                  Your needs list with {{ confirmation.totalItems }} items has been submitted for approval.
+                </p>
+                @if (confirmation.approver) {
+                  <p><strong>Approver:</strong> {{ confirmation.approver }}</p>
+                }
+              }
+              @if (confirmation.action === 'draft_saved') {
+                <p>
+                  Your draft with {{ confirmation.totalItems }} items has been saved successfully.
+                </p>
+                <p>You can return later to continue and submit for approval.</p>
+              }
+              <p><strong>Completed:</strong> {{ confirmation.completedAt | date : 'medium' }}</p>
+
+              <div class="step-actions">
+                @if (confirmation.action === 'draft_saved') {
+                  <button matButton="outlined" color="primary" (click)="returnToSubmitStepFromConfirmation()">
+                    Return to Submit Step
+                  </button>
+                }
+                <button matButton="outlined" color="primary" (click)="startNewNeedsList()">
+                  Start New Needs List
+                </button>
+                <button matButton="filled" color="primary" (click)="returnToDashboardFromConfirmation()">
+                  Return to Dashboard
+                </button>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        }
+      </div>
     </mat-step>
 
   </mat-stepper>
