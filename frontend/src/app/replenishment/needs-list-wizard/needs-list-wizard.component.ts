@@ -126,6 +126,8 @@ export class NeedsListWizardComponent implements OnInit {
   startNewNeedsList(): void {
     this.wizardService.reset();
     this.confirmationState = null;
-    this.stepper.reset();
+    if (this.stepper) {
+      this.stepper.reset();
+    }
   }
 }
