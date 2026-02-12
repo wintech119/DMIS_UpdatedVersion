@@ -167,7 +167,7 @@ def create():
 
         role_ids = request.form.getlist('roles')
         if form_valid and role_ids:
-            role_ids = map(int, role_ids)
+            role_ids = list(map(int, role_ids))
             is_valid, error_msg = validate_role_assignment(current_user, role_ids)
             if not is_valid:
                 flash(error_msg, 'danger')
