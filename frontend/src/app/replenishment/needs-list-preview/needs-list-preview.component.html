@@ -206,7 +206,7 @@
                 }
                 @if (approvalWarnings().length) {
                   <div class="approval-warnings">
-                    @for (warn of approvalWarnings(); track warn) {
+                    @for (warn of approvalWarnings(); track $index) {
                       <div class="approval-warning">
                         {{ warningLabel(warn) }}
                       </div>
