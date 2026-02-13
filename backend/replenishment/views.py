@@ -562,7 +562,7 @@ def needs_list_draft(request):
             item
             for item in all_items
             if (
-                f"{item.get('item_id')}_{item.get('warehouse_id') or warehouse_id}"
+                f"{item.get('item_id')}_{item.get('warehouse_id') or 0}"
                 in selected_item_keys
             )
         ]
