@@ -451,6 +451,10 @@ export class StockStatusDashboardComponent implements OnInit {
     this.filtersExpanded = !this.filtersExpanded;
   }
 
+  openReviewQueue(): void {
+    this.router.navigate(['/replenishment/needs-list-review']);
+  }
+
   generateNeedsList(warehouseId?: number): void {
     if (!this.activeEvent) return;
 

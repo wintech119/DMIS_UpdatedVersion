@@ -26,6 +26,16 @@ export class DmisNotificationService {
     });
   }
 
+  showError(message: string): void {
+    this.snackBar.open(message, 'OK', {
+      duration: 6000,
+      panelClass: ['dmis-snackbar-error'],
+      horizontalPosition: 'center',
+      verticalPosition: 'bottom',
+      politeness: 'assertive'
+    });
+  }
+
   showNetworkError(message: string, retryFn: () => void): void {
     const ref = this.snackBar.open(message, 'Retry', {
       duration: 8000,

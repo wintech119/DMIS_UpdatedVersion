@@ -1,0 +1,8 @@
+{
+  "enabledMcpjsonServers": [
+    "angular",
+    "snyk",
+    "django-ai-boost"
+  ],
+  "enableAllProjectMcpServers": true
+}

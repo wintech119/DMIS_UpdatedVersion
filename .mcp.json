@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "angular": {
+      "command": "npx",
+      "args": ["-y", "@angular/cli", "mcp"],
+      "env": {}
+    },
+    "snyk": {
+      "command": "npx",
+      "args": ["-y", "snyk@latest", "mcp", "-t", "stdio"],
+      "env": {}
+    },
+    "django-ai-boost": {
+      "command": "c:/Users/wbowe/OneDrive/Desktop/project/DMIS_UpdatedVersion/scripts/run_django_mcp.cmd",
+      "args": [],
+      "env": {}
+    }
+  }
+}

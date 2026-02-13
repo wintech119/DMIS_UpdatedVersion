@@ -136,7 +136,12 @@ DEV_AUTH_PERMISSIONS = [
     perm.strip()
     for perm in os.getenv(
         "DEV_AUTH_PERMISSIONS",
-        "replenishment.needs_list.preview,replenishment.needs_list.create_draft",
+        (
+            "replenishment.needs_list.preview,"
+            "replenishment.needs_list.create_draft,"
+            "replenishment.needs_list.edit_lines,"
+            "replenishment.needs_list.submit"
+        ),
     ).split(",")
     if perm.strip()
 ]
