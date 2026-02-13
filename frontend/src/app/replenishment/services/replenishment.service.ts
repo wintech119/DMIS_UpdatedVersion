@@ -41,6 +41,12 @@ export interface CreateNeedsListDraftPayload {
   selected_method?: 'A' | 'B' | 'C';
 }
 
+export interface NeedsListLineOverridePayload {
+  item_id: number;
+  overridden_qty: number;
+  reason: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -119,6 +125,16 @@ export class ReplenishmentService {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/draft`,
       payload
+    );
+  }
+
+  editNeedsListLines(
+    needsListId: string,
+    overrides: NeedsListLineOverridePayload[]
+  ): Observable<NeedsListResponse> {
+    return this.http.patch<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/lines`,
+      overrides
     );
   }
 

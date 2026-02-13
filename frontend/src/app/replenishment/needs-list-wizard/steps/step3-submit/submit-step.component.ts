@@ -19,7 +19,10 @@ import { catchError, concatMap, finalize, map, switchMap, toArray } from 'rxjs/o
 
 import { WizardStateService } from '../../services/wizard-state.service';
 import { DmisNotificationService } from '../../../services/notification.service';
-import { ReplenishmentService } from '../../../services/replenishment.service';
+import {
+  NeedsListLineOverridePayload,
+  ReplenishmentService
+} from '../../../services/replenishment.service';
 import { DmisEmptyStateComponent } from '../../../shared/dmis-empty-state/dmis-empty-state.component';
 import {
   ConfirmDialogData,
@@ -31,6 +34,7 @@ import {
   ApprovalWorkflowData,
   HorizonType
 } from '../../../models/approval-workflows.model';
+import { ADJUSTMENT_REASON_LABELS } from '../../models/wizard-state.model';
 
 interface WarehouseBreakdown {
   warehouse_id: number;
@@ -565,12 +569,14 @@ export class SubmitStepComponent implements OnInit {
     const phase = state.phase || 'BASELINE';
     const asOfDatetime = state.as_of_datetime || state.previewResponse?.as_of_datetime;
     const expectedCountsByWarehouse = this.getSelectedCountsByWarehouse();
+    const expectedRequiredQtyByWarehouse = this.getExpectedRequiredQtyByWarehouse();
 
     return this.collectReusableDraftIds(
       eventId,
       phase,
       warehouseIds,
-      expectedCountsByWarehouse
+      expectedCountsByWarehouse,
+      expectedRequiredQtyByWarehouse
     ).pipe(
       switchMap((draftIdsByWarehouse) => {
         const reusableDraftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
@@ -582,8 +588,20 @@ export class SubmitStepComponent implements OnInit {
           (warehouseId) => !draftIdsByWarehouse.has(warehouseId)
         );
 
+        const finalizeDraftIds = (): Observable<string[]> =>
+          this.persistLineOverridesForDrafts(warehouseIds, draftIdsByWarehouse).pipe(
+            map(() => {
+              const draftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
+              if (draftIds.length !== warehouseIds.length) {
+                throw new Error('Failed to create all required drafts for submission.');
+              }
+              this.wizardService.updateState({ draft_ids: draftIds });
+              return draftIds;
+            })
+          );
+
         if (missingWarehouseIds.length === 0) {
-          return of(reusableDraftIds);
+          return finalizeDraftIds();
         }
 
         return from(missingWarehouseIds).pipe(
@@ -612,13 +630,7 @@ export class SubmitStepComponent implements OnInit {
             )
           ),
           toArray(),
-          map(() => {
-            const draftIds = this.orderDraftIdsByWarehouse(warehouseIds, draftIdsByWarehouse);
-            if (draftIds.length !== warehouseIds.length) {
-              throw new Error('Failed to create all required drafts for submission.');
-            }
-            return draftIds;
-          })
+          switchMap(() => finalizeDraftIds())
         );
       })
     );
@@ -628,7 +640,8 @@ export class SubmitStepComponent implements OnInit {
     expectedEventId: number,
     phase: string,
     warehouseIds: number[],
-    expectedCountsByWarehouse: Map<number, number>
+    expectedCountsByWarehouse: Map<number, number>,
+    expectedRequiredQtyByWarehouse: Map<number, Map<number, number>>
   ): Observable<Map<number, string>> {
     const existingDraftIds = this.getExistingDraftIds();
     if (existingDraftIds.length === 0) {
@@ -666,7 +679,8 @@ export class SubmitStepComponent implements OnInit {
               expectedPhase,
               expectedMethod,
               expectedWarehouseIds,
-              expectedCountsByWarehouse
+              expectedCountsByWarehouse,
+              expectedRequiredQtyByWarehouse
             )
           ) {
             reusableDraftsByWarehouse.set(warehouseId, draftId);
@@ -684,7 +698,8 @@ export class SubmitStepComponent implements OnInit {
     expectedPhase: string,
     expectedMethod: HorizonType,
     expectedWarehouseIds: Set<number>,
-    expectedCountsByWarehouse: Map<number, number>
+    expectedCountsByWarehouse: Map<number, number>,
+    expectedRequiredQtyByWarehouse: Map<number, Map<number, number>>
   ): boolean {
     if (record.status !== 'DRAFT') {
       return false;
@@ -709,7 +724,25 @@ export class SubmitStepComponent implements OnInit {
     }
 
     const expectedCount = expectedCountsByWarehouse.get(warehouseId) || 0;
-    return (record.items?.length || 0) === expectedCount;
+    const expectedRequiredQtyByItem = expectedRequiredQtyByWarehouse.get(warehouseId) || new Map<number, number>();
+    const recordItems = record.items || [];
+    if (recordItems.length !== expectedCount || expectedRequiredQtyByItem.size !== expectedCount) {
+      return false;
+    }
+
+    for (const item of recordItems) {
+      const expectedQty = expectedRequiredQtyByItem.get(item.item_id);
+      if (expectedQty === undefined) {
+        return false;
+      }
+
+      const currentQty = item.required_qty ?? item.gap_qty;
+      if (!this.quantitiesEqual(currentQty, expectedQty)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private orderDraftIdsByWarehouse(
@@ -749,6 +782,88 @@ export class SubmitStepComponent implements OnInit {
       counts.set(warehouseId, (counts.get(warehouseId) || 0) + 1);
     }
     return counts;
+  }
+
+  private getExpectedRequiredQtyByWarehouse(): Map<number, Map<number, number>> {
+    const expectedByWarehouse = new Map<number, Map<number, number>>();
+
+    for (const item of this.selectedItems) {
+      const warehouseId = item.warehouse_id || 0;
+      const itemId = item.item_id;
+      const adjustedQty = this.getAdjustedQty(item);
+
+      if (!expectedByWarehouse.has(warehouseId)) {
+        expectedByWarehouse.set(warehouseId, new Map<number, number>());
+      }
+
+      expectedByWarehouse.get(warehouseId)!.set(itemId, adjustedQty);
+    }
+
+    return expectedByWarehouse;
+  }
+
+  private getLineOverridesForWarehouse(warehouseId: number): NeedsListLineOverridePayload[] {
+    const state = this.wizardService.getState();
+    const selectedItemKeys = new Set(this.getSelectedItemKeysForWarehouse(warehouseId));
+    const adjustments = state.adjustments || {};
+
+    const overrides: NeedsListLineOverridePayload[] = [];
+    for (const [adjustmentKey, adjustment] of Object.entries(adjustments)) {
+      if (!selectedItemKeys.has(adjustmentKey)) {
+        continue;
+      }
+
+      if ((adjustment.warehouse_id || 0) !== warehouseId) {
+        continue;
+      }
+
+      const reasonLabel = ADJUSTMENT_REASON_LABELS[adjustment.reason] || 'Manual adjustment';
+      const notes = adjustment.notes?.trim();
+      const reason = notes ? `${reasonLabel}: ${notes}` : reasonLabel;
+
+      overrides.push({
+        item_id: adjustment.item_id,
+        overridden_qty: adjustment.adjusted_qty,
+        reason
+      });
+    }
+
+    return overrides;
+  }
+
+  private persistLineOverridesForDrafts(
+    warehouseIds: number[],
+    draftIdsByWarehouse: Map<number, string>
+  ): Observable<void> {
+    return from(warehouseIds).pipe(
+      concatMap((warehouseId) => {
+        const draftId = draftIdsByWarehouse.get(warehouseId);
+        if (!draftId) {
+          return throwError(() => new Error(`Missing draft ID for warehouse ${warehouseId}.`));
+        }
+
+        const overrides = this.getLineOverridesForWarehouse(warehouseId);
+        if (overrides.length === 0) {
+          return of(void 0);
+        }
+
+        return this.replenishmentService.editNeedsListLines(draftId, overrides).pipe(
+          map(() => void 0)
+        );
+      }),
+      toArray(),
+      map(() => void 0)
+    );
+  }
+
+  private quantitiesEqual(valueA: unknown, valueB: unknown): boolean {
+    const qtyA = Number(valueA);
+    const qtyB = Number(valueB);
+    if (!Number.isFinite(qtyA) || !Number.isFinite(qtyB)) {
+      return false;
+    }
+
+    return Math.abs(qtyA - qtyB) < 0.0001;
   }
 
   private extractErrorMessage(error: unknown, fallbackMessage: string): string {
