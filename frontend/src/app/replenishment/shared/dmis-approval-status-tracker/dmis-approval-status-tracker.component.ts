@@ -88,10 +88,16 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
   }
 
   get pendingApproverRole(): string {
+    const explicitRole = this.needsList?.approval_summary?.approval?.approver_role;
+    if (explicitRole) {
+      return explicitRole;
+    }
+
     const workflow = APPROVAL_WORKFLOWS[this.horizon];
     if (!workflow?.steps?.length) return 'Unknown';
-    const tierValue = this.approvalTier ? Number(this.approvalTier) : NaN;
-    if (!Number.isFinite(tierValue)) return 'Unknown';
+    const tierMatch = this.approvalTier?.match(/(\d+)/);
+    const tierValue = tierMatch ? Number(tierMatch[1]) : NaN;
+    if (!Number.isFinite(tierValue)) return workflow.steps[0]?.role ?? 'Unknown';
     const index = Math.min(Math.max(tierValue - 1, 0), workflow.steps.length - 1);
     return workflow.steps[index]?.role ?? 'Unknown';
   }

@@ -3,6 +3,7 @@ import { EventPhase, SeverityLevel } from '../models/stock-status.model';
 export interface NeedsListItem {
   item_id: number;
   item_name?: string;
+  item_code?: string;
   warehouse_id?: number;             // NEW for multi-warehouse
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
@@ -87,7 +88,9 @@ export interface ApprovalSummary {
 
 export interface NeedsListResponse {
   event_id: number;
+  event_name?: string;
   phase: EventPhase;
+  warehouse_id?: number;             // Legacy single-warehouse workflow response
   warehouse_ids?: number[];          // NEW (array for multi-warehouse)
   warehouses?: WarehouseInfo[];      // NEW (warehouse metadata)
   items: NeedsListItem[];
@@ -113,6 +116,8 @@ export interface NeedsListResponse {
   escalation_reason?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
+  selected_method?: 'A' | 'B' | 'C';
+  selected_item_keys?: string[];
 }
 
 export type NeedsListStatus =

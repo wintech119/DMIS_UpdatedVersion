@@ -108,7 +108,9 @@ if ($missing.Count -gt 0) {
 if (-not $env:DEV_AUTH_ENABLED) { $env:DEV_AUTH_ENABLED = "1" }
 if (-not $env:DEV_AUTH_USER_ID) { $env:DEV_AUTH_USER_ID = "dev-user" }
 if (-not $env:DEV_AUTH_ROLES) { $env:DEV_AUTH_ROLES = "LOGISTICS" }
-if (-not $env:DEV_AUTH_PERMISSIONS) { $env:DEV_AUTH_PERMISSIONS = "replenishment.needs_list.preview,replenishment.needs_list.create_draft" }
+if (-not $env:DEV_AUTH_PERMISSIONS) {
+  $env:DEV_AUTH_PERMISSIONS = "replenishment.needs_list.preview,replenishment.needs_list.create_draft,replenishment.needs_list.edit_lines,replenishment.needs_list.submit"
+}
 if (__INSTALL_FLAG__ -or -not (Test-Path ".venv\Lib\site-packages\django")) { pip install -r requirements.txt }
 if (__RUN_MIGRATIONS__) { python manage.py migrate --noinput }
 if (__APPLY_SCHEMA__) {

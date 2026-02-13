@@ -62,11 +62,16 @@ def create_draft(
     record = {
         "needs_list_id": needs_list_id,
         "event_id": payload.get("event_id"),
+        "event_name": payload.get("event_name"),
         "warehouse_id": payload.get("warehouse_id"),
+        "warehouse_ids": payload.get("warehouse_ids"),
+        "warehouses": payload.get("warehouses"),
         "phase": payload.get("phase"),
         "as_of_datetime": payload.get("as_of_datetime"),
         "planning_window_days": payload.get("planning_window_days"),
         "filters": payload.get("filters"),
+        "selected_method": payload.get("selected_method"),
+        "selected_item_keys": payload.get("selected_item_keys"),
         "status": "DRAFT",
         "created_by": actor,
         "created_at": now,
@@ -109,6 +114,10 @@ def create_draft(
             "warnings": list(warnings),
             "planning_window_days": payload.get("planning_window_days"),
             "as_of_datetime": payload.get("as_of_datetime"),
+            "event_name": payload.get("event_name"),
+            "warehouse_ids": payload.get("warehouse_ids"),
+            "warehouses": payload.get("warehouses"),
+            "selected_method": payload.get("selected_method"),
         },
     }
 
@@ -282,6 +291,19 @@ def transition_status(
         record["cancelled_at"] = now
         record["cancel_reason"] = reason
     return record
+
+
+def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
+    """Return all needs list records, optionally filtered by status."""
+    if not _store_enabled():
+        raise RuntimeError("workflow_dev_store_disabled")
+    with STORE_LOCK:
+        store = _load_store()
+        records = list((store.get("needs_lists") or {}).values())
+    if statuses:
+        upper = {s.upper() for s in statuses}
+        records = [r for r in records if str(r.get("status", "")).upper() in upper]
+    return records
 
 
 def store_enabled_or_raise() -> None:
