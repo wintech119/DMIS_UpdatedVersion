@@ -402,6 +402,9 @@ export class NeedsListReviewDetailComponent implements OnInit {
         return `${field}: ${Array.isArray(msg) ? msg[0] : msg}`;
       }
     }
-    return error.message || fallback;
+    const apiMessage =
+      typeof error.error?.message === 'string' ? error.error.message.trim() : '';
+    const statusText = typeof error.statusText === 'string' ? error.statusText.trim() : '';
+    return apiMessage || statusText || fallback || 'An unexpected error occurred';
   }
 }
