@@ -78,6 +78,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly roles = signal<string[]>([]);
   readonly permissions = signal<string[]>([]);
   readonly reviewComments = signal<Record<number, string>>({});
+  readonly savingComments = signal<Record<number, boolean>>({});
 
   readonly items = computed(() => this.needsList()?.items ?? []);
   readonly status = computed(() => this.needsList()?.status ?? 'DRAFT');
@@ -307,19 +308,30 @@ export class NeedsListReviewDetailComponent implements OnInit {
   }
 
   saveComment(item: NeedsListItem): void {
-    const comment = this.reviewComments()[item.item_id];
+    const itemId = item.item_id;
+    if (this.savingComments()[itemId]) return;
+
+    const comment = this.reviewComments()[itemId];
     if (!comment?.trim()) return;
+
+    this.savingComments.update((current) => ({ ...current, [itemId]: true }));
     this.replenishmentService.addReviewComments(this.needsListId, [
-      { item_id: item.item_id, comment: comment.trim() }
+      { item_id: itemId, comment: comment.trim() }
     ]).subscribe({
       next: (data) => {
         this.needsList.set(data);
         this.notifications.showSuccess('Comment saved.');
+        this.savingComments.update((current) => ({ ...current, [itemId]: false }));
       },
       error: (err: HttpErrorResponse) => {
         this.notifications.showError(this.extractError(err, 'Failed to save comment.'));
+        this.savingComments.update((current) => ({ ...current, [itemId]: false }));
       }
     });
+  }
+
+  isSavingComment(itemId: number): boolean {
+    return !!this.savingComments()[itemId];
   }
 
   updateComment(itemId: number, value: string): void {
