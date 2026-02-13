@@ -1,8 +1,10 @@
 // ── Layout ──
 .review-detail-page {
+  --page-padding: 20px;
+
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--page-padding);
   padding-bottom: 100px; // room for sticky action bar
 }
 
@@ -495,7 +497,8 @@
   justify-content: flex-end;
   gap: 1rem;
   padding: 16px 24px;
-  margin: 0 -20px;
+  margin-block: 0;
+  margin-inline: calc(var(--page-padding, 20px) * -1);
   background-color: white;
   box-shadow: 0 -4px 12px rgb(0 0 0 / 10%);
   border-radius: 8px 8px 0 0;
@@ -530,7 +533,7 @@
 
 @media (width <= 768px) {
   .review-detail-page {
-    padding: 10px;
+    --page-padding: 10px;
     padding-bottom: 100px;
   }
 
@@ -574,7 +577,7 @@
 
 @media (width <= 480px) {
   .review-detail-page {
-    padding: 5px;
+    --page-padding: 5px;
     padding-bottom: 100px;
   }
 
