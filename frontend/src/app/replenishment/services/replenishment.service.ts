@@ -150,12 +150,7 @@ export class ReplenishmentService {
     payload: ApproveNeedsListPayload = {}
   ): Observable<NeedsListResponse> {
     const notes = payload.notes?.trim();
-    const body = notes
-      ? {
-          comment: notes,
-          notes
-        }
-      : {};
+    const body = notes ? { comment: notes } : {};
 
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/approve`,
