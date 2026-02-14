@@ -870,7 +870,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_submit_and_review_separation(
+    def test_submit_and_approve_separation(
         self,
         mock_available,
         mock_donations,
@@ -907,24 +907,24 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(submit_again.status_code, 409)
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"]):
-                review_same_user = self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                approve_same_user = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
                     format="json",
                 )
-                self.assertEqual(review_same_user.status_code, 409)
+                self.assertEqual(approve_same_user.status_code, 409)
 
             with self.settings(
                 DEV_AUTH_USER_ID="reviewer",
                 DEV_AUTH_ROLES=["EXECUTIVE"],
             ):
-                review = self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
                     format="json",
                 )
-                self.assertEqual(review.status_code, 200)
-                self.assertEqual(review.json().get("status"), "UNDER_REVIEW")
+                self.assertEqual(approve.status_code, 200)
+                self.assertEqual(approve.json().get("status"), "APPROVED")
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -990,7 +990,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_return_and_reject_require_reason(
+    def test_request_changes_requires_reason_code_and_allows_resubmit(
         self,
         mock_available,
         mock_donations,
@@ -1020,19 +1020,38 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
 
-            review = self.client.post(
-                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                {},
-                format="json",
-            )
-            self.assertEqual(review.status_code, 200)
-
             returned = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
                 {},
                 format="json",
             )
             self.assertEqual(returned.status_code, 400)
+            self.assertIn("reason_code", returned.json().get("errors", {}))
+
+            returned_invalid = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
+                {"reason_code": "NOT_A_REAL_CODE", "reason": "Bad code"},
+                format="json",
+            )
+            self.assertEqual(returned_invalid.status_code, 400)
+
+            returned_ok = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
+                {"reason_code": "DATA_QUALITY", "reason": "Data mismatch"},
+                format="json",
+            )
+            self.assertEqual(returned_ok.status_code, 200)
+            self.assertEqual(returned_ok.json().get("status"), "MODIFIED")
+            self.assertEqual(returned_ok.json().get("return_reason_code"), "DATA_QUALITY")
+
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+                resubmit = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(resubmit.status_code, 200)
+                self.assertEqual(resubmit.json().get("status"), "SUBMITTED")
 
             rejected = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/reject",
@@ -1110,7 +1129,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_rbac_denies_unauthorized_review(
+    def test_rbac_denies_unauthorized_approve(
         self,
         mock_available,
         mock_donations,
@@ -1139,12 +1158,12 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
 
-            review = self.client.post(
-                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
+            approve = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                 {},
                 format="json",
             )
-            self.assertEqual(review.status_code, 403)
+            self.assertEqual(approve.status_code, 403)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -1191,11 +1210,6 @@ class NeedsListWorkflowApiTests(TestCase):
             )
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
                 approve = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
@@ -1262,14 +1276,6 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
 
-            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                review_resp = self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
-                self.assertEqual(review_resp.status_code, 200)
-
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="submitter"):
                 approve = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
@@ -1293,7 +1299,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
-    def test_review_comments_requires_under_review(
+    def test_review_comments_requires_pending_approval(
         self,
         mock_available,
         mock_donations,
@@ -1332,18 +1338,162 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
 
-            self.client.post(
-                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                {},
-                format="json",
-            )
-
             ok = self.client.patch(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/review-comments",
                 [{"item_id": 1, "comment": "Fix qty"}],
                 format="json",
             )
             self.assertEqual(ok.status_code, 200)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_review_reminder_requires_4_hours_and_recommends_escalation_after_8(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                needs_list_id = draft["needs_list_id"]
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+            too_early = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/reminder",
+                {},
+                format="json",
+            )
+            self.assertEqual(too_early.status_code, 409)
+            self.assertIn("reminder", too_early.json().get("errors", {}))
+
+            record = workflow_store.get_record(needs_list_id)
+            record["submitted_at"] = (timezone.now() - timedelta(hours=5)).isoformat()
+            workflow_store.update_record(needs_list_id, record)
+
+            reminded = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/reminder",
+                {},
+                format="json",
+            )
+            self.assertEqual(reminded.status_code, 200)
+            reminder = reminded.json().get("review_reminder", {})
+            self.assertGreaterEqual(reminder.get("pending_hours", 0), 5)
+            self.assertFalse(reminder.get("escalation_recommended"))
+
+            record = workflow_store.get_record(needs_list_id)
+            record["submitted_at"] = (timezone.now() - timedelta(hours=9)).isoformat()
+            workflow_store.update_record(needs_list_id, record)
+
+            escalated = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/reminder",
+                {},
+                format="json",
+            )
+            self.assertEqual(escalated.status_code, 200)
+            reminder = escalated.json().get("review_reminder", {})
+            self.assertGreaterEqual(reminder.get("pending_hours", 0), 8)
+            self.assertTrue(reminder.get("escalation_recommended"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="approver",
+        DEV_AUTH_ROLES=[],
+        DEV_AUTH_PERMISSIONS=[
+            "replenishment.needs_list.preview",
+            "replenishment.needs_list.approve",
+        ],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_review_reminder_allows_approve_only_permission(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=[],
+                DEV_AUTH_PERMISSIONS=[
+                    "replenishment.needs_list.preview",
+                    "replenishment.needs_list.create_draft",
+                    "replenishment.needs_list.submit",
+                ],
+            ):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                needs_list_id = draft["needs_list_id"]
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+            record = workflow_store.get_record(needs_list_id)
+            record["submitted_at"] = (timezone.now() - timedelta(hours=5)).isoformat()
+            workflow_store.update_record(needs_list_id, record)
+
+            reminded = self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/reminder",
+                {},
+                format="json",
+            )
+            self.assertEqual(reminded.status_code, 200)
+            reminder = reminded.json().get("review_reminder", {})
+            self.assertGreaterEqual(reminder.get("pending_hours", 0), 5)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -1390,11 +1540,6 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
 
-            self.client.post(
-                f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                {},
-                format="json",
-            )
             missing = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/escalate",
                 {},
@@ -1455,11 +1600,6 @@ class NeedsListWorkflowApiTests(TestCase):
             )
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
                 approve = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
@@ -1591,11 +1731,6 @@ class NeedsListWorkflowApiTests(TestCase):
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
                 self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
-                self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
                     format="json",
@@ -1655,11 +1790,6 @@ class NeedsListWorkflowApiTests(TestCase):
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
                 self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
-                self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
                     format="json",
@@ -1684,11 +1814,6 @@ class NeedsListWorkflowApiTests(TestCase):
                 format="json",
             )
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id_two}/review/start",
-                    {},
-                    format="json",
-                )
                 self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id_two}/approve",
                     {},
@@ -1764,11 +1889,6 @@ class NeedsListWorkflowApiTests(TestCase):
             )
 
             with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/review/start",
-                    {},
-                    format="json",
-                )
                 approve = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},

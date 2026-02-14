@@ -86,6 +86,12 @@ export interface ApprovalSummary {
   escalation_required?: boolean;
 }
 
+export interface ReviewReminderInfo {
+  pending_hours: number;
+  reminder_sent_at: string;
+  escalation_recommended: boolean;
+}
+
 export interface NeedsListResponse {
   event_id: number;
   event_name?: string;
@@ -114,19 +120,29 @@ export interface NeedsListResponse {
   escalated_by?: string | null;
   escalated_at?: string | null;
   escalation_reason?: string | null;
+  return_reason_code?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
+  review_reminder?: ReviewReminderInfo;
   selected_method?: 'A' | 'B' | 'C';
   selected_item_keys?: string[];
 }
 
 export type NeedsListStatus =
   | 'DRAFT'
+  | 'MODIFIED'
   | 'SUBMITTED'
+  | 'PENDING_APPROVAL'
+  | 'PENDING'
   | 'UNDER_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
   | 'RETURNED'
+  | 'ESCALATED'
+  | 'IN_PREPARATION'
+  | 'DISPATCHED'
+  | 'RECEIVED'
+  | 'COMPLETED'
   | 'IN_PROGRESS'
   | 'FULFILLED'
   | 'CANCELLED'
@@ -148,7 +164,7 @@ export interface TrackerStep {
 }
 
 export interface TrackerBranch {
-  type: 'REJECTED' | 'RETURNED' | 'CANCELLED' | 'SUPERSEDED';
+  type: 'REJECTED' | 'RETURNED' | 'ESCALATED' | 'CANCELLED' | 'SUPERSEDED';
   reason: string | null;
   actor: string | null;
   timestamp: string | null;

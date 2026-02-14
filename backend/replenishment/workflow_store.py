@@ -87,6 +87,7 @@ def create_draft(
         "approved_at": None,
         "approval_tier": None,
         "approval_rationale": None,
+        "submitted_approval_summary": None,
         "prep_started_by": None,
         "prep_started_at": None,
         "dispatched_by": None,
@@ -104,6 +105,7 @@ def create_draft(
         "returned_by": None,
         "returned_at": None,
         "return_reason": None,
+        "return_reason_code": None,
         "rejected_by": None,
         "rejected_at": None,
         "reject_reason": None,
@@ -277,6 +279,12 @@ def transition_status(
         record["rejected_at"] = now
         record["reject_reason"] = reason
     if to_status == "RETURNED":
+        record["reviewed_by"] = actor
+        record["reviewed_at"] = now
+        record["returned_by"] = actor
+        record["returned_at"] = now
+        record["return_reason"] = reason
+    if to_status == "MODIFIED":
         record["reviewed_by"] = actor
         record["reviewed_at"] = now
         record["returned_by"] = actor

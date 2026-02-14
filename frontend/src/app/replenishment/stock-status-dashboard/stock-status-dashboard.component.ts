@@ -17,6 +17,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
@@ -68,6 +69,7 @@ export class StockStatusDashboardComponent implements OnInit {
   private replenishmentService = inject(ReplenishmentService);
   private router = inject(Router);
   private dialog = inject(MatDialog);
+  private http = inject(HttpClient);
 
   private destroyRef = inject(DestroyRef);
   private dataFreshnessService = inject(DataFreshnessService);
@@ -84,6 +86,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   // View mode
   viewMode: 'multi' | 'single' = 'multi';
+  canAccessReviewQueue = false;
 
   loading = false;
   refreshing = false;
@@ -117,6 +120,7 @@ export class StockStatusDashboardComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.loadReviewQueueAccess();
     this.loadFilterState();
     this.autoLoadDashboard();
 
@@ -672,5 +676,26 @@ export class StockStatusDashboardComponent implements OnInit {
         console.error('Failed to load filter state:', e);
       }
     }
+  }
+
+  private loadReviewQueueAccess(): void {
+    this.http.get<{ roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
+      next: (data) => {
+        const roles = new Set((data.roles ?? []).map((role) => role.toUpperCase()));
+        const permissions = new Set((data.permissions ?? []).map((perm) => perm.toLowerCase()));
+        const reviewPermissions = [
+          'replenishment.needs_list.approve',
+          'replenishment.needs_list.reject',
+          'replenishment.needs_list.return',
+          'replenishment.needs_list.escalate'
+        ];
+        this.canAccessReviewQueue =
+          roles.has('EXECUTIVE') ||
+          reviewPermissions.some((perm) => permissions.has(perm));
+      },
+      error: () => {
+        this.canAccessReviewQueue = false;
+      }
+    });
   }
 }

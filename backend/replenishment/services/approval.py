@@ -5,12 +5,34 @@ from typing import Dict, Iterable, List, Tuple
 from replenishment import rules
 
 
+LOGISTICS_MANAGER_APPROVER_ROLES = {
+    "LOGISTICS",
+    "LOGISTICS_MANAGER",
+    "ODPEM_LOGISTICS_MANAGER",
+    "SYSTEM_ADMINISTRATOR",
+}
+
+SENIOR_DIRECTOR_APPROVER_ROLES = {
+    "EXECUTIVE",
+    "ODPEM_DIR_PEOD",
+    "SENIOR_DIRECTOR",
+    "SYSTEM_ADMINISTRATOR",
+}
+
+DG_APPROVER_ROLES = {
+    "EXECUTIVE",
+    "ODPEM_DG",
+    "ODPEM_DDG",
+    "DIRECTOR_GENERAL",
+    "SYSTEM_ADMINISTRATOR",
+}
+
 APPROVAL_ROLE_MAP = {
-    "Logistics Manager (Kemar)": {"LOGISTICS"},
-    "Senior Director (Andrea)": {"EXECUTIVE"},
-    "Director General (Marcus)": {"EXECUTIVE"},
-    "DG + PPC Endorsement": {"EXECUTIVE"},
-    "DG + PPC + Cabinet": {"EXECUTIVE"},
+    "Logistics Manager (Kemar)": LOGISTICS_MANAGER_APPROVER_ROLES,
+    "Senior Director (Andrea)": SENIOR_DIRECTOR_APPROVER_ROLES,
+    "Director General (Marcus)": DG_APPROVER_ROLES,
+    "DG + PPC Endorsement": DG_APPROVER_ROLES,
+    "DG + PPC + Cabinet": DG_APPROVER_ROLES,
 }
 
 
@@ -24,6 +46,9 @@ def compute_needs_list_totals(
     for item in items:
         required_qty = float(item.get("required_qty") or 0.0)
         total_required_qty += required_qty
+        if required_qty <= 0:
+            # Do not force conservative approval when there is no quantity to cost.
+            continue
         unit_cost = None
         if "est_unit_cost" in item:
             unit_cost = item.get("est_unit_cost")
@@ -89,7 +114,7 @@ def determine_approval_tier(
 
 def required_roles_for_approval(approval: Dict[str, object]) -> set[str]:
     approver_role = str(approval.get("approver_role") or "")
-    return APPROVAL_ROLE_MAP.get(approver_role, {"EXECUTIVE"})
+    return APPROVAL_ROLE_MAP.get(approver_role, DG_APPROVER_ROLES)
 
 
 def evaluate_appendix_c_authority(

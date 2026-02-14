@@ -1,6 +1,9 @@
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
+  MODIFIED: 'Modified',
   SUBMITTED: 'Submitted',
+  PENDING_APPROVAL: 'Pending Approval',
+  PENDING: 'Pending Approval',
   UNDER_REVIEW: 'Under Review',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',

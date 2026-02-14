@@ -102,16 +102,18 @@
               Back to All Warehouses
             </button>
           }
-          <button
-            matButton="outlined"
-            (click)="openReviewQueue()"
-            matTooltip="Review and approve submitted needs lists"
-            matTooltipPosition="above"
-            matTooltipShowDelay="300"
-            >
-            <mat-icon>rate_review</mat-icon>
-            Review Queue
-          </button>
+          @if (canAccessReviewQueue) {
+            <button
+              matButton="outlined"
+              (click)="openReviewQueue()"
+              matTooltip="Review and approve submitted needs lists"
+              matTooltipPosition="above"
+              matTooltipShowDelay="300"
+              >
+              <mat-icon>rate_review</mat-icon>
+              Review Queue
+            </button>
+          }
         </div>
       </div>
     </div>

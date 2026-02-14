@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 import jwt
 from jwt import InvalidTokenError, PyJWKClient, PyJWKClientError
 from django.conf import settings
+from django.db import DatabaseError, connection
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
@@ -70,6 +71,39 @@ def _parse_roles(value) -> list[str]:
     return [str(value)]
 
 
+def _resolve_dev_override_principal(request) -> Principal | None:
+    requested = str(request.META.get("HTTP_X_DEV_USER", "")).strip()
+    if not requested:
+        return None
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT user_id, username
+                FROM "user"
+                WHERE CAST(user_id AS TEXT) = %s OR username = %s OR email = %s
+                LIMIT 1
+                """,
+                [requested, requested, requested],
+            )
+            row = cursor.fetchone()
+    except DatabaseError as exc:
+        logger.warning("DEV auth override lookup failed: %s", exc)
+        return None
+
+    if not row:
+        logger.warning("DEV auth override user not found: %s", requested)
+        return None
+
+    return Principal(
+        user_id=str(row[0]),
+        username=str(row[1]),
+        roles=[],
+        permissions=[],
+    )
+
+
 class LegacyCompatAuthentication(BaseAuthentication):
     """
     Minimal auth that mirrors legacy patterns. JWT validation is structural only.
@@ -86,6 +120,9 @@ class LegacyCompatAuthentication(BaseAuthentication):
                 raise AuthenticationFailed(
                     "DEV_AUTH_ENABLED requires DEBUG=1 to prevent unsafe production use."
                 )
+            override_principal = _resolve_dev_override_principal(request)
+            if override_principal is not None:
+                return override_principal, None
             roles = [role for role in settings.DEV_AUTH_ROLES]
             permissions = [perm for perm in settings.DEV_AUTH_PERMISSIONS]
             principal = Principal(
