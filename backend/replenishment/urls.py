@@ -16,9 +16,9 @@ from replenishment.views import (
     needs_list_preview,
     needs_list_preview_multi,
     needs_list_reject,
+    needs_list_review_reminder,
     needs_list_return,
     needs_list_review_comments,
-    needs_list_review_start,
     needs_list_start_preparation,
     needs_list_submit,
 )
@@ -47,11 +47,6 @@ urlpatterns = [
         name="needs_list_submit",
     ),
     path(
-        "needs-list/<str:needs_list_id>/review/start",
-        needs_list_review_start,
-        name="needs_list_review_start",
-    ),
-    path(
         "needs-list/<str:needs_list_id>/return",
         needs_list_return,
         name="needs_list_return",
@@ -70,6 +65,11 @@ urlpatterns = [
         "needs-list/<str:needs_list_id>/escalate",
         needs_list_escalate,
         name="needs_list_escalate",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/review/reminder",
+        needs_list_review_reminder,
+        name="needs_list_review_reminder",
     ),
     path(
         "needs-list/<str:needs_list_id>/start-preparation",

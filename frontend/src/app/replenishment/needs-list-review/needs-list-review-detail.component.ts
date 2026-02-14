@@ -10,12 +10,9 @@ import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { FormsModule } from '@angular/forms';
 import { EMPTY, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
 
@@ -37,21 +34,28 @@ import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { formatStatusLabel } from './status-label.util';
 
+const PENDING_APPROVAL_STATUSES = new Set(['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW']);
+const REQUEST_CHANGE_REASON_OPTIONS = [
+  { value: 'QTY_ADJUSTMENT', label: 'Quantity Adjustment' },
+  { value: 'DATA_QUALITY', label: 'Data Quality' },
+  { value: 'MISSING_JUSTIFICATION', label: 'Missing Justification' },
+  { value: 'SCOPE_MISMATCH', label: 'Scope Mismatch' },
+  { value: 'POLICY_COMPLIANCE', label: 'Policy Compliance' },
+  { value: 'OTHER', label: 'Other' }
+] as const;
+
 @Component({
   selector: 'app-needs-list-review-detail',
   imports: [
     DatePipe,
     DecimalPipe,
     SlicePipe,
-    FormsModule,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
     MatDialogModule,
     MatDividerModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
     MatTableModule,
     MatTooltipModule,
     DmisApprovalStatusTrackerComponent,
@@ -77,8 +81,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly actionLoading = signal<string | null>(null);
   readonly roles = signal<string[]>([]);
   readonly permissions = signal<string[]>([]);
-  readonly reviewComments = signal<Record<number, string>>({});
-  readonly savingComments = signal<Record<number, boolean>>({});
+  readonly currentUser = signal<string | null>(null);
 
   readonly items = computed(() => this.needsList()?.items ?? []);
   readonly status = computed(() => this.needsList()?.status ?? 'DRAFT');
@@ -101,33 +104,42 @@ export class NeedsListReviewDetailComponent implements OnInit {
     return 'A';
   });
 
-  readonly canStartReview = computed(() =>
-    this.status() === 'SUBMITTED' && this.can('replenishment.needs_list.review_start')
+  readonly isPendingApproval = computed(() =>
+    PENDING_APPROVAL_STATUSES.has(this.status())
   );
 
   readonly canApprove = computed(() =>
-    this.status() === 'UNDER_REVIEW' && this.can('replenishment.needs_list.approve')
+    this.isPendingApproval() && this.can('replenishment.needs_list.approve')
   );
 
   readonly canReject = computed(() =>
-    this.status() === 'UNDER_REVIEW' && this.can('replenishment.needs_list.reject')
+    this.isPendingApproval() && this.can('replenishment.needs_list.reject')
   );
 
   readonly canReturn = computed(() =>
-    this.status() === 'UNDER_REVIEW' && this.can('replenishment.needs_list.return')
+    this.isPendingApproval() && this.can('replenishment.needs_list.return')
   );
 
   readonly canEscalate = computed(() =>
-    this.status() === 'UNDER_REVIEW' && this.can('replenishment.needs_list.escalate')
-  );
-
-  readonly canAddComments = computed(() =>
-    this.status() === 'UNDER_REVIEW' && this.can('replenishment.needs_list.review_comments')
+    this.isPendingApproval() && this.can('replenishment.needs_list.escalate')
   );
 
   readonly hasActions = computed(() =>
-    this.canStartReview() || this.canApprove() || this.canReject() || this.canReturn() || this.canEscalate()
+    this.canApprove() || this.canReject() || this.canReturn() || this.canEscalate()
   );
+  readonly approvalActionHint = computed(() => {
+    const nl = this.needsList();
+    if (!nl || !this.isPendingApproval() || this.hasActions()) {
+      return null;
+    }
+
+    const submittedBy = String(nl.submitted_by ?? '').trim().toLowerCase();
+    const currentUser = String(this.currentUser() ?? '').trim().toLowerCase();
+    if (submittedBy && currentUser && submittedBy === currentUser) {
+      return 'This needs list was submitted by your account. A different approver must approve, reject, or request changes.';
+    }
+    return 'No approval actions are available for your current permissions.';
+  });
 
   readonly displayedColumns = [
     'item_name', 'warehouse', 'available', 'inbound', 'burn_rate',
@@ -188,22 +200,6 @@ export class NeedsListReviewDetailComponent implements OnInit {
 
   // ── Approval Actions ──
 
-  startReview(): void {
-    if (!this.canStartReview() || this.actionLoading()) return;
-    this.actionLoading.set('start_review');
-    this.replenishmentService.startReview(this.needsListId).subscribe({
-      next: (data) => {
-        this.needsList.set(data);
-        this.actionLoading.set(null);
-        this.notifications.showSuccess('Review started.');
-      },
-      error: (err: HttpErrorResponse) => {
-        this.actionLoading.set(null);
-        this.notifications.showError(this.extractError(err, 'Failed to start review.'));
-      }
-    });
-  }
-
   approve(): void {
     if (!this.canApprove() || this.actionLoading()) return;
     this.actionLoading.set('approve');
@@ -250,9 +246,11 @@ export class NeedsListReviewDetailComponent implements OnInit {
   returnForRevision(): void {
     if (!this.canReturn() || this.actionLoading()) return;
     const data: DmisReasonDialogData = {
-      title: 'Return for Revision',
-      actionLabel: 'Return',
-      actionColor: 'warn'
+      title: 'Request Changes',
+      actionLabel: 'Request Changes',
+      actionColor: 'warn',
+      reasonCodeLabel: 'Reason Code',
+      reasonCodeOptions: REQUEST_CHANGE_REASON_OPTIONS
     };
     this.dialog.open(DmisReasonDialogComponent, {
       width: '520px',
@@ -262,16 +260,24 @@ export class NeedsListReviewDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result?: DmisReasonDialogResult) => {
         if (!result) return;
+        const reasonCode = result.reason_code?.trim().toUpperCase();
+        if (!reasonCode) {
+          this.notifications.showError('A reason code is required to request changes.');
+          return;
+        }
         this.actionLoading.set('return');
-        this.replenishmentService.returnNeedsList(this.needsListId, result.reason).subscribe({
+        this.replenishmentService.returnNeedsList(this.needsListId, {
+          reason_code: reasonCode,
+          reason: result.reason
+        }).subscribe({
           next: (nlData) => {
             this.needsList.set(nlData);
             this.actionLoading.set(null);
-            this.notifications.showWarning('Needs list returned for revision.');
+            this.notifications.showWarning('Changes requested. Needs list moved to Modified.');
           },
           error: (err: HttpErrorResponse) => {
             this.actionLoading.set(null);
-            this.notifications.showError(this.extractError(err, 'Return failed.'));
+            this.notifications.showError(this.extractError(err, 'Request changes failed.'));
           }
         });
       });
@@ -307,39 +313,46 @@ export class NeedsListReviewDetailComponent implements OnInit {
       });
   }
 
-  saveComment(item: NeedsListItem): void {
-    const itemId = item.item_id;
-    if (this.savingComments()[itemId]) return;
+  onSendReminder(): void {
+    if (this.actionLoading()) {
+      return;
+    }
 
-    const comment = this.reviewComments()[itemId];
-    if (!comment?.trim()) return;
+    const currentStatus = this.status();
+    if (!PENDING_APPROVAL_STATUSES.has(currentStatus)) {
+      this.notifications.showWarning('Reminder is only available while approval is pending.');
+      return;
+    }
 
-    this.savingComments.update((current) => ({ ...current, [itemId]: true }));
-    this.replenishmentService.addReviewComments(this.needsListId, [
-      { item_id: itemId, comment: comment.trim() }
-    ]).subscribe({
+    const canSendReminder =
+      this.can('replenishment.needs_list.approve') ||
+      this.can('replenishment.needs_list.reject') ||
+      this.can('replenishment.needs_list.return') ||
+      this.can('replenishment.needs_list.escalate');
+    if (!canSendReminder) {
+      this.notifications.showError('You do not have permission to send a reminder.');
+      return;
+    }
+
+    this.actionLoading.set('reminder');
+    this.replenishmentService.sendReviewReminder(this.needsListId).subscribe({
       next: (data) => {
         this.needsList.set(data);
-        this.notifications.showSuccess('Comment saved.');
-        this.savingComments.update((current) => ({ ...current, [itemId]: false }));
+        this.actionLoading.set(null);
+        const reminder = data.review_reminder;
+        if (reminder?.escalation_recommended) {
+          this.notifications.showWarning(
+            'Reminder sent. This needs list has been pending more than 8 hours; consider escalating.'
+          );
+          return;
+        }
+        this.notifications.showSuccess('Reminder sent to approver.');
       },
       error: (err: HttpErrorResponse) => {
-        this.notifications.showError(this.extractError(err, 'Failed to save comment.'));
-        this.savingComments.update((current) => ({ ...current, [itemId]: false }));
+        this.actionLoading.set(null);
+        this.notifications.showError(this.extractError(err, 'Failed to send reminder.'));
       }
     });
-  }
-
-  isSavingComment(itemId: number): boolean {
-    return !!this.savingComments()[itemId];
-  }
-
-  updateComment(itemId: number, value: string): void {
-    this.reviewComments.update(c => ({ ...c, [itemId]: value }));
-  }
-
-  onSendReminder(): void {
-    this.notifications.showSuccess('Reminder sent (not yet implemented).');
   }
 
   // ── Display helpers ──
@@ -387,18 +400,29 @@ export class NeedsListReviewDetailComponent implements OnInit {
   // ── Private helpers ──
 
   private can(permission: string): boolean {
-    return this.permissions().includes(permission);
+    return this.permissions().includes(permission.toLowerCase());
   }
 
   private loadPermissions(): void {
-    this.http.get<{ roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
+    this.http.get<{ user_id?: string; username?: string; roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
       next: (data) => {
-        this.roles.set(data.roles ?? []);
-        this.permissions.set(data.permissions ?? []);
+        const roles = [...new Set((data.roles ?? []).map((role) => String(role).trim()).filter(Boolean))];
+        const permissions = [
+          ...new Set(
+            (data.permissions ?? [])
+              .map((permission) => String(permission).trim().toLowerCase())
+              .filter(Boolean)
+          )
+        ];
+        const userRef = String(data.username ?? data.user_id ?? '').trim();
+        this.roles.set(roles);
+        this.permissions.set(permissions);
+        this.currentUser.set(userRef || null);
       },
       error: () => {
         this.roles.set([]);
         this.permissions.set([]);
+        this.currentUser.set(null);
       }
     });
   }

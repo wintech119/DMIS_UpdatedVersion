@@ -4,14 +4,18 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 
 export interface DmisReasonDialogData {
   title: string;
   actionLabel: string;
   actionColor?: 'primary' | 'accent' | 'warn';
+  reasonCodeLabel?: string;
+  reasonCodeOptions?: readonly { value: string; label: string }[];
 }
 
 export interface DmisReasonDialogResult {
+  reason_code?: string;
   reason: string;
   notes?: string;
 }
@@ -22,6 +26,7 @@ export interface DmisReasonDialogResult {
     MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     MatButtonModule,
     ReactiveFormsModule
   ],
@@ -30,6 +35,20 @@ export interface DmisReasonDialogResult {
 
     <form [formGroup]="form" (ngSubmit)="submit()">
       <mat-dialog-content>
+        @if (data.reasonCodeOptions?.length) {
+          <mat-form-field appearance="outline" class="dialog-field">
+            <mat-label>{{ data.reasonCodeLabel ?? 'Reason Code' }}</mat-label>
+            <mat-select formControlName="reason_code">
+              @for (option of data.reasonCodeOptions; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+            @if (form.controls.reason_code.invalid && form.controls.reason_code.touched) {
+              <mat-error>Reason code is required.</mat-error>
+            }
+          </mat-form-field>
+        }
+
         <mat-form-field appearance="outline" class="dialog-field">
           <mat-label>Reason</mat-label>
           <textarea matInput rows="3" formControlName="reason"></textarea>
@@ -66,9 +85,20 @@ export class DmisReasonDialogComponent {
   readonly data: DmisReasonDialogData = inject(MAT_DIALOG_DATA);
 
   readonly form = this.fb.nonNullable.group({
+    reason_code: [''],
     reason: ['', [Validators.required]],
     notes: ['']
   });
+
+  constructor() {
+    if (this.data.reasonCodeOptions?.length) {
+      this.form.controls.reason_code.addValidators(Validators.required);
+      this.form.controls.reason_code.updateValueAndValidity({ emitEvent: false });
+      if (this.data.reasonCodeOptions.length === 1) {
+        this.form.controls.reason_code.setValue(this.data.reasonCodeOptions[0].value);
+      }
+    }
+  }
 
   submit(): void {
     if (this.form.invalid) {
@@ -80,6 +110,7 @@ export class DmisReasonDialogComponent {
     const notes = this.form.controls.notes.value.trim();
 
     this.dialogRef.close({
+      reason_code: this.form.controls.reason_code.value || undefined,
       reason,
       notes: notes || undefined
     });

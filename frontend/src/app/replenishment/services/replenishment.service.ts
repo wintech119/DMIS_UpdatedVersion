@@ -32,6 +32,11 @@ export interface RejectNeedsListPayload {
   notes?: string;
 }
 
+export interface ReturnNeedsListPayload {
+  reason_code: string;
+  reason?: string;
+}
+
 export interface CreateNeedsListDraftPayload {
   event_id: number;
   warehouse_id: number;
@@ -181,17 +186,10 @@ export class ReplenishmentService {
     );
   }
 
-  startReview(id: string): Observable<NeedsListResponse> {
-    return this.http.post<NeedsListResponse>(
-      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review/start`,
-      {}
-    );
-  }
-
-  returnNeedsList(id: string, reason: string): Observable<NeedsListResponse> {
+  returnNeedsList(id: string, payload: ReturnNeedsListPayload): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/return`,
-      { reason }
+      payload
     );
   }
 
@@ -209,6 +207,13 @@ export class ReplenishmentService {
     return this.http.patch<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review-comments`,
       comments
+    );
+  }
+
+  sendReviewReminder(id: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review/reminder`,
+      {}
     );
   }
 

@@ -33,8 +33,58 @@
 
 .toolbar-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   font-size: 0.85rem;
-  opacity: 0.8;
+  opacity: 0.95;
+  flex-wrap: wrap;
+}
+
+.toolbar-user,
+.toolbar-mode {
+  font-size: 0.85rem;
+}
+
+.dev-user-label {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.dev-user-select {
+  min-width: 220px;
+  max-width: 320px;
+  border-radius: 6px;
+  border: 1px solid rgb(248 250 252 / 45%);
+  background: rgb(15 76 92 / 60%);
+  color: #f8fafc;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.dev-user-clear {
+  border: 1px solid rgb(248 250 252 / 45%);
+  border-radius: 6px;
+  background: transparent;
+  color: #f8fafc;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.dev-user-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (width <= 900px) {
+  .toolbar-right {
+    gap: 0.5rem;
+  }
+
+  .dev-user-select {
+    min-width: 170px;
+  }
 }
 
 .app-shell {
