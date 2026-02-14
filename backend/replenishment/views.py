@@ -21,7 +21,6 @@ from api.rbac import (
     PERM_NEEDS_LIST_REVIEW_COMMENTS,
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_RETURN,
-    PERM_NEEDS_LIST_REVIEW_START,
     PERM_NEEDS_LIST_SUBMIT,
 )
 from replenishment import rules, workflow_store
@@ -29,6 +28,16 @@ from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list
 
 logger = logging.getLogger("dmis.audit")
+
+PENDING_APPROVAL_STATUSES = {"SUBMITTED", "PENDING_APPROVAL", "PENDING", "UNDER_REVIEW"}
+REQUEST_CHANGE_REASON_CODES = {
+    "QTY_ADJUSTMENT",
+    "DATA_QUALITY",
+    "MISSING_JUSTIFICATION",
+    "SCOPE_MISMATCH",
+    "POLICY_COMPLIANCE",
+    "OTHER",
+}
 
 
 def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> int | None:
@@ -78,6 +87,93 @@ def _parse_selected_item_keys(
 
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+def _to_float_or_none(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_approval_summary(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+) -> Dict[str, Any]:
+    selected_method = (
+        str(record.get("selected_method") or snapshot.get("selected_method") or "")
+        .strip()
+        .upper()
+        or None
+    )
+    total_required_qty, total_estimated_cost, approval_warnings = (
+        approval_service.compute_needs_list_totals(snapshot.get("items") or [])
+    )
+    if selected_method == "A":
+        approval_warnings = []
+    approval, approval_warnings_extra, approval_rationale = (
+        approval_service.determine_approval_tier(
+            str(record.get("phase") or "BASELINE"),
+            total_estimated_cost,
+            bool(approval_warnings),
+            selected_method=selected_method,
+        )
+    )
+    authority_warnings, escalation_required = (
+        approval_service.evaluate_appendix_c_authority(snapshot.get("items") or [])
+    )
+    warnings = needs_list.merge_warnings(
+        approval_warnings, approval_warnings_extra + authority_warnings
+    )
+    parsed_cost = _to_float_or_none(total_estimated_cost)
+    return {
+        "total_required_qty": round(float(total_required_qty or 0.0), 2),
+        "total_estimated_cost": None if parsed_cost is None else round(parsed_cost, 2),
+        "approval": approval,
+        "warnings": warnings,
+        "rationale": approval_rationale,
+        "escalation_required": escalation_required,
+    }
+
+
+def _normalize_submitted_approval_summary(summary: object) -> Dict[str, Any] | None:
+    if not isinstance(summary, dict):
+        return None
+    approval = summary.get("approval")
+    if not isinstance(approval, dict):
+        approval = {}
+    warnings_raw = summary.get("warnings")
+    warnings = (
+        [str(warning).strip() for warning in warnings_raw if str(warning).strip()]
+        if isinstance(warnings_raw, list)
+        else []
+    )
+    total_required_qty = _to_float_or_none(summary.get("total_required_qty")) or 0.0
+    total_estimated_cost = summary.get("total_estimated_cost")
+    parsed_cost = None
+    if total_estimated_cost is not None:
+        parsed_cost = _to_float_or_none(total_estimated_cost)
+    return {
+        "total_required_qty": round(total_required_qty, 2),
+        "total_estimated_cost": None if parsed_cost is None else round(parsed_cost, 2),
+        "approval": approval,
+        "warnings": warnings,
+        "rationale": str(summary.get("rationale") or ""),
+        "escalation_required": bool(summary.get("escalation_required")),
+    }
+
+
+def _approval_summary_for_record(
+    record: Dict[str, Any],
+    snapshot: Dict[str, Any],
+) -> Dict[str, Any]:
+    status = str(record.get("status") or "").upper()
+    persisted_summary = _normalize_submitted_approval_summary(
+        record.get("submitted_approval_summary")
+    )
+    if status not in {"DRAFT", "MODIFIED"} and persisted_summary:
+        return persisted_summary
+    return _compute_approval_summary(record, snapshot)
 
 
 def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, str]]:
@@ -223,30 +319,12 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
         if include_overrides
         else dict(record.get("snapshot") or {})
     )
+    approval_summary = _approval_summary_for_record(record, snapshot)
     selected_method = (
         str(record.get("selected_method") or snapshot.get("selected_method") or "")
         .strip()
         .upper()
         or None
-    )
-    total_required_qty, total_estimated_cost, approval_warnings = (
-        approval_service.compute_needs_list_totals(snapshot.get("items") or [])
-    )
-    if selected_method == "A":
-        approval_warnings = []
-    approval, approval_warnings_extra, approval_rationale = (
-        approval_service.determine_approval_tier(
-            str(record.get("phase") or "BASELINE"),
-            total_estimated_cost,
-            bool(approval_warnings),
-            selected_method=selected_method,
-        )
-    )
-    authority_warnings, escalation_required = (
-        approval_service.evaluate_appendix_c_authority(snapshot.get("items") or [])
-    )
-    approval_warnings = needs_list.merge_warnings(
-        approval_warnings, approval_warnings_extra + authority_warnings
     )
     response = dict(snapshot)
     response.update(
@@ -289,17 +367,9 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "escalated_at": record.get("escalated_at"),
             "escalation_reason": record.get("escalation_reason"),
             "return_reason": record.get("return_reason"),
+            "return_reason_code": record.get("return_reason_code"),
             "reject_reason": record.get("reject_reason"),
-            "approval_summary": {
-                "total_required_qty": round(total_required_qty, 2),
-                "total_estimated_cost": None
-                if total_estimated_cost is None
-                else round(float(total_estimated_cost), 2),
-                "approval": approval,
-                "warnings": approval_warnings,
-                "rationale": approval_rationale,
-                "escalation_required": escalation_required,
-            },
+            "approval_summary": approval_summary,
         }
     )
     return response
@@ -319,7 +389,7 @@ def needs_list_list(request):
     """
     List needs lists, optionally filtered by status.
     Query params:
-        status - comma-separated list of statuses (e.g. SUBMITTED,UNDER_REVIEW)
+        status - comma-separated list of statuses (e.g. SUBMITTED,PENDING_APPROVAL,UNDER_REVIEW)
     """
     try:
         workflow_store.store_enabled_or_raise()
@@ -562,8 +632,11 @@ def needs_list_draft(request):
             item
             for item in all_items
             if (
-                f"{item.get('item_id')}_{item.get('warehouse_id') or 0}"
-                in selected_item_keys
+                f"{item.get('item_id')}_{item.get('warehouse_id') or 0}" in selected_item_keys
+                or (
+                    warehouse_id is not None
+                    and f"{item.get('item_id')}_{warehouse_id}" in selected_item_keys
+                )
             )
         ]
     else:
@@ -667,8 +740,9 @@ def needs_list_edit_lines(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "DRAFT":
-        return Response({"errors": {"status": "Drafts only."}}, status=409)
+    status = str(record.get("status") or "").upper()
+    if status not in {"DRAFT", "MODIFIED"}:
+        return Response({"errors": {"status": "Only draft or modified needs lists can be edited."}}, status=409)
 
     overrides_raw = request.data
     if not isinstance(overrides_raw, list):
@@ -739,8 +813,9 @@ def needs_list_review_comments(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "UNDER_REVIEW":
-        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+    status = str(record.get("status") or "").upper()
+    if status not in PENDING_APPROVAL_STATUSES:
+        return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
     notes_raw = request.data
     if not isinstance(notes_raw, list):
@@ -802,8 +877,9 @@ def needs_list_submit(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "DRAFT":
-        return Response({"errors": {"status": "Only drafts can be submitted."}}, status=409)
+    previous_status = str(record.get("status") or "").upper()
+    if previous_status not in {"DRAFT", "MODIFIED"}:
+        return Response({"errors": {"status": "Only draft or modified needs lists can be submitted."}}, status=409)
 
     submit_empty_allowed = bool((request.data or {}).get("submit_empty_allowed", False))
     item_count = len(record.get("snapshot", {}).get("items") or [])
@@ -811,6 +887,10 @@ def needs_list_submit(request, needs_list_id: str):
         return Response({"errors": {"items": "Cannot submit an empty needs list."}}, status=409)
 
     record = workflow_store.transition_status(record, "SUBMITTED", _actor_id(request))
+    record["submitted_approval_summary"] = _compute_approval_summary(
+        record,
+        workflow_store.apply_overrides(record),
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -820,50 +900,9 @@ def needs_list_submit(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "DRAFT",
+            "from_status": previous_status,
             "to_status": "SUBMITTED",
             "item_count": item_count,
-        },
-    )
-
-    return Response(_serialize_workflow_record(record, include_overrides=True))
-
-
-@api_view(["POST"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([NeedsListPermission])
-def needs_list_review_start(request, needs_list_id: str):
-    try:
-        workflow_store.store_enabled_or_raise()
-    except RuntimeError:
-        return _workflow_disabled_response()
-
-    record = workflow_store.get_record(needs_list_id)
-    if not record:
-        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
-
-    if record.get("status") != "SUBMITTED":
-        return Response({"errors": {"status": "Needs list must be submitted first."}}, status=409)
-
-    actor = _actor_id(request)
-    if not record.get("submitted_by") or record.get("submitted_by") == actor:
-        return Response(
-            {"errors": {"review": "Reviewer must be different from submitter."}},
-            status=409,
-        )
-
-    record = workflow_store.transition_status(record, "UNDER_REVIEW", actor)
-    workflow_store.update_record(needs_list_id, record)
-
-    logger.info(
-        "needs_list_review_started",
-        extra={
-            "event_type": "STATE_CHANGE",
-            "user_id": getattr(request.user, "user_id", None),
-            "username": getattr(request.user, "username", None),
-            "needs_list_id": needs_list_id,
-            "from_status": "SUBMITTED",
-            "to_status": "UNDER_REVIEW",
         },
     )
 
@@ -883,26 +922,45 @@ def needs_list_return(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "UNDER_REVIEW":
-        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+    current_status = str(record.get("status") or "").upper()
+    if current_status not in PENDING_APPROVAL_STATUSES:
+        return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
-    reason = (request.data or {}).get("reason")
+    reason_code = str((request.data or {}).get("reason_code") or "").strip().upper()
+    if not reason_code:
+        return Response({"errors": {"reason_code": "Reason code is required."}}, status=400)
+    if reason_code not in REQUEST_CHANGE_REASON_CODES:
+        return Response(
+            {
+                "errors": {
+                    "reason_code": (
+                        "Invalid reason code. Must be one of: "
+                        + ", ".join(sorted(REQUEST_CHANGE_REASON_CODES))
+                    )
+                }
+            },
+            status=400,
+        )
+
+    reason = str((request.data or {}).get("reason") or "").strip()
     if not reason:
-        return Response({"errors": {"reason": "Reason is required."}}, status=400)
+        reason = "Changes requested by approver."
 
-    record = workflow_store.transition_status(record, "DRAFT", _actor_id(request))
+    record = workflow_store.transition_status(record, "MODIFIED", _actor_id(request), reason=reason)
     record["return_reason"] = reason
+    record["return_reason_code"] = reason_code
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
-        "needs_list_returned",
+        "needs_list_changes_requested",
         extra={
             "event_type": "STATE_CHANGE",
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "UNDER_REVIEW",
-            "to_status": "DRAFT",
+            "from_status": current_status,
+            "to_status": "MODIFIED",
+            "reason_code": reason_code,
             "reason": reason,
         },
     )
@@ -923,8 +981,9 @@ def needs_list_reject(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "UNDER_REVIEW":
-        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+    current_status = str(record.get("status") or "").upper()
+    if current_status not in PENDING_APPROVAL_STATUSES:
+        return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
     reason = (request.data or {}).get("reason")
     if not reason:
@@ -940,7 +999,7 @@ def needs_list_reject(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "UNDER_REVIEW",
+            "from_status": current_status,
             "to_status": "REJECTED",
             "reason": reason,
         },
@@ -962,8 +1021,9 @@ def needs_list_approve(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "UNDER_REVIEW":
-        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+    current_status = str(record.get("status") or "").upper()
+    if current_status not in PENDING_APPROVAL_STATUSES:
+        return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
     actor = _actor_id(request)
     if not record.get("submitted_by") or record.get("submitted_by") == actor:
@@ -974,31 +1034,13 @@ def needs_list_approve(request, needs_list_id: str):
 
     comment = (request.data or {}).get("comment")
     snapshot = workflow_store.apply_overrides(record)
-    total_required_qty, total_estimated_cost, total_warnings = (
-        approval_service.compute_needs_list_totals(snapshot.get("items") or [])
-    )
-    selected_method = (
-        str(record.get("selected_method") or snapshot.get("selected_method") or "")
-        .strip()
-        .upper()
-        or None
-    )
-    if selected_method == "A":
-        total_warnings = []
-    approval, approval_warnings, approval_rationale = (
-        approval_service.determine_approval_tier(
-            str(record.get("phase") or "BASELINE"),
-            total_estimated_cost,
-            bool(total_warnings),
-            selected_method=selected_method,
-        )
-    )
-    authority_warnings, escalation_required = (
-        approval_service.evaluate_appendix_c_authority(snapshot.get("items") or [])
-    )
-    warnings = needs_list.merge_warnings(
-        total_warnings, approval_warnings + authority_warnings
-    )
+    approval_summary = _approval_summary_for_record(record, snapshot)
+    total_required_qty = float(approval_summary.get("total_required_qty") or 0.0)
+    total_estimated_cost = approval_summary.get("total_estimated_cost")
+    approval = approval_summary.get("approval") or {}
+    approval_rationale = str(approval_summary.get("rationale") or "")
+    warnings = approval_summary.get("warnings") or []
+    escalation_required = bool(approval_summary.get("escalation_required"))
     if escalation_required:
         return Response(
             {
@@ -1019,6 +1061,7 @@ def needs_list_approve(request, needs_list_id: str):
     record = workflow_store.transition_status(record, "APPROVED", actor)
     record["approval_tier"] = approval.get("tier")
     record["approval_rationale"] = approval_rationale
+    record["submitted_approval_summary"] = approval_summary
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1028,7 +1071,7 @@ def needs_list_approve(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "UNDER_REVIEW",
+            "from_status": current_status,
             "to_status": "APPROVED",
             "approval_tier": approval.get("tier"),
             "approval_rationale": approval_rationale,
@@ -1055,8 +1098,9 @@ def needs_list_escalate(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "UNDER_REVIEW":
-        return Response({"errors": {"status": "Needs list must be under review."}}, status=409)
+    current_status = str(record.get("status") or "").upper()
+    if current_status not in PENDING_APPROVAL_STATUSES:
+        return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
     reason = (request.data or {}).get("reason")
     if not reason:
@@ -1074,13 +1118,89 @@ def needs_list_escalate(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "UNDER_REVIEW",
+            "from_status": current_status,
             "to_status": "ESCALATED",
             "reason": reason,
         },
     )
 
     return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_review_reminder(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    status = str(record.get("status") or "").upper()
+    if status not in PENDING_APPROVAL_STATUSES:
+        return Response(
+            {"errors": {"status": "Needs list must be pending approval."}},
+            status=409,
+        )
+
+    submitted_at_raw = record.get("submitted_at")
+    if not submitted_at_raw:
+        return Response(
+            {"errors": {"submitted_at": "Needs list has not been submitted."}},
+            status=409,
+        )
+
+    submitted_at = parse_datetime(str(submitted_at_raw))
+    if submitted_at is None:
+        return Response(
+            {"errors": {"submitted_at": "Needs list has invalid submitted timestamp."}},
+            status=409,
+        )
+    if timezone.is_naive(submitted_at):
+        submitted_at = timezone.make_aware(
+            submitted_at,
+            timezone.get_default_timezone(),
+        )
+
+    pending_hours = max((timezone.now() - submitted_at).total_seconds() / 3600.0, 0.0)
+    if pending_hours < 4:
+        return Response(
+            {
+                "errors": {
+                    "reminder": "Reminder is available after 4 hours pending approval."
+                },
+                "pending_hours": round(pending_hours, 2),
+            },
+            status=409,
+        )
+
+    escalation_recommended = pending_hours >= 8
+    reminder_sent_at = timezone.now().isoformat()
+
+    logger.info(
+        "needs_list_review_reminder_sent",
+        extra={
+            "event_type": "NOTIFICATION",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "status": status,
+            "pending_hours": round(pending_hours, 2),
+            "escalation_recommended": escalation_recommended,
+        },
+    )
+
+    response = _serialize_workflow_record(record, include_overrides=True)
+    response["review_reminder"] = {
+        "pending_hours": round(pending_hours, 2),
+        "reminder_sent_at": reminder_sent_at,
+        "escalation_recommended": escalation_recommended,
+    }
+    return Response(response)
 
 
 @api_view(["POST"])
@@ -1265,7 +1385,6 @@ needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT
 needs_list_get.required_permission = [
     PERM_NEEDS_LIST_CREATE_DRAFT,
     PERM_NEEDS_LIST_SUBMIT,
-    PERM_NEEDS_LIST_REVIEW_START,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_APPROVE,
@@ -1277,11 +1396,16 @@ needs_list_get.required_permission = [
 needs_list_edit_lines.required_permission = PERM_NEEDS_LIST_EDIT_LINES
 needs_list_review_comments.required_permission = PERM_NEEDS_LIST_REVIEW_COMMENTS
 needs_list_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
-needs_list_review_start.required_permission = PERM_NEEDS_LIST_REVIEW_START
 needs_list_return.required_permission = PERM_NEEDS_LIST_RETURN
 needs_list_reject.required_permission = PERM_NEEDS_LIST_REJECT
 needs_list_approve.required_permission = PERM_NEEDS_LIST_APPROVE
 needs_list_escalate.required_permission = PERM_NEEDS_LIST_ESCALATE
+needs_list_review_reminder.required_permission = [
+    PERM_NEEDS_LIST_APPROVE,
+    PERM_NEEDS_LIST_REJECT,
+    PERM_NEEDS_LIST_RETURN,
+    PERM_NEEDS_LIST_ESCALATE,
+]
 needs_list_start_preparation.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_dispatched.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_received.required_permission = PERM_NEEDS_LIST_EXECUTE
@@ -1294,11 +1418,11 @@ for view_func in (
     needs_list_edit_lines,
     needs_list_review_comments,
     needs_list_submit,
-    needs_list_review_start,
     needs_list_return,
     needs_list_reject,
     needs_list_approve,
     needs_list_escalate,
+    needs_list_review_reminder,
     needs_list_start_preparation,
     needs_list_mark_dispatched,
     needs_list_mark_received,

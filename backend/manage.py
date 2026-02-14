@@ -5,6 +5,7 @@ import sys
 
 def main() -> None:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmis_api.settings")
+    os.environ.setdefault("NEEDS_WORKFLOW_DEV_STORE", "1")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

@@ -1,5 +1,7 @@
 .preview-step-container {
   padding: 16px 0;
+  font-family: var(--dmis-font-sans);
+  color: var(--dmis-text-primary);
 
   .summary-card {
     margin-bottom: 16px;
@@ -39,7 +41,7 @@
 
           .label {
             font-size: 12px;
-            opacity: 0.9;
+            color: #ffffff;
           }
 
           .value {
@@ -63,7 +65,7 @@
 
       mat-card-subtitle {
         font-size: 14px;
-        color: #666;
+        color: var(--dmis-text-secondary);
         margin-top: 4px;
       }
     }
@@ -243,8 +245,8 @@
 
             .item-code {
               font-size: 10px;
-              color: #666;
-              font-family: 'Roboto Mono', 'Courier New', monospace;
+              color: var(--dmis-text-secondary);
+              font-family: var(--dmis-font-mono);
               margin-top: 2px;
               letter-spacing: 0.2px;
             }
@@ -270,7 +272,7 @@
               font-size: 18px;
               width: 18px;
               height: 18px;
-              color: #666;
+              color: var(--dmis-text-secondary);
               flex-shrink: 0;
             }
 
@@ -281,7 +283,7 @@
 
           .lead-time-cell {
             font-size: 12px;
-            color: #555;
+            color: var(--dmis-text-secondary);
             white-space: nowrap;
           }
 
@@ -613,7 +615,7 @@
           font-size: 14px;
           width: 14px;
           height: 14px;
-          color: #666;
+          color: var(--dmis-text-secondary);
         }
 
         &.cost-value {
