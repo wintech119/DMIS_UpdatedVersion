@@ -563,33 +563,46 @@ CREATE INDEX IF NOT EXISTS idx_warehouse_tenant ON public.warehouse(tenant_id) W
 -- SECTION 20: CREATE TRIGGERS FOR AUDIT TIMESTAMPS
 -- ============================================================================
 
--- Trigger for tenant table
+-- Drop existing triggers first (safe even if they do not exist)
 DROP TRIGGER IF EXISTS trg_tenant_update_dtime ON public.tenant;
-CREATE TRIGGER trg_tenant_update_dtime
-    BEFORE UPDATE ON public.tenant
-    FOR EACH ROW
-    EXECUTE FUNCTION public.set_updated_at();
-
--- Trigger for tenant_config table
 DROP TRIGGER IF EXISTS trg_tenant_config_update_dtime ON public.tenant_config;
-CREATE TRIGGER trg_tenant_config_update_dtime
-    BEFORE UPDATE ON public.tenant_config
-    FOR EACH ROW
-    EXECUTE FUNCTION public.set_updated_at();
-
--- Trigger for needs_list table
 DROP TRIGGER IF EXISTS trg_needs_list_update_dtime ON public.needs_list;
-CREATE TRIGGER trg_needs_list_update_dtime
-    BEFORE UPDATE ON public.needs_list
-    FOR EACH ROW
-    EXECUTE FUNCTION public.set_updated_at();
-
--- Trigger for needs_list_item table
 DROP TRIGGER IF EXISTS trg_needs_list_item_update_dtime ON public.needs_list_item;
-CREATE TRIGGER trg_needs_list_item_update_dtime
-    BEFORE UPDATE ON public.needs_list_item
-    FOR EACH ROW
-    EXECUTE FUNCTION public.set_updated_at();
+
+-- Create triggers only if helper function public.set_updated_at() exists.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND p.proname = 'set_updated_at'
+          AND p.pronargs = 0
+    ) THEN
+        EXECUTE 'CREATE TRIGGER trg_tenant_update_dtime
+            BEFORE UPDATE ON public.tenant
+            FOR EACH ROW
+            EXECUTE FUNCTION public.set_updated_at()';
+
+        EXECUTE 'CREATE TRIGGER trg_tenant_config_update_dtime
+            BEFORE UPDATE ON public.tenant_config
+            FOR EACH ROW
+            EXECUTE FUNCTION public.set_updated_at()';
+
+        EXECUTE 'CREATE TRIGGER trg_needs_list_update_dtime
+            BEFORE UPDATE ON public.needs_list
+            FOR EACH ROW
+            EXECUTE FUNCTION public.set_updated_at()';
+
+        EXECUTE 'CREATE TRIGGER trg_needs_list_item_update_dtime
+            BEFORE UPDATE ON public.needs_list_item
+            FOR EACH ROW
+            EXECUTE FUNCTION public.set_updated_at()';
+    ELSE
+        RAISE NOTICE 'Skipping audit timestamp trigger creation: function public.set_updated_at() does not exist.';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- COMMIT TRANSACTION
