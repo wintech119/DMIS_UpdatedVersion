@@ -283,7 +283,10 @@ CREATE TABLE IF NOT EXISTS public.needs_list_item (
     needs_list_item_id SERIAL PRIMARY KEY,
     needs_list_id INTEGER NOT NULL REFERENCES public.needs_list(needs_list_id) ON DELETE CASCADE,
     item_id INTEGER NOT NULL REFERENCES public.item(item_id),
-    horizon_code CHAR(1) NOT NULL CHECK (horizon_code IN ('A', 'B', 'C')),
+    -- Three Horizons allocation (aligned with Django model)
+    horizon_a_qty NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (horizon_a_qty >= 0),
+    horizon_b_qty NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (horizon_b_qty >= 0),
+    horizon_c_qty NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (horizon_c_qty >= 0),
     -- Burn rate calculation
     burn_rate NUMERIC(12,4),
     burn_rate_source VARCHAR(20) CHECK (burn_rate_source IN (
@@ -319,8 +322,9 @@ CREATE TABLE IF NOT EXISTS public.needs_list_item (
 );
 
 COMMENT ON TABLE public.needs_list_item IS 'Supply Replenishment needs list line items with Three Horizons logic';
--- NOTE: horizon_code column removed by Django migrations.
--- Django uses horizon_a_qty / horizon_b_qty / horizon_c_qty instead.
+COMMENT ON COLUMN public.needs_list_item.horizon_a_qty IS 'Horizon A quantity (transfer recommendation)';
+COMMENT ON COLUMN public.needs_list_item.horizon_b_qty IS 'Horizon B quantity (donation recommendation)';
+COMMENT ON COLUMN public.needs_list_item.horizon_c_qty IS 'Horizon C quantity (procurement recommendation)';
 
 -- ============================================================================
 -- SECTION 11: WAREHOUSE SYNC STATUS TABLE
@@ -549,7 +553,7 @@ CREATE INDEX IF NOT EXISTS idx_needs_list_warehouse ON public.needs_list(warehou
 CREATE INDEX IF NOT EXISTS idx_needs_list_status ON public.needs_list(status_code);
 CREATE INDEX IF NOT EXISTS idx_needs_list_item_needs_list ON public.needs_list_item(needs_list_id);
 CREATE INDEX IF NOT EXISTS idx_needs_list_item_item ON public.needs_list_item(item_id);
--- NOTE: horizon_code index removed — Django schema uses horizon_a_qty/b_qty/c_qty columns.
+-- NOTE: No single horizon code index; schema uses horizon_a_qty / horizon_b_qty / horizon_c_qty columns.
 CREATE INDEX IF NOT EXISTS idx_event_phase_event ON public.event_phase(event_id);
 CREATE INDEX IF NOT EXISTS idx_event_phase_current ON public.event_phase(is_current) WHERE is_current = TRUE;
 CREATE INDEX IF NOT EXISTS idx_custodian_tenant ON public.custodian(tenant_id) WHERE tenant_id IS NOT NULL;
