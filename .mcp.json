@@ -11,7 +11,7 @@
       "env": {}
     },
     "django-ai-boost": {
-      "command": "c:/Users/wbowe/OneDrive/Desktop/project/DMIS_UpdatedVersion/scripts/run_django_mcp.cmd",
+      "command": "./scripts/run_django_mcp.cmd",
       "args": [],
       "env": {}
     }
