@@ -54,11 +54,23 @@ DELETE FROM public.tenant_user WHERE create_by_id = 'TEST_SCRIPT';
 -- 2.4 Remove tenant configurations
 DELETE FROM public.tenant_config WHERE create_by_id = 'TEST_SCRIPT';
 
--- 2.5 Clear tenant_id from warehouses (but keep warehouse records)
-UPDATE public.warehouse SET tenant_id = NULL WHERE tenant_id IS NOT NULL;
+-- 2.5 Clear tenant_id from warehouses (only test/migration tenants; keep warehouse records)
+UPDATE public.warehouse
+SET tenant_id = NULL
+WHERE tenant_id IN (
+    SELECT id
+    FROM public.tenant
+    WHERE create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION')
+);
 
--- 2.6 Clear tenant_id from custodians (but keep custodian records)
-UPDATE public.custodian SET tenant_id = NULL WHERE tenant_id IS NOT NULL;
+-- 2.6 Clear tenant_id from custodians (only test/migration tenants; keep custodian records)
+UPDATE public.custodian
+SET tenant_id = NULL
+WHERE tenant_id IN (
+    SELECT id
+    FROM public.tenant
+    WHERE create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION')
+);
 
 -- 2.7 Remove tenant hierarchy links before deleting tenants
 UPDATE public.tenant SET parent_tenant_id = NULL WHERE create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION');
