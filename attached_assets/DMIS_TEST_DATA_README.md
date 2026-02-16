@@ -8,17 +8,17 @@ This package implements a **graceful migration strategy** for DMIS multi-tenancy
 
 | File | Purpose |
 |------|---------|
-| `dmis_test_data.sql` | Creates schema extensions + migrates custodians + seeds test data |
-| `dmis_test_data_purge.sql` | Removes test data while preserving schema structure |
+| `dmis_test_data.sql` | Removed from repository (legacy bootstrap script) |
+| `dmis_test_data_purge.sql` | Removed from repository (legacy purge script) |
 
 ## Usage
 
 ```bash
-# Create schema and test data
-psql -d dmis -f dmis_test_data.sql
-
-# Remove test data (keeps schema)
-psql -d dmis -f dmis_test_data_purge.sql
+# Legacy bootstrap/purge scripts were removed from this repository.
+# Use your environment-managed migrations/provisioning for baseline schema setup.
+# Operational test data scripts remain available:
+psql -d dmis -f dmis_operational_test_data.sql
+psql -d dmis -f dmis_operational_test_data_purge.sql
 ```
 
 ---

@@ -5,7 +5,7 @@
 -- Date: 2026-02-13
 -- Purpose: Removes operational test data seeded by dmis_operational_test_data.sql
 --          Preserves schema structure, existing warehouses/items/roles, and
---          dmis_test_data.sql records (tenant tables, event phases, etc.).
+--          baseline tenant/EP-02 schema records (tenant tables, event phases, etc.).
 --
 -- SAFE TO RUN: Only deletes records created by TEST_SCRIPT or test users,
 --              using the 9000+ ID range where applicable.
@@ -181,7 +181,7 @@ BEGIN
     RAISE NOTICE 'Schema structure preserved. Existing warehouses, items, roles';
     RAISE NOTICE 'and event records are untouched.';
     RAISE NOTICE '';
-    RAISE NOTICE 'Run dmis_test_data_purge.sql to also remove multi-tenancy';
-    RAISE NOTICE 'schema and EP-02 tables created by dmis_test_data.sql.';
+    RAISE NOTICE 'Baseline tenant/EP-02 schema is preserved by this purge.';
+    RAISE NOTICE 'Use your environment rollback/migration tooling for full schema teardown.';
     RAISE NOTICE '============================================================';
 END $$;
