@@ -284,12 +284,6 @@ def transition_status(
         record["returned_by"] = actor
         record["returned_at"] = now
         record["return_reason"] = reason
-    if to_status == "MODIFIED":
-        record["reviewed_by"] = actor
-        record["reviewed_at"] = now
-        record["returned_by"] = actor
-        record["returned_at"] = now
-        record["return_reason"] = reason
     if to_status == "ESCALATED":
         record["escalated_by"] = actor
         record["escalated_at"] = now
