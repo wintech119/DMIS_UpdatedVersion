@@ -574,6 +574,7 @@ SELECT
     NULL AS sync_errors
 FROM public.warehouse w
 WHERE w.status_code = 'A'
+AND w.create_by_id = 'TEST_SCRIPT'
 ON CONFLICT (warehouse_id) DO UPDATE SET
     last_sync_at = EXCLUDED.last_sync_at,
     sync_status = EXCLUDED.sync_status,
