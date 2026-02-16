@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 
 import { StockStatusDashboardComponent } from './stock-status-dashboard.component';
 import { DashboardData, DashboardDataService } from '../services/dashboard-data.service';
@@ -17,6 +18,7 @@ describe('StockStatusDashboardComponent', () => {
   let dashboardDataService: jasmine.SpyObj<DashboardDataService>;
   let dataFreshnessService: jasmine.SpyObj<DataFreshnessService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
+  let httpClient: jasmine.SpyObj<HttpClient>;
 
   const refreshRequested$ = new Subject<void>();
   const event: ActiveEvent = {
@@ -82,6 +84,8 @@ describe('StockStatusDashboardComponent', () => {
 
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
+    httpClient = jasmine.createSpyObj<HttpClient>('HttpClient', ['get']);
+    httpClient.get.and.returnValue(of({ roles: [], permissions: [] }));
     dataFreshnessService.onRefreshRequested$.and.returnValue(refreshRequested$.asObservable());
 
     await TestBed.configureTestingModule({
@@ -92,7 +96,8 @@ describe('StockStatusDashboardComponent', () => {
         { provide: DataFreshnessService, useValue: dataFreshnessService },
         { provide: DmisNotificationService, useValue: notificationService },
         { provide: Router, useValue: router },
-        { provide: MatDialog, useValue: dialog }
+        { provide: MatDialog, useValue: dialog },
+        { provide: HttpClient, useValue: httpClient }
       ]
     }).overrideComponent(StockStatusDashboardComponent, {
       set: { template: '' }
@@ -181,5 +186,30 @@ describe('StockStatusDashboardComponent', () => {
 
     expect(component.selectedWarehouseId).toBe(2);
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+  });
+
+  it('does not allow review queue with action permission but no preview permission', () => {
+    httpClient.get.and.returnValue(of({
+      roles: [],
+      permissions: ['replenishment.needs_list.approve']
+    }));
+
+    component['loadReviewQueueAccess']();
+
+    expect(component.canAccessReviewQueue).toBeFalse();
+  });
+
+  it('allows review queue when preview and review permissions are present', () => {
+    httpClient.get.and.returnValue(of({
+      roles: [],
+      permissions: [
+        'replenishment.needs_list.preview',
+        'replenishment.needs_list.approve'
+      ]
+    }));
+
+    component['loadReviewQueueAccess']();
+
+    expect(component.canAccessReviewQueue).toBeTrue();
   });
 });

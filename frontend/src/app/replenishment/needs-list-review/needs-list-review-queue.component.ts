@@ -60,7 +60,7 @@ export class NeedsListReviewQueueComponent implements OnInit {
   loadQueue(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.replenishmentService.listNeedsLists(['SUBMITTED', 'UNDER_REVIEW']).subscribe({
+    this.replenishmentService.listNeedsLists(['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW']).subscribe({
       next: (data) => {
         this.needsLists.set(data.needs_lists);
         this.loading.set(false);
@@ -99,6 +99,8 @@ export class NeedsListReviewQueueComponent implements OnInit {
   statusIcon(status: string | undefined): string {
     switch (status) {
       case 'SUBMITTED': return 'send';
+      case 'PENDING_APPROVAL':
+      case 'PENDING': return 'hourglass_top';
       case 'UNDER_REVIEW': return 'rate_review';
       default: return 'info';
     }

@@ -39,10 +39,14 @@ class AuthWhoAmITests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
-    def test_whoami_forbidden_without_permission(self) -> None:
+    def test_whoami_allows_without_needs_list_permission(self) -> None:
         response = self.client.get("/api/v1/auth/whoami/")
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["user_id"], "dev-user")
+        self.assertEqual(body["roles"], ["VIEWER"])
+        self.assertEqual(body["permissions"], [])
 
     @override_settings(
         AUTH_ENABLED=False,

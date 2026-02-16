@@ -4,6 +4,8 @@
 
 .tracker-container {
   padding: 1.25rem 1.5rem;
+  font-family: var(--dmis-font-sans);
+  color: var(--dmis-text-primary);
 }
 
 // ── Horizontal Stepper Row ──
@@ -87,14 +89,14 @@
   font-size: 0.75rem;
   font-weight: 600;
   text-align: center;
-  color: #6c757d;
+  color: var(--dmis-text-secondary);
   white-space: nowrap;
 
-  .step-completed & { color: #28a745; }
-  .step-active & { color: #1976d2; }
-  .step-rejected & { color: #dc3545; }
-  .step-returned & { color: #856404; }
-  .step-cancelled & { color: #6c757d; }
+  .step-completed & { color: #1b5e20; }
+  .step-active & { color: #0d47a1; }
+  .step-rejected & { color: #b71c1c; }
+  .step-returned & { color: #7c4d00; }
+  .step-cancelled & { color: var(--dmis-text-secondary); }
 }
 
 .step-meta {
@@ -103,7 +105,7 @@
   align-items: center;
   gap: 0.125rem;
   font-size: 0.65rem;
-  color: #868e96;
+  color: var(--dmis-text-secondary);
 }
 
 .step-actor {
@@ -115,7 +117,7 @@
 }
 
 .step-time {
-  opacity: 0.8;
+  opacity: 1;
 }
 
 // ── Connector Lines ──
@@ -190,7 +192,7 @@
 .branch-reason {
   font-size: 0.8125rem;
   font-style: italic;
-  opacity: 0.9;
+  opacity: 1;
 }
 
 // ── Pending Approval Info ──
@@ -356,7 +358,7 @@
   display: flex;
   gap: 1rem;
   font-size: 0.75rem;
-  color: #6c757d;
+  color: var(--dmis-text-secondary);
 }
 
 .timeline-actor,
@@ -370,7 +372,8 @@
   font-size: 13px;
   width: 13px;
   height: 13px;
-  opacity: 0.7;
+  opacity: 1;
+  color: var(--dmis-text-secondary);
 }
 
 .timeline-comment {
@@ -394,7 +397,7 @@
   gap: 0.25rem;
   margin-top: 0.75rem;
   font-size: 0.8rem;
-  color: #6c757d;
+  color: var(--dmis-text-secondary);
 
   mat-icon {
     font-size: 18px;

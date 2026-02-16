@@ -6,12 +6,14 @@ import { of, throwError } from 'rxjs';
 import { ScopeStepComponent } from './scope-step.component';
 import { WizardStateService } from '../../services/wizard-state.service';
 import { ReplenishmentService } from '../../../services/replenishment.service';
+import { DmisNotificationService } from '../../../services/notification.service';
 
 describe('ScopeStepComponent', () => {
   let component: ScopeStepComponent;
   let fixture: ComponentFixture<ScopeStepComponent>;
   let mockWizardService: jasmine.SpyObj<WizardStateService>;
   let mockReplenishmentService: jasmine.SpyObj<ReplenishmentService>;
+  let mockNotificationService: jasmine.SpyObj<DmisNotificationService>;
 
   beforeEach(async () => {
     mockWizardService = jasmine.createSpyObj('WizardStateService', [
@@ -27,14 +29,23 @@ describe('ScopeStepComponent', () => {
     }));
 
     mockReplenishmentService = jasmine.createSpyObj('ReplenishmentService', [
+      'getActiveEvent',
+      'getAllWarehouses',
       'getStockStatusMulti'
+    ]);
+    mockReplenishmentService.getActiveEvent.and.returnValue(of(null));
+    mockReplenishmentService.getAllWarehouses.and.returnValue(of([]));
+
+    mockNotificationService = jasmine.createSpyObj('DmisNotificationService', [
+      'showNetworkError'
     ]);
 
     await TestBed.configureTestingModule({
       imports: [ScopeStepComponent, ReactiveFormsModule, NoopAnimationsModule],
       providers: [
         { provide: WizardStateService, useValue: mockWizardService },
-        { provide: ReplenishmentService, useValue: mockReplenishmentService }
+        { provide: ReplenishmentService, useValue: mockReplenishmentService },
+        { provide: DmisNotificationService, useValue: mockNotificationService }
       ]
     }).compileComponents();
 
@@ -102,7 +113,7 @@ describe('ScopeStepComponent', () => {
     expect(component.next.emit).toHaveBeenCalled();
   });
 
-  it('should show errors on API failure', () => {
+  it('should show network error on API failure', () => {
     mockReplenishmentService.getStockStatusMulti.and.returnValue(
       throwError(() => ({ message: 'API Error' }))
     );
@@ -115,7 +126,10 @@ describe('ScopeStepComponent', () => {
 
     component.calculateGaps();
 
-    expect(component.errors).toContain('API Error');
+    expect(mockNotificationService.showNetworkError).toHaveBeenCalledWith(
+      'API Error',
+      jasmine.any(Function)
+    );
     expect(component.loading).toBe(false);
   });
 
