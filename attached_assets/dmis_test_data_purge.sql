@@ -33,7 +33,9 @@ DELETE FROM public.needs_list WHERE create_by_id = 'TEST_SCRIPT';
 DELETE FROM public.event_phase WHERE create_by_id = 'TEST_SCRIPT';
 
 -- 1.4 Remove warehouse sync status for test warehouses
--- 1.4 Remove warehouse sync status for test warehouses
+-- Delete sync status rows that were inserted by the test script,
+-- and reset any that were updated (ON CONFLICT) for existing warehouses.
+DELETE FROM public.warehouse_sync_status;
 -- Delete sync status rows that were inserted by the test script,
 -- and reset any that were updated (ON CONFLICT) for existing warehouses.
 DELETE FROM public.warehouse_sync_status;
