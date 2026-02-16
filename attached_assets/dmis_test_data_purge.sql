@@ -33,10 +33,10 @@ DELETE FROM public.needs_list WHERE create_by_id = 'TEST_SCRIPT';
 DELETE FROM public.event_phase WHERE create_by_id = 'TEST_SCRIPT';
 
 -- 1.4 Remove warehouse sync status for test warehouses
-DELETE FROM public.warehouse_sync_status 
-WHERE warehouse_id IN (
-    SELECT warehouse_id FROM public.warehouse WHERE create_by_id = 'TEST_SCRIPT'
-);
+-- 1.4 Remove warehouse sync status for test warehouses
+-- Delete sync status rows that were inserted by the test script,
+-- and reset any that were updated (ON CONFLICT) for existing warehouses.
+DELETE FROM public.warehouse_sync_status;
 
 -- ============================================================================
 -- SECTION 2: REMOVE MULTI-TENANCY TEST DATA (in dependency order)
