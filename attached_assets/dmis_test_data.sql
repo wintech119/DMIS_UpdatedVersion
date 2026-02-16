@@ -138,7 +138,7 @@ COMMENT ON TABLE public.tenant_config IS 'Tenant-specific configuration override
 CREATE TABLE IF NOT EXISTS public.tenant_user (
     tenant_id INTEGER NOT NULL REFERENCES public.tenant(tenant_id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES public."user"(user_id) ON DELETE CASCADE,
-    is_primary_tenant BOOLEAN DEFAULT TRUE,
+    is_primary_tenant BOOLEAN DEFAULT FALSE,
     access_level VARCHAR(20) DEFAULT 'STANDARD' CHECK (access_level IN (
         'ADMIN', 'FULL', 'STANDARD', 'LIMITED', 'READ_ONLY'
     )),
@@ -152,6 +152,10 @@ CREATE TABLE IF NOT EXISTS public.tenant_user (
 
 COMMENT ON TABLE public.tenant_user IS 'Maps users to tenants with access levels. Users may belong to multiple tenants.';
 COMMENT ON COLUMN public.tenant_user.access_level IS 'From DMIS Access Matrix: ADMIN, FULL, STANDARD, LIMITED, READ_ONLY';
+
+-- Ensure existing environments also default to non-primary unless explicitly set.
+ALTER TABLE IF EXISTS public.tenant_user
+ALTER COLUMN is_primary_tenant SET DEFAULT FALSE;
 
 -- ============================================================================
 -- SECTION 6: TENANT-WAREHOUSE MAPPING TABLE
@@ -593,6 +597,8 @@ ON CONFLICT (warehouse_id) DO UPDATE SET
 CREATE INDEX IF NOT EXISTS idx_tenant_type ON public.tenant(tenant_type);
 CREATE INDEX IF NOT EXISTS idx_tenant_status ON public.tenant(status_code);
 CREATE INDEX IF NOT EXISTS idx_tenant_user_user ON public.tenant_user(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_user_primary_unique
+ON public.tenant_user(user_id) WHERE is_primary_tenant = TRUE;
 CREATE INDEX IF NOT EXISTS idx_tenant_warehouse_warehouse ON public.tenant_warehouse(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_data_sharing_from ON public.data_sharing_agreement(from_tenant_id);
 CREATE INDEX IF NOT EXISTS idx_data_sharing_to ON public.data_sharing_agreement(to_tenant_id);
