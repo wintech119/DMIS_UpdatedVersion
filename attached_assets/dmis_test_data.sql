@@ -598,7 +598,8 @@ CREATE INDEX IF NOT EXISTS idx_needs_list_item_needs_list ON public.needs_list_i
 CREATE INDEX IF NOT EXISTS idx_needs_list_item_item ON public.needs_list_item(item_id);
 -- NOTE: No single horizon code index; schema uses horizon_a_qty / horizon_b_qty / horizon_c_qty columns.
 CREATE INDEX IF NOT EXISTS idx_event_phase_event ON public.event_phase(event_id);
-CREATE INDEX IF NOT EXISTS idx_event_phase_current ON public.event_phase(is_current) WHERE is_current = TRUE;
+DROP INDEX IF EXISTS public.idx_event_phase_current;
+CREATE UNIQUE INDEX idx_event_phase_current ON public.event_phase(event_id) WHERE is_current = TRUE;
 CREATE INDEX IF NOT EXISTS idx_custodian_tenant ON public.custodian(tenant_id) WHERE tenant_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_warehouse_tenant ON public.warehouse(tenant_id) WHERE tenant_id IS NOT NULL;
 
