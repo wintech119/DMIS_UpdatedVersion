@@ -1007,7 +1007,17 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_categories.return_value = ({1: 10}, [])
 
         with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
-            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+            with self.settings(
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=[],
+                DEV_AUTH_PERMISSIONS=[
+                    "replenishment.needs_list.preview",
+                    "replenishment.needs_list.create_draft",
+                    "replenishment.needs_list.submit",
+                    "replenishment.needs_list.return",
+                    "replenishment.needs_list.reject",
+                ],
+            ):
                 draft = self.client.post(
                     "/api/v1/replenishment/needs-list/draft",
                     self._draft_payload(),
@@ -1019,6 +1029,13 @@ class NeedsListWorkflowApiTests(TestCase):
                     {},
                     format="json",
                 )
+                self_review_return = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
+                    {"reason_code": "DATA_QUALITY", "reason": "Self-review attempt"},
+                    format="json",
+                )
+                self.assertEqual(self_review_return.status_code, 409)
+                self.assertIn("review", self_review_return.json().get("errors", {}))
 
             returned = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/return",
@@ -1044,7 +1061,17 @@ class NeedsListWorkflowApiTests(TestCase):
             self.assertEqual(returned_ok.json().get("status"), "MODIFIED")
             self.assertEqual(returned_ok.json().get("return_reason_code"), "DATA_QUALITY")
 
-            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+            with self.settings(
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=[],
+                DEV_AUTH_PERMISSIONS=[
+                    "replenishment.needs_list.preview",
+                    "replenishment.needs_list.create_draft",
+                    "replenishment.needs_list.submit",
+                    "replenishment.needs_list.return",
+                    "replenishment.needs_list.reject",
+                ],
+            ):
                 resubmit = self.client.post(
                     f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
                     {},
@@ -1052,6 +1079,13 @@ class NeedsListWorkflowApiTests(TestCase):
                 )
                 self.assertEqual(resubmit.status_code, 200)
                 self.assertEqual(resubmit.json().get("status"), "SUBMITTED")
+                self_reject = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/reject",
+                    {"reason": "Self-reject attempt"},
+                    format="json",
+                )
+                self.assertEqual(self_reject.status_code, 409)
+                self.assertIn("review", self_reject.json().get("errors", {}))
 
             rejected = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/reject",
@@ -1527,7 +1561,16 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_categories.return_value = ({1: 10}, [])
 
         with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
-            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="submitter"):
+            with self.settings(
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=[],
+                DEV_AUTH_PERMISSIONS=[
+                    "replenishment.needs_list.preview",
+                    "replenishment.needs_list.create_draft",
+                    "replenishment.needs_list.submit",
+                    "replenishment.needs_list.escalate",
+                ],
+            ):
                 draft = self.client.post(
                     "/api/v1/replenishment/needs-list/draft",
                     self._draft_payload(),
@@ -1539,6 +1582,13 @@ class NeedsListWorkflowApiTests(TestCase):
                     {},
                     format="json",
                 )
+                self_escalate = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/escalate",
+                    {"reason": "Self-escalation attempt"},
+                    format="json",
+                )
+                self.assertEqual(self_escalate.status_code, 409)
+                self.assertIn("review", self_escalate.json().get("errors", {}))
 
             missing = self.client.post(
                 f"/api/v1/replenishment/needs-list/{needs_list_id}/escalate",

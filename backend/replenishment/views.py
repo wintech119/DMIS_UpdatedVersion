@@ -89,6 +89,16 @@ def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
 
 
+def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
+    submitted_by = record.get("submitted_by")
+    if not submitted_by or submitted_by == actor:
+        return Response(
+            {"errors": {"review": "Reviewer must be different from submitter."}},
+            status=409,
+        )
+    return None
+
+
 def _to_float_or_none(value: object) -> float | None:
     try:
         return float(value)
@@ -926,6 +936,11 @@ def needs_list_return(request, needs_list_id: str):
     if current_status not in PENDING_APPROVAL_STATUSES:
         return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
+    actor = _actor_id(request)
+    reviewer_error = _reviewer_must_differ_from_submitter(record, actor)
+    if reviewer_error:
+        return reviewer_error
+
     reason_code = str((request.data or {}).get("reason_code") or "").strip().upper()
     if not reason_code:
         return Response({"errors": {"reason_code": "Reason code is required."}}, status=400)
@@ -946,7 +961,7 @@ def needs_list_return(request, needs_list_id: str):
     if not reason:
         reason = "Changes requested by approver."
 
-    record = workflow_store.transition_status(record, "MODIFIED", _actor_id(request), reason=reason)
+    record = workflow_store.transition_status(record, "MODIFIED", actor, reason=reason)
     record["return_reason"] = reason
     record["return_reason_code"] = reason_code
     workflow_store.update_record(needs_list_id, record)
@@ -985,11 +1000,16 @@ def needs_list_reject(request, needs_list_id: str):
     if current_status not in PENDING_APPROVAL_STATUSES:
         return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
+    actor = _actor_id(request)
+    reviewer_error = _reviewer_must_differ_from_submitter(record, actor)
+    if reviewer_error:
+        return reviewer_error
+
     reason = (request.data or {}).get("reason")
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
-    record = workflow_store.transition_status(record, "REJECTED", _actor_id(request), reason=reason)
+    record = workflow_store.transition_status(record, "REJECTED", actor, reason=reason)
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1102,13 +1122,16 @@ def needs_list_escalate(request, needs_list_id: str):
     if current_status not in PENDING_APPROVAL_STATUSES:
         return Response({"errors": {"status": "Needs list must be pending approval."}}, status=409)
 
+    actor = _actor_id(request)
+    reviewer_error = _reviewer_must_differ_from_submitter(record, actor)
+    if reviewer_error:
+        return reviewer_error
+
     reason = (request.data or {}).get("reason")
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
-    record = workflow_store.transition_status(
-        record, "ESCALATED", _actor_id(request), reason=reason
-    )
+    record = workflow_store.transition_status(record, "ESCALATED", actor, reason=reason)
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
