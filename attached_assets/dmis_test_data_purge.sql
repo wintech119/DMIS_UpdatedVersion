@@ -155,8 +155,20 @@ DECLARE
 BEGIN
     -- Check remaining counts
     SELECT COUNT(*) INTO v_tenant_count FROM public.tenant WHERE create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION');
-    SELECT COUNT(*) INTO v_custodian_linked FROM public.custodian WHERE tenant_id IS NOT NULL;
-    SELECT COUNT(*) INTO v_warehouse_linked FROM public.warehouse WHERE tenant_id IS NOT NULL;
+    SELECT COUNT(*) INTO v_custodian_linked
+    FROM public.custodian c
+    WHERE c.tenant_id IN (
+        SELECT t.tenant_id
+        FROM public.tenant t
+        WHERE t.create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION')
+    );
+    SELECT COUNT(*) INTO v_warehouse_linked
+    FROM public.warehouse w
+    WHERE w.tenant_id IN (
+        SELECT t.tenant_id
+        FROM public.tenant t
+        WHERE t.create_by_id IN ('TEST_SCRIPT', 'CUSTODIAN_MIGRATION')
+    );
     
     -- Check EP-02 tables if they exist
     BEGIN
