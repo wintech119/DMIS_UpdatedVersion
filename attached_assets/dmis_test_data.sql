@@ -401,7 +401,12 @@ ON CONFLICT (tenant_code) DO NOTHING;
 -- Create tenant records for any existing custodians not yet linked
 INSERT INTO public.tenant (tenant_code, tenant_name, tenant_type, address1_text, address2_text, parish_code, contact_name, phone_no, email_text, data_scope, status_code, create_by_id, update_by_id)
 SELECT 
-    UPPER(REPLACE(SUBSTRING(c.custodian_name FROM 1 FOR 20), ' ', '-')) AS tenant_code,
+    (
+        LEFT(
+            UPPER(REPLACE(c.custodian_name, ' ', '-')),
+            GREATEST(1, 20 - LENGTH(c.custodian_id::TEXT) - 1)
+        ) || '-' || c.custodian_id::TEXT
+    ) AS tenant_code,
     UPPER(c.custodian_name) AS tenant_name,
     'NATIONAL' AS tenant_type,  -- Default; can be updated later
     c.address1_text,
