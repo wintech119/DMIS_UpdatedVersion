@@ -683,6 +683,7 @@ export class StockStatusDashboardComponent implements OnInit {
       next: (data) => {
         const roles = new Set((data.roles ?? []).map((role) => role.toUpperCase()));
         const permissions = new Set((data.permissions ?? []).map((perm) => perm.toLowerCase()));
+        const hasPreviewPermission = permissions.has('replenishment.needs_list.preview');
         const reviewPermissions = [
           'replenishment.needs_list.approve',
           'replenishment.needs_list.reject',
@@ -690,8 +691,10 @@ export class StockStatusDashboardComponent implements OnInit {
           'replenishment.needs_list.escalate'
         ];
         this.canAccessReviewQueue =
-          roles.has('EXECUTIVE') ||
-          reviewPermissions.some((perm) => permissions.has(perm));
+          hasPreviewPermission && (
+            roles.has('EXECUTIVE') ||
+            reviewPermissions.some((perm) => permissions.has(perm))
+          );
       },
       error: () => {
         this.canAccessReviewQueue = false;
