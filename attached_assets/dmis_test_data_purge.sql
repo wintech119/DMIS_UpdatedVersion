@@ -181,7 +181,7 @@ BEGIN
     RAISE NOTICE '  - Test event phases remaining: %', v_event_phase_count;
     RAISE NOTICE '';
     
-    IF v_tenant_count > 0 OR v_needs_list_count > 0 THEN
+    IF v_tenant_count > 0 OR v_needs_list_count > 0 OR v_event_phase_count > 0 THEN
         RAISE WARNING 'Some test data may remain. Check for foreign key dependencies.';
     ELSE
         RAISE NOTICE 'All test data successfully removed.';
