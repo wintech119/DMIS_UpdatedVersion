@@ -561,9 +561,9 @@ SELECT
         WHEN w.warehouse_type = 'MAIN-HUB' THEN NOW() - INTERVAL '30 minutes'
         ELSE NOW() - INTERVAL '6 hours'
     END AS last_sync_at,
-    CASE 
+    CASE
         WHEN w.warehouse_type = 'MAIN-HUB' THEN 'ONLINE'
-        ELSE 'ONLINE'
+        ELSE 'STALE'
     END AS sync_status,
     CASE 
         WHEN w.warehouse_type = 'MAIN-HUB' THEN 'HIGH'
