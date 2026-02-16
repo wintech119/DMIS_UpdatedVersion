@@ -485,11 +485,53 @@ ON CONFLICT (tenant_id, config_key, effective_date) DO NOTHING;
 -- SECTION 16: TEST EVENT (Hurricane Melissa)
 -- ============================================================================
 
-INSERT INTO public.event (event_type, start_date, event_name, event_desc, impact_desc, status_code, create_by_id, create_dtime, update_by_id, update_dtime, version_nbr)
-VALUES
-    ('HURRICANE', '2026-01-15', 'HURRICANE MELISSA', 'Category 4 Hurricane affecting southeastern parishes', 'Major flooding in Portland, St. Thomas, St. Andrew. 50,000+ displaced.', 'A', 'TEST_SCRIPT', NOW(), 'TEST_SCRIPT', NOW(), 1),
-    ('ADHOC', '2026-01-01', 'GENERAL PREPAREDNESS 2026', 'Ongoing preparedness stockpile for 2026 hurricane season', 'Pre-positioned supplies across warehouse network', 'A', 'TEST_SCRIPT', NOW(), 'TEST_SCRIPT', NOW(), 1)
-ON CONFLICT DO NOTHING;
+INSERT INTO public.event (
+    event_type,
+    start_date,
+    event_name,
+    event_desc,
+    impact_desc,
+    status_code,
+    create_by_id,
+    create_dtime,
+    update_by_id,
+    update_dtime,
+    version_nbr
+)
+SELECT
+    v.event_type,
+    v.start_date,
+    v.event_name,
+    v.event_desc,
+    v.impact_desc,
+    v.status_code,
+    v.create_by_id,
+    v.create_dtime,
+    v.update_by_id,
+    v.update_dtime,
+    v.version_nbr
+FROM (
+    VALUES
+        ('HURRICANE', '2026-01-15', 'HURRICANE MELISSA', 'Category 4 Hurricane affecting southeastern parishes', 'Major flooding in Portland, St. Thomas, St. Andrew. 50,000+ displaced.', 'A', 'TEST_SCRIPT', NOW(), 'TEST_SCRIPT', NOW(), 1),
+        ('ADHOC', '2026-01-01', 'GENERAL PREPAREDNESS 2026', 'Ongoing preparedness stockpile for 2026 hurricane season', 'Pre-positioned supplies across warehouse network', 'A', 'TEST_SCRIPT', NOW(), 'TEST_SCRIPT', NOW(), 1)
+) AS v(
+    event_type,
+    start_date,
+    event_name,
+    event_desc,
+    impact_desc,
+    status_code,
+    create_by_id,
+    create_dtime,
+    update_by_id,
+    update_dtime,
+    version_nbr
+)
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.event e
+    WHERE e.event_name = v.event_name
+);
 
 -- ============================================================================
 -- SECTION 17: EVENT PHASES (Hurricane Melissa)
