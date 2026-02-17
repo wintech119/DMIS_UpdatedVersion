@@ -495,6 +495,10 @@ def get_active_event() -> Dict[str, object] | None:
                 latest_activity = cursor.fetchone()
             except DatabaseError as exc:
                 logger.warning("Active event workflow preference query failed: %s", exc)
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
                 latest_activity = None
 
             if latest_activity:
