@@ -257,13 +257,13 @@ BEGIN
         user_id, email, password_hash, user_name, username,
         first_name, last_name, full_name, organization, job_title,
         status_code, assigned_warehouse_id,
-        create_dtime, update_dtime
+        create_by_id, create_dtime, update_dtime
     ) VALUES
-        (95001, 'kemar.brown+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'KEMAR',  'kemar_tst',  'Kemar',  'Brown',   'Kemar Brown',   'ODPEM', 'Logistics Manager',   'A', 1,    NOW(), NOW()),
-        (95002, 'andrea.campbell+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'ANDREA', 'andrea_tst', 'Andrea', 'Campbell', 'Andrea Campbell', 'ODPEM', 'Senior Director PEOD', 'A', NULL, NOW(), NOW()),
-        (95003, 'marcus.reid+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'MARCUS', 'marcus_tst', 'Marcus', 'Reid',    'Marcus Reid',    'ODPEM', 'Director General',    'A', NULL, NOW(), NOW()),
-        (95004, 'sarah.johnson+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'SARAH',  'sarah_tst',  'Sarah',  'Johnson', 'Sarah Johnson',   'ODPEM', 'Dashboard Analyst',    'A', NULL, NOW(), NOW()),
-        (95005, 'devon.scott+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'DEVON',  'devon_tst',  'Devon',  'Scott',   'Devon Scott',     'ODPEM', 'Field Worker',         'A', 2,    NOW(), NOW())
+        (95001, 'kemar.brown+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'KEMAR',  'kemar_tst',  'Kemar',  'Brown',   'Kemar Brown',   'ODPEM', 'Logistics Manager',   'A', 1,    'TST_OP_SAFE', NOW(), NOW()),
+        (95002, 'andrea.campbell+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'ANDREA', 'andrea_tst', 'Andrea', 'Campbell', 'Andrea Campbell', 'ODPEM', 'Senior Director PEOD', 'A', NULL, 'TST_OP_SAFE', NOW(), NOW()),
+        (95003, 'marcus.reid+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'MARCUS', 'marcus_tst', 'Marcus', 'Reid',    'Marcus Reid',    'ODPEM', 'Director General',    'A', NULL, 'TST_OP_SAFE', NOW(), NOW()),
+        (95004, 'sarah.johnson+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'SARAH',  'sarah_tst',  'Sarah',  'Johnson', 'Sarah Johnson',   'ODPEM', 'Dashboard Analyst',    'A', NULL, 'TST_OP_SAFE', NOW(), NOW()),
+        (95005, 'devon.scott+tst@odpem.gov.jm', 'KEYCLOAK_MANAGED', 'DEVON',  'devon_tst',  'Devon',  'Scott',   'Devon Scott',     'ODPEM', 'Field Worker',         'A', 2,    'TST_OP_SAFE', NOW(), NOW())
     ON CONFLICT (user_id) DO UPDATE SET
         email = EXCLUDED.email,
         password_hash = EXCLUDED.password_hash,
@@ -276,6 +276,7 @@ BEGIN
         job_title = EXCLUDED.job_title,
         status_code = EXCLUDED.status_code,
         assigned_warehouse_id = EXCLUDED.assigned_warehouse_id,
+        create_by_id = EXCLUDED.create_by_id,
         update_dtime = NOW();
 END $$;
 
@@ -961,14 +962,14 @@ BEGIN
              50.0 + (v_i * 0.7),
              'CALCULATED', 'MEDIUM',
              GREATEST(1.0, 4.0 - (v_i * 0.3)),
-             GREATEST(50, 200 + (v_i * 100))),
+             GREATEST(50, 1200 - (v_i * 100))),
             -- MRE at Marcus Garvey - burn rate stable
             (2, 9, 8, 'STABILIZED', v_snap_time, 72,
              6, 1080,
              15.0,
              'CALCULATED', 'MEDIUM',
              GREATEST(2.0, 6.7 + (v_i * 0.5)),
-             GREATEST(50, 100 + (v_i * 50)));
+             GREATEST(50, 600 - (v_i * 50)));
     END LOOP;
 END $$;
 
