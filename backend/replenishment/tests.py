@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -2292,3 +2294,69 @@ class WorkflowStoreDbSerializationTests(TestCase):
         mock_warehouse_names.assert_called_once_with([2])
         mock_event_names.assert_called_once_with([1])
         mock_item_names.assert_called_once_with([9, 17])
+
+
+class StockStateFileLockTests(SimpleTestCase):
+    def test_persist_snapshot_uses_exclusive_file_lock(self) -> None:
+        from replenishment import views
+
+        with TemporaryDirectory() as temp_dir:
+            store_path = Path(temp_dir) / "stock_state_cache.json"
+            with override_settings(NEEDS_STOCK_STATE_STORE_PATH=str(store_path)):
+                with patch("replenishment.views._acquire_stock_state_file_lock") as mock_lock, patch(
+                    "replenishment.views._release_stock_state_file_lock"
+                ):
+                    views._persist_stock_state_snapshot(
+                        event_id=1,
+                        warehouse_id=2,
+                        phase="SURGE",
+                        as_of_datetime=timezone.now().isoformat(),
+                        items=[
+                            {
+                                "item_id": 9,
+                                "burn_rate_per_hour": 1.5,
+                                "gap_qty": 0.0,
+                                "severity": "OK",
+                            }
+                        ],
+                        warnings=[],
+                    )
+
+                self.assertTrue(store_path.exists())
+                self.assertIn('"1:2:SURGE"', store_path.read_text(encoding="utf-8"))
+                self.assertTrue(
+                    any(call.kwargs.get("exclusive") is True for call in mock_lock.call_args_list)
+                )
+
+    def test_load_snapshot_uses_shared_file_lock(self) -> None:
+        from replenishment import views
+
+        with TemporaryDirectory() as temp_dir:
+            store_path = Path(temp_dir) / "stock_state_cache.json"
+            with override_settings(NEEDS_STOCK_STATE_STORE_PATH=str(store_path)):
+                views._persist_stock_state_snapshot(
+                    event_id=5,
+                    warehouse_id=10,
+                    phase="BASELINE",
+                    as_of_datetime=timezone.now().isoformat(),
+                    items=[
+                        {
+                            "item_id": 1,
+                            "burn_rate_per_hour": 2.0,
+                            "gap_qty": 1.0,
+                            "severity": "WARNING",
+                        }
+                    ],
+                    warnings=["burn_data_missing"],
+                )
+
+                with patch("replenishment.views._acquire_stock_state_file_lock") as mock_lock, patch(
+                    "replenishment.views._release_stock_state_file_lock"
+                ):
+                    snapshot = views._load_stock_state_snapshot(5, 10, "BASELINE")
+
+                self.assertIsNotNone(snapshot)
+                self.assertEqual(snapshot.get("restored_from_needs_list_id"), "stock_state_cache")
+                self.assertTrue(
+                    any(call.kwargs.get("exclusive") is False for call in mock_lock.call_args_list)
+                )
