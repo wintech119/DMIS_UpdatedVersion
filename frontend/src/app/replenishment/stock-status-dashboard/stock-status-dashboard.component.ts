@@ -169,13 +169,7 @@ export class StockStatusDashboardComponent implements OnInit {
     }).subscribe({
       next: ({ event, warehouses }) => {
         if (event) {
-          const selectedEventId = this.requestedEventId ?? event.event_id;
-          const selectedPhase = this.requestedPhase ?? (event.phase as EventPhase);
-          this.activeEvent = {
-            ...event,
-            event_id: selectedEventId,
-            phase: selectedPhase
-          };
+          this.activeEvent = this.resolveRequestedEventContext(event);
         } else {
           this.activeEvent = null;
         }
@@ -780,6 +774,20 @@ export class StockStatusDashboardComponent implements OnInit {
         this.mySubmissionUpdates = [];
       }
     });
+  }
+
+  private resolveRequestedEventContext(event: ActiveEvent): ActiveEvent {
+    // Only honor wizard overrides when they match the fetched active event context.
+    if (this.requestedEventId != null && this.requestedEventId !== event.event_id) {
+      return { ...event };
+    }
+
+    const selectedPhase = this.requestedPhase ?? (event.phase as EventPhase);
+    return {
+      ...event,
+      event_id: event.event_id,
+      phase: selectedPhase
+    };
   }
 
   private shouldApplyMultiWarehouseResult(
