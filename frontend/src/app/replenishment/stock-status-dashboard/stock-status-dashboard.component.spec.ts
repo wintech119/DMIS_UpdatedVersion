@@ -19,6 +19,7 @@ describe('StockStatusDashboardComponent', () => {
   let dataFreshnessService: jasmine.SpyObj<DataFreshnessService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let httpClient: jasmine.SpyObj<HttpClient>;
+  let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
 
   const refreshRequested$ = new Subject<void>();
   const event: ActiveEvent = {
@@ -75,7 +76,7 @@ describe('StockStatusDashboardComponent', () => {
       ['showNetworkError', 'showWarning', 'showSuccess']
     );
 
-    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
+    replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
       'ReplenishmentService',
       ['getActiveEvent', 'getAllWarehouses', 'listNeedsLists']
     );
@@ -247,5 +248,47 @@ describe('StockStatusDashboardComponent', () => {
     component['loadReviewQueueAccess']();
 
     expect(component.canAccessReviewQueue).toBeTrue();
+  });
+
+  it('prefers user_id when matching submitter updates', () => {
+    httpClient.get.and.returnValue(of({
+      user_id: 'EMP-123',
+      username: 'alice',
+      roles: [],
+      permissions: [
+        'replenishment.needs_list.preview',
+        'replenishment.needs_list.approve'
+      ]
+    }));
+    replenishmentService.listNeedsLists.and.returnValue(of({
+      needs_lists: [
+        {
+          needs_list_id: 'NL-1',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          submitted_by: 'EMP-123',
+          status: 'APPROVED',
+          updated_at: '2026-02-16T12:00:00Z'
+        },
+        {
+          needs_list_id: 'NL-2',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          submitted_by: 'alice',
+          status: 'APPROVED',
+          updated_at: '2026-02-16T12:00:00Z'
+        }
+      ],
+      count: 2
+    }));
+
+    component['loadReviewQueueAccess']();
+
+    expect(component['currentUserRef']).toBe('EMP-123');
+    expect(component.mySubmissionUpdates.map((row) => row.needs_list_id)).toEqual(['NL-1']);
   });
 });
