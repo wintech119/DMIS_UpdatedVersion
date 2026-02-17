@@ -1128,16 +1128,16 @@ BEGIN
         INSERT INTO public.data_sharing_agreement (from_tenant_id, to_tenant_id, data_category, permission_level, agreement_notes, status_code, approved_by, approved_at, create_by_id, update_by_id)
         SELECT f.tenant_id, t.tenant_id, 'INVENTORY', 'READ',
             'JRC can view ODPEM inventory levels for donation coordination',
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='data_sharing_agreement') THEN
+        INSERT INTO public.data_sharing_agreement (from_tenant_id, to_tenant_id, data_category, permission_level, agreement_notes, status_code, approved_by, approved_at, create_by_id, update_by_id)
+        SELECT f.tenant_id, t.tenant_id, 'INVENTORY', 'READ',
+            'JRC can view ODPEM inventory levels for donation coordination',
             'A', 95003, NOW() - INTERVAL '30 days', 'TST_OP_SAFE', 'TST_OP_SAFE'
         FROM public.tenant f, public.tenant t
         WHERE f.tenant_code = 'ODPEM-LOGISTICS' AND t.tenant_code = 'JRC'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.data_sharing_agreement dsa
-              WHERE dsa.from_tenant_id = f.tenant_id
-                AND dsa.to_tenant_id = t.tenant_id
-                AND dsa.data_category = 'INVENTORY'
-          );
+        ON CONFLICT (from_tenant_id, to_tenant_id, data_category) DO NOTHING;
 
         RAISE NOTICE 'Data sharing agreements created';
     ELSE
