@@ -118,6 +118,7 @@ def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) 
 def _execution_stage_fields(
     needs_list: NeedsList,
     metadata: Dict[str, object],
+    audit_logs: Iterable[NeedsListAudit] | None = None,
 ) -> Dict[str, object]:
     fields = {
         "prep_started_by": metadata.get("prep_started_by"),
@@ -138,10 +139,21 @@ def _execution_stage_fields(
     ):
         return fields
 
-    status_audits = needs_list.audit_logs.filter(
-        action_type="STATUS_CHANGED",
-        field_name="status_code",
-    ).order_by("action_dtime")
+    if audit_logs is None:
+        status_audits = needs_list.audit_logs.filter(
+            action_type="STATUS_CHANGED",
+            field_name="status_code",
+        ).order_by("action_dtime")
+    else:
+        status_audits = sorted(
+            (
+                audit
+                for audit in audit_logs
+                if audit.action_type == "STATUS_CHANGED"
+                and audit.field_name == "status_code"
+            ),
+            key=lambda audit: audit.action_dtime,
+        )
     for audit in status_audits:
         new_value = str(audit.new_value or "").upper()
         actor = audit.actor_user_id
@@ -479,8 +491,39 @@ def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
         if normalized:
             queryset = queryset.filter(status_code__in=list(normalized))
 
-    queryset = queryset.order_by("-calculation_dtime", "-needs_list_id")
-    return [_needs_list_to_dict(needs_list) for needs_list in queryset]
+    queryset = queryset.order_by("-calculation_dtime", "-needs_list_id").prefetch_related(
+        "items",
+        "audit_logs",
+    )
+    needs_lists = list(queryset)
+    if not needs_lists:
+        return []
+
+    warehouse_ids = sorted({needs_list.warehouse_id for needs_list in needs_lists})
+    event_ids = sorted({needs_list.event_id for needs_list in needs_lists})
+    warehouse_names, _ = data_access.get_warehouse_names(warehouse_ids)
+    event_names, _ = data_access.get_event_names(event_ids)
+
+    all_item_ids = sorted(
+        {
+            item.item_id
+            for needs_list in needs_lists
+            for item in needs_list.items.all()
+        }
+    )
+    item_lookup, _ = data_access.get_item_names(all_item_ids)
+
+    return [
+        _needs_list_to_dict(
+            needs_list,
+            warehouse_name=warehouse_names.get(needs_list.warehouse_id),
+            event_name=event_names.get(needs_list.event_id),
+            db_items=needs_list.items.all(),
+            item_lookup=item_lookup,
+            audit_logs=needs_list.audit_logs.all(),
+        )
+        for needs_list in needs_lists
+    ]
 
 
 @transaction.atomic
@@ -902,7 +945,13 @@ def store_enabled_or_raise() -> None:
 def _needs_list_to_dict(
     needs_list: NeedsList,
     items: Iterable[Dict[str, object]] = None,
-    warnings: Iterable[str] = None
+    warnings: Iterable[str] = None,
+    *,
+    warehouse_name: str | None = None,
+    event_name: str | None = None,
+    db_items: Iterable[NeedsListItem] | None = None,
+    item_lookup: Dict[int, Dict[str, str | None]] | None = None,
+    audit_logs: Iterable[NeedsListAudit] | None = None,
 ) -> Dict[str, object]:
     """
     Convert a NeedsList model instance to dict format matching the old JSON structure.
@@ -925,10 +974,17 @@ def _needs_list_to_dict(
             warnings = [str(w).strip() for w in raw_warnings if str(w).strip()]
         else:
             warnings = []
-    stage_fields = _execution_stage_fields(needs_list, metadata)
+    audit_logs_list = list(audit_logs) if audit_logs is not None else None
+    stage_fields = _execution_stage_fields(
+        needs_list,
+        metadata,
+        audit_logs=audit_logs_list,
+    )
 
-    warehouse_name = data_access.get_warehouse_name(needs_list.warehouse_id)
-    event_name = data_access.get_event_name(needs_list.event_id)
+    if warehouse_name is None:
+        warehouse_name = data_access.get_warehouse_name(needs_list.warehouse_id)
+    if event_name is None:
+        event_name = data_access.get_event_name(needs_list.event_id)
     warehouses = [
         {
             "warehouse_id": needs_list.warehouse_id,
@@ -938,13 +994,18 @@ def _needs_list_to_dict(
     warehouse_ids = [needs_list.warehouse_id]
 
     # If items not provided, load from database.
+    db_items_list: list[NeedsListItem] | None = None
+
     if items is None:
-        db_items = list(needs_list.items.all())
-        item_ids = [item.item_id for item in db_items]
-        item_lookup, _ = data_access.get_item_names(item_ids)
+        db_items_list = list(db_items) if db_items is not None else list(needs_list.items.all())
+        if item_lookup is None:
+            item_ids = [item.item_id for item in db_items_list]
+            item_lookup, _ = data_access.get_item_names(item_ids)
+        else:
+            item_lookup = dict(item_lookup)
 
         items = []
-        for item in db_items:
+        for item in db_items_list:
             raw_item = {
                 "item_id": item.item_id,
                 "uom_code": item.uom_code,
@@ -980,12 +1041,15 @@ def _needs_list_to_dict(
             )
     else:
         items = list(items)
-        item_ids = [
-            int(_coerce_float(item.get("item_id"), 0.0))
-            for item in items
-            if _coerce_float(item.get("item_id"), 0.0) > 0
-        ]
-        item_lookup, _ = data_access.get_item_names(item_ids)
+        if item_lookup is None:
+            item_ids = [
+                int(_coerce_float(item.get("item_id"), 0.0))
+                for item in items
+                if _coerce_float(item.get("item_id"), 0.0) > 0
+            ]
+            item_lookup, _ = data_access.get_item_names(item_ids)
+        else:
+            item_lookup = dict(item_lookup)
         items = [
             _normalize_snapshot_item(
                 dict(item),
@@ -998,7 +1062,13 @@ def _needs_list_to_dict(
 
     # Build line overrides dict
     line_overrides = {}
-    for item in needs_list.items.filter(adjusted_qty__isnull=False):
+    adjusted_items: Iterable[NeedsListItem]
+    if db_items_list is None:
+        adjusted_items = needs_list.items.filter(adjusted_qty__isnull=False)
+    else:
+        adjusted_items = [item for item in db_items_list if item.adjusted_qty is not None]
+
+    for item in adjusted_items:
         line_overrides[str(item.item_id)] = {
             'overridden_qty': float(item.adjusted_qty),
             'reason': item.adjustment_notes or '',
@@ -1008,7 +1078,16 @@ def _needs_list_to_dict(
 
     # Build line review notes dict from audit logs
     line_review_notes = {}
-    for audit in needs_list.audit_logs.filter(action_type='COMMENT_ADDED').order_by('-action_dtime'):
+    if audit_logs_list is None:
+        comment_audits = needs_list.audit_logs.filter(action_type='COMMENT_ADDED').order_by('-action_dtime')
+    else:
+        comment_audits = sorted(
+            (audit for audit in audit_logs_list if audit.action_type == 'COMMENT_ADDED'),
+            key=lambda audit: audit.action_dtime,
+            reverse=True,
+        )
+
+    for audit in comment_audits:
         if audit.needs_list_item:
             item_id = str(audit.needs_list_item.item_id)
             if item_id not in line_review_notes:

@@ -44,6 +44,52 @@ def get_warehouse_name(warehouse_id: int) -> str:
     return f"Warehouse {warehouse_id}"
 
 
+def get_warehouse_names(warehouse_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch warehouse names for many warehouse IDs in one query.
+    Returns a dict mapping warehouse_id -> warehouse_name and any warnings.
+    """
+    if not warehouse_ids:
+        return {}, []
+
+    unique_ids = sorted({int(warehouse_id) for warehouse_id in warehouse_ids if warehouse_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {warehouse_id: f"Warehouse {warehouse_id}" for warehouse_id in unique_ids}, []
+
+    schema = _schema_name()
+    warehouse_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id, warehouse_name
+                FROM {schema}.warehouse
+                WHERE warehouse_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for warehouse_id, warehouse_name in cursor.fetchall():
+                warehouse_names[int(warehouse_id)] = (
+                    str(warehouse_name) if warehouse_name else f"Warehouse {warehouse_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Warehouse names query failed for warehouse_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after warehouse names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_warehouse_names")
+
+    for warehouse_id in unique_ids:
+        warehouse_names.setdefault(warehouse_id, f"Warehouse {warehouse_id}")
+    return warehouse_names, warnings
+
+
 def _is_sqlite() -> bool:
     if os.getenv("DJANGO_USE_SQLITE", "0") == "1":
         return True
@@ -505,6 +551,55 @@ def get_event_name(event_id: int) -> str:
             logger.warning("DB rollback failed after event query error: %s", rollback_exc)
 
     return f"Event {event_id}"
+
+
+def get_event_names(event_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch event names for many event IDs in one query.
+    Returns a dict mapping event_id -> event_name and any warnings.
+    """
+    if not event_ids:
+        return {}, []
+
+    unique_ids = sorted({int(event_id) for event_id in event_ids if event_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {
+            event_id: "Development Test Event" if event_id == 1 else f"Event {event_id}"
+            for event_id in unique_ids
+        }, []
+
+    schema = _schema_name()
+    event_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT event_id, event_name
+                FROM {schema}.event
+                WHERE event_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for event_id, event_name in cursor.fetchall():
+                event_names[int(event_id)] = (
+                    str(event_name) if event_name else f"Event {event_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Event names query failed for event_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after event names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_event_names")
+
+    for event_id in unique_ids:
+        event_names.setdefault(event_id, f"Event {event_id}")
+    return event_names, warnings
 
 
 def get_all_warehouses() -> List[Dict[str, object]]:
