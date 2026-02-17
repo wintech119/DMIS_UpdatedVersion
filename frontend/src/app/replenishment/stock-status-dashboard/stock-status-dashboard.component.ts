@@ -893,11 +893,44 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private updateNotificationKey(row: NeedsListResponse): string {
-    return [
-      row.needs_list_id ?? '',
-      row.status ?? '',
-      row.approved_at ?? row.reviewed_at ?? row.updated_at ?? row.submitted_at ?? ''
-    ].join('|');
+    const status = row.status ?? '';
+    const activityAt = row.approved_at ?? row.reviewed_at ?? row.updated_at ?? row.submitted_at ?? '';
+    const needsListId = (row.needs_list_id ?? '').trim();
+
+    if (needsListId) {
+      return [needsListId, status, activityAt].join('|');
+    }
+
+    const rowRecord = row as unknown as Record<string, unknown>;
+    const runtimeId = [rowRecord['id'], rowRecord['uuid']]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .find((value) => value.length > 0);
+
+    const fallbackIdentity = runtimeId || row.needs_list_no || this.stableRowFingerprint(row);
+    return [needsListId, status, activityAt, fallbackIdentity].join('|');
+  }
+
+  private stableRowFingerprint(row: NeedsListResponse): string {
+    const normalize = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map((entry) => normalize(entry));
+      }
+      if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        const normalized: Record<string, unknown> = {};
+        for (const key of Object.keys(record).sort()) {
+          normalized[key] = normalize(record[key]);
+        }
+        return normalized;
+      }
+      return value;
+    };
+
+    try {
+      return JSON.stringify(normalize(row));
+    } catch {
+      return String(row.needs_list_no ?? row.status ?? '');
+    }
   }
 
   private notifySubmitterStatusUpdates(rows: NeedsListResponse[]): void {
