@@ -120,8 +120,6 @@ WHERE user_id BETWEEN 95001 AND 95005
 
 DROP INDEX IF EXISTS idx_itembatch_tst_safe_wh;
 
-COMMIT;
-
 -- ============================================================================
 -- Verification
 -- ============================================================================
@@ -129,21 +127,37 @@ COMMIT;
 DO $$
 DECLARE
     v_remaining INTEGER;
+    v_all_cleared BOOLEAN := TRUE;
 BEGIN
     SELECT COUNT(*) INTO v_remaining FROM public."user" WHERE user_id BETWEEN 95001 AND 95005;
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % test users remain (FK dependencies)', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % test users remain (FK dependencies)', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
     SELECT COUNT(*) INTO v_remaining FROM public.role WHERE code LIKE 'TST_%';
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % test roles remain', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % test roles remain', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
     SELECT COUNT(*) INTO v_remaining FROM public.permission WHERE create_by_id = 'TST_OP_SAFE';
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % test permissions remain', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % test permissions remain', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
     SELECT COUNT(*) INTO v_remaining FROM public.itembatch WHERE batch_id BETWEEN 95001 AND 95045;
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % test batches remain (check create_by_id filter)', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % test batches remain (check create_by_id filter)', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
     SELECT COUNT(*) INTO v_remaining FROM public.needs_list WHERE needs_list_no LIKE 'NL-TST-%';
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % test needs lists remain', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % test needs lists remain', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
     SELECT COUNT(*) INTO v_remaining
     FROM public.burn_rate_snapshot
@@ -152,12 +166,26 @@ BEGIN
       AND item_id IN (1, 9)
       AND snapshot_dtime >= TIMESTAMP '2000-01-01 00:00:00'
       AND snapshot_dtime <  TIMESTAMP '2000-01-04 00:00:00';
-    IF v_remaining > 0 THEN RAISE NOTICE 'WARNING: % deterministic test snapshots remain', v_remaining; END IF;
+    IF v_remaining > 0 THEN
+        RAISE NOTICE 'WARNING: % deterministic test snapshots remain', v_remaining;
+        v_all_cleared := FALSE;
+    END IF;
 
-    RAISE NOTICE '============================================================';
-    RAISE NOTICE 'DMIS OPERATIONAL TEST DATA SAFE PURGE COMPLETE';
-    RAISE NOTICE '============================================================';
-    RAISE NOTICE 'Only safe-seed artifacts were targeted. Baseline schema and';
-    RAISE NOTICE 'non-test operational data were preserved.';
-    RAISE NOTICE '============================================================';
+    IF v_all_cleared THEN
+        RAISE NOTICE '============================================================';
+        RAISE NOTICE 'DMIS OPERATIONAL TEST DATA SAFE PURGE COMPLETE';
+        RAISE NOTICE '============================================================';
+        RAISE NOTICE 'Only safe-seed artifacts were targeted. Baseline schema and';
+        RAISE NOTICE 'non-test operational data were preserved.';
+        RAISE NOTICE '============================================================';
+    ELSE
+        RAISE NOTICE '============================================================';
+        RAISE NOTICE 'DMIS OPERATIONAL TEST DATA SAFE PURGE INCOMPLETE';
+        RAISE NOTICE '============================================================';
+        RAISE NOTICE 'Residual test artifacts were detected before commit.';
+        RAISE NOTICE 'Review WARNING notices above before assuming success.';
+        RAISE NOTICE '============================================================';
+    END IF;
 END $$;
+
+COMMIT;
