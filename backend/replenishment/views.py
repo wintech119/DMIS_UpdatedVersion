@@ -2,8 +2,9 @@ import logging
 import re
 import math
 import json
+import os
 from pathlib import Path
-from threading import Lock
+from contextlib import contextmanager
 from typing import Any, Dict
 
 from django.conf import settings
@@ -31,7 +32,16 @@ from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list
 
 logger = logging.getLogger("dmis.audit")
-_STOCK_STATE_LOCK = Lock()
+
+try:  # POSIX
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - not available on Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows fallback
+    import msvcrt  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - not available on POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 PENDING_APPROVAL_STATUSES = {"SUBMITTED", "PENDING_APPROVAL", "PENDING", "UNDER_REVIEW"}
 _DB_STATUS_TRANSITIONS = {
@@ -205,26 +215,102 @@ def _stock_state_store_path() -> Path:
     return base_dir / "runtime" / "stock_state_cache.json"
 
 
-def _read_stock_state_store() -> Dict[str, Any]:
+def _stock_state_lock_path(store_path: Path) -> Path:
+    return store_path.with_suffix(store_path.suffix + ".lock")
+
+
+def _acquire_stock_state_file_lock(file_handle, *, exclusive: bool) -> None:
+    if fcntl is not None:
+        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        fcntl.flock(file_handle.fileno(), lock_type)
+        return
+    if msvcrt is not None:
+        lock_type = msvcrt.LK_LOCK if exclusive else getattr(msvcrt, "LK_RLCK", msvcrt.LK_LOCK)
+        file_handle.seek(0)
+        msvcrt.locking(file_handle.fileno(), lock_type, 1)
+
+
+def _release_stock_state_file_lock(file_handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        file_handle.seek(0)
+        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _locked_stock_state_file(*, exclusive: bool):
     store_path = _stock_state_store_path()
-    if not store_path.exists():
+    try:
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        # On POSIX, lock the data file directly with flock.
+        if fcntl is not None:
+            with store_path.open("a+", encoding="utf-8") as file_handle:
+                _acquire_stock_state_file_lock(file_handle, exclusive=exclusive)
+                try:
+                    file_handle.seek(0)
+                    yield file_handle
+                finally:
+                    _release_stock_state_file_lock(file_handle)
+            return
+
+        # On Windows, use a sidecar lock file for cross-process coordination.
+        lock_path = _stock_state_lock_path(store_path)
+        with lock_path.open("a+b") as lock_handle:
+            lock_handle.seek(0, os.SEEK_END)
+            if lock_handle.tell() == 0:
+                lock_handle.write(b"0")
+                lock_handle.flush()
+                os.fsync(lock_handle.fileno())
+            _acquire_stock_state_file_lock(lock_handle, exclusive=exclusive)
+            try:
+                with store_path.open("a+", encoding="utf-8") as file_handle:
+                    file_handle.seek(0)
+                    yield file_handle
+            finally:
+                _release_stock_state_file_lock(lock_handle)
+    except OSError as exc:
+        logger.warning("Failed acquiring stock-state file lock for %s: %s", store_path, exc)
+        raise
+
+
+def _load_stock_state_store_from_file(file_handle) -> Dict[str, Any]:
+    file_handle.seek(0)
+    raw = file_handle.read()
+    if not raw:
         return {}
     try:
-        raw = store_path.read_text(encoding="utf-8")
         parsed = json.loads(raw)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("Failed reading stock-state cache file %s: %s", store_path, exc)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Failed parsing stock-state cache file content: %s", exc)
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _write_stock_state_store_to_file(file_handle, store: Dict[str, Any]) -> None:
+    file_handle.seek(0)
+    file_handle.truncate()
+    json.dump(store, file_handle)
+    file_handle.flush()
+    os.fsync(file_handle.fileno())
+
+
+def _read_stock_state_store() -> Dict[str, Any]:
+    store_path = _stock_state_store_path()
+    try:
+        with _locked_stock_state_file(exclusive=False) as file_handle:
+            return _load_stock_state_store_from_file(file_handle)
+    except OSError as exc:
+        logger.warning("Failed reading stock-state cache file %s: %s", store_path, exc)
+        return {}
 
 
 def _write_stock_state_store(store: Dict[str, Any]) -> None:
     store_path = _stock_state_store_path()
     try:
-        store_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = store_path.with_suffix(store_path.suffix + ".tmp")
-        temp_path.write_text(json.dumps(store), encoding="utf-8")
-        temp_path.replace(store_path)
+        with _locked_stock_state_file(exclusive=True) as file_handle:
+            _write_stock_state_store_to_file(file_handle, store)
     except OSError as exc:
         logger.warning("Failed writing stock-state cache file %s: %s", store_path, exc)
 
@@ -249,10 +335,14 @@ def _persist_stock_state_snapshot(
         "saved_at": timezone.now().isoformat(),
     }
     scope_key = _stock_state_scope_key(event_id, warehouse_id, phase)
-    with _STOCK_STATE_LOCK:
-        store = _read_stock_state_store()
-        store[scope_key] = payload
-        _write_stock_state_store(store)
+    store_path = _stock_state_store_path()
+    try:
+        with _locked_stock_state_file(exclusive=True) as file_handle:
+            store = _load_stock_state_store_from_file(file_handle)
+            store[scope_key] = payload
+            _write_stock_state_store_to_file(file_handle, store)
+    except OSError as exc:
+        logger.warning("Failed persisting stock-state snapshot to %s: %s", store_path, exc)
 
 
 def _load_stock_state_snapshot(
@@ -261,8 +351,7 @@ def _load_stock_state_snapshot(
     phase: str,
 ) -> Dict[str, Any] | None:
     scope_key = _stock_state_scope_key(event_id, warehouse_id, phase)
-    with _STOCK_STATE_LOCK:
-        store = _read_stock_state_store()
+    store = _read_stock_state_store()
     raw_snapshot = store.get(scope_key)
     if not isinstance(raw_snapshot, dict):
         return None
