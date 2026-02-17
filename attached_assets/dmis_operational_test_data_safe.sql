@@ -120,6 +120,7 @@ END $$;
 
 INSERT INTO public.unitofmeasure (uom_code, uom_desc, create_by_id, create_dtime, update_by_id, update_dtime, version_nbr)
 VALUES
+    ('EA',  'Each',     'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1),
     ('PK',  'Pack',     'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1),
     ('BX',  'Box',      'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1),
     ('CS',  'Case',     'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1),
