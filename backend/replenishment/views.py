@@ -86,7 +86,11 @@ def _workflow_target_status(status: str) -> str:
     return normalized
 
 
-def _status_matches(current_status: object, *expected_statuses: str) -> bool:
+def _status_matches(
+    current_status: object,
+    *expected_statuses: str,
+    include_db_transitions: bool = False,
+) -> bool:
     current = str(current_status or "").upper()
     accepted: set[str] = set()
     for status in expected_statuses:
@@ -94,7 +98,8 @@ def _status_matches(current_status: object, *expected_statuses: str) -> bool:
         if not normalized:
             continue
         accepted.add(normalized)
-        accepted.add(_workflow_target_status(normalized))
+        if include_db_transitions:
+            accepted.add(_workflow_target_status(normalized))
     return current in accepted
 
 
@@ -1115,7 +1120,7 @@ def needs_list_edit_lines(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     status = str(record.get("status") or "").upper()
-    if not _status_matches(status, "DRAFT", "MODIFIED"):
+    if not _status_matches(status, "DRAFT", "MODIFIED", include_db_transitions=True):
         return Response({"errors": {"status": "Only draft or modified needs lists can be edited."}}, status=409)
 
     overrides_raw = request.data
@@ -1252,7 +1257,7 @@ def needs_list_submit(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     previous_status = str(record.get("status") or "").upper()
-    if not _status_matches(previous_status, "DRAFT", "MODIFIED"):
+    if not _status_matches(previous_status, "DRAFT", "MODIFIED", include_db_transitions=True):
         return Response({"errors": {"status": "Only draft or modified needs lists can be submitted."}}, status=409)
 
     submit_empty_allowed = bool((request.data or {}).get("submit_empty_allowed", False))
@@ -1641,7 +1646,7 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if not _status_matches(record.get("status"), "IN_PREPARATION"):
+    if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
     if not record.get("prep_started_at"):
         return Response({"errors": {"status": "Needs list preparation must be started."}}, status=409)
@@ -1681,7 +1686,7 @@ def needs_list_mark_received(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if not _status_matches(record.get("status"), "DISPATCHED"):
+    if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
     if not record.get("dispatched_at"):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
@@ -1721,7 +1726,7 @@ def needs_list_mark_completed(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if not _status_matches(record.get("status"), "RECEIVED"):
+    if not _status_matches(record.get("status"), "RECEIVED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be received."}}, status=409)
     if not record.get("received_at"):
         return Response({"errors": {"status": "Needs list must be received."}}, status=409)
@@ -1761,7 +1766,7 @@ def needs_list_cancel(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if not _status_matches(record.get("status"), "APPROVED", "IN_PREPARATION"):
+    if not _status_matches(record.get("status"), "APPROVED", "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Cancel not allowed in current state."}}, status=409)
 
     reason = (request.data or {}).get("reason")
