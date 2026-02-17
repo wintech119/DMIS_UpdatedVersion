@@ -9,7 +9,8 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmis_api.settings")
-os.environ.setdefault("DJANGO_USE_SQLITE", "1")
+# Keep MCP aligned with normal app runtime (PostgreSQL-first).
+os.environ.setdefault("DJANGO_USE_SQLITE", "0")
 os.environ.setdefault("DJANGO_DEBUG", "1")
 
 from django_ai_boost import main

@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 
 import { StockStatusDashboardComponent } from './stock-status-dashboard.component';
@@ -19,6 +19,7 @@ describe('StockStatusDashboardComponent', () => {
   let dataFreshnessService: jasmine.SpyObj<DataFreshnessService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let httpClient: jasmine.SpyObj<HttpClient>;
+  let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
 
   const refreshRequested$ = new Subject<void>();
   const event: ActiveEvent = {
@@ -62,6 +63,8 @@ describe('StockStatusDashboardComponent', () => {
   }
 
   beforeEach(async () => {
+    localStorage.clear();
+
     dashboardDataService = jasmine.createSpyObj<DashboardDataService>(
       'DashboardDataService',
       ['getDashboardData', 'invalidateCache']
@@ -72,15 +75,16 @@ describe('StockStatusDashboardComponent', () => {
     );
     notificationService = jasmine.createSpyObj<DmisNotificationService>(
       'DmisNotificationService',
-      ['showNetworkError', 'showWarning']
+      ['showNetworkError', 'showWarning', 'showSuccess']
     );
 
-    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
+    replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
       'ReplenishmentService',
-      ['getActiveEvent', 'getAllWarehouses']
+      ['getActiveEvent', 'getAllWarehouses', 'listNeedsLists']
     );
     replenishmentService.getActiveEvent.and.returnValue(of(event));
     replenishmentService.getAllWarehouses.and.returnValue(of(warehouses));
+    replenishmentService.listNeedsLists.and.returnValue(of({ needs_lists: [], count: 0 }));
 
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
@@ -96,6 +100,14 @@ describe('StockStatusDashboardComponent', () => {
         { provide: DataFreshnessService, useValue: dataFreshnessService },
         { provide: DmisNotificationService, useValue: notificationService },
         { provide: Router, useValue: router },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: convertToParamMap({})
+            }
+          }
+        },
         { provide: MatDialog, useValue: dialog },
         { provide: HttpClient, useValue: httpClient }
       ]
@@ -188,6 +200,33 @@ describe('StockStatusDashboardComponent', () => {
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
   });
 
+  it('applies only the latest multi-warehouse response when filters change quickly', () => {
+    const firstRequest$ = new Subject<DashboardData>();
+    const secondRequest$ = new Subject<DashboardData>();
+    const northData = createDashboardData([createGroup(1, 'North Depot')]);
+    const southData = createDashboardData([createGroup(2, 'South Depot')]);
+
+    dashboardDataService.getDashboardData.and.returnValues(
+      firstRequest$.asObservable(),
+      secondRequest$.asObservable()
+    );
+
+    component.loadMultiWarehouseStatus();
+    component.changeSortBy('severity');
+
+    secondRequest$.next(southData);
+    secondRequest$.complete();
+
+    expect(component.sortBy).toBe('severity');
+    expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+
+    firstRequest$.next(northData);
+    firstRequest$.complete();
+
+    expect(component.sortBy).toBe('severity');
+    expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+  });
+
   it('does not allow review queue with action permission but no preview permission', () => {
     httpClient.get.and.returnValue(of({
       roles: [],
@@ -211,5 +250,90 @@ describe('StockStatusDashboardComponent', () => {
     component['loadReviewQueueAccess']();
 
     expect(component.canAccessReviewQueue).toBeTrue();
+  });
+
+  it('prefers user_id when matching submitter updates', () => {
+    httpClient.get.and.returnValue(of({
+      user_id: 'EMP-123',
+      username: 'alice',
+      roles: [],
+      permissions: [
+        'replenishment.needs_list.preview',
+        'replenishment.needs_list.approve'
+      ]
+    }));
+    replenishmentService.listNeedsLists.and.returnValue(of({
+      needs_lists: [
+        {
+          needs_list_id: 'NL-1',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          submitted_by: 'EMP-123',
+          status: 'APPROVED',
+          updated_at: '2026-02-16T12:00:00Z'
+        },
+        {
+          needs_list_id: 'NL-2',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          submitted_by: 'alice',
+          status: 'APPROVED',
+          updated_at: '2026-02-16T12:00:00Z'
+        }
+      ],
+      count: 2
+    }));
+
+    component['loadReviewQueueAccess']();
+
+    expect(component['currentUserRef']).toBe('EMP-123');
+    expect(component.mySubmissionUpdates.map((row) => row.needs_list_id)).toEqual(['NL-1']);
+  });
+
+  it('keeps fetched event context when requested event id does not match', () => {
+    component['requestedEventId'] = 777;
+    component['requestedPhase'] = 'BASELINE';
+
+    const resolved = component['resolveRequestedEventContext'](event as ActiveEvent);
+
+    expect(resolved.event_id).toBe(event.event_id);
+    expect(resolved.phase).toBe(event.phase);
+  });
+
+  it('applies requested phase when requested event id matches fetched event', () => {
+    component['requestedEventId'] = event.event_id;
+    component['requestedPhase'] = 'BASELINE';
+
+    const resolved = component['resolveRequestedEventContext'](event as ActiveEvent);
+
+    expect(resolved.event_id).toBe(event.event_id);
+    expect(resolved.phase).toBe('BASELINE');
+  });
+
+  it('uses a user-scoped key for submitter update seen-state storage', () => {
+    component['setCurrentUserRef']('EMP-123');
+
+    const storageKey = component['getSeenSubmitterUpdateStorageKey']();
+
+    expect(storageKey).toBe('dmis_needs_list_submitter_updates_seen:emp-123');
+  });
+
+  it('migrates legacy seen-state and reloads when current user changes', () => {
+    localStorage.setItem('dmis_needs_list_submitter_updates_seen', JSON.stringify(['legacy-key']));
+
+    component['setCurrentUserRef']('EMP-123');
+
+    expect(component['seenSubmitterUpdateKeys'].has('legacy-key')).toBeTrue();
+    expect(localStorage.getItem('dmis_needs_list_submitter_updates_seen:emp-123')).toBe(
+      JSON.stringify(['legacy-key'])
+    );
+    expect(localStorage.getItem('dmis_needs_list_submitter_updates_seen')).toBeNull();
+
+    component['setCurrentUserRef']('EMP-456');
+    expect(component['seenSubmitterUpdateKeys'].size).toBe(0);
   });
 });

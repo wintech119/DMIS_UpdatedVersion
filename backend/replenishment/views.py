@@ -1,6 +1,10 @@
 import logging
 import re
 import math
+import json
+import os
+from pathlib import Path
+from contextlib import contextmanager
 from typing import Any, Dict
 
 from django.conf import settings
@@ -23,13 +27,32 @@ from api.rbac import (
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_SUBMIT,
 )
-from replenishment import rules, workflow_store
+from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
 from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list
 
 logger = logging.getLogger("dmis.audit")
 
+try:  # POSIX
+    import fcntl  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - not available on Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows fallback
+    import msvcrt  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - not available on POSIX
+    msvcrt = None  # type: ignore[assignment]
+
 PENDING_APPROVAL_STATUSES = {"SUBMITTED", "PENDING_APPROVAL", "PENDING", "UNDER_REVIEW"}
+_DB_STATUS_TRANSITIONS = {
+    "SUBMITTED": "PENDING_APPROVAL",
+    "MODIFIED": "RETURNED",
+    "ESCALATED": "UNDER_REVIEW",
+    "IN_PREPARATION": "IN_PROGRESS",
+    "DISPATCHED": "IN_PROGRESS",
+    "RECEIVED": "IN_PROGRESS",
+    "COMPLETED": "FULFILLED",
+}
 REQUEST_CHANGE_REASON_CODES = {
     "QTY_ADJUSTMENT",
     "DATA_QUALITY",
@@ -38,6 +61,46 @@ REQUEST_CHANGE_REASON_CODES = {
     "POLICY_COMPLIANCE",
     "OTHER",
 }
+
+
+def _use_db_workflow_store() -> bool:
+    if not getattr(settings, "AUTH_USE_DB_RBAC", False):
+        return False
+    engine = str(settings.DATABASES.get("default", {}).get("ENGINE", "")).lower()
+    return "postgresql" in engine
+
+
+class _WorkflowStoreProxy:
+    def __getattr__(self, name: str):
+        module = workflow_store_db if _use_db_workflow_store() else workflow_store_file
+        return getattr(module, name)
+
+
+workflow_store = _WorkflowStoreProxy()
+
+
+def _workflow_target_status(status: str) -> str:
+    normalized = str(status or "").upper()
+    if _use_db_workflow_store():
+        return _DB_STATUS_TRANSITIONS.get(normalized, normalized)
+    return normalized
+
+
+def _status_matches(
+    current_status: object,
+    *expected_statuses: str,
+    include_db_transitions: bool = False,
+) -> bool:
+    current = str(current_status or "").upper()
+    accepted: set[str] = set()
+    for status in expected_statuses:
+        normalized = str(status or "").upper()
+        if not normalized:
+            continue
+        accepted.add(normalized)
+        if include_db_transitions:
+            accepted.add(_workflow_target_status(normalized))
+    return current in accepted
 
 
 def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> int | None:
@@ -104,6 +167,278 @@ def _to_float_or_none(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_int_or_none(value: object) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_sort_timestamp(record: Dict[str, Any]) -> float:
+    for field in (
+        "updated_at",
+        "approved_at",
+        "reviewed_at",
+        "submitted_at",
+        "created_at",
+        "as_of_datetime",
+    ):
+        raw_value = record.get(field)
+        if not raw_value:
+            continue
+        value = str(raw_value)
+        parsed = parse_datetime(value)
+        if parsed is None:
+            continue
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+        return parsed.timestamp()
+    return 0.0
+
+
+def _items_have_actionable_state(items: list[Dict[str, Any]]) -> bool:
+    for item in items:
+        burn = _to_float_or_none(item.get("burn_rate_per_hour")) or 0.0
+        gap = _to_float_or_none(item.get("gap_qty")) or 0.0
+        severity = str(item.get("severity") or "OK").upper()
+        if burn > 0 or gap > 0 or severity in {"CRITICAL", "WARNING", "WATCH"}:
+            return True
+    return False
+
+
+def _stock_state_scope_key(event_id: int, warehouse_id: int, phase: str) -> str:
+    return f"{event_id}:{warehouse_id}:{str(phase or '').strip().upper()}"
+
+
+def _stock_state_store_path() -> Path:
+    configured_path = getattr(settings, "NEEDS_STOCK_STATE_STORE_PATH", None)
+    if configured_path:
+        return Path(str(configured_path))
+    base_dir = Path(getattr(settings, "BASE_DIR", Path.cwd()))
+    return base_dir / "runtime" / "stock_state_cache.json"
+
+
+def _stock_state_lock_path(store_path: Path) -> Path:
+    return store_path.with_suffix(store_path.suffix + ".lock")
+
+
+def _acquire_stock_state_file_lock(file_handle, *, exclusive: bool) -> None:
+    if fcntl is not None:
+        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        fcntl.flock(file_handle.fileno(), lock_type)
+        return
+    if msvcrt is not None:
+        lock_type = msvcrt.LK_LOCK if exclusive else getattr(msvcrt, "LK_RLCK", msvcrt.LK_LOCK)
+        file_handle.seek(0)
+        msvcrt.locking(file_handle.fileno(), lock_type, 1)
+
+
+def _release_stock_state_file_lock(file_handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        file_handle.seek(0)
+        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _locked_stock_state_file(*, exclusive: bool):
+    store_path = _stock_state_store_path()
+    try:
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        # On POSIX, lock the data file directly with flock.
+        if fcntl is not None:
+            with store_path.open("a+", encoding="utf-8") as file_handle:
+                _acquire_stock_state_file_lock(file_handle, exclusive=exclusive)
+                try:
+                    file_handle.seek(0)
+                    yield file_handle
+                finally:
+                    _release_stock_state_file_lock(file_handle)
+            return
+
+        # On Windows, use a sidecar lock file for cross-process coordination.
+        lock_path = _stock_state_lock_path(store_path)
+        with lock_path.open("a+b") as lock_handle:
+            lock_handle.seek(0, os.SEEK_END)
+            if lock_handle.tell() == 0:
+                lock_handle.write(b"0")
+                lock_handle.flush()
+                os.fsync(lock_handle.fileno())
+            _acquire_stock_state_file_lock(lock_handle, exclusive=exclusive)
+            try:
+                with store_path.open("a+", encoding="utf-8") as file_handle:
+                    file_handle.seek(0)
+                    yield file_handle
+            finally:
+                _release_stock_state_file_lock(lock_handle)
+    except OSError as exc:
+        logger.warning("Failed acquiring stock-state file lock for %s: %s", store_path, exc)
+        raise
+
+
+def _load_stock_state_store_from_file(file_handle) -> Dict[str, Any]:
+    file_handle.seek(0)
+    raw = file_handle.read()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Failed parsing stock-state cache file content: %s", exc)
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _write_stock_state_store_to_file(file_handle, store: Dict[str, Any]) -> None:
+    file_handle.seek(0)
+    file_handle.truncate()
+    json.dump(store, file_handle)
+    file_handle.flush()
+    os.fsync(file_handle.fileno())
+
+
+def _read_stock_state_store() -> Dict[str, Any]:
+    store_path = _stock_state_store_path()
+    try:
+        with _locked_stock_state_file(exclusive=False) as file_handle:
+            return _load_stock_state_store_from_file(file_handle)
+    except OSError as exc:
+        logger.warning("Failed reading stock-state cache file %s: %s", store_path, exc)
+        return {}
+
+
+def _write_stock_state_store(store: Dict[str, Any]) -> None:
+    store_path = _stock_state_store_path()
+    try:
+        with _locked_stock_state_file(exclusive=True) as file_handle:
+            _write_stock_state_store_to_file(file_handle, store)
+    except OSError as exc:
+        logger.warning("Failed writing stock-state cache file %s: %s", store_path, exc)
+
+
+def _persist_stock_state_snapshot(
+    event_id: int,
+    warehouse_id: int,
+    phase: str,
+    as_of_datetime: str,
+    items: list[Dict[str, Any]],
+    warnings: list[str],
+) -> None:
+    if not _items_have_actionable_state(items):
+        return
+    payload = {
+        "event_id": event_id,
+        "warehouse_id": warehouse_id,
+        "phase": str(phase or "").strip().upper(),
+        "as_of_datetime": as_of_datetime,
+        "items": [dict(item) for item in items if isinstance(item, dict)],
+        "warnings": [str(warning) for warning in warnings],
+        "saved_at": timezone.now().isoformat(),
+    }
+    scope_key = _stock_state_scope_key(event_id, warehouse_id, phase)
+    store_path = _stock_state_store_path()
+    try:
+        with _locked_stock_state_file(exclusive=True) as file_handle:
+            store = _load_stock_state_store_from_file(file_handle)
+            store[scope_key] = payload
+            _write_stock_state_store_to_file(file_handle, store)
+    except OSError as exc:
+        logger.warning("Failed persisting stock-state snapshot to %s: %s", store_path, exc)
+
+
+def _load_stock_state_snapshot(
+    event_id: int,
+    warehouse_id: int,
+    phase: str,
+) -> Dict[str, Any] | None:
+    scope_key = _stock_state_scope_key(event_id, warehouse_id, phase)
+    store = _read_stock_state_store()
+    raw_snapshot = store.get(scope_key)
+    if not isinstance(raw_snapshot, dict):
+        return None
+    snapshot_items = raw_snapshot.get("items")
+    if not isinstance(snapshot_items, list) or not snapshot_items:
+        return None
+    normalized_items = [dict(item) for item in snapshot_items if isinstance(item, dict)]
+    if not normalized_items:
+        return None
+    if not _items_have_actionable_state(normalized_items):
+        return None
+    restored = dict(raw_snapshot)
+    restored["items"] = normalized_items
+    restored["restored_from_needs_list_id"] = "stock_state_cache"
+    return restored
+
+
+def _should_restore_persisted_state(
+    items: list[Dict[str, Any]], warnings: list[str]
+) -> bool:
+    if _items_have_actionable_state(items):
+        return False
+    warning_set = {str(warning or "").strip().lower() for warning in warnings}
+    return bool({"burn_data_missing", "burn_no_rows_in_window"}.intersection(warning_set))
+
+
+def _load_persisted_snapshot_for_scope(
+    event_id: int,
+    warehouse_id: int,
+    phase: str,
+) -> Dict[str, Any] | None:
+    cached = _load_stock_state_snapshot(event_id, warehouse_id, phase)
+    if cached:
+        return cached
+
+    try:
+        records = workflow_store.list_records()
+    except RuntimeError:
+        return None
+    except Exception as exc:
+        logger.warning("Failed loading workflow records for stock-state restore: %s", exc)
+        return None
+
+    if not records:
+        return None
+
+    normalized_phase = str(phase or "").strip().upper()
+    sorted_records = sorted(records, key=_record_sort_timestamp, reverse=True)
+
+    for record in sorted_records:
+        if _to_int_or_none(record.get("event_id")) != event_id:
+            continue
+        if _to_int_or_none(record.get("warehouse_id")) != warehouse_id:
+            continue
+        if str(record.get("phase") or "").strip().upper() != normalized_phase:
+            continue
+
+        snapshot = None
+        try:
+            snapshot = workflow_store.apply_overrides(record)
+        except Exception:
+            snapshot = dict(record.get("snapshot") or {})
+
+        if not isinstance(snapshot, dict):
+            continue
+
+        snapshot_items = snapshot.get("items")
+        if not isinstance(snapshot_items, list) or not snapshot_items:
+            continue
+
+        normalized_items = [dict(item) for item in snapshot_items if isinstance(item, dict)]
+        if not normalized_items:
+            continue
+        if not _items_have_actionable_state(normalized_items):
+            continue
+
+        restored = dict(snapshot)
+        restored["items"] = normalized_items
+        restored["restored_from_needs_list_id"] = record.get("needs_list_id")
+        return restored
+
+    return None
 
 
 def _compute_approval_summary(
@@ -181,7 +516,7 @@ def _approval_summary_for_record(
     persisted_summary = _normalize_submitted_approval_summary(
         record.get("submitted_approval_summary")
     )
-    if status not in {"DRAFT", "MODIFIED"} and persisted_summary:
+    if status not in {"DRAFT", "MODIFIED", "RETURNED"} and persisted_summary:
         return persisted_summary
     return _compute_approval_summary(record, snapshot)
 
@@ -302,9 +637,43 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     )
 
     warnings = needs_list.merge_warnings(base_warnings, item_warnings)
+    _persist_stock_state_snapshot(
+        event_id=event_id,
+        warehouse_id=warehouse_id,
+        phase=phase,
+        as_of_datetime=as_of_dt.isoformat(),
+        items=items,
+        warnings=warnings,
+    )
+
+    restored_snapshot: Dict[str, Any] | None = None
+    if _should_restore_persisted_state(items, warnings):
+        restored_snapshot = _load_persisted_snapshot_for_scope(event_id, warehouse_id, phase)
+        if restored_snapshot:
+            restored_items = restored_snapshot.get("items")
+            if isinstance(restored_items, list) and restored_items:
+                items = restored_items
+                warnings = needs_list.merge_warnings(
+                    warnings,
+                    ["stock_state_restored_from_snapshot"],
+                )
+                logger.info(
+                    "stock_state_restored_from_snapshot",
+                    extra={
+                        "event_type": "READ",
+                        "event_id": event_id,
+                        "warehouse_id": warehouse_id,
+                        "phase": phase,
+                        "needs_list_id": restored_snapshot.get("restored_from_needs_list_id"),
+                    },
+                )
 
     response = {
-        "as_of_datetime": as_of_dt.isoformat(),
+        "as_of_datetime": (
+            restored_snapshot.get("as_of_datetime", as_of_dt.isoformat())
+            if restored_snapshot
+            else as_of_dt.isoformat()
+        ),
         "planning_window_days": planning_window_days,
         "event_id": event_id,
         "warehouse_id": warehouse_id,
@@ -751,7 +1120,7 @@ def needs_list_edit_lines(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     status = str(record.get("status") or "").upper()
-    if status not in {"DRAFT", "MODIFIED"}:
+    if not _status_matches(status, "DRAFT", "MODIFIED", include_db_transitions=True):
         return Response({"errors": {"status": "Only draft or modified needs lists can be edited."}}, status=409)
 
     overrides_raw = request.data
@@ -888,7 +1257,7 @@ def needs_list_submit(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     previous_status = str(record.get("status") or "").upper()
-    if previous_status not in {"DRAFT", "MODIFIED"}:
+    if not _status_matches(previous_status, "DRAFT", "MODIFIED", include_db_transitions=True):
         return Response({"errors": {"status": "Only draft or modified needs lists can be submitted."}}, status=409)
 
     submit_empty_allowed = bool((request.data or {}).get("submit_empty_allowed", False))
@@ -896,7 +1265,8 @@ def needs_list_submit(request, needs_list_id: str):
     if item_count == 0 and not submit_empty_allowed:
         return Response({"errors": {"items": "Cannot submit an empty needs list."}}, status=409)
 
-    record = workflow_store.transition_status(record, "SUBMITTED", _actor_id(request))
+    target_status = _workflow_target_status("SUBMITTED")
+    record = workflow_store.transition_status(record, target_status, _actor_id(request))
     record["submitted_approval_summary"] = _compute_approval_summary(
         record,
         workflow_store.apply_overrides(record),
@@ -911,7 +1281,7 @@ def needs_list_submit(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "from_status": previous_status,
-            "to_status": "SUBMITTED",
+            "to_status": target_status,
             "item_count": item_count,
         },
     )
@@ -961,7 +1331,8 @@ def needs_list_return(request, needs_list_id: str):
     if not reason:
         reason = "Changes requested by approver."
 
-    record = workflow_store.transition_status(record, "MODIFIED", actor, reason=reason)
+    target_status = _workflow_target_status("MODIFIED")
+    record = workflow_store.transition_status(record, target_status, actor, reason=reason)
     record["return_reason"] = reason
     record["return_reason_code"] = reason_code
     workflow_store.update_record(needs_list_id, record)
@@ -974,7 +1345,7 @@ def needs_list_return(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "from_status": current_status,
-            "to_status": "MODIFIED",
+            "to_status": target_status,
             "reason_code": reason_code,
             "reason": reason,
         },
@@ -1131,7 +1502,8 @@ def needs_list_escalate(request, needs_list_id: str):
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
-    record = workflow_store.transition_status(record, "ESCALATED", actor, reason=reason)
+    target_status = _workflow_target_status("ESCALATED")
+    record = workflow_store.transition_status(record, target_status, actor, reason=reason)
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1142,7 +1514,7 @@ def needs_list_escalate(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "from_status": current_status,
-            "to_status": "ESCALATED",
+            "to_status": target_status,
             "reason": reason,
         },
     )
@@ -1242,7 +1614,13 @@ def needs_list_start_preparation(request, needs_list_id: str):
     if record.get("status") != "APPROVED":
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
 
-    record = workflow_store.transition_status(record, "IN_PREPARATION", _actor_id(request))
+    target_status = _workflow_target_status("IN_PREPARATION")
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="IN_PREPARATION",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1253,7 +1631,7 @@ def needs_list_start_preparation(request, needs_list_id: str):
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
             "from_status": "APPROVED",
-            "to_status": "IN_PREPARATION",
+            "to_status": target_status,
         },
     )
 
@@ -1273,10 +1651,21 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "IN_PREPARATION":
+    if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
+    if not record.get("prep_started_at"):
+        return Response({"errors": {"status": "Needs list preparation must be started."}}, status=409)
+    if record.get("dispatched_at"):
+        return Response({"errors": {"status": "Needs list already dispatched."}}, status=409)
 
-    record = workflow_store.transition_status(record, "DISPATCHED", _actor_id(request))
+    from_status = str(record.get("status") or "").upper()
+    target_status = _workflow_target_status("DISPATCHED")
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="DISPATCHED",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1286,8 +1675,8 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "IN_PREPARATION",
-            "to_status": "DISPATCHED",
+            "from_status": from_status,
+            "to_status": target_status,
         },
     )
 
@@ -1307,10 +1696,21 @@ def needs_list_mark_received(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "DISPATCHED":
+    if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
+    if not record.get("dispatched_at"):
+        return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
+    if record.get("received_at"):
+        return Response({"errors": {"status": "Needs list already received."}}, status=409)
 
-    record = workflow_store.transition_status(record, "RECEIVED", _actor_id(request))
+    from_status = str(record.get("status") or "").upper()
+    target_status = _workflow_target_status("RECEIVED")
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="RECEIVED",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1320,8 +1720,8 @@ def needs_list_mark_received(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "DISPATCHED",
-            "to_status": "RECEIVED",
+            "from_status": from_status,
+            "to_status": target_status,
         },
     )
 
@@ -1341,10 +1741,16 @@ def needs_list_mark_completed(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") != "RECEIVED":
+    if not _status_matches(record.get("status"), "RECEIVED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be received."}}, status=409)
+    if not record.get("received_at"):
+        return Response({"errors": {"status": "Needs list must be received."}}, status=409)
+    if record.get("completed_at"):
+        return Response({"errors": {"status": "Needs list already completed."}}, status=409)
 
-    record = workflow_store.transition_status(record, "COMPLETED", _actor_id(request))
+    from_status = str(record.get("status") or "").upper()
+    target_status = _workflow_target_status("COMPLETED")
+    record = workflow_store.transition_status(record, target_status, _actor_id(request))
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1354,8 +1760,8 @@ def needs_list_mark_completed(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "from_status": "RECEIVED",
-            "to_status": "COMPLETED",
+            "from_status": from_status,
+            "to_status": target_status,
         },
     )
 
@@ -1375,8 +1781,14 @@ def needs_list_cancel(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    if record.get("status") not in {"APPROVED", "IN_PREPARATION"}:
+    if not _status_matches(record.get("status"), "APPROVED", "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Cancel not allowed in current state."}}, status=409)
+
+    if any(record.get(field) for field in ("dispatched_at", "received_at", "completed_at")):
+        return Response(
+            {"errors": {"status": "Cancel not allowed after dispatch/receipt/completion."}},
+            status=409,
+        )
 
     reason = (request.data or {}).get("reason")
     if not reason:

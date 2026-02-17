@@ -3,7 +3,8 @@
 -- ============================================================================
 -- Version: 2.0  (complete rewrite for actual DB schema)
 -- Date: 2026-02-13
--- Depends on: dmis_test_data.sql (run that script FIRST for tenant tables)
+-- Depends on: baseline tenant/EP-02 schema already provisioned
+--             (tenant tables, event_phase, needs_list, needs_list_item)
 -- Purpose: Populates RBAC fixtures, inventory, burn-rate source data,
 --          and needs-list workflow records for thorough EP-02 testing.
 --
@@ -989,7 +990,7 @@ BEGIN
 
         RAISE NOTICE 'Tenant-user mappings created';
     ELSE
-        RAISE NOTICE 'tenant_user table not found — skipping (run dmis_test_data.sql first)';
+        RAISE NOTICE 'tenant_user table not found - skipping (apply baseline tenant schema first)';
     END IF;
 END $$;
 

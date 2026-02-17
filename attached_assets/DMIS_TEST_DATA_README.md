@@ -8,17 +8,22 @@ This package implements a **graceful migration strategy** for DMIS multi-tenancy
 
 | File | Purpose |
 |------|---------|
-| `dmis_test_data.sql` | Creates schema extensions + migrates custodians + seeds test data |
-| `dmis_test_data_purge.sql` | Removes test data while preserving schema structure |
+| `dmis_operational_test_data.sql` | Legacy operational seed (not recommended on shared DBs) |
+| `dmis_operational_test_data_purge.sql` | Legacy purge (broad deletes; not recommended) |
+| `dmis_operational_test_data_safe.sql` | Hardened operational seed (isolated TST roles/users, strict tags) |
+| `dmis_operational_test_data_safe_purge.sql` | Hardened purge (targets only safe-seed artifacts) |
 
 ## Usage
 
 ```bash
-# Create schema and test data
-psql -d dmis -f dmis_test_data.sql
+# 1) Apply baseline schema first (recommended):
+psql -d dmis -f backend/EP02_SUPPLY_REPLENISHMENT_SCHEMA.sql
 
-# Remove test data (keeps schema)
-psql -d dmis -f dmis_test_data_purge.sql
+# 2) Seed safe operational test fixtures:
+psql -d dmis -f attached_assets/dmis_operational_test_data_safe.sql
+
+# 3) Purge only safe-seed artifacts when finished:
+psql -d dmis -f attached_assets/dmis_operational_test_data_safe_purge.sql
 ```
 
 ---

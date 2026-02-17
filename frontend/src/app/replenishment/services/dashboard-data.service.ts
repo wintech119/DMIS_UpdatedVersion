@@ -159,7 +159,7 @@ export class DashboardDataService {
   private enrichItems(items: NeedsListItem[]): DashboardStockItem[] {
     return items.map(item => {
       const parsedStockout = this.parseTimeToStockout(item.time_to_stockout);
-      const freshness = this.normalizeFreshness(item.freshness);
+      const freshness = this.normalizeFreshness(item.freshness, item.freshness_state);
       const severity = item.severity ?? calculateSeverity(parsedStockout);
       const { action, urgency } = getRecommendedAction(severity);
       const stockStatusFields = item as Partial<StockStatusItem>;
@@ -329,12 +329,30 @@ export class DashboardDataService {
   }
 
   private normalizeFreshness(
-    freshness: NeedsListItem['freshness']
+    freshness: NeedsListItem['freshness'],
+    freshnessState?: string
   ): StockStatusItem['freshness'] | null {
-    if (!freshness) return null;
-    const state = String(freshness.state).toUpperCase();
-    if (state !== 'HIGH' && state !== 'MEDIUM' && state !== 'LOW') return null;
-    return { ...freshness, state: state as FreshnessLevel };
+    const rawState = String(freshness?.state ?? freshnessState ?? '').trim().toUpperCase();
+    if (!rawState) return null;
+
+    const mappedStateBySource: Record<string, FreshnessLevel> = {
+      HIGH: 'HIGH',
+      MEDIUM: 'MEDIUM',
+      LOW: 'LOW',
+      FRESH: 'HIGH',
+      WARN: 'MEDIUM',
+      STALE: 'LOW',
+      UNKNOWN: 'LOW'
+    };
+
+    const mappedState = mappedStateBySource[rawState];
+    if (!mappedState) return null;
+
+    return {
+      state: mappedState,
+      age_hours: freshness?.age_hours ?? null,
+      inventory_as_of: freshness?.inventory_as_of ?? null
+    };
   }
 
   private normalizeStockoutTime(item: StockStatusItem): number {

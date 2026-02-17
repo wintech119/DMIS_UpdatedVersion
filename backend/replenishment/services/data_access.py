@@ -44,6 +44,52 @@ def get_warehouse_name(warehouse_id: int) -> str:
     return f"Warehouse {warehouse_id}"
 
 
+def get_warehouse_names(warehouse_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch warehouse names for many warehouse IDs in one query.
+    Returns a dict mapping warehouse_id -> warehouse_name and any warnings.
+    """
+    if not warehouse_ids:
+        return {}, []
+
+    unique_ids = sorted({int(warehouse_id) for warehouse_id in warehouse_ids if warehouse_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {warehouse_id: f"Warehouse {warehouse_id}" for warehouse_id in unique_ids}, []
+
+    schema = _schema_name()
+    warehouse_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id, warehouse_name
+                FROM {schema}.warehouse
+                WHERE warehouse_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for warehouse_id, warehouse_name in cursor.fetchall():
+                warehouse_names[int(warehouse_id)] = (
+                    str(warehouse_name) if warehouse_name else f"Warehouse {warehouse_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Warehouse names query failed for warehouse_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after warehouse names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_warehouse_names")
+
+    for warehouse_id in unique_ids:
+        warehouse_names.setdefault(warehouse_id, f"Warehouse {warehouse_id}")
+    return warehouse_names, warnings
+
+
 def _is_sqlite() -> bool:
     if os.getenv("DJANGO_USE_SQLITE", "0") == "1":
         return True
@@ -382,9 +428,20 @@ def get_burn_by_item(
 
 def get_active_event() -> Dict[str, object] | None:
     """
-    Fetch the most recent active event.
-    Returns event dict with keys: event_id, event_name, status, phase, declaration_date
-    or None if no active event found.
+    Fetch the active event context for replenishment workflows.
+
+    Selection priority:
+    1) Most recently worked active event from needs_list activity.
+    2) Fallback to the most recent active event by start date.
+
+    Returns a dict with keys:
+    - event_id
+    - event_name
+    - status
+    - phase
+    - declaration_date
+
+    Returns None when no active event is available.
     """
     if _is_sqlite():
         # Return mock data for SQLite development - Event ID 1 is always the default active event
@@ -400,27 +457,77 @@ def get_active_event() -> Dict[str, object] | None:
 
     try:
         with connection.cursor() as cursor:
-            # Query for active event (status_code 'A' or 'ACTIVE' = Active)
+            # Query for all active events (status_code 'A' or 'ACTIVE' = Active)
             cursor.execute(
                 f"""
                 SELECT event_id, event_name, status_code, current_phase, start_date
                 FROM {schema}.event
                 WHERE UPPER(status_code) IN (%s, %s)
                 ORDER BY start_date DESC
-                LIMIT 1
                 """,
                 ["A", "ACTIVE"],
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
+            if not rows:
+                return None
 
-            if row:
-                return {
+            events = [
+                {
                     "event_id": int(row[0]),
                     "event_name": str(row[1]) if row[1] else f"Event {row[0]}",
                     "status": str(row[2]) if row[2] else "A",
                     "phase": str(row[3]).upper() if row[3] else "BASELINE",
                     "declaration_date": row[4].isoformat() if row[4] else None,
                 }
+                for row in rows
+            ]
+
+            # Prefer the most recently worked active event from needs-list workflow activity.
+            selected = events[0]
+            active_event_ids = [event["event_id"] for event in events]
+
+            try:
+                cursor.execute(
+                    f"""
+                    SELECT event_id, event_phase
+                    FROM {schema}.needs_list
+                    WHERE event_id = ANY(%s)
+                    ORDER BY COALESCE(
+                        approved_at,
+                        reviewed_at,
+                        submitted_at,
+                        update_dtime,
+                        create_dtime
+                    ) DESC
+                    LIMIT 1
+                    """,
+                    [active_event_ids],
+                )
+                latest_activity = cursor.fetchone()
+            except DatabaseError as exc:
+                logger.warning("Active event workflow preference query failed: %s", exc)
+                try:
+                    connection.rollback()
+                except Exception as rb_exc:
+                    logger.exception(
+                        "Rollback failed after DatabaseError in active event workflow preference query: "
+                        "rollback_error=%s, original_error=%s",
+                        rb_exc,
+                        exc,
+                    )
+                latest_activity = None
+
+            if latest_activity:
+                latest_event_id = int(latest_activity[0])
+                latest_phase = str(latest_activity[1]).upper() if latest_activity[1] else None
+                for event in events:
+                    if event["event_id"] == latest_event_id:
+                        selected = dict(event)
+                        if latest_phase:
+                            selected["phase"] = latest_phase
+                        break
+
+            return selected
     except DatabaseError as exc:
         logger.warning("Active event query failed: %s", exc)
         try:
@@ -464,6 +571,55 @@ def get_event_name(event_id: int) -> str:
             logger.warning("DB rollback failed after event query error: %s", rollback_exc)
 
     return f"Event {event_id}"
+
+
+def get_event_names(event_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch event names for many event IDs in one query.
+    Returns a dict mapping event_id -> event_name and any warnings.
+    """
+    if not event_ids:
+        return {}, []
+
+    unique_ids = sorted({int(event_id) for event_id in event_ids if event_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {
+            event_id: "Development Test Event" if event_id == 1 else f"Event {event_id}"
+            for event_id in unique_ids
+        }, []
+
+    schema = _schema_name()
+    event_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT event_id, event_name
+                FROM {schema}.event
+                WHERE event_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for event_id, event_name in cursor.fetchall():
+                event_names[int(event_id)] = (
+                    str(event_name) if event_name else f"Event {event_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Event names query failed for event_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after event names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_event_names")
+
+    for event_id in unique_ids:
+        event_names.setdefault(event_id, f"Event {event_id}")
+    return event_names, warnings
 
 
 def get_all_warehouses() -> List[Dict[str, object]]:

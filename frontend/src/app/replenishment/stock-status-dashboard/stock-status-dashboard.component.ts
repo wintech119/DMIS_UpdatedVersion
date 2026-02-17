@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
+import { MatChipSelectionChange, MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -18,13 +18,14 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { HttpClient } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup } from '../models/stock-status.model';
+import { NeedsListResponse } from '../models/needs-list.model';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
@@ -68,6 +69,7 @@ interface FilterState {
 export class StockStatusDashboardComponent implements OnInit {
   private replenishmentService = inject(ReplenishmentService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private dialog = inject(MatDialog);
   private http = inject(HttpClient);
 
@@ -87,6 +89,7 @@ export class StockStatusDashboardComponent implements OnInit {
   // View mode
   viewMode: 'multi' | 'single' = 'multi';
   canAccessReviewQueue = false;
+  mySubmissionUpdates: NeedsListResponse[] = [];
 
   loading = false;
   refreshing = false;
@@ -105,7 +108,14 @@ export class StockStatusDashboardComponent implements OnInit {
 
   // For single warehouse drill-down
   selectedWarehouseId: number | null = null;
+  private multiWarehouseRequestToken = 0;
   private singleWarehouseRequestToken = 0;
+  private currentUserRef: string | null = null;
+  private readonly seenSubmitterUpdateStorageKeyPrefix = 'dmis_needs_list_submitter_updates_seen';
+  private loadedSeenSubmitterUpdateStorageKey: string | null = null;
+  private seenSubmitterUpdateKeys = new Set<string>();
+  private requestedEventId: number | null = null;
+  private requestedPhase: EventPhase | null = null;
 
   displayedColumns = [
     'severity',
@@ -120,6 +130,20 @@ export class StockStatusDashboardComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.loadSeenSubmitterUpdateKeys();
+    const context = String(this.route.snapshot.queryParamMap.get('context') ?? '').trim().toLowerCase();
+    if (context === 'wizard') {
+      const requestedEvent = Number(this.route.snapshot.queryParamMap.get('event_id'));
+      if (Number.isFinite(requestedEvent) && requestedEvent > 0) {
+        this.requestedEventId = requestedEvent;
+      }
+      const requestedPhase = String(this.route.snapshot.queryParamMap.get('phase') ?? '').trim().toUpperCase();
+      if (requestedPhase === 'SURGE' || requestedPhase === 'STABILIZED' || requestedPhase === 'BASELINE') {
+        this.requestedPhase = requestedPhase as EventPhase;
+      }
+      this.clearWizardReturnContext();
+    }
+
     this.loadReviewQueueAccess();
     this.loadFilterState();
     this.autoLoadDashboard();
@@ -145,7 +169,11 @@ export class StockStatusDashboardComponent implements OnInit {
       warehouses: this.replenishmentService.getAllWarehouses()
     }).subscribe({
       next: ({ event, warehouses }) => {
-        this.activeEvent = event;
+        if (event) {
+          this.activeEvent = this.resolveRequestedEventContext(event);
+        } else {
+          this.activeEvent = null;
+        }
         this.allWarehouses = warehouses;
 
         // If no active event, stop loading and show empty state
@@ -176,6 +204,10 @@ export class StockStatusDashboardComponent implements OnInit {
     const warehouseIds = this.selectedWarehouseIds.length > 0
       ? this.selectedWarehouseIds
       : this.allWarehouses.map(w => w.warehouse_id);
+    const requestedWarehouseIds = this.toSortedWarehouseIds(warehouseIds);
+    const requestedEventId = this.activeEvent.event_id;
+    const requestedPhase = this.activeEvent.phase as EventPhase;
+    const requestToken = ++this.multiWarehouseRequestToken;
 
     if (warehouseIds.length === 0) {
       this.loading = false;
@@ -193,12 +225,16 @@ export class StockStatusDashboardComponent implements OnInit {
     }
 
     this.dashboardDataService.getDashboardData(
-      this.activeEvent.event_id,
-      warehouseIds,
-      this.activeEvent.phase as EventPhase,
+      requestedEventId,
+      requestedWarehouseIds,
+      requestedPhase,
       this.buildFilterOptions()
     ).subscribe({
       next: (data) => {
+        if (!this.shouldApplyMultiWarehouseResult(requestToken, requestedEventId, requestedPhase, requestedWarehouseIds)) {
+          return;
+        }
+
         this.warehouseGroups = data.groups;
         this.warnings = data.warnings;
         this.availableCategories = data.availableCategories;
@@ -211,6 +247,10 @@ export class StockStatusDashboardComponent implements OnInit {
         this.refreshing = false;
       },
       error: (error) => {
+        if (!this.shouldApplyMultiWarehouseResult(requestToken, requestedEventId, requestedPhase, requestedWarehouseIds)) {
+          return;
+        }
+
         this.loading = false;
         this.refreshing = false;
         this.dataFreshnessService.refreshComplete();
@@ -399,23 +439,51 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   toggleCategory(category: string): void {
-    const index = this.selectedCategories.indexOf(category);
-    if (index >= 0) {
-      this.selectedCategories.splice(index, 1);
-    } else {
-      this.selectedCategories.push(category);
-    }
+    this.updateCategorySelection(category, !this.selectedCategories.includes(category));
     this.onFiltersChanged();
   }
 
   toggleSeverity(severity: SeverityLevel): void {
-    const index = this.selectedSeverities.indexOf(severity);
-    if (index >= 0) {
-      this.selectedSeverities.splice(index, 1);
-    } else {
-      this.selectedSeverities.push(severity);
-    }
+    this.updateSeveritySelection(severity, !this.selectedSeverities.includes(severity));
     this.onFiltersChanged();
+  }
+
+  onCategorySelectionChange(category: string, change: MatChipSelectionChange): void {
+    if (!change.isUserInput) {
+      return;
+    }
+    this.updateCategorySelection(category, change.selected);
+    this.onFiltersChanged();
+  }
+
+  onSeveritySelectionChange(severity: SeverityLevel, change: MatChipSelectionChange): void {
+    if (!change.isUserInput) {
+      return;
+    }
+    this.updateSeveritySelection(severity, change.selected);
+    this.onFiltersChanged();
+  }
+
+  private updateCategorySelection(category: string, selected: boolean): void {
+    const index = this.selectedCategories.indexOf(category);
+    if (selected && index < 0) {
+      this.selectedCategories.push(category);
+      return;
+    }
+    if (!selected && index >= 0) {
+      this.selectedCategories.splice(index, 1);
+    }
+  }
+
+  private updateSeveritySelection(severity: SeverityLevel, selected: boolean): void {
+    const index = this.selectedSeverities.indexOf(severity);
+    if (selected && index < 0) {
+      this.selectedSeverities.push(severity);
+      return;
+    }
+    if (!selected && index >= 0) {
+      this.selectedSeverities.splice(index, 1);
+    }
   }
 
   isCategorySelected(category: string): boolean {
@@ -679,10 +747,14 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private loadReviewQueueAccess(): void {
-    this.http.get<{ roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
+    this.http.get<{ user_id?: string; username?: string; roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
       next: (data) => {
         const roles = new Set((data.roles ?? []).map((role) => role.toUpperCase()));
         const permissions = new Set((data.permissions ?? []).map((perm) => perm.toLowerCase()));
+        // Must mirror backend _actor_id ordering (user_id first, then username)
+        // so submitter update matching works in mixed-identifier environments.
+        const userRef = String(data.user_id ?? data.username ?? '').trim();
+        this.setCurrentUserRef(userRef || null);
         const hasPreviewPermission = permissions.has('replenishment.needs_list.preview');
         const reviewPermissions = [
           'replenishment.needs_list.approve',
@@ -695,10 +767,261 @@ export class StockStatusDashboardComponent implements OnInit {
             roles.has('EXECUTIVE') ||
             reviewPermissions.some((perm) => permissions.has(perm))
           );
+        this.loadMySubmissionUpdates();
       },
       error: () => {
         this.canAccessReviewQueue = false;
+        this.setCurrentUserRef(null);
+        this.mySubmissionUpdates = [];
       }
     });
+  }
+
+  private setCurrentUserRef(userRef: string | null): void {
+    const nextRef = String(userRef ?? '').trim() || null;
+    if (this.currentUserRef === nextRef) {
+      return;
+    }
+    this.currentUserRef = nextRef;
+    this.loadSeenSubmitterUpdateKeys();
+  }
+
+  private getSeenSubmitterUpdateStorageKey(): string | null {
+    const userRef = String(this.currentUserRef ?? '').trim().toLowerCase();
+    if (!userRef) {
+      return null;
+    }
+    return `${this.seenSubmitterUpdateStorageKeyPrefix}:${userRef}`;
+  }
+
+  private resolveRequestedEventContext(event: ActiveEvent): ActiveEvent {
+    // Only honor wizard overrides when they match the fetched active event context.
+    if (this.requestedEventId != null && this.requestedEventId !== event.event_id) {
+      return { ...event };
+    }
+
+    const selectedPhase = this.requestedPhase ?? (event.phase as EventPhase);
+    return {
+      ...event,
+      event_id: event.event_id,
+      phase: selectedPhase
+    };
+  }
+
+  private shouldApplyMultiWarehouseResult(
+    requestToken: number,
+    requestedEventId: number,
+    requestedPhase: EventPhase,
+    requestedWarehouseIds: number[]
+  ): boolean {
+    return this.viewMode === 'multi' &&
+      this.multiWarehouseRequestToken === requestToken &&
+      this.activeEvent?.event_id === requestedEventId &&
+      (this.activeEvent?.phase as EventPhase | undefined) === requestedPhase &&
+      this.areWarehouseSelectionsEqual(this.currentMultiWarehouseIds(), requestedWarehouseIds);
+  }
+
+  private currentMultiWarehouseIds(): number[] {
+    const sourceIds = this.selectedWarehouseIds.length > 0
+      ? this.selectedWarehouseIds
+      : this.allWarehouses.map((w) => w.warehouse_id);
+    return this.toSortedWarehouseIds(sourceIds);
+  }
+
+  private toSortedWarehouseIds(warehouseIds: number[]): number[] {
+    return [...warehouseIds].sort((a, b) => a - b);
+  }
+
+  private areWarehouseSelectionsEqual(first: number[], second: number[]): boolean {
+    if (first.length !== second.length) {
+      return false;
+    }
+    return first.every((warehouseId, index) => warehouseId === second[index]);
+  }
+
+  openNeedsListUpdate(row: NeedsListResponse): void {
+    if (!row.needs_list_id) {
+      return;
+    }
+    this.router.navigate(['/replenishment/needs-list-review', row.needs_list_id]);
+  }
+
+  private loadMySubmissionUpdates(): void {
+    if (!this.currentUserRef) {
+      this.mySubmissionUpdates = [];
+      return;
+    }
+
+    this.replenishmentService
+      .listNeedsLists(['APPROVED', 'RETURNED', 'REJECTED'])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => {
+          const currentUser = String(this.currentUserRef ?? '').trim().toLowerCase();
+          const updates = (data.needs_lists ?? [])
+            .filter((row) => String(row.submitted_by ?? '').trim().toLowerCase() === currentUser)
+            .sort((a, b) => this.updateTimestamp(b) - this.updateTimestamp(a))
+            .slice(0, 5);
+
+          this.mySubmissionUpdates = updates;
+          this.notifySubmitterStatusUpdates(updates);
+        },
+        error: () => {
+          // Keep dashboard functional when this optional feed is unavailable.
+          this.mySubmissionUpdates = [];
+        }
+      });
+  }
+
+  private updateTimestamp(row: NeedsListResponse): number {
+    const candidates = [
+      row.approved_at,
+      row.reviewed_at,
+      row.updated_at,
+      row.submitted_at
+    ];
+    for (const value of candidates) {
+      if (!value) {
+        continue;
+      }
+      const ts = Date.parse(value);
+      if (Number.isFinite(ts)) {
+        return ts;
+      }
+    }
+    return 0;
+  }
+
+  private updateNotificationKey(row: NeedsListResponse): string {
+    const status = row.status ?? '';
+    const activityAt = row.approved_at ?? row.reviewed_at ?? row.updated_at ?? row.submitted_at ?? '';
+    const needsListId = (row.needs_list_id ?? '').trim();
+
+    if (needsListId) {
+      return [needsListId, status, activityAt].join('|');
+    }
+
+    const rowRecord = row as unknown as Record<string, unknown>;
+    const runtimeId = [rowRecord['id'], rowRecord['uuid']]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .find((value) => value.length > 0);
+
+    const fallbackIdentity = runtimeId || row.needs_list_no || this.stableRowFingerprint(row);
+    return [needsListId, status, activityAt, fallbackIdentity].join('|');
+  }
+
+  private stableRowFingerprint(row: NeedsListResponse): string {
+    const normalize = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map((entry) => normalize(entry));
+      }
+      if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        const normalized: Record<string, unknown> = {};
+        for (const key of Object.keys(record).sort()) {
+          normalized[key] = normalize(record[key]);
+        }
+        return normalized;
+      }
+      return value;
+    };
+
+    try {
+      return JSON.stringify(normalize(row));
+    } catch {
+      return String(row.needs_list_no ?? row.status ?? '');
+    }
+  }
+
+  private notifySubmitterStatusUpdates(rows: NeedsListResponse[]): void {
+    for (const row of rows) {
+      const key = this.updateNotificationKey(row);
+      if (!key || this.seenSubmitterUpdateKeys.has(key)) {
+        continue;
+      }
+
+      const listRef = row.needs_list_no ?? row.needs_list_id ?? 'Needs list';
+      if (row.status === 'APPROVED') {
+        const approver = row.approved_by ? ` by ${row.approved_by}` : '';
+        this.notificationService.showSuccess(`${listRef} was approved${approver}.`);
+      } else if (row.status === 'RETURNED') {
+        this.notificationService.showWarning(`${listRef} was returned and needs updates.`);
+      } else if (row.status === 'REJECTED') {
+        this.notificationService.showWarning(`${listRef} was rejected.`);
+      } else {
+        continue;
+      }
+
+      this.seenSubmitterUpdateKeys.add(key);
+    }
+
+    this.persistSeenSubmitterUpdateKeys();
+  }
+
+  private loadSeenSubmitterUpdateKeys(): void {
+    const scopedKey = this.getSeenSubmitterUpdateStorageKey();
+    if (!scopedKey) {
+      this.loadedSeenSubmitterUpdateStorageKey = null;
+      this.seenSubmitterUpdateKeys = new Set();
+      return;
+    }
+    if (this.loadedSeenSubmitterUpdateStorageKey === scopedKey) {
+      return;
+    }
+    this.loadedSeenSubmitterUpdateStorageKey = scopedKey;
+    this.seenSubmitterUpdateKeys = new Set();
+
+    try {
+      let raw = localStorage.getItem(scopedKey);
+      if (!raw) {
+        // One-time migration from pre-user-scoped storage key.
+        const legacyRaw = localStorage.getItem(this.seenSubmitterUpdateStorageKeyPrefix);
+        if (legacyRaw) {
+          raw = legacyRaw;
+          localStorage.setItem(scopedKey, legacyRaw);
+          localStorage.removeItem(this.seenSubmitterUpdateStorageKeyPrefix);
+        }
+      }
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        this.seenSubmitterUpdateKeys = new Set(
+          parsed
+            .map((entry) => String(entry).trim())
+            .filter((entry) => entry.length > 0)
+        );
+      }
+    } catch {
+      this.seenSubmitterUpdateKeys = new Set();
+    }
+  }
+
+  private clearWizardReturnContext(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        context: null,
+        event_id: null,
+        phase: null
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true
+    });
+  }
+
+  private persistSeenSubmitterUpdateKeys(): void {
+    const scopedKey = this.getSeenSubmitterUpdateStorageKey();
+    if (!scopedKey) {
+      return;
+    }
+
+    try {
+      const entries = Array.from(this.seenSubmitterUpdateKeys).slice(-100);
+      localStorage.setItem(scopedKey, JSON.stringify(entries));
+    } catch {
+      // localStorage may be full or unavailable – notifications still work in-memory.
+    }
   }
 }
