@@ -150,20 +150,31 @@ def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> floa
 
 
 def _workflow_metadata_table_name() -> str:
+    quoted_table_name = connection.ops.quote_name(_WORKFLOW_METADATA_TABLE_NAME)
     if connection.vendor == "postgresql":
-        return f"public.{_WORKFLOW_METADATA_TABLE_NAME}"
-    return _WORKFLOW_METADATA_TABLE_NAME
+        quoted_schema_name = connection.ops.quote_name("public")
+        return f"{quoted_schema_name}.{quoted_table_name}"
+    return quoted_table_name
+
+
+def _workflow_needs_list_table_name() -> str:
+    metadata_table_name = _workflow_metadata_table_name()
+    if "." in metadata_table_name:
+        schema_name, _ = metadata_table_name.split(".", 1)
+        return f"{schema_name}.{connection.ops.quote_name('needs_list')}"
+    return connection.ops.quote_name("needs_list")
 
 
 def _ensure_workflow_metadata_table() -> None:
     table_name = _workflow_metadata_table_name()
+    needs_list_table_name = _workflow_needs_list_table_name()
     with connection.cursor() as cursor:
         if connection.vendor == "postgresql":
             cursor.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     needs_list_id INTEGER PRIMARY KEY
-                        REFERENCES public.needs_list(needs_list_id) ON DELETE CASCADE,
+                        REFERENCES {needs_list_table_name}(needs_list_id) ON DELETE CASCADE,
                     metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -224,8 +235,14 @@ def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
     if legacy:
         try:
             _save_workflow_metadata(needs_list, legacy)
-        except Exception:  # pragma: no cover - best effort migration only
-            pass
+        except Exception as exc:  # pragma: no cover - best effort migration only
+            logger.warning(
+                "Failed saving legacy workflow metadata for needs_list_id=%s legacy=%s: %s",
+                getattr(needs_list, "needs_list_id", None),
+                legacy,
+                exc,
+                exc_info=True,
+            )
     return legacy
 
 
@@ -688,6 +705,7 @@ def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
     queryset = queryset.order_by("-calculation_dtime", "-needs_list_id").prefetch_related(
         "items",
         "audit_logs",
+        "audit_logs__needs_list_item",
     )
     needs_lists = list(queryset)
     if not needs_lists:
