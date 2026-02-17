@@ -23,10 +23,10 @@
 --   - CREATES agency, relief requests, relief packages, transfers, needs lists
 --
 -- USAGE:
---   psql -d dmis -f dmis_operational_test_data_safe.sql
+--   psql -v ON_ERROR_STOP=1 -d dmis -f dmis_operational_test_data_safe.sql
 --
 -- ROLLBACK:
---   psql -d dmis -f dmis_operational_test_data_safe_purge.sql
+--   psql -v ON_ERROR_STOP=1 -d dmis -f dmis_operational_test_data_safe_purge.sql
 -- ============================================================================
 
 BEGIN;
@@ -98,6 +98,16 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM public.transfer WHERE transfer_id IN (95001, 95002) AND create_by_id <> 'TST_OP_SAFE') THEN
         RAISE EXCEPTION 'transfer IDs 95001/95002 already used by non-test data. Seed aborted.';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='lead_time_config')
+       AND EXISTS (
+           SELECT 1
+           FROM public.lead_time_config
+           WHERE config_id BETWEEN 95001 AND 95006
+             AND COALESCE(create_by_id, '') <> 'TST_OP_SAFE'
+       ) THEN
+        RAISE EXCEPTION 'lead_time_config IDs 95001-95006 already used by non-test data. Seed aborted.';
     END IF;
 
     IF EXISTS (SELECT 1 FROM public.itembatch WHERE batch_id BETWEEN 95001 AND 95045 AND create_by_id <> 'TST_OP_SAFE') THEN
@@ -721,7 +731,7 @@ BEGIN
     ) VALUES (
         'NL-TST-MG-2026-001', 8, 2, 'STABILIZED',
         NOW() - INTERVAL '2 hours', 72, 168, 1.25,
-        'MEDIUM', 'DRAFT', 12200.00, 2500000.00,
+        'MEDIUM', 'DRAFT', 14430.00, 2500000.00,
         'kemar_tst', NOW() - INTERVAL '2 hours', 'kemar_tst', NOW() - INTERVAL '2 hours'
     ) ON CONFLICT (needs_list_no) DO UPDATE SET update_dtime = EXCLUDED.update_dtime, update_by_id = EXCLUDED.update_by_id RETURNING needs_list_id INTO v_nl_draft;
 
@@ -735,7 +745,7 @@ BEGIN
     ) VALUES (
         'NL-TST-KW-2026-001', 8, 1, 'STABILIZED',
         NOW() - INTERVAL '6 hours', 72, 168, 1.25,
-        'HIGH', 'PENDING_APPROVAL', 4430.00, 900000.00,
+        'HIGH', 'PENDING_APPROVAL', 1.00, 900000.00,
         NOW() - INTERVAL '5 hours', 'kemar_tst',
         'kemar_tst', NOW() - INTERVAL '6 hours', 'kemar_tst', NOW() - INTERVAL '5 hours'
     ) ON CONFLICT (needs_list_no) DO UPDATE SET update_dtime = EXCLUDED.update_dtime, update_by_id = EXCLUDED.update_by_id RETURNING needs_list_id INTO v_nl_submitted;
@@ -750,7 +760,7 @@ BEGIN
     ) VALUES (
         'NL-TST-MG-2026-002', 8, 2, 'STABILIZED',
         NOW() - INTERVAL '12 hours', 72, 168, 1.25,
-        'MEDIUM', 'UNDER_REVIEW', 15800.00,
+        'MEDIUM', 'UNDER_REVIEW', 14697.00,
         NOW() - INTERVAL '10 hours', 'kemar_tst',
         NOW() - INTERVAL '8 hours', 'andrea_tst',
         'kemar_tst', NOW() - INTERVAL '12 hours', 'andrea_tst', NOW() - INTERVAL '8 hours'
@@ -769,7 +779,7 @@ BEGIN
     ) VALUES (
         'NL-TST-MG-2026-003', 8, 2, 'STABILIZED',
         NOW() - INTERVAL '24 hours', 72, 168, 1.25,
-        'HIGH', 'APPROVED', 11900.00,
+        'HIGH', 'APPROVED', 13307.00,
         NOW() - INTERVAL '22 hours', 'kemar_tst',
         NOW() - INTERVAL '20 hours', 'andrea_tst',
         NOW() - INTERVAL '18 hours', 'andrea_tst',
@@ -788,7 +798,7 @@ BEGIN
     ) VALUES (
         'NL-TST-MB-2026-001', 8, 3, 'STABILIZED',
         NOW() - INTERVAL '36 hours', 72, 168, 1.25,
-        'LOW', 'REJECTED', 2800.00,
+        'LOW', 'REJECTED', 1310.00,
         NOW() - INTERVAL '34 hours', 'kemar_tst',
         NOW() - INTERVAL '30 hours', 'andrea_tst',
         'Quantities exceed projected need for Montego Bay. Reduce and resubmit.',
@@ -807,7 +817,7 @@ BEGIN
     ) VALUES (
         'NL-TST-MG-2026-004', 8, 2, 'STABILIZED',
         NOW() - INTERVAL '48 hours', 72, 168, 1.25,
-        'HIGH', 'IN_PROGRESS', 10200.00,
+        'HIGH', 'IN_PROGRESS', 13307.00,
         NOW() - INTERVAL '46 hours', 'kemar_tst',
         NOW() - INTERVAL '42 hours', 'andrea_tst',
         'Emergency approval — Marcus Garvey critical. Fast-track transfers.',
@@ -829,10 +839,10 @@ BEGIN
         fulfilled_qty, fulfillment_status,
         create_by_id, create_dtime, update_by_id, update_dtime
     ) VALUES
-        (v_nl_draft, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 0, 0, 0, 9000, 200, 8800, 4.0,   'CRITICAL', 8800, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_draft, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 0, 0, 0, 2700, 100, 2600, 6.7,   'CRITICAL', 2600, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_draft, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 0, 0, 0,   90,   5,   85, 10.0,  'WARNING',    85, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_draft, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 0, 0, 0,  648,  20,  628, 6.7,   'CRITICAL',  628, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_draft, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 0, 0, 0, 10500, 200, 10300, 4.0,   'CRITICAL', 10300, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_draft, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 0, 0, 0,  3150, 100,  3050, 6.7,   'CRITICAL',  3050, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_draft, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 0, 0, 0,   105,   5,   100, 10.0,  'WARNING',    100, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_draft, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 0, 0, 0,   630,  20,   610, 6.7,   'CRITICAL',   610, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
         (v_nl_draft, 86,  'EA', 2.0,  'BASELINE',    50, 0, 0, 0, 0,  420,  50,  370, 25.0,  'WATCH',       0, 370, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
 
     -- NL #2 (PENDING_APPROVAL) — Kingston items
@@ -846,8 +856,8 @@ BEGIN
         create_by_id, create_dtime, update_by_id, update_dtime
     ) VALUES
         (v_nl_submitted, 85,  'EA', 0.1, 'BASELINE',   20, 0, 0, 0, 0,  21,  20, 1, 200.0,  'OK',    0, 0, 1, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_submitted, 17,  'EA', 0.5, 'CALCULATED', 500, 0, 0, 0, 0, 630, 500, 130, 1000.0,'OK',    0, 130, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_submitted, 9,   'EA', 2.0, 'CALCULATED', 2000,0, 0, 0, 0, 5250,2000,3250, 1000.0,'OK', 0, 0, 3250, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
+        (v_nl_submitted, 17,  'EA', 0.5, 'CALCULATED', 500, 0, 0, 0, 0, 105, 500,   0, 1000.0,'OK',    0,   0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_submitted, 9,   'EA', 2.0, 'CALCULATED', 2000,0, 0, 0, 0, 420,2000,   0, 1000.0,'OK', 0, 0,    0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
 
     -- NL #3 (UNDER_REVIEW) — Marcus Garvey critical items
     INSERT INTO public.needs_list_item (
@@ -860,11 +870,11 @@ BEGIN
         fulfilled_qty, fulfillment_status,
         create_by_id, create_dtime, update_by_id, update_dtime
     ) VALUES
-        (v_nl_review, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 9000, 700, 8300, 4.0,  'CRITICAL', 8300, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_review, 16,  'EA', 5.0,  'CALCULATED',  30, 0, 0,   0, 0,  900,  30,  870, 6.0,  'CRITICAL',  870, NULL, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_review, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   90,   8,   82, 10.0, 'WARNING',    82, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_review, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,  648,  70,  578, 6.7,  'CRITICAL',  578, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_review, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0, 2700, 300, 2400, 6.7,  'CRITICAL', 2400, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_review, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 10500, 700, 9800, 4.0,  'CRITICAL', 9800, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_review, 16,  'EA', 5.0,  'CALCULATED',  30, 0, 0,   0, 0,  1050,  30, 1020, 6.0,  'CRITICAL', 1020, NULL, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_review, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   105,   8,   97, 10.0, 'WARNING',    97, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_review, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,   630,  70,  560, 6.7,  'CRITICAL',  560, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_review, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0,  3150, 300, 2850, 6.7,  'CRITICAL', 2850, 1, 0, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
         (v_nl_review, 86,  'EA', 2.0,  'BASELINE',    50, 0, 0,   0, 0,  420,  50,  370, 25.0, 'WATCH',       0, NULL, 370, 0, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
 
     -- NL #4 (APPROVED) — Marcus Garvey, approved with adjustments
@@ -879,10 +889,10 @@ BEGIN
         fulfilled_qty, fulfillment_status,
         create_by_id, create_dtime, update_by_id, update_dtime
     ) VALUES
-        (v_nl_approved, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 9000, 700, 8300, 4.0, 'CRITICAL', 8000, 1, 0, 300, 8000, 'PARTIAL_COVERAGE', 'andrea_tst', NOW() - INTERVAL '20 hours', 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_approved, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0, 2700, 300, 2400, 6.7, 'CRITICAL', 2400, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_approved, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,  648,  70,  578, 6.7, 'CRITICAL',  578, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_approved, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   90,   8,   82, 10.0,'WARNING',    82, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
+        (v_nl_approved, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 10500, 700, 9800, 4.0, 'CRITICAL', 9500, 1, 0, 300, 8000, 'PARTIAL_COVERAGE', 'andrea_tst', NOW() - INTERVAL '20 hours', 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_approved, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0,  3150, 300, 2850, 6.7, 'CRITICAL', 2850, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_approved, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,   630,  70,  560, 6.7, 'CRITICAL',  560, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_approved, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   105,   8,   97, 10.0,'WARNING',    97, 1, 0, 0, NULL, NULL, NULL, NULL, 0, 'PENDING', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
 
     -- NL #5 (REJECTED) — Montego Bay items
     INSERT INTO public.needs_list_item (
@@ -909,10 +919,10 @@ BEGIN
         fulfilled_qty, fulfillment_status,
         create_by_id, create_dtime, update_by_id, update_dtime
     ) VALUES
-        (v_nl_executing, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 8000, 700, 7300, 4.0,  'CRITICAL', 7300, 1, 0, 0, 3000, 'PARTIAL',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_executing, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   90,   8,   82, 10.0, 'WARNING',    82, 1, 0, 0,   82, 'FULFILLED', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_executing, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,  600,  70,  530, 6.7,  'CRITICAL',  530, 1, 0, 0,  200, 'PARTIAL',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
-        (v_nl_executing, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0, 2500, 300, 2200, 6.7,  'CRITICAL',    0, NULL, 0, 2200,   0, 'PENDING',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
+        (v_nl_executing, 1,   'EA', 50.0, 'CALCULATED', 200, 0, 500, 0, 0, 10500, 700, 9800, 4.0,  'CRITICAL', 9800, 1, 0, 0, 3000, 'PARTIAL',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_executing, 85,  'EA', 0.5,  'CALCULATED',   5, 0, 3,   0, 0,   105,   8,   97, 10.0, 'WARNING',    97, 1, 0, 0,   82, 'FULFILLED', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_executing, 192, 'EA', 3.0,  'CALCULATED',  20, 0, 50,  0, 0,   630,  70,  560, 6.7,  'CRITICAL',  560, 1, 0, 0,  200, 'PARTIAL',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
+        (v_nl_executing, 9,   'EA', 15.0, 'CALCULATED', 100, 0, 200, 0, 0,  3150, 300, 2850, 6.7,  'CRITICAL',    0, NULL, 0, 2850,   0, 'PENDING',   'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW());
 
     -- ===================== AUDIT TRAIL =====================
     -- needs_list_audit: NO create_by_id column. Uses actor_user_id (varchar 20).
@@ -1048,6 +1058,7 @@ ON CONFLICT (supplier_code) DO NOTHING;
 -- SECTION 20: LEAD TIME CONFIGURATION
 -- ============================================================================
 
+/*
 INSERT INTO public.lead_time_config (
     horizon, from_warehouse_id, to_warehouse_id, lead_time_hours,
     is_default, effective_from,
@@ -1063,6 +1074,20 @@ INSERT INTO public.lead_time_config (
     ('B', NULL, NULL, 48, TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
     -- Horizon C: Procurement lead times
     ('C', NULL, NULL, 336,TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE')
+ON CONFLICT (config_id) DO NOTHING;
+*/
+
+INSERT INTO public.lead_time_config (
+    config_id, horizon, from_warehouse_id, to_warehouse_id, lead_time_hours,
+    is_default, effective_from,
+    create_by_id, update_by_id
+) VALUES
+    (95001, 'A', 1, 2, 6,   FALSE, CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
+    (95002, 'A', 1, 3, 8,   FALSE, CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
+    (95003, 'A', 3, 2, 10,  FALSE, CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
+    (95004, 'A', 2, 1, 8,   FALSE, CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
+    (95005, 'B', NULL, NULL, 48,  TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
+    (95006, 'C', NULL, NULL, 336, TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE')
 ON CONFLICT (config_id) DO NOTHING;
 
 -- ============================================================================
@@ -1106,7 +1131,13 @@ BEGIN
             'A', 95003, NOW() - INTERVAL '30 days', 'TST_OP_SAFE', 'TST_OP_SAFE'
         FROM public.tenant f, public.tenant t
         WHERE f.tenant_code = 'ODPEM-LOGISTICS' AND t.tenant_code = 'JRC'
-        ON CONFLICT DO NOTHING;
+          AND NOT EXISTS (
+              SELECT 1
+              FROM public.data_sharing_agreement dsa
+              WHERE dsa.from_tenant_id = f.tenant_id
+                AND dsa.to_tenant_id = t.tenant_id
+                AND dsa.data_category = 'INVENTORY'
+          );
 
         RAISE NOTICE 'Data sharing agreements created';
     ELSE
@@ -1201,6 +1232,3 @@ END $$;
 -- ============================================================================
 
 COMMIT;
-
-
-

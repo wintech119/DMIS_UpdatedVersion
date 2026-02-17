@@ -264,6 +264,14 @@ def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) 
             exc,
         )
         needs_list.notes_text = serialized
+        try:
+            needs_list.save(update_fields=["notes_text"])
+        except Exception as save_exc:  # pragma: no cover - defensive fallback path
+            logger.warning(
+                "Legacy notes_text fallback save failed for needs_list_id=%s: %s",
+                getattr(needs_list, "needs_list_id", None),
+                save_exc,
+            )
 
 
 def _safe_get_warehouse_name(warehouse_id: int) -> str:
@@ -1055,6 +1063,12 @@ def transition_status(
     elif target_status == 'UNDER_REVIEW':
         needs_list.under_review_at = now
         needs_list.under_review_by = actor
+        # Escalation transitions are mapped to UNDER_REVIEW in DB-backed mode.
+        if reason and str(reason).strip():
+            metadata["escalated_at"] = now_iso
+            metadata["escalated_by"] = actor_value
+            metadata["escalation_reason"] = str(reason).strip()
+            metadata_changed = True
     elif target_status == 'APPROVED':
         needs_list.reviewed_at = now
         needs_list.reviewed_by = actor
@@ -1350,9 +1364,9 @@ def _needs_list_to_dict(
         'cancelled_by': needs_list.cancelled_by if needs_list.status_code == 'CANCELLED' else None,
         'cancelled_at': needs_list.cancelled_at.isoformat() if needs_list.status_code == 'CANCELLED' and needs_list.cancelled_at else None,
         'cancel_reason': needs_list.rejection_reason if needs_list.status_code == 'CANCELLED' else None,
-        'escalated_by': None,  # TODO: Add escalation tracking
-        'escalated_at': None,
-        'escalation_reason': None,
+        'escalated_by': metadata.get("escalated_by"),
+        'escalated_at': metadata.get("escalated_at"),
+        'escalation_reason': metadata.get("escalation_reason"),
         'returned_by': needs_list.returned_by,
         'returned_at': needs_list.returned_at.isoformat() if needs_list.returned_at else None,
         'return_reason': needs_list.returned_reason if needs_list.status_code == 'RETURNED' else None,
