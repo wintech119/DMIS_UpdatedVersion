@@ -756,7 +756,9 @@ export class StockStatusDashboardComponent implements OnInit {
       next: (data) => {
         const roles = new Set((data.roles ?? []).map((role) => role.toUpperCase()));
         const permissions = new Set((data.permissions ?? []).map((perm) => perm.toLowerCase()));
-        const userRef = String(data.username ?? data.user_id ?? '').trim();
+        // Must mirror backend _actor_id ordering (user_id first, then username)
+        // so submitter update matching works in mixed-identifier environments.
+        const userRef = String(data.user_id ?? data.username ?? '').trim();
         this.currentUserRef = userRef || null;
         const hasPreviewPermission = permissions.has('replenishment.needs_list.preview');
         const reviewPermissions = [
