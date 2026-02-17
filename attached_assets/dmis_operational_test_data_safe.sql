@@ -984,7 +984,7 @@ BEGIN
              6, 1080,
              15.0,
              'CALCULATED', 'MEDIUM',
-             GREATEST(2.0, 6.7 + (v_i * 0.5)),
+             GREATEST(2.0, (GREATEST(50.0, 600.0 - (v_i * 50.0))) / 15.0),
              GREATEST(50, 600 - (v_i * 50)));
     END LOOP;
 END $$;
