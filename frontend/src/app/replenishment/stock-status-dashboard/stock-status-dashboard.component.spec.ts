@@ -63,6 +63,8 @@ describe('StockStatusDashboardComponent', () => {
   }
 
   beforeEach(async () => {
+    localStorage.clear();
+
     dashboardDataService = jasmine.createSpyObj<DashboardDataService>(
       'DashboardDataService',
       ['getDashboardData', 'invalidateCache']
@@ -310,5 +312,28 @@ describe('StockStatusDashboardComponent', () => {
 
     expect(resolved.event_id).toBe(event.event_id);
     expect(resolved.phase).toBe('BASELINE');
+  });
+
+  it('uses a user-scoped key for submitter update seen-state storage', () => {
+    component['setCurrentUserRef']('EMP-123');
+
+    const storageKey = component['getSeenSubmitterUpdateStorageKey']();
+
+    expect(storageKey).toBe('dmis_needs_list_submitter_updates_seen:emp-123');
+  });
+
+  it('migrates legacy seen-state and reloads when current user changes', () => {
+    localStorage.setItem('dmis_needs_list_submitter_updates_seen', JSON.stringify(['legacy-key']));
+
+    component['setCurrentUserRef']('EMP-123');
+
+    expect(component['seenSubmitterUpdateKeys'].has('legacy-key')).toBeTrue();
+    expect(localStorage.getItem('dmis_needs_list_submitter_updates_seen:emp-123')).toBe(
+      JSON.stringify(['legacy-key'])
+    );
+    expect(localStorage.getItem('dmis_needs_list_submitter_updates_seen')).toBeNull();
+
+    component['setCurrentUserRef']('EMP-456');
+    expect(component['seenSubmitterUpdateKeys'].size).toBe(0);
   });
 });

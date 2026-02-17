@@ -66,8 +66,8 @@ REQUEST_CHANGE_REASON_CODES = {
 def _use_db_workflow_store() -> bool:
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
         return False
-    engine = str(settings.DATABASES.get("default", {}).get("ENGINE", ""))
-    return engine.endswith("postgresql")
+    engine = str(settings.DATABASES.get("default", {}).get("ENGINE", "")).lower()
+    return "postgresql" in engine
 
 
 class _WorkflowStoreProxy:
