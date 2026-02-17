@@ -1554,6 +1554,10 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
 
     if not _status_matches(record.get("status"), "IN_PREPARATION"):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
+    if not record.get("prep_started_at"):
+        return Response({"errors": {"status": "Needs list preparation must be started."}}, status=409)
+    if record.get("dispatched_at"):
+        return Response({"errors": {"status": "Needs list already dispatched."}}, status=409)
 
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
@@ -1590,6 +1594,10 @@ def needs_list_mark_received(request, needs_list_id: str):
 
     if not _status_matches(record.get("status"), "DISPATCHED"):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
+    if not record.get("dispatched_at"):
+        return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
+    if record.get("received_at"):
+        return Response({"errors": {"status": "Needs list already received."}}, status=409)
 
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
@@ -1626,6 +1634,10 @@ def needs_list_mark_completed(request, needs_list_id: str):
 
     if not _status_matches(record.get("status"), "RECEIVED"):
         return Response({"errors": {"status": "Needs list must be received."}}, status=409)
+    if not record.get("received_at"):
+        return Response({"errors": {"status": "Needs list must be received."}}, status=409)
+    if record.get("completed_at"):
+        return Response({"errors": {"status": "Needs list already completed."}}, status=409)
 
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("COMPLETED")
