@@ -447,7 +447,7 @@ INSERT INTO public.reliefrqst (
      'TST_OP_SAFE', NOW(), 1),
     (95003, 95001, CURRENT_DATE, 'L', 0, 8, 'Test relief request for Kingston warehouse — routine resupply',
      'TST_OP_SAFE', NOW(), 1)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (reliefrqst_id) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 12: RELIEF PACKAGES (Burn Rate Source — Dispatched Packages)
@@ -479,7 +479,7 @@ INSERT INTO public.reliefpkg (
     -- TO KINGSTON (WH1) — 2 packages, low demand
     (95021, 1, 95003, CURRENT_DATE, NOW() - INTERVAL '48 hours', 'D', 95001, 'TS00021', 8, 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1),
     (95022, 1, 95003, CURRENT_DATE, NOW() - INTERVAL '12 hours', 'D', 95001, 'TS00022', 8, 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (reliefpkg_id) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 13: RELIEF PACKAGE ITEMS (Quantities That Produce Burn Rates)
@@ -635,7 +635,7 @@ INSERT INTO public.reliefpkg_item (
     (95022, 2, 95019,   9,  72, 'EA', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
     (95022, 2, 95021,  17,  18, 'EA', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),
     (95022, 2, 95029, 192,  18, 'EA', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW())
-ON CONFLICT DO NOTHING;
+ON CONFLICT (reliefpkg_id, fr_inventory_id, batch_id, item_id) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 14: INBOUND TRANSFERS (Horizon A — Dispatched)
@@ -657,7 +657,7 @@ INSERT INTO public.transfer (
     (95002, 3, 2, 8, CURRENT_DATE, 'D', 'SYSADMIN',
      NOW() - INTERVAL '1 hour', 'kemar_tst', NOW() + INTERVAL '8 hours',
      'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (transfer_id) DO NOTHING;
 
 -- Transfer items (batch_id + inventory_id reference itembatch at SOURCE warehouse)
 INSERT INTO public.transfer_item (
@@ -672,7 +672,7 @@ INSERT INTO public.transfer_item (
     -- Transfer 95002: Montego Bay → Marcus Garvey
     (95002,   1, 95031, 3, 300, 'EA', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW()),   -- 300 water bottles
     (95002,  19, 95037, 3,  50, 'EA', 'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW())    -- 50 baby wipes
-ON CONFLICT DO NOTHING;
+ON CONFLICT (transfer_id, item_id, batch_id) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 15: EVENT PHASE NOTE (NO GLOBAL UPDATE)
@@ -1041,7 +1041,7 @@ INSERT INTO public.supplier (
     ('SUP-INT', 'INTERNATIONAL RELIEF SUPPLY','Sarah Palmer',   '1-305-555-0300','orders@intrelief.org',
      '100 NW 12th Ave, Miami FL',     NULL, 21, FALSE, NULL, NULL,
      'A', 'TST_OP_SAFE', 'TST_OP_SAFE')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (supplier_code) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 20: LEAD TIME CONFIGURATION
@@ -1062,7 +1062,7 @@ INSERT INTO public.lead_time_config (
     ('B', NULL, NULL, 48, TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE'),
     -- Horizon C: Procurement lead times
     ('C', NULL, NULL, 336,TRUE,  CURRENT_DATE, 'TST_OP_SAFE', 'TST_OP_SAFE')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (config_id) DO NOTHING;
 
 -- ============================================================================
 -- SECTION 21: TENANT-USER MAPPINGS (if tenant tables exist)
