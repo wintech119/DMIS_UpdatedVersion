@@ -417,7 +417,8 @@ export class NeedsListReviewDetailComponent implements OnInit {
     if (!trimmed) return '';
     const mapped = APPROVAL_WARNING_LABELS[trimmed];
     if (mapped) return mapped;
-    return trimmed.replace(/_/g, ' ');
+    const display = trimmed.replace(/_/g, ' ');
+    return display.charAt(0).toUpperCase() + display.slice(1);
   }
 
   statusLabel(status: string): string {

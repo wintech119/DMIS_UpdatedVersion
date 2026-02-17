@@ -10,10 +10,11 @@ making the system production-ready and enabling proper transactional integrity.
 
 from __future__ import annotations
 
+import logging
 import json
 from datetime import datetime, timezone
 from typing import Dict, Iterable, Tuple
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.dateparse import parse_datetime
 from decimal import Decimal, InvalidOperation
@@ -24,6 +25,8 @@ from .models import (
     NeedsListAudit,
 )
 from .services import data_access
+
+logger = logging.getLogger("dmis.audit")
 
 _STATUS_ALIASES = {
     "SUBMITTED": "PENDING_APPROVAL",
@@ -37,6 +40,7 @@ _STATUS_ALIASES = {
 }
 
 _NEEDS_LIST_NO_MAX_RETRIES = 5
+_WORKFLOW_METADATA_TABLE_NAME = "needs_list_workflow_metadata"
 
 
 def _utc_now() -> datetime:
@@ -97,6 +101,20 @@ def _coerce_float(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _coerce_int(value: object, default: int = 0) -> int:
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return default
+            return int(stripped)
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> float:
     direct_key = f"horizon_{horizon_key.lower()}_qty"
     direct_value = item_data.get(direct_key)
@@ -110,19 +128,137 @@ def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> floa
     return 0.0
 
 
+def _workflow_metadata_table_name() -> str:
+    if connection.vendor == "postgresql":
+        return f"public.{_WORKFLOW_METADATA_TABLE_NAME}"
+    return _WORKFLOW_METADATA_TABLE_NAME
+
+
+def _ensure_workflow_metadata_table() -> None:
+    table_name = _workflow_metadata_table_name()
+    with connection.cursor() as cursor:
+        if connection.vendor == "postgresql":
+            cursor.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    needs_list_id INTEGER PRIMARY KEY
+                        REFERENCES public.needs_list(needs_list_id) ON DELETE CASCADE,
+                    metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        else:
+            cursor.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    needs_list_id INTEGER PRIMARY KEY,
+                    metadata_json TEXT NOT NULL DEFAULT '{{}}',
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+
+def _parse_workflow_metadata(raw: object) -> Dict[str, object]:
+    if isinstance(raw, dict):
+        return raw
+    if raw is None:
+        return {}
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
-    raw = needs_list.notes_text
-    if not raw:
-        return {}
     try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        _ensure_workflow_metadata_table()
+        table_name = _workflow_metadata_table_name()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT metadata_json FROM {table_name} WHERE needs_list_id = %s",
+                [int(needs_list.needs_list_id)],
+            )
+            row = cursor.fetchone()
+        if row:
+            parsed = _parse_workflow_metadata(row[0])
+            if parsed:
+                return parsed
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        logger.warning(
+            "Workflow metadata lookup failed for needs_list_id=%s: %s",
+            getattr(needs_list, "needs_list_id", None),
+            exc,
+        )
+
+    # Legacy fallback for rows created before metadata table support.
+    legacy = _parse_workflow_metadata(needs_list.notes_text)
+    if legacy:
+        try:
+            _save_workflow_metadata(needs_list, legacy)
+        except Exception:  # pragma: no cover - best effort migration only
+            pass
+    return legacy
 
 
 def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) -> None:
-    needs_list.notes_text = json.dumps(metadata)
+    serialized = json.dumps(metadata or {})
+    try:
+        _ensure_workflow_metadata_table()
+        table_name = _workflow_metadata_table_name()
+        with connection.cursor() as cursor:
+            if connection.vendor == "postgresql":
+                cursor.execute(
+                    f"""
+                    INSERT INTO {table_name} (needs_list_id, metadata_json, updated_at)
+                    VALUES (%s, %s::jsonb, NOW())
+                    ON CONFLICT (needs_list_id) DO UPDATE
+                    SET metadata_json = EXCLUDED.metadata_json,
+                        updated_at = NOW()
+                    """,
+                    [int(needs_list.needs_list_id), serialized],
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    INSERT INTO {table_name} (needs_list_id, metadata_json, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (needs_list_id) DO UPDATE
+                    SET metadata_json = excluded.metadata_json,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    [int(needs_list.needs_list_id), serialized],
+                )
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        logger.warning(
+            "Workflow metadata write failed for needs_list_id=%s; using legacy notes_text fallback: %s",
+            getattr(needs_list, "needs_list_id", None),
+            exc,
+        )
+        needs_list.notes_text = serialized
+
+
+def _safe_get_warehouse_name(warehouse_id: int) -> str:
+    try:
+        return data_access.get_warehouse_name(warehouse_id)
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        logger.warning("Warehouse lookup failed for warehouse_id=%s: %s", warehouse_id, exc)
+        return f"Warehouse {warehouse_id}"
+
+
+def _safe_get_event_name(event_id: int) -> str:
+    try:
+        return data_access.get_event_name(event_id)
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        logger.warning("Event lookup failed for event_id=%s: %s", event_id, exc)
+        return f"Event {event_id}"
 
 
 def _execution_stage_fields(
@@ -192,8 +328,7 @@ def _normalize_snapshot_item(
     warehouse_name: str | None,
     item_lookup: Dict[int, Dict[str, str | None]],
 ) -> Dict[str, object]:
-    item_id = _coerce_float(item_data.get("item_id"), 0.0)
-    item_id_int = int(item_id) if item_id else 0
+    item_id_int = _coerce_int(item_data.get("item_id"), 0)
     item_meta = item_lookup.get(item_id_int, {}) if item_id_int else {}
     item_name = item_data.get("item_name") or item_meta.get("name")
     item_code = item_data.get("item_code") or item_meta.get("code")
@@ -389,16 +524,17 @@ def create_draft(
                     data_freshness_level='HIGH',  # TODO: Calculate from actual data freshness
                     status_code='DRAFT',
                     total_gap_qty=total_gap_qty,
-                    notes_text=json.dumps(
-                        {
-                            "selected_method": selected_method,
-                            "selected_item_keys": selected_item_keys,
-                            "filters": filters,
-                            "warnings": warnings_list,
-                        }
-                    ),
                     create_by_id=actor,
                     update_by_id=actor,
+                )
+                _save_workflow_metadata(
+                    needs_list,
+                    {
+                        "selected_method": selected_method,
+                        "selected_item_keys": selected_item_keys,
+                        "filters": filters,
+                        "warnings": warnings_list,
+                    },
                 )
             break
         except IntegrityError as exc:
@@ -1011,9 +1147,9 @@ def _needs_list_to_dict(
     )
 
     if warehouse_name is None:
-        warehouse_name = data_access.get_warehouse_name(needs_list.warehouse_id)
+        warehouse_name = _safe_get_warehouse_name(needs_list.warehouse_id)
     if event_name is None:
-        event_name = data_access.get_event_name(needs_list.event_id)
+        event_name = _safe_get_event_name(needs_list.event_id)
     warehouses = [
         {
             "warehouse_id": needs_list.warehouse_id,
@@ -1072,9 +1208,9 @@ def _needs_list_to_dict(
         items = list(items)
         if item_lookup is None:
             item_ids = [
-                int(_coerce_float(item.get("item_id"), 0.0))
+                item_id_int
                 for item in items
-                if _coerce_float(item.get("item_id"), 0.0) > 0
+                if (item_id_int := _coerce_int(item.get("item_id"), 0)) > 0
             ]
             item_lookup, _ = data_access.get_item_names(item_ids)
         else:

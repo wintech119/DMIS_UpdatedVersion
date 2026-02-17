@@ -428,9 +428,20 @@ def get_burn_by_item(
 
 def get_active_event() -> Dict[str, object] | None:
     """
-    Fetch the most recent active event.
-    Returns event dict with keys: event_id, event_name, status, phase, declaration_date
-    or None if no active event found.
+    Fetch the active event context for replenishment workflows.
+
+    Selection priority:
+    1) Most recently worked active event from needs_list activity.
+    2) Fallback to the most recent active event by start date.
+
+    Returns a dict with keys:
+    - event_id
+    - event_name
+    - status
+    - phase
+    - declaration_date
+
+    Returns None when no active event is available.
     """
     if _is_sqlite():
         # Return mock data for SQLite development - Event ID 1 is always the default active event
