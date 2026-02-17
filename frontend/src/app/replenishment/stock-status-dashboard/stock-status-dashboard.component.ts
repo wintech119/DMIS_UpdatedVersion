@@ -940,7 +940,11 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private persistSeenSubmitterUpdateKeys(): void {
-    const entries = Array.from(this.seenSubmitterUpdateKeys).slice(-100);
-    localStorage.setItem(this.seenSubmitterUpdateStorageKey, JSON.stringify(entries));
+    try {
+      const entries = Array.from(this.seenSubmitterUpdateKeys).slice(-100);
+      localStorage.setItem(this.seenSubmitterUpdateStorageKey, JSON.stringify(entries));
+    } catch {
+      // localStorage may be full or unavailable – notifications still work in-memory.
+    }
   }
 }
