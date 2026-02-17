@@ -394,7 +394,8 @@ def create_draft(
         inbound_transfer_qty = item_data.get("inbound_transfer_qty")
         inbound_donation_qty = item_data.get("inbound_donation_qty")
         if inbound_transfer_qty is None and inbound_donation_qty is not None:
-            inbound_transfer_qty = inbound_strict_qty - _coerce_float(inbound_donation_qty, 0.0)
+            derived_transfer_qty = inbound_strict_qty - _coerce_float(inbound_donation_qty, 0.0)
+            inbound_transfer_qty = max(derived_transfer_qty, 0.0)
 
         available_qty = _coerce_float(item_data.get("available_qty"), 0.0)
         coverage_qty = item_data.get("coverage_qty")

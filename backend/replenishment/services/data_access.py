@@ -497,8 +497,13 @@ def get_active_event() -> Dict[str, object] | None:
                 logger.warning("Active event workflow preference query failed: %s", exc)
                 try:
                     connection.rollback()
-                except Exception:
-                    pass
+                except Exception as rb_exc:
+                    logger.exception(
+                        "Rollback failed after DatabaseError in active event workflow preference query: "
+                        "rollback_error=%s, original_error=%s",
+                        rb_exc,
+                        exc,
+                    )
                 latest_activity = None
 
             if latest_activity:
