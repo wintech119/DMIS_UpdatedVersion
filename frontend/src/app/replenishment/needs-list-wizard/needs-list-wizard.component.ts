@@ -88,8 +88,9 @@ export class NeedsListWizardComponent implements OnInit {
       }
     }
 
+    const queryParams = this.dashboardQueryParams();
     this.wizardService.reset();
-    this.router.navigate(['/replenishment/dashboard']);
+    this.router.navigate(['/replenishment/dashboard'], { queryParams });
   }
 
   onStepChange(event: StepperSelectionEvent): void {
@@ -115,9 +116,10 @@ export class NeedsListWizardComponent implements OnInit {
   }
 
   returnToDashboardFromConfirmation(): void {
+    const queryParams = this.dashboardQueryParams();
     this.wizardService.reset();
     this.confirmationState = null;
-    this.router.navigate(['/replenishment/dashboard']);
+    this.router.navigate(['/replenishment/dashboard'], { queryParams });
   }
 
   returnToSubmitStepFromConfirmation(): void {
@@ -133,5 +135,19 @@ export class NeedsListWizardComponent implements OnInit {
     if (this.stepper) {
       this.stepper.reset();
     }
+  }
+
+  private dashboardQueryParams(): { context: 'wizard'; event_id?: number; phase?: string } {
+    const state = this.wizardService.getState();
+    const params: { context: 'wizard'; event_id?: number; phase?: string } = {
+      context: 'wizard'
+    };
+    if (state.event_id) {
+      params.event_id = state.event_id;
+    }
+    if (state.phase) {
+      params.phase = state.phase;
+    }
+    return params;
   }
 }

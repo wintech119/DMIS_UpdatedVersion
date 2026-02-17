@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 
 import { StockStatusDashboardComponent } from './stock-status-dashboard.component';
@@ -72,15 +72,16 @@ describe('StockStatusDashboardComponent', () => {
     );
     notificationService = jasmine.createSpyObj<DmisNotificationService>(
       'DmisNotificationService',
-      ['showNetworkError', 'showWarning']
+      ['showNetworkError', 'showWarning', 'showSuccess']
     );
 
     const replenishmentService = jasmine.createSpyObj<ReplenishmentService>(
       'ReplenishmentService',
-      ['getActiveEvent', 'getAllWarehouses']
+      ['getActiveEvent', 'getAllWarehouses', 'listNeedsLists']
     );
     replenishmentService.getActiveEvent.and.returnValue(of(event));
     replenishmentService.getAllWarehouses.and.returnValue(of(warehouses));
+    replenishmentService.listNeedsLists.and.returnValue(of({ needs_lists: [], count: 0 }));
 
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
@@ -96,6 +97,14 @@ describe('StockStatusDashboardComponent', () => {
         { provide: DataFreshnessService, useValue: dataFreshnessService },
         { provide: DmisNotificationService, useValue: notificationService },
         { provide: Router, useValue: router },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: convertToParamMap({})
+            }
+          }
+        },
         { provide: MatDialog, useValue: dialog },
         { provide: HttpClient, useValue: httpClient }
       ]
@@ -185,6 +194,33 @@ describe('StockStatusDashboardComponent', () => {
     firstRequest$.complete();
 
     expect(component.selectedWarehouseId).toBe(2);
+    expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+  });
+
+  it('applies only the latest multi-warehouse response when filters change quickly', () => {
+    const firstRequest$ = new Subject<DashboardData>();
+    const secondRequest$ = new Subject<DashboardData>();
+    const northData = createDashboardData([createGroup(1, 'North Depot')]);
+    const southData = createDashboardData([createGroup(2, 'South Depot')]);
+
+    dashboardDataService.getDashboardData.and.returnValues(
+      firstRequest$.asObservable(),
+      secondRequest$.asObservable()
+    );
+
+    component.loadMultiWarehouseStatus();
+    component.changeSortBy('severity');
+
+    secondRequest$.next(southData);
+    secondRequest$.complete();
+
+    expect(component.sortBy).toBe('severity');
+    expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
+
+    firstRequest$.next(northData);
+    firstRequest$.complete();
+
+    expect(component.sortBy).toBe('severity');
     expect(component.warehouseGroups.map(g => g.warehouse_id)).toEqual([2]);
   });
 

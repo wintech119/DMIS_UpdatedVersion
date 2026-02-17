@@ -400,27 +400,68 @@ def get_active_event() -> Dict[str, object] | None:
 
     try:
         with connection.cursor() as cursor:
-            # Query for active event (status_code 'A' or 'ACTIVE' = Active)
+            # Query for all active events (status_code 'A' or 'ACTIVE' = Active)
             cursor.execute(
                 f"""
                 SELECT event_id, event_name, status_code, current_phase, start_date
                 FROM {schema}.event
                 WHERE UPPER(status_code) IN (%s, %s)
                 ORDER BY start_date DESC
-                LIMIT 1
                 """,
                 ["A", "ACTIVE"],
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
+            if not rows:
+                return None
 
-            if row:
-                return {
+            events = [
+                {
                     "event_id": int(row[0]),
                     "event_name": str(row[1]) if row[1] else f"Event {row[0]}",
                     "status": str(row[2]) if row[2] else "A",
                     "phase": str(row[3]).upper() if row[3] else "BASELINE",
                     "declaration_date": row[4].isoformat() if row[4] else None,
                 }
+                for row in rows
+            ]
+
+            # Prefer the most recently worked active event from needs-list workflow activity.
+            selected = events[0]
+            active_event_ids = [event["event_id"] for event in events]
+
+            try:
+                cursor.execute(
+                    f"""
+                    SELECT event_id, event_phase
+                    FROM {schema}.needs_list
+                    WHERE event_id = ANY(%s)
+                    ORDER BY COALESCE(
+                        approved_at,
+                        reviewed_at,
+                        submitted_at,
+                        update_dtime,
+                        create_dtime
+                    ) DESC
+                    LIMIT 1
+                    """,
+                    [active_event_ids],
+                )
+                latest_activity = cursor.fetchone()
+            except DatabaseError as exc:
+                logger.warning("Active event workflow preference query failed: %s", exc)
+                latest_activity = None
+
+            if latest_activity:
+                latest_event_id = int(latest_activity[0])
+                latest_phase = str(latest_activity[1]).upper() if latest_activity[1] else None
+                for event in events:
+                    if event["event_id"] == latest_event_id:
+                        selected = dict(event)
+                        if latest_phase:
+                            selected["phase"] = latest_phase
+                        break
+
+            return selected
     except DatabaseError as exc:
         logger.warning("Active event query failed: %s", exc)
         try:

@@ -119,6 +119,45 @@
     </div>
   }
 
+  @if (mySubmissionUpdates.length > 0) {
+    <div class="submitter-updates-card" role="region" aria-label="My needs list updates">
+      <div class="updates-header">
+        <div class="updates-title">
+          <mat-icon>notifications_active</mat-icon>
+          <h2>My Needs List Updates</h2>
+        </div>
+        <span class="updates-count">{{ mySubmissionUpdates.length }}</span>
+      </div>
+      <div class="updates-list">
+        @for (update of mySubmissionUpdates; track update.needs_list_id) {
+          <button class="update-row" type="button" (click)="openNeedsListUpdate(update)">
+            <div class="update-main">
+              <span class="update-id">{{ update.needs_list_no ?? ('Needs List #' + update.needs_list_id) }}</span>
+              <span class="update-meta">
+                {{ update.event_name ?? ('Event ' + update.event_id) }}
+                @if (update.phase) {
+                  • {{ update.phase }}
+                }
+              </span>
+            </div>
+            <div class="update-status">
+              <span class="badge" [ngClass]="'badge-' + (update.status?.toLowerCase() || 'ok')">
+                {{ update.status ?? 'UPDATED' }}
+              </span>
+              <span class="update-time">
+                {{
+                  (update.approved_at ?? update.reviewed_at ?? update.updated_at ?? update.submitted_at)
+                    ? ((update.approved_at ?? update.reviewed_at ?? update.updated_at ?? update.submitted_at) | date:'short')
+                    : 'N/A'
+                }}
+              </span>
+            </div>
+          </button>
+        }
+      </div>
+    </div>
+  }
+
   <!-- Summary Stats -->
   @if (warehouseGroups.length) {
     <div class="stats-row">
@@ -218,11 +257,11 @@
       @if (severityOptions.length) {
         <div class="filter-section">
           <span class="filter-label">Filter by Severity:</span>
-          <mat-chip-listbox class="chip-list">
+          <mat-chip-listbox class="chip-list" multiple>
             @for (severity of severityOptions; track severity) {
               <mat-chip-option
                 [selected]="isSeveritySelected(severity)"
-                (click)="toggleSeverity(severity)"
+                (selectionChange)="onSeveritySelectionChange(severity, $event)"
                 [ngClass]="'chip-' + severity.toLowerCase()"
                 [matTooltip]="getSeverityTooltip(severity)"
                 matTooltipPosition="above"
@@ -239,11 +278,11 @@
       @if (availableCategories.length) {
         <div class="filter-section">
           <span class="filter-label">Filter by Category:</span>
-          <mat-chip-listbox class="chip-list">
+          <mat-chip-listbox class="chip-list" multiple>
             @for (category of availableCategories; track category) {
               <mat-chip-option
                 [selected]="isCategorySelected(category)"
-                (click)="toggleCategory(category)"
+                (selectionChange)="onCategorySelectionChange(category, $event)"
                 >
                 {{ category }}
               </mat-chip-option>

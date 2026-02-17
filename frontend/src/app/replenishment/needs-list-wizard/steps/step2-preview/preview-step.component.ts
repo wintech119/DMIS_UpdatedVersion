@@ -27,6 +27,8 @@ interface PreviewItem extends NeedsListItem {
   tempReason?: AdjustmentReason;
 }
 
+type PreviewSeverity = 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK';
+
 @Component({
   selector: 'app-preview-step',
   standalone: true,
@@ -76,6 +78,12 @@ export class PreviewStepComponent implements OnInit {
   ];
 
   adjustmentReasonOptions = Object.entries(ADJUSTMENT_REASON_LABELS).map(([key, label]) => ({ key, label }));
+  private readonly severityOrder: Record<PreviewSeverity, number> = {
+    CRITICAL: 0,
+    WARNING: 1,
+    WATCH: 2,
+    OK: 3
+  };
 
   ngOnInit(): void {
     this.wizardService.getState$().pipe(
@@ -83,13 +91,57 @@ export class PreviewStepComponent implements OnInit {
       distinctUntilChanged((prev, curr) => this.arePreviewItemsEqual(prev, curr)),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(items => {
-      // Convert to PreviewItem and auto-select items with gap > 0
-      this.items = items.map(item => ({
+      // Convert to PreviewItem and apply a user-facing order:
+      // actionable items first (critical/warning/watch with gap), then non-actionable.
+      const previewItems = items.map(item => ({
         ...item,
-        included: item.gap_qty > 0,
+        included: this.shouldAutoInclude(item),
         tempAdjustedQty: this.getAdjustedQty(item),
         tempReason: this.wizardService.getAdjustment(item.item_id, item.warehouse_id || 0)?.reason
       }));
+      this.items = this.sortPreviewItems(previewItems);
+    });
+  }
+
+  private normalizeSeverity(item: NeedsListItem): PreviewSeverity {
+    switch (item.severity) {
+      case 'CRITICAL':
+      case 'WARNING':
+      case 'WATCH':
+      case 'OK':
+        return item.severity;
+      default:
+        return 'OK';
+    }
+  }
+
+  private shouldAutoInclude(item: NeedsListItem): boolean {
+    return item.gap_qty > 0 && this.normalizeSeverity(item) !== 'OK';
+  }
+
+  private sortPreviewItems(items: PreviewItem[]): PreviewItem[] {
+    return [...items].sort((a, b) => {
+      const aActionable = this.shouldAutoInclude(a);
+      const bActionable = this.shouldAutoInclude(b);
+      if (aActionable !== bActionable) {
+        return aActionable ? -1 : 1;
+      }
+
+      const severityDiff =
+        this.severityOrder[this.normalizeSeverity(a)] -
+        this.severityOrder[this.normalizeSeverity(b)];
+      if (severityDiff !== 0) {
+        return severityDiff;
+      }
+
+      const gapDiff = (b.gap_qty || 0) - (a.gap_qty || 0);
+      if (gapDiff !== 0) {
+        return gapDiff;
+      }
+
+      const nameA = (a.item_name || `Item ${a.item_id}`).toLowerCase();
+      const nameB = (b.item_name || `Item ${b.item_id}`).toLowerCase();
+      return nameA.localeCompare(nameB);
     });
   }
 

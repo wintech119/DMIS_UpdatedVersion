@@ -4,6 +4,26 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_env_file(path: Path) -> None:
+    """
+    Lightweight .env loader to keep local Postgres settings in one place without
+    requiring an external dependency in backend requirements.
+    """
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+_load_env_file(BASE_DIR / ".env")
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 ALLOWED_HOSTS = [
@@ -60,7 +80,16 @@ WSGI_APPLICATION = "dmis_api.wsgi.application"
 ASGI_APPLICATION = "dmis_api.asgi.application"
 
 # DB changes require explicit approval; do not run migrate.
-if os.getenv("DJANGO_USE_SQLITE", "0") == "1":
+# PostgreSQL is the default/required runtime for replenishment RBAC and workflow.
+use_sqlite = os.getenv("DJANGO_USE_SQLITE", "0") == "1"
+allow_sqlite = os.getenv("DJANGO_ALLOW_SQLITE", "0") == "1"
+if use_sqlite and not allow_sqlite:
+    raise RuntimeError(
+        "SQLite backend is disabled by default. "
+        "Set DJANGO_ALLOW_SQLITE=1 only for temporary local tooling."
+    )
+
+if use_sqlite:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

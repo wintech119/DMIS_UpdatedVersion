@@ -104,6 +104,7 @@ export interface NeedsListResponse {
   planning_window_days?: number;
   warnings?: string[];
   needs_list_id?: string;
+  needs_list_no?: string;
   status?: NeedsListStatus;
   approval_summary?: ApprovalSummary;
   created_by?: string | null;

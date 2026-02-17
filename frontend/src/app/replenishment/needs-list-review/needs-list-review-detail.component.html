@@ -146,7 +146,9 @@
                 @for (warning of nl.approval_summary!.warnings!; track warning) {
                   <li class="warning-chip" role="listitem">
                     <mat-icon aria-hidden="true">info_outline</mat-icon>
-                    {{ warning }}
+                    <span [matTooltip]="warning" matTooltipPosition="above">
+                      {{ warningLabel(warning) }}
+                    </span>
                   </li>
                 }
               </ul>

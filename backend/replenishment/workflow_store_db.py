@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, Tuple
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils.dateparse import parse_datetime
 from decimal import Decimal, InvalidOperation
 
 from .models import (
@@ -22,6 +23,18 @@ from .models import (
     NeedsListItem,
     NeedsListAudit,
 )
+from .services import data_access
+
+_STATUS_ALIASES = {
+    "SUBMITTED": "PENDING_APPROVAL",
+    "PENDING": "PENDING_APPROVAL",
+    "MODIFIED": "RETURNED",
+    "ESCALATED": "UNDER_REVIEW",
+    "IN_PREPARATION": "IN_PROGRESS",
+    "DISPATCHED": "IN_PROGRESS",
+    "RECEIVED": "IN_PROGRESS",
+    "COMPLETED": "FULFILLED",
+}
 
 
 def _utc_now() -> datetime:
@@ -60,6 +73,165 @@ def _coerce_optional_decimal(value: object) -> Decimal | None:
         return None
 
 
+def _coerce_decimal(value: object, default: str = "0") -> Decimal:
+    parsed = _coerce_optional_decimal(value)
+    if parsed is None:
+        return Decimal(default)
+    return parsed
+
+
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> float:
+    direct_key = f"horizon_{horizon_key.lower()}_qty"
+    direct_value = item_data.get(direct_key)
+    if direct_value is not None:
+        return _coerce_float(direct_value, 0.0)
+    horizon = item_data.get("horizon")
+    if isinstance(horizon, dict):
+        section = horizon.get(horizon_key)
+        if isinstance(section, dict):
+            return _coerce_float(section.get("recommended_qty"), 0.0)
+    return 0.0
+
+
+def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
+    raw = needs_list.notes_text
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_snapshot_item(
+    item_data: Dict[str, object],
+    *,
+    warehouse_id: int | None,
+    warehouse_name: str | None,
+    item_lookup: Dict[int, Dict[str, str | None]],
+) -> Dict[str, object]:
+    item_id = _coerce_float(item_data.get("item_id"), 0.0)
+    item_id_int = int(item_id) if item_id else 0
+    item_meta = item_lookup.get(item_id_int, {}) if item_id_int else {}
+    item_name = item_data.get("item_name") or item_meta.get("name")
+    item_code = item_data.get("item_code") or item_meta.get("code")
+
+    burn_rate_per_hour = item_data.get("burn_rate_per_hour")
+    if burn_rate_per_hour is None:
+        burn_rate_per_hour = item_data.get("burn_rate")
+    burn_rate_per_hour_value = _coerce_float(burn_rate_per_hour, 0.0)
+
+    available_qty = _coerce_float(item_data.get("available_qty"), 0.0)
+    inbound_transfer_qty = _coerce_float(item_data.get("inbound_transfer_qty"), 0.0)
+    inbound_donation_qty = _coerce_float(item_data.get("inbound_donation_qty"), 0.0)
+    inbound_procurement_qty = _coerce_float(item_data.get("inbound_procurement_qty"), 0.0)
+
+    inbound_strict_qty = item_data.get("inbound_strict_qty")
+    if inbound_strict_qty is None:
+        inbound_strict_qty = inbound_transfer_qty + inbound_donation_qty
+    inbound_strict_qty_value = _coerce_float(inbound_strict_qty, 0.0)
+
+    required_qty = _coerce_float(item_data.get("required_qty"), 0.0)
+    computed_required_qty = _coerce_float(
+        item_data.get("computed_required_qty", required_qty),
+        required_qty,
+    )
+    coverage_qty = _coerce_float(
+        item_data.get("coverage_qty", available_qty + inbound_strict_qty_value),
+        available_qty + inbound_strict_qty_value,
+    )
+    gap_qty = _coerce_float(item_data.get("gap_qty"), 0.0)
+
+    time_to_stockout = item_data.get("time_to_stockout")
+    if time_to_stockout is None:
+        time_to_stockout = item_data.get("time_to_stockout_hours")
+    time_to_stockout_hours: float | None
+    if isinstance(time_to_stockout, str):
+        parsed = _coerce_optional_decimal(time_to_stockout)
+        if parsed is None:
+            time_to_stockout_hours = None
+        else:
+            time_to_stockout_hours = float(parsed)
+    elif time_to_stockout is None:
+        time_to_stockout_hours = None
+    else:
+        time_to_stockout_hours = _coerce_float(time_to_stockout, 0.0)
+
+    horizon_a_qty = _extract_horizon_qty(item_data, "A")
+    horizon_b_qty = _extract_horizon_qty(item_data, "B")
+    horizon_c_qty = _extract_horizon_qty(item_data, "C")
+
+    warnings = item_data.get("warnings")
+    normalized_warnings = (
+        [str(w).strip() for w in warnings if str(w).strip()]
+        if isinstance(warnings, list)
+        else []
+    )
+
+    normalized = {
+        "item_id": item_id_int,
+        "item_name": item_name,
+        "item_code": item_code,
+        "warehouse_id": item_data.get("warehouse_id", warehouse_id),
+        "warehouse_name": item_data.get("warehouse_name", warehouse_name),
+        "uom_code": item_data.get("uom_code", "EA"),
+        "burn_rate_per_hour": round(burn_rate_per_hour_value, 4),
+        "burn_rate": round(burn_rate_per_hour_value, 4),
+        "burn_rate_source": item_data.get("burn_rate_source", "CALCULATED"),
+        "available_qty": round(available_qty, 2),
+        "reserved_qty": round(_coerce_float(item_data.get("reserved_qty"), 0.0), 2),
+        "inbound_transfer_qty": round(inbound_transfer_qty, 2),
+        "inbound_donation_qty": round(inbound_donation_qty, 2),
+        "inbound_procurement_qty": round(inbound_procurement_qty, 2),
+        "inbound_strict_qty": round(inbound_strict_qty_value, 2),
+        "required_qty": round(required_qty, 2),
+        "computed_required_qty": round(computed_required_qty, 2),
+        "coverage_qty": round(coverage_qty, 2),
+        "gap_qty": round(gap_qty, 2),
+        "time_to_stockout": time_to_stockout_hours,
+        "time_to_stockout_hours": time_to_stockout_hours,
+        "severity": item_data.get("severity", "OK"),
+        "horizon": {
+            "A": {"recommended_qty": round(horizon_a_qty, 2)},
+            "B": {"recommended_qty": round(horizon_b_qty, 2)},
+            "C": {"recommended_qty": round(horizon_c_qty, 2)},
+        },
+        "horizon_a_qty": round(horizon_a_qty, 2),
+        "horizon_b_qty": round(horizon_b_qty, 2),
+        "horizon_c_qty": round(horizon_c_qty, 2),
+        "warnings": normalized_warnings,
+        "override_reason": item_data.get("override_reason"),
+        "override_updated_by": item_data.get("override_updated_by"),
+        "override_updated_at": item_data.get("override_updated_at"),
+        "review_comment": item_data.get("review_comment"),
+        "review_updated_by": item_data.get("review_updated_by"),
+        "review_updated_at": item_data.get("review_updated_at"),
+    }
+
+    if isinstance(item_data.get("procurement"), dict):
+        normalized["procurement"] = item_data.get("procurement")
+    if item_data.get("procurement_status") is not None:
+        normalized["procurement_status"] = item_data.get("procurement_status")
+    if isinstance(item_data.get("triggers"), dict):
+        normalized["triggers"] = item_data.get("triggers")
+    if isinstance(item_data.get("confidence"), dict):
+        normalized["confidence"] = item_data.get("confidence")
+    if isinstance(item_data.get("freshness"), dict):
+        normalized["freshness"] = item_data.get("freshness")
+    if item_data.get("freshness_state") is not None:
+        normalized["freshness_state"] = item_data.get("freshness_state")
+
+    return normalized
+
+
 @transaction.atomic
 def create_draft(
     payload: Dict[str, object],
@@ -91,6 +263,9 @@ def create_draft(
     phase = payload.get('phase')
     as_of_datetime = payload.get('as_of_datetime')
     planning_window_days = payload.get('planning_window_days')
+    selected_method = payload.get("selected_method")
+    selected_item_keys = payload.get("selected_item_keys")
+    filters = payload.get("filters")
 
     # Convert planning window to hours (assumes demand/planning windows are in API payload)
     # For now, use default values based on phase
@@ -108,6 +283,13 @@ def create_draft(
         except (TypeError, ValueError):
             pass
 
+    calculation_dtime = as_of_datetime
+    if isinstance(calculation_dtime, str):
+        parsed_as_of = parse_datetime(calculation_dtime)
+        calculation_dtime = parsed_as_of if parsed_as_of is not None else None
+    if calculation_dtime is None:
+        calculation_dtime = _utc_now()
+
     # Generate unique needs list number
     needs_list_no = _generate_needs_list_no(event_id, warehouse_id)
 
@@ -123,39 +305,71 @@ def create_draft(
         event_id=event_id,
         warehouse_id=warehouse_id,
         event_phase=phase,
-        calculation_dtime=as_of_datetime or _utc_now(),
+        calculation_dtime=calculation_dtime,
         demand_window_hours=demand_window_hours,
         planning_window_hours=planning_window_hours,
         safety_factor=Decimal('1.25'),  # Default safety factor
         data_freshness_level='HIGH',  # TODO: Calculate from actual data freshness
         status_code='DRAFT',
         total_gap_qty=total_gap_qty,
+        notes_text=json.dumps(
+            {
+                "selected_method": selected_method,
+                "selected_item_keys": selected_item_keys,
+                "filters": filters,
+                "warnings": warnings_list,
+            }
+        ),
         create_by_id=actor,
         update_by_id=actor,
     )
 
     # Create line items
     for item_data in items:
-        time_to_stockout = _coerce_optional_decimal(item_data.get('time_to_stockout'))
+        inbound_strict_qty = _coerce_float(item_data.get("inbound_strict_qty"), 0.0)
+        inbound_transfer_qty = item_data.get("inbound_transfer_qty")
+        if inbound_transfer_qty is None:
+            inbound_transfer_qty = inbound_strict_qty
+        inbound_donation_qty = item_data.get("inbound_donation_qty")
+        if inbound_donation_qty is None:
+            inbound_donation_qty = 0.0
+
+        available_qty = _coerce_float(item_data.get("available_qty"), 0.0)
+        coverage_qty = item_data.get("coverage_qty")
+        if coverage_qty is None:
+            coverage_qty = available_qty + _coerce_float(inbound_transfer_qty, 0.0) + _coerce_float(inbound_donation_qty, 0.0)
+
+        time_to_stockout = _coerce_optional_decimal(
+            item_data.get("time_to_stockout_hours", item_data.get("time_to_stockout"))
+        )
+
+        burn_rate = item_data.get("burn_rate_per_hour")
+        if burn_rate is None:
+            burn_rate = item_data.get("burn_rate")
+
+        horizon_a_qty = _extract_horizon_qty(item_data, "A")
+        horizon_b_qty = _extract_horizon_qty(item_data, "B")
+        horizon_c_qty = _extract_horizon_qty(item_data, "C")
+
         NeedsListItem.objects.create(
             needs_list=needs_list,
             item_id=item_data.get('item_id'),
             uom_code=item_data.get('uom_code', 'EA'),
-            burn_rate=Decimal(str(item_data.get('burn_rate', 0))),
+            burn_rate=_coerce_decimal(burn_rate),
             burn_rate_source=item_data.get('burn_rate_source', 'CALCULATED'),
-            available_stock=Decimal(str(item_data.get('available_qty', 0))),
-            reserved_qty=Decimal(str(item_data.get('reserved_qty', 0))),
-            inbound_transfer_qty=Decimal(str(item_data.get('inbound_transfer_qty', 0))),
-            inbound_donation_qty=Decimal(str(item_data.get('inbound_donation_qty', 0))),
-            inbound_procurement_qty=Decimal(str(item_data.get('inbound_procurement_qty', 0))),
-            required_qty=Decimal(str(item_data.get('required_qty', 0))),
-            coverage_qty=Decimal(str(item_data.get('coverage_qty', 0))),
-            gap_qty=Decimal(str(item_data.get('gap_qty', 0))),
+            available_stock=_coerce_decimal(available_qty),
+            reserved_qty=_coerce_decimal(item_data.get('reserved_qty')),
+            inbound_transfer_qty=_coerce_decimal(inbound_transfer_qty),
+            inbound_donation_qty=_coerce_decimal(inbound_donation_qty),
+            inbound_procurement_qty=_coerce_decimal(item_data.get('inbound_procurement_qty')),
+            required_qty=_coerce_decimal(item_data.get('required_qty')),
+            coverage_qty=_coerce_decimal(coverage_qty),
+            gap_qty=_coerce_decimal(item_data.get('gap_qty')),
             time_to_stockout_hours=time_to_stockout,
             severity_level=item_data.get('severity', 'OK'),
-            horizon_a_qty=Decimal(str(item_data.get('horizon_a_qty', 0))),
-            horizon_b_qty=Decimal(str(item_data.get('horizon_b_qty', 0))),
-            horizon_c_qty=Decimal(str(item_data.get('horizon_c_qty', 0))),
+            horizon_a_qty=_coerce_decimal(horizon_a_qty),
+            horizon_b_qty=_coerce_decimal(horizon_b_qty),
+            horizon_c_qty=_coerce_decimal(horizon_c_qty),
             create_by_id=actor,
             update_by_id=actor,
         )
@@ -193,6 +407,28 @@ def get_record(needs_list_id: str) -> Dict[str, object] | None:
         return _needs_list_to_dict(needs_list)
     except (ObjectDoesNotExist, ValueError):
         return None
+
+
+def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
+    """
+    List needs list records, optionally filtered by status.
+
+    Accepts legacy API status aliases and maps them to database status values.
+    """
+    queryset = NeedsList.objects.all()
+
+    if statuses:
+        normalized: set[str] = set()
+        for status in statuses:
+            value = str(status or "").strip().upper()
+            if not value:
+                continue
+            normalized.add(_STATUS_ALIASES.get(value, value))
+        if normalized:
+            queryset = queryset.filter(status_code__in=list(normalized))
+
+    queryset = queryset.order_by("-calculation_dtime", "-needs_list_id")
+    return [_needs_list_to_dict(needs_list) for needs_list in queryset]
 
 
 @transaction.atomic
@@ -574,41 +810,85 @@ def _needs_list_to_dict(
     Returns:
         Dict representation of the needs list
     """
-    # If items not provided, load from database
+    metadata = _load_workflow_metadata(needs_list)
+    selected_method = metadata.get("selected_method")
+    selected_item_keys = metadata.get("selected_item_keys")
+    filters = metadata.get("filters")
+    if warnings is None:
+        raw_warnings = metadata.get("warnings")
+        if isinstance(raw_warnings, list):
+            warnings = [str(w).strip() for w in raw_warnings if str(w).strip()]
+        else:
+            warnings = []
+
+    warehouse_name = data_access.get_warehouse_name(needs_list.warehouse_id)
+    event_name = data_access.get_event_name(needs_list.event_id)
+    warehouses = [
+        {
+            "warehouse_id": needs_list.warehouse_id,
+            "warehouse_name": warehouse_name,
+        }
+    ]
+    warehouse_ids = [needs_list.warehouse_id]
+
+    # If items not provided, load from database.
     if items is None:
-        items = [
-            {
-                'item_id': item.item_id,
-                'uom_code': item.uom_code,
-                'burn_rate': float(item.burn_rate),
-                'burn_rate_source': item.burn_rate_source,
-                'available_qty': float(item.available_stock),
-                'reserved_qty': float(item.reserved_qty),
-                'inbound_transfer_qty': float(item.inbound_transfer_qty),
-                'inbound_donation_qty': float(item.inbound_donation_qty),
-                'inbound_procurement_qty': float(item.inbound_procurement_qty),
-                'required_qty': float(item.required_qty),
-                'coverage_qty': float(item.coverage_qty),
-                'gap_qty': float(item.gap_qty),
-                'time_to_stockout': float(item.time_to_stockout_hours)
+        db_items = list(needs_list.items.all())
+        item_ids = [item.item_id for item in db_items]
+        item_lookup, _ = data_access.get_item_names(item_ids)
+
+        items = []
+        for item in db_items:
+            raw_item = {
+                "item_id": item.item_id,
+                "uom_code": item.uom_code,
+                "burn_rate": float(item.burn_rate),
+                "burn_rate_source": item.burn_rate_source,
+                "available_qty": float(item.available_stock),
+                "reserved_qty": float(item.reserved_qty),
+                "inbound_transfer_qty": float(item.inbound_transfer_qty),
+                "inbound_donation_qty": float(item.inbound_donation_qty),
+                "inbound_procurement_qty": float(item.inbound_procurement_qty),
+                "required_qty": float(item.required_qty),
+                "coverage_qty": float(item.coverage_qty),
+                "gap_qty": float(item.gap_qty),
+                "time_to_stockout": float(item.time_to_stockout_hours)
                 if item.time_to_stockout_hours is not None
                 else None,
-                'severity': item.severity_level,
-                'horizon_a_qty': float(item.horizon_a_qty),
-                'horizon_b_qty': float(item.horizon_b_qty),
-                'horizon_c_qty': float(item.horizon_c_qty),
-                'computed_required_qty': float(item.required_qty),
-                # Add override fields if present
-                'override_reason': item.adjustment_notes if item.adjusted_qty is not None else None,
-                'override_updated_by': item.adjusted_by if item.adjusted_qty is not None else None,
-                'override_updated_at': item.adjusted_at.isoformat() if item.adjusted_at else None,
+                "severity": item.severity_level,
+                "horizon_a_qty": float(item.horizon_a_qty),
+                "horizon_b_qty": float(item.horizon_b_qty),
+                "horizon_c_qty": float(item.horizon_c_qty),
+                "computed_required_qty": float(item.required_qty),
+                "override_reason": item.adjustment_notes if item.adjusted_qty is not None else None,
+                "override_updated_by": item.adjusted_by if item.adjusted_qty is not None else None,
+                "override_updated_at": item.adjusted_at.isoformat() if item.adjusted_at else None,
             }
-            for item in needs_list.items.all()
+            items.append(
+                _normalize_snapshot_item(
+                    raw_item,
+                    warehouse_id=needs_list.warehouse_id,
+                    warehouse_name=warehouse_name,
+                    item_lookup=item_lookup,
+                )
+            )
+    else:
+        items = list(items)
+        item_ids = [
+            int(_coerce_float(item.get("item_id"), 0.0))
+            for item in items
+            if _coerce_float(item.get("item_id"), 0.0) > 0
         ]
-
-    # Extract warnings from snapshot or use provided warnings
-    if warnings is None:
-        warnings = []
+        item_lookup, _ = data_access.get_item_names(item_ids)
+        items = [
+            _normalize_snapshot_item(
+                dict(item),
+                warehouse_id=needs_list.warehouse_id,
+                warehouse_name=warehouse_name,
+                item_lookup=item_lookup,
+            )
+            for item in items
+        ]
 
     # Build line overrides dict
     line_overrides = {}
@@ -632,15 +912,24 @@ def _needs_list_to_dict(
                     'updated_at': audit.action_dtime.isoformat(),
                 }
 
+    calculation_as_of = (
+        needs_list.calculation_dtime.isoformat()
+        if hasattr(needs_list.calculation_dtime, "isoformat")
+        else str(needs_list.calculation_dtime)
+    )
+
     return {
         'needs_list_id': str(needs_list.needs_list_id),  # String for backward compatibility
         'needs_list_no': needs_list.needs_list_no,
         'event_id': needs_list.event_id,
+        'event_name': event_name,
         'warehouse_id': needs_list.warehouse_id,
+        'warehouse_ids': warehouse_ids,
+        'warehouses': warehouses,
         'phase': needs_list.event_phase,
-        'as_of_datetime': needs_list.calculation_dtime.isoformat(),
+        'as_of_datetime': calculation_as_of,
         'planning_window_days': needs_list.planning_window_hours / 24,  # Convert back to days
-        'filters': None,  # Not stored in database
+        'filters': filters,
         'status': needs_list.status_code,
         'created_by': needs_list.create_by_id,
         'created_at': needs_list.create_dtime.isoformat(),
@@ -678,10 +967,16 @@ def _needs_list_to_dict(
         'reject_reason': needs_list.rejection_reason if needs_list.status_code == 'REJECTED' else None,
         'line_overrides': line_overrides,
         'line_review_notes': line_review_notes,
+        'selected_method': selected_method,
+        'selected_item_keys': selected_item_keys,
         'snapshot': {
             'items': items,
             'warnings': list(warnings),
             'planning_window_days': needs_list.planning_window_hours / 24,
-            'as_of_datetime': needs_list.calculation_dtime.isoformat(),
+            'as_of_datetime': calculation_as_of,
+            'event_name': event_name,
+            'warehouse_ids': warehouse_ids,
+            'warehouses': warehouses,
+            'selected_method': selected_method,
         },
     }

@@ -452,6 +452,21 @@
     color: white;
   }
 
+  &.badge-approved {
+    background-color: #28a745;
+    color: white;
+  }
+
+  &.badge-returned {
+    background-color: #fd7e14;
+    color: white;
+  }
+
+  &.badge-rejected {
+    background-color: #dc3545;
+    color: white;
+  }
+
   &.badge-freshness-high {
     background-color: #d4edda;
     color: #155724;
@@ -489,7 +504,6 @@
 
       &.burn-rate-zero-stale {
         color: #fd7e14;
-        font-style: italic;
       }
 
       &.burn-rate-zero-fresh {
@@ -751,6 +765,116 @@
         margin-right: 4px;
       }
     }
+  }
+}
+
+.submitter-updates-card {
+  background: #fff;
+  border: 1px solid #cfe2ff;
+  border-left: 4px solid #0d6efd;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+
+  .updates-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e9ecef;
+    background: #f8fbff;
+  }
+
+  .updates-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1f2937;
+    }
+
+    mat-icon {
+      color: #0d6efd;
+    }
+  }
+
+  .updates-count {
+    min-width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #0d6efd;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 8px;
+  }
+
+  .updates-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .update-row {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-top: 1px solid #f1f3f5;
+
+    &:first-child {
+      border-top: 0;
+    }
+
+    &:hover {
+      background: #f8f9fa;
+    }
+  }
+
+  .update-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .update-id {
+    font-size: 13px;
+    font-weight: 600;
+    color: #212529;
+    word-break: break-word;
+  }
+
+  .update-meta {
+    font-size: 12px;
+    color: #6c757d;
+    word-break: break-word;
+  }
+
+  .update-status {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .update-time {
+    font-size: 11px;
+    color: #6c757d;
+    white-space: nowrap;
   }
 }
 
