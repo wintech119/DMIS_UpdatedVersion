@@ -973,8 +973,8 @@ def store_enabled_or_raise() -> None:
 
 def _needs_list_to_dict(
     needs_list: NeedsList,
-    items: Iterable[Dict[str, object]] = None,
-    warnings: Iterable[str] = None,
+    items: Iterable[Dict[str, object]] | None = None,
+    warnings: Iterable[str] | None = None,
     *,
     warehouse_name: str | None = None,
     event_name: str | None = None,
