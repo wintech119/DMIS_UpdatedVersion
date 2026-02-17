@@ -201,6 +201,16 @@ BEGIN
     SELECT perm_id INTO v_review_comms FROM public.permission WHERE resource='replenishment.needs_list' AND action='review_comments';
 
     IF v_preview IS NULL
+       OR v_create_draft IS NULL
+       OR v_edit_lines IS NULL
+       OR v_submit IS NULL
+       OR v_return IS NULL
+       OR v_reject IS NULL
+       OR v_approve IS NULL
+       OR v_escalate IS NULL
+       OR v_execute IS NULL
+       OR v_cancel IS NULL
+       OR v_review_comms IS NULL
        OR v_role_logistics_mgr IS NULL
        OR v_role_logistics_officer IS NULL
        OR v_role_dir_peod IS NULL
