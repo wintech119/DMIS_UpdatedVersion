@@ -44,6 +44,25 @@ const REQUEST_CHANGE_REASON_OPTIONS = [
   { value: 'OTHER', label: 'Other' }
 ] as const;
 
+const APPROVAL_WARNING_LABELS: Record<string, string> = {
+  cost_missing_for_approval:
+    'Estimated cost data is missing for one or more items.',
+  approval_tier_conservative:
+    'Approval tier was set conservatively due to missing cost data.',
+  transfer_scope_unavailable:
+    'Transfer scope metadata is unavailable for one or more items.',
+  transfer_cross_parish_over_500:
+    'Cross-parish transfer exceeds 500 units and requires escalation.',
+  transfer_scope_unrecognized:
+    'Transfer scope value is unrecognized and requires review.',
+  donation_restriction_unavailable:
+    'Donation restriction metadata is unavailable for one or more items.',
+  donation_restriction_escalation_required:
+    'Donation restrictions require escalation before approval.',
+  donation_restriction_unrecognized:
+    'Donation restriction value is unrecognized and requires review.'
+};
+
 @Component({
   selector: 'app-needs-list-review-detail',
   imports: [
@@ -207,7 +226,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
       next: (data) => {
         this.needsList.set(data);
         this.actionLoading.set(null);
-        this.notifications.showSuccess('Needs list approved.');
+        this.notifications.showSuccess('Needs list approved. Submitter update has been recorded.');
       },
       error: (err: HttpErrorResponse) => {
         this.actionLoading.set(null);
@@ -391,6 +410,14 @@ export class NeedsListReviewDetailComponent implements OnInit {
       return `Warehouse ${nl.warehouse_id}`;
     }
     return 'N/A';
+  }
+
+  warningLabel(code: string): string {
+    const trimmed = String(code ?? '').trim();
+    if (!trimmed) return '';
+    const mapped = APPROVAL_WARNING_LABELS[trimmed];
+    if (mapped) return mapped;
+    return trimmed.replace(/_/g, ' ');
   }
 
   statusLabel(status: string): string {

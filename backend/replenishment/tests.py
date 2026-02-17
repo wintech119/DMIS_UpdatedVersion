@@ -6,7 +6,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from replenishment import rules, workflow_store
+from replenishment import rules, workflow_store, workflow_store_db
+from replenishment.models import NeedsList, NeedsListItem
 from replenishment.services import needs_list
 from replenishment.services.needs_list import (
     allocate_horizons,
@@ -1945,3 +1946,129 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(approve.status_code, 409)
+
+
+class WorkflowStoreDbSerializationTests(TestCase):
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_needs_list_to_dict_returns_review_ui_fields(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+
+        needs_list = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-001",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=100,
+            notes_text='{"selected_method":"A","warnings":["cost_missing_for_approval"]}',
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsListItem.objects.create(
+            needs_list=needs_list,
+            item_id=9,
+            uom_code="EA",
+            burn_rate=2.5,
+            burn_rate_source="CALCULATED",
+            available_stock=20,
+            reserved_qty=0,
+            inbound_transfer_qty=5,
+            inbound_donation_qty=3,
+            inbound_procurement_qty=0,
+            required_qty=100,
+            coverage_qty=28,
+            gap_qty=72,
+            time_to_stockout_hours=8,
+            severity_level="WARNING",
+            horizon_a_qty=10,
+            horizon_b_qty=20,
+            horizon_c_qty=42,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        record = workflow_store_db._needs_list_to_dict(needs_list)
+        snapshot_item = record["snapshot"]["items"][0]
+
+        self.assertEqual(record.get("event_name"), "HURRICANE MELISSA")
+        self.assertEqual(record.get("warehouses", [])[0]["warehouse_name"], "ODPEM MARCUS GARVEY WAREHOUSE (MG)")
+        self.assertEqual(record.get("selected_method"), "A")
+        self.assertIn("cost_missing_for_approval", record.get("snapshot", {}).get("warnings", []))
+
+        self.assertEqual(snapshot_item["item_name"], "MEALS READY TO EAT")
+        self.assertEqual(snapshot_item["item_code"], "MRE-12")
+        self.assertEqual(snapshot_item["warehouse_name"], "ODPEM MARCUS GARVEY WAREHOUSE (MG)")
+        self.assertEqual(snapshot_item["burn_rate_per_hour"], 2.5)
+        self.assertEqual(snapshot_item["inbound_strict_qty"], 8.0)
+        self.assertEqual(snapshot_item["horizon"]["A"]["recommended_qty"], 10.0)
+        self.assertEqual(snapshot_item["horizon"]["B"]["recommended_qty"], 20.0)
+        self.assertEqual(snapshot_item["horizon"]["C"]["recommended_qty"], 42.0)
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_create_draft_persists_preview_shape_values(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+
+        payload = {
+            "event_id": 1,
+            "warehouse_id": 2,
+            "phase": "BASELINE",
+            "as_of_datetime": timezone.now().isoformat(),
+            "planning_window_days": 3,
+            "selected_method": "A",
+            "selected_item_keys": ["9_2"],
+        }
+        items = [
+            {
+                "item_id": 9,
+                "available_qty": 20,
+                "inbound_strict_qty": 8,
+                "burn_rate_per_hour": 2.5,
+                "required_qty": 100,
+                "gap_qty": 72,
+                "time_to_stockout": 8,
+                "severity": "WARNING",
+                "horizon": {
+                    "A": {"recommended_qty": 10},
+                    "B": {"recommended_qty": 20},
+                    "C": {"recommended_qty": 42},
+                },
+            }
+        ]
+
+        record = workflow_store_db.create_draft(
+            payload,
+            items,
+            warnings=["cost_missing_for_approval"],
+            actor="tester",
+        )
+        saved_item = NeedsListItem.objects.get(needs_list_id=int(record["needs_list_id"]), item_id=9)
+
+        self.assertEqual(float(saved_item.burn_rate), 2.5)
+        self.assertEqual(float(saved_item.inbound_transfer_qty), 8.0)
+        self.assertEqual(float(saved_item.coverage_qty), 28.0)
+        self.assertEqual(float(saved_item.horizon_a_qty), 10.0)
+        self.assertEqual(float(saved_item.horizon_b_qty), 20.0)
+        self.assertEqual(float(saved_item.horizon_c_qty), 42.0)

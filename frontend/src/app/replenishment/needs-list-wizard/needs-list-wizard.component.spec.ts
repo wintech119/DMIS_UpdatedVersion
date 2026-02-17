@@ -56,7 +56,10 @@ describe('NeedsListWizardComponent', () => {
     component.backToDashboard();
 
     expect(wizardService.getState().event_id).toBeUndefined();
-    expect(mockRouter.navigate).toHaveBeenCalledWith(['/replenishment/dashboard']);
+    expect(mockRouter.navigate).toHaveBeenCalledWith(
+      ['/replenishment/dashboard'],
+      { queryParams: { context: 'wizard', event_id: 1, phase: 'BASELINE' } }
+    );
   });
 
   it('should not navigate if user cancels confirmation', () => {
@@ -93,7 +96,10 @@ describe('NeedsListWizardComponent', () => {
 
     expect(wizardService.getState().event_id).toBeUndefined();
     expect(component.confirmationState).toBeNull();
-    expect(mockRouter.navigate).toHaveBeenCalledWith(['/replenishment/dashboard']);
+    expect(mockRouter.navigate).toHaveBeenCalledWith(
+      ['/replenishment/dashboard'],
+      { queryParams: { context: 'wizard', event_id: 1, phase: 'BASELINE' } }
+    );
   });
 
   it('should return to submit step from draft confirmation', () => {
