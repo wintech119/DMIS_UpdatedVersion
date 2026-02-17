@@ -1615,7 +1615,12 @@ def needs_list_start_preparation(request, needs_list_id: str):
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
 
     target_status = _workflow_target_status("IN_PREPARATION")
-    record = workflow_store.transition_status(record, target_status, _actor_id(request))
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="IN_PREPARATION",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1655,7 +1660,12 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
 
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
-    record = workflow_store.transition_status(record, target_status, _actor_id(request))
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="DISPATCHED",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
@@ -1695,7 +1705,12 @@ def needs_list_mark_received(request, needs_list_id: str):
 
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
-    record = workflow_store.transition_status(record, target_status, _actor_id(request))
+    record = workflow_store.transition_status(
+        record,
+        target_status,
+        _actor_id(request),
+        stage="RECEIVED",
+    )
     workflow_store.update_record(needs_list_id, record)
 
     logger.info(
