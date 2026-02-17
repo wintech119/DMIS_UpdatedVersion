@@ -53,12 +53,16 @@ DELETE FROM public.transfer_item WHERE transfer_id IN (95001, 95002);
 DELETE FROM public.transfer      WHERE transfer_id IN (95001, 95002);
 
 DELETE FROM public.reliefpkg_item
-WHERE reliefpkg_id IN (95001,95002,95003,95004,95005,95006,95011,95012,95013,95021,95022);
+WHERE reliefpkg_id IN (95001,95002,95003,95004,95005,95006,95011,95012,95013,95021,95022)
+  AND create_by_id = 'TST_OP_SAFE';
 
 DELETE FROM public.reliefpkg
-WHERE reliefpkg_id IN (95001,95002,95003,95004,95005,95006,95011,95012,95013,95021,95022);
+WHERE reliefpkg_id IN (95001,95002,95003,95004,95005,95006,95011,95012,95013,95021,95022)
+  AND create_by_id = 'TST_OP_SAFE';
 
-DELETE FROM public.reliefrqst WHERE reliefrqst_id IN (95001, 95002, 95003);
+DELETE FROM public.reliefrqst
+WHERE reliefrqst_id IN (95001, 95002, 95003)
+  AND create_by_id = 'TST_OP_SAFE';
 
 DELETE FROM public.itembatch
 WHERE batch_id BETWEEN 95001 AND 95045

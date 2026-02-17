@@ -18,6 +18,10 @@ def _load_env_file(path: Path) -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if key.lower().startswith("export "):
+            key = key[7:].strip()
+        if not key:
+            continue
         value = value.strip().strip('"').strip("'")
         os.environ.setdefault(key, value)
 
@@ -26,6 +30,7 @@ _load_env_file(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
+ENABLE_TEST_ROLES = os.getenv("ENABLE_TEST_ROLES", "0") == "1"
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")

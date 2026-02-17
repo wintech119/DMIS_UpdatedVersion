@@ -2,33 +2,59 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Tuple
 
+from django.conf import settings
+
 from replenishment import rules
 
 
-LOGISTICS_MANAGER_APPROVER_ROLES = {
+_LOGISTICS_MANAGER_APPROVER_ROLES = {
     "LOGISTICS",
     "LOGISTICS_MANAGER",
     "ODPEM_LOGISTICS_MANAGER",
-    "TST_LOGISTICS_MANAGER",
     "SYSTEM_ADMINISTRATOR",
 }
 
-SENIOR_DIRECTOR_APPROVER_ROLES = {
+_SENIOR_DIRECTOR_APPROVER_ROLES = {
     "EXECUTIVE",
     "ODPEM_DIR_PEOD",
     "SENIOR_DIRECTOR",
-    "TST_DIR_PEOD",
     "SYSTEM_ADMINISTRATOR",
 }
 
-DG_APPROVER_ROLES = {
+_DG_APPROVER_ROLES = {
     "EXECUTIVE",
     "ODPEM_DG",
     "ODPEM_DDG",
     "DIRECTOR_GENERAL",
-    "TST_DG",
     "SYSTEM_ADMINISTRATOR",
 }
+
+_TEST_APPROVER_OVERLAY = {
+    "logistics_manager": {"TST_LOGISTICS_MANAGER"},
+    "senior_director": {"TST_DIR_PEOD"},
+    "director_general": {"TST_DG"},
+}
+
+
+def _with_test_roles(base_roles: set[str], overlay_key: str) -> set[str]:
+    roles = set(base_roles)
+    if getattr(settings, "ENABLE_TEST_ROLES", False):
+        roles.update(_TEST_APPROVER_OVERLAY.get(overlay_key, set()))
+    return roles
+
+
+LOGISTICS_MANAGER_APPROVER_ROLES = _with_test_roles(
+    _LOGISTICS_MANAGER_APPROVER_ROLES,
+    "logistics_manager",
+)
+SENIOR_DIRECTOR_APPROVER_ROLES = _with_test_roles(
+    _SENIOR_DIRECTOR_APPROVER_ROLES,
+    "senior_director",
+)
+DG_APPROVER_ROLES = _with_test_roles(
+    _DG_APPROVER_ROLES,
+    "director_general",
+)
 
 APPROVAL_ROLE_MAP = {
     "Logistics Manager (Kemar)": LOGISTICS_MANAGER_APPROVER_ROLES,

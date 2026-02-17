@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Dict, Iterable, Tuple
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.dateparse import parse_datetime
 from decimal import Decimal, InvalidOperation
@@ -36,6 +36,8 @@ _STATUS_ALIASES = {
     "COMPLETED": "FULFILLED",
 }
 
+_NEEDS_LIST_NO_MAX_RETRIES = 5
+
 
 def _utc_now() -> datetime:
     """Return current UTC datetime."""
@@ -52,15 +54,23 @@ def _generate_needs_list_no(event_id: int, warehouse_id: int) -> str:
     Generate unique needs list number.
     Format: NL-{EVENT_ID}-{WAREHOUSE_ID}-{YYYYMMDD}-{SEQ}
     """
-    today = datetime.now().strftime('%Y%m%d')
+    today = _utc_now().strftime("%Y%m%d")
     prefix = f"NL-{event_id}-{warehouse_id}-{today}"
 
-    # Find next sequence number for today
-    existing = NeedsList.objects.filter(
-        needs_list_no__startswith=prefix
-    ).count()
+    latest_no = (
+        NeedsList.objects.select_for_update()
+        .filter(needs_list_no__startswith=prefix)
+        .order_by("-needs_list_no")
+        .values_list("needs_list_no", flat=True)
+        .first()
+    )
 
-    seq = existing + 1
+    seq = 1
+    if latest_no:
+        try:
+            seq = int(str(latest_no).rsplit("-", 1)[-1]) + 1
+        except (TypeError, ValueError):
+            seq = 1
     return f"{prefix}-{seq:03d}"
 
 
@@ -350,12 +360,9 @@ def create_draft(
     calculation_dtime = as_of_datetime
     if isinstance(calculation_dtime, str):
         parsed_as_of = parse_datetime(calculation_dtime)
-        calculation_dtime = parsed_as_of if parsed_as_of is not None else None
+        calculation_dtime = parsed_as_of
     if calculation_dtime is None:
         calculation_dtime = _utc_now()
-
-    # Generate unique needs list number
-    needs_list_no = _generate_needs_list_no(event_id, warehouse_id)
 
     # Calculate totals
     total_gap_qty = sum(
@@ -363,30 +370,47 @@ def create_draft(
         for item in items
     )
 
-    # Create needs list header
-    needs_list = NeedsList.objects.create(
-        needs_list_no=needs_list_no,
-        event_id=event_id,
-        warehouse_id=warehouse_id,
-        event_phase=phase,
-        calculation_dtime=calculation_dtime,
-        demand_window_hours=demand_window_hours,
-        planning_window_hours=planning_window_hours,
-        safety_factor=Decimal('1.25'),  # Default safety factor
-        data_freshness_level='HIGH',  # TODO: Calculate from actual data freshness
-        status_code='DRAFT',
-        total_gap_qty=total_gap_qty,
-        notes_text=json.dumps(
-            {
-                "selected_method": selected_method,
-                "selected_item_keys": selected_item_keys,
-                "filters": filters,
-                "warnings": warnings_list,
-            }
-        ),
-        create_by_id=actor,
-        update_by_id=actor,
-    )
+    # Create needs list header with retry in case of concurrent needs_list_no generation.
+    needs_list: NeedsList | None = None
+    last_integrity_error: IntegrityError | None = None
+    for _ in range(_NEEDS_LIST_NO_MAX_RETRIES):
+        needs_list_no = _generate_needs_list_no(event_id, warehouse_id)
+        try:
+            with transaction.atomic():
+                needs_list = NeedsList.objects.create(
+                    needs_list_no=needs_list_no,
+                    event_id=event_id,
+                    warehouse_id=warehouse_id,
+                    event_phase=phase,
+                    calculation_dtime=calculation_dtime,
+                    demand_window_hours=demand_window_hours,
+                    planning_window_hours=planning_window_hours,
+                    safety_factor=Decimal('1.25'),  # Default safety factor
+                    data_freshness_level='HIGH',  # TODO: Calculate from actual data freshness
+                    status_code='DRAFT',
+                    total_gap_qty=total_gap_qty,
+                    notes_text=json.dumps(
+                        {
+                            "selected_method": selected_method,
+                            "selected_item_keys": selected_item_keys,
+                            "filters": filters,
+                            "warnings": warnings_list,
+                        }
+                    ),
+                    create_by_id=actor,
+                    update_by_id=actor,
+                )
+            break
+        except IntegrityError as exc:
+            # Retry only for needs_list_no uniqueness collisions.
+            if "needs_list_no" not in str(exc).lower():
+                raise
+            last_integrity_error = exc
+
+    if needs_list is None:
+        if last_integrity_error is not None:
+            raise last_integrity_error
+        raise RuntimeError("Unable to allocate needs_list_no for draft creation")
 
     # Create line items
     for item_data in items:

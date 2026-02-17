@@ -111,7 +111,8 @@ export class StockStatusDashboardComponent implements OnInit {
   private multiWarehouseRequestToken = 0;
   private singleWarehouseRequestToken = 0;
   private currentUserRef: string | null = null;
-  private readonly seenSubmitterUpdateStorageKey = 'dmis_needs_list_submitter_updates_seen';
+  private readonly seenSubmitterUpdateStorageKeyPrefix = 'dmis_needs_list_submitter_updates_seen';
+  private loadedSeenSubmitterUpdateStorageKey: string | null = null;
   private seenSubmitterUpdateKeys = new Set<string>();
   private requestedEventId: number | null = null;
   private requestedPhase: EventPhase | null = null;
@@ -753,7 +754,7 @@ export class StockStatusDashboardComponent implements OnInit {
         // Must mirror backend _actor_id ordering (user_id first, then username)
         // so submitter update matching works in mixed-identifier environments.
         const userRef = String(data.user_id ?? data.username ?? '').trim();
-        this.currentUserRef = userRef || null;
+        this.setCurrentUserRef(userRef || null);
         const hasPreviewPermission = permissions.has('replenishment.needs_list.preview');
         const reviewPermissions = [
           'replenishment.needs_list.approve',
@@ -770,10 +771,27 @@ export class StockStatusDashboardComponent implements OnInit {
       },
       error: () => {
         this.canAccessReviewQueue = false;
-        this.currentUserRef = null;
+        this.setCurrentUserRef(null);
         this.mySubmissionUpdates = [];
       }
     });
+  }
+
+  private setCurrentUserRef(userRef: string | null): void {
+    const nextRef = String(userRef ?? '').trim() || null;
+    if (this.currentUserRef === nextRef) {
+      return;
+    }
+    this.currentUserRef = nextRef;
+    this.loadSeenSubmitterUpdateKeys();
+  }
+
+  private getSeenSubmitterUpdateStorageKey(): string | null {
+    const userRef = String(this.currentUserRef ?? '').trim().toLowerCase();
+    if (!userRef) {
+      return null;
+    }
+    return `${this.seenSubmitterUpdateStorageKeyPrefix}:${userRef}`;
   }
 
   private resolveRequestedEventContext(event: ActiveEvent): ActiveEvent {
@@ -908,8 +926,29 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private loadSeenSubmitterUpdateKeys(): void {
+    const scopedKey = this.getSeenSubmitterUpdateStorageKey();
+    if (!scopedKey) {
+      this.loadedSeenSubmitterUpdateStorageKey = null;
+      this.seenSubmitterUpdateKeys = new Set();
+      return;
+    }
+    if (this.loadedSeenSubmitterUpdateStorageKey === scopedKey) {
+      return;
+    }
+    this.loadedSeenSubmitterUpdateStorageKey = scopedKey;
+    this.seenSubmitterUpdateKeys = new Set();
+
     try {
-      const raw = localStorage.getItem(this.seenSubmitterUpdateStorageKey);
+      let raw = localStorage.getItem(scopedKey);
+      if (!raw) {
+        // One-time migration from pre-user-scoped storage key.
+        const legacyRaw = localStorage.getItem(this.seenSubmitterUpdateStorageKeyPrefix);
+        if (legacyRaw) {
+          raw = legacyRaw;
+          localStorage.setItem(scopedKey, legacyRaw);
+          localStorage.removeItem(this.seenSubmitterUpdateStorageKeyPrefix);
+        }
+      }
       if (!raw) {
         return;
       }
@@ -940,9 +979,14 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private persistSeenSubmitterUpdateKeys(): void {
+    const scopedKey = this.getSeenSubmitterUpdateStorageKey();
+    if (!scopedKey) {
+      return;
+    }
+
     try {
       const entries = Array.from(this.seenSubmitterUpdateKeys).slice(-100);
-      localStorage.setItem(this.seenSubmitterUpdateStorageKey, JSON.stringify(entries));
+      localStorage.setItem(scopedKey, JSON.stringify(entries));
     } catch {
       // localStorage may be full or unavailable – notifications still work in-memory.
     }
