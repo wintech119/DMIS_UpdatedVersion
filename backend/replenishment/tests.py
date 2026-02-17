@@ -2190,3 +2190,105 @@ class WorkflowStoreDbSerializationTests(TestCase):
         self.assertEqual(float(saved_item.horizon_a_qty), 10.0)
         self.assertEqual(float(saved_item.horizon_b_qty), 20.0)
         self.assertEqual(float(saved_item.horizon_c_qty), 42.0)
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_names")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_list_records_batches_name_and_item_lookups(
+        self,
+        mock_item_names,
+        mock_warehouse_names,
+        mock_event_names,
+    ) -> None:
+        mock_warehouse_names.return_value = ({2: "ODPEM MARCUS GARVEY WAREHOUSE (MG)"}, [])
+        mock_event_names.return_value = ({1: "HURRICANE MELISSA"}, [])
+        mock_item_names.return_value = (
+            {
+                9: {"name": "MEALS READY TO EAT", "code": "MRE-12"},
+                17: {"name": "BOTTLED WATER", "code": "BW-01"},
+            },
+            [],
+        )
+
+        first = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-001",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=100,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        second = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-002",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=50,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        NeedsListItem.objects.create(
+            needs_list=first,
+            item_id=9,
+            uom_code="EA",
+            burn_rate=2.5,
+            burn_rate_source="CALCULATED",
+            available_stock=20,
+            reserved_qty=0,
+            inbound_transfer_qty=5,
+            inbound_donation_qty=3,
+            inbound_procurement_qty=0,
+            required_qty=100,
+            coverage_qty=28,
+            gap_qty=72,
+            time_to_stockout_hours=8,
+            severity_level="WARNING",
+            horizon_a_qty=10,
+            horizon_b_qty=20,
+            horizon_c_qty=42,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsListItem.objects.create(
+            needs_list=second,
+            item_id=17,
+            uom_code="EA",
+            burn_rate=1.0,
+            burn_rate_source="CALCULATED",
+            available_stock=10,
+            reserved_qty=0,
+            inbound_transfer_qty=0,
+            inbound_donation_qty=0,
+            inbound_procurement_qty=0,
+            required_qty=20,
+            coverage_qty=10,
+            gap_qty=10,
+            time_to_stockout_hours=4,
+            severity_level="CRITICAL",
+            horizon_a_qty=5,
+            horizon_b_qty=10,
+            horizon_c_qty=5,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        records = workflow_store_db.list_records(["SUBMITTED"])
+
+        self.assertEqual(len(records), 2)
+        mock_warehouse_names.assert_called_once_with([2])
+        mock_event_names.assert_called_once_with([1])
+        mock_item_names.assert_called_once_with([9, 17])
