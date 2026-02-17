@@ -298,7 +298,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 7: TEST AGENCY (required FK for relief packages)
+-- SECTION 8: TEST AGENCY (required FK for relief packages)
 -- ============================================================================
 -- agency constraints: agency_name UPPERCASE, contact_name UPPERCASE,
 -- agency_type IN ('DISTRIBUTOR','SHELTER'),
