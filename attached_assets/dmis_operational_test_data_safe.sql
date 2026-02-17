@@ -103,6 +103,15 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.itembatch WHERE batch_id BETWEEN 95001 AND 95045 AND create_by_id <> 'TST_OP_SAFE') THEN
         RAISE EXCEPTION 'itembatch range 95001-95045 already used by non-test data. Seed aborted.';
     END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public."user"
+        WHERE user_id BETWEEN 95001 AND 95005
+          AND create_by_id <> 'TST_OP_SAFE'
+    ) THEN
+        RAISE EXCEPTION 'user_id range 95001-95005 already used by non-test users. Seed aborted.';
+    END IF;
 END $$;
 
 -- ============================================================================
@@ -304,25 +313,21 @@ END $$;
 -- agency_type IN ('DISTRIBUTOR','SHELTER'),
 -- DISTRIBUTOR requires warehouse_id NOT NULL, SHELTER requires warehouse_id NULL
 
-DO $$
-BEGIN
-    INSERT INTO public.agency (
-        agency_id, agency_name, address1_text, parish_code,
-        contact_name, phone_no, email_text,
-        agency_type, warehouse_id, status_code,
-        create_by_id, create_dtime, update_by_id, update_dtime, version_nbr
-    ) VALUES (
-        95001, 'ODPEM LOGISTICS TEST AGENCY', '2-4 HAINING ROAD', '01',
-        'KEMAR BROWN', '876-555-0101', 'logistics@odpem.gov.jm',
-        'DISTRIBUTOR', 1, 'A',
-        'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1
-    );
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'Agency 95001 insert skipped: %', SQLERRM;
-END $$;
+INSERT INTO public.agency (
+    agency_id, agency_name, address1_text, parish_code,
+    contact_name, phone_no, email_text,
+    agency_type, warehouse_id, status_code,
+    create_by_id, create_dtime, update_by_id, update_dtime, version_nbr
+) VALUES (
+    95001, 'ODPEM LOGISTICS TEST AGENCY', '2-4 HAINING ROAD', '01',
+    'KEMAR BROWN', '876-555-0101', 'logistics@odpem.gov.jm',
+    'DISTRIBUTOR', 1, 'A',
+    'TST_OP_SAFE', NOW(), 'TST_OP_SAFE', NOW(), 1
+)
+ON CONFLICT (agency_id) DO NOTHING;
 
 -- ============================================================================
--- SECTION 8: INVENTORY RECORDS (ensure exist for 15 test items × 3 warehouses)
+-- SECTION 9: INVENTORY RECORDS (ensure exist for 15 test items × 3 warehouses)
 -- ============================================================================
 -- inventory PK: (inventory_id, item_id)
 -- inventory_id = warehouse_id in the legacy DMIS 1:1 mapping
@@ -339,7 +344,7 @@ FROM (VALUES (1),(2),(3)) AS wh(id),
 ON CONFLICT (inventory_id, item_id) DO NOTHING;
 
 -- ============================================================================
--- SECTION 9: ITEM BATCHES (Test Stock Quantities)
+-- SECTION 10: ITEM BATCHES (Test Stock Quantities)
 -- ============================================================================
 -- These quantities determine available stock at each warehouse.
 -- Combined with burn rates from relief packages, they produce target severities.
@@ -409,7 +414,7 @@ INSERT INTO public.itembatch (
 ON CONFLICT (batch_id) DO NOTHING;
 
 -- ============================================================================
--- SECTION 10: RELIEF REQUESTS (Burn Rate Source Data - prerequisite for packages)
+-- SECTION 11: RELIEF REQUESTS (Burn Rate Source Data - prerequisite for packages)
 -- ============================================================================
 -- reliefrqst: status_code SMALLINT, urgency_ind IN ('L','M','H','C')
 -- status_code = 0 is simplest (no review/action fields required)
@@ -428,7 +433,7 @@ INSERT INTO public.reliefrqst (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 11: RELIEF PACKAGES (Burn Rate Source — Dispatched Packages)
+-- SECTION 12: RELIEF PACKAGES (Burn Rate Source — Dispatched Packages)
 -- ============================================================================
 -- Only status 'D' (Dispatched) has dispatch_dtime (enforced by CHECK constraint)
 -- Packages spread across the 72-hour STABILIZED demand window
@@ -460,7 +465,7 @@ INSERT INTO public.reliefpkg (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 12: RELIEF PACKAGE ITEMS (Quantities That Produce Burn Rates)
+-- SECTION 13: RELIEF PACKAGE ITEMS (Quantities That Produce Burn Rates)
 -- ============================================================================
 -- Burn Rate = SUM(dispatched item_qty) / demand_window_hours (72h for STABILIZED)
 -- fr_inventory_id = source warehouse, batch_id + item_id must match itembatch at source
@@ -616,7 +621,7 @@ INSERT INTO public.reliefpkg_item (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 13: INBOUND TRANSFERS (Horizon A — Dispatched)
+-- SECTION 14: INBOUND TRANSFERS (Horizon A — Dispatched)
 -- ============================================================================
 -- Only transfers with status 'D' count as strict inbound per data_access.py.
 -- transfer requires: fr_inventory_id, to_inventory_id, verify_by_id (NOT NULL)
@@ -653,13 +658,13 @@ INSERT INTO public.transfer_item (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 14: EVENT PHASE NOTE (NO GLOBAL UPDATE)
+-- SECTION 15: EVENT PHASE NOTE (NO GLOBAL UPDATE)
 -- ============================================================================
 -- Safe seed does not force-update event.current_phase.
 -- Needs lists are seeded with event_phase='STABILIZED' values directly.
 
 -- ============================================================================
--- SECTION 15: NEEDS LISTS IN VARIOUS WORKFLOW STATES
+-- SECTION 16: NEEDS LISTS IN VARIOUS WORKFLOW STATES
 -- ============================================================================
 -- Uses correct column names for the Django-managed needs_list table:
 --   needs_list_no, event_phase, calculation_dtime, demand_window_hours,
@@ -925,7 +930,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 16: BURN RATE SNAPSHOTS (Historical Trending Data)
+-- SECTION 17: BURN RATE SNAPSHOTS (Historical Trending Data)
 -- ============================================================================
 -- 24 deterministic snapshots in a fixed date window for safe purge.
 
@@ -968,7 +973,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 17: WAREHOUSE SYNC LOGS (Data Freshness History)
+-- SECTION 18: WAREHOUSE SYNC LOGS (Data Freshness History)
 -- ============================================================================
 
 DO $$
@@ -998,7 +1003,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 18: SUPPLIER TEST DATA (Horizon C — Procurement)
+-- SECTION 19: SUPPLIER TEST DATA (Horizon C — Procurement)
 -- ============================================================================
 
 INSERT INTO public.supplier (
@@ -1022,7 +1027,7 @@ INSERT INTO public.supplier (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 19: LEAD TIME CONFIGURATION
+-- SECTION 20: LEAD TIME CONFIGURATION
 -- ============================================================================
 
 INSERT INTO public.lead_time_config (
@@ -1043,7 +1048,7 @@ INSERT INTO public.lead_time_config (
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- SECTION 20: TENANT-USER MAPPINGS (if tenant tables exist)
+-- SECTION 21: TENANT-USER MAPPINGS (if tenant tables exist)
 -- ============================================================================
 
 DO $$
@@ -1071,7 +1076,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 21: DATA SHARING AGREEMENTS (if tenant tables exist)
+-- SECTION 22: DATA SHARING AGREEMENTS (if tenant tables exist)
 -- ============================================================================
 
 DO $$
@@ -1092,7 +1097,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- SECTION 22: INDEXES FOR TEST DATA PERFORMANCE
+-- SECTION 23: INDEXES FOR TEST DATA PERFORMANCE
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_itembatch_tst_safe_wh ON public.itembatch(inventory_id)
@@ -1105,7 +1110,7 @@ CREATE INDEX IF NOT EXISTS idx_itembatch_tst_safe_wh ON public.itembatch(invento
 COMMIT;
 
 -- ============================================================================
--- SECTION 23: POST-EXECUTION SUMMARY & VERIFICATION
+-- SECTION 24: POST-EXECUTION SUMMARY & VERIFICATION
 -- ============================================================================
 
 DO $$
