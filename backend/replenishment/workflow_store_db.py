@@ -392,16 +392,14 @@ def create_draft(
     for item_data in items:
         inbound_strict_qty = _coerce_float(item_data.get("inbound_strict_qty"), 0.0)
         inbound_transfer_qty = item_data.get("inbound_transfer_qty")
-        if inbound_transfer_qty is None:
-            inbound_transfer_qty = inbound_strict_qty
         inbound_donation_qty = item_data.get("inbound_donation_qty")
-        if inbound_donation_qty is None:
-            inbound_donation_qty = 0.0
+        if inbound_transfer_qty is None and inbound_donation_qty is not None:
+            inbound_transfer_qty = inbound_strict_qty - _coerce_float(inbound_donation_qty, 0.0)
 
         available_qty = _coerce_float(item_data.get("available_qty"), 0.0)
         coverage_qty = item_data.get("coverage_qty")
         if coverage_qty is None:
-            coverage_qty = available_qty + _coerce_float(inbound_transfer_qty, 0.0) + _coerce_float(inbound_donation_qty, 0.0)
+            coverage_qty = available_qty + inbound_strict_qty
 
         time_to_stockout = _coerce_optional_decimal(
             item_data.get("time_to_stockout_hours", item_data.get("time_to_stockout"))
@@ -415,27 +413,33 @@ def create_draft(
         horizon_b_qty = _extract_horizon_qty(item_data, "B")
         horizon_c_qty = _extract_horizon_qty(item_data, "C")
 
+        create_kwargs = {
+            "needs_list": needs_list,
+            "item_id": item_data.get('item_id'),
+            "uom_code": item_data.get('uom_code', 'EA'),
+            "burn_rate": _coerce_decimal(burn_rate),
+            "burn_rate_source": item_data.get('burn_rate_source', 'CALCULATED'),
+            "available_stock": _coerce_decimal(available_qty),
+            "reserved_qty": _coerce_decimal(item_data.get('reserved_qty')),
+            "inbound_procurement_qty": _coerce_decimal(item_data.get('inbound_procurement_qty')),
+            "required_qty": _coerce_decimal(item_data.get('required_qty')),
+            "coverage_qty": _coerce_decimal(coverage_qty),
+            "gap_qty": _coerce_decimal(item_data.get('gap_qty')),
+            "time_to_stockout_hours": time_to_stockout,
+            "severity_level": item_data.get('severity', 'OK'),
+            "horizon_a_qty": _coerce_decimal(horizon_a_qty),
+            "horizon_b_qty": _coerce_decimal(horizon_b_qty),
+            "horizon_c_qty": _coerce_decimal(horizon_c_qty),
+            "create_by_id": actor,
+            "update_by_id": actor,
+        }
+        if inbound_transfer_qty is not None:
+            create_kwargs["inbound_transfer_qty"] = _coerce_decimal(inbound_transfer_qty)
+        if inbound_donation_qty is not None:
+            create_kwargs["inbound_donation_qty"] = _coerce_decimal(inbound_donation_qty)
+
         NeedsListItem.objects.create(
-            needs_list=needs_list,
-            item_id=item_data.get('item_id'),
-            uom_code=item_data.get('uom_code', 'EA'),
-            burn_rate=_coerce_decimal(burn_rate),
-            burn_rate_source=item_data.get('burn_rate_source', 'CALCULATED'),
-            available_stock=_coerce_decimal(available_qty),
-            reserved_qty=_coerce_decimal(item_data.get('reserved_qty')),
-            inbound_transfer_qty=_coerce_decimal(inbound_transfer_qty),
-            inbound_donation_qty=_coerce_decimal(inbound_donation_qty),
-            inbound_procurement_qty=_coerce_decimal(item_data.get('inbound_procurement_qty')),
-            required_qty=_coerce_decimal(item_data.get('required_qty')),
-            coverage_qty=_coerce_decimal(coverage_qty),
-            gap_qty=_coerce_decimal(item_data.get('gap_qty')),
-            time_to_stockout_hours=time_to_stockout,
-            severity_level=item_data.get('severity', 'OK'),
-            horizon_a_qty=_coerce_decimal(horizon_a_qty),
-            horizon_b_qty=_coerce_decimal(horizon_b_qty),
-            horizon_c_qty=_coerce_decimal(horizon_c_qty),
-            create_by_id=actor,
-            update_by_id=actor,
+            **create_kwargs,
         )
 
     # Create audit log entry

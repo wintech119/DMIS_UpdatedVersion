@@ -2187,11 +2187,65 @@ class WorkflowStoreDbSerializationTests(TestCase):
         saved_item = NeedsListItem.objects.get(needs_list_id=int(record["needs_list_id"]), item_id=9)
 
         self.assertEqual(float(saved_item.burn_rate), 2.5)
-        self.assertEqual(float(saved_item.inbound_transfer_qty), 8.0)
+        self.assertEqual(float(saved_item.inbound_transfer_qty), 0.0)
+        self.assertEqual(float(saved_item.inbound_donation_qty), 0.0)
         self.assertEqual(float(saved_item.coverage_qty), 28.0)
         self.assertEqual(float(saved_item.horizon_a_qty), 10.0)
         self.assertEqual(float(saved_item.horizon_b_qty), 20.0)
         self.assertEqual(float(saved_item.horizon_c_qty), 42.0)
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_create_draft_derives_transfer_from_strict_and_donation_when_missing(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+
+        payload = {
+            "event_id": 1,
+            "warehouse_id": 2,
+            "phase": "BASELINE",
+            "as_of_datetime": timezone.now().isoformat(),
+            "planning_window_days": 3,
+            "selected_method": "A",
+            "selected_item_keys": ["9_2"],
+        }
+        items = [
+            {
+                "item_id": 9,
+                "available_qty": 20,
+                "inbound_strict_qty": 8,
+                "inbound_donation_qty": 3,
+                "burn_rate_per_hour": 2.5,
+                "required_qty": 100,
+                "gap_qty": 72,
+                "time_to_stockout": 8,
+                "severity": "WARNING",
+                "horizon": {
+                    "A": {"recommended_qty": 10},
+                    "B": {"recommended_qty": 20},
+                    "C": {"recommended_qty": 42},
+                },
+            }
+        ]
+
+        record = workflow_store_db.create_draft(
+            payload,
+            items,
+            warnings=["cost_missing_for_approval"],
+            actor="tester",
+        )
+        saved_item = NeedsListItem.objects.get(needs_list_id=int(record["needs_list_id"]), item_id=9)
+
+        self.assertEqual(float(saved_item.inbound_transfer_qty), 5.0)
+        self.assertEqual(float(saved_item.inbound_donation_qty), 3.0)
+        self.assertEqual(float(saved_item.coverage_qty), 28.0)
 
     @patch("replenishment.workflow_store_db.data_access.get_event_names")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
