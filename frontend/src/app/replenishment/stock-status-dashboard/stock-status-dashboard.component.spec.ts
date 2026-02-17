@@ -291,4 +291,24 @@ describe('StockStatusDashboardComponent', () => {
     expect(component['currentUserRef']).toBe('EMP-123');
     expect(component.mySubmissionUpdates.map((row) => row.needs_list_id)).toEqual(['NL-1']);
   });
+
+  it('keeps fetched event context when requested event id does not match', () => {
+    component['requestedEventId'] = 777;
+    component['requestedPhase'] = 'BASELINE';
+
+    const resolved = component['resolveRequestedEventContext'](event as ActiveEvent);
+
+    expect(resolved.event_id).toBe(event.event_id);
+    expect(resolved.phase).toBe(event.phase);
+  });
+
+  it('applies requested phase when requested event id matches fetched event', () => {
+    component['requestedEventId'] = event.event_id;
+    component['requestedPhase'] = 'BASELINE';
+
+    const resolved = component['resolveRequestedEventContext'](event as ActiveEvent);
+
+    expect(resolved.event_id).toBe(event.event_id);
+    expect(resolved.phase).toBe('BASELINE');
+  });
 });
