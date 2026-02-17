@@ -2395,6 +2395,8 @@ class WorkflowStoreDbSerializationTests(TestCase):
             update_by_id="tester",
         )
 
+        # list_records normalizes API-facing status aliases via _STATUS_ALIASES,
+        # so querying SUBMITTED intentionally matches records stored as PENDING_APPROVAL.
         records = workflow_store_db.list_records(["SUBMITTED"])
 
         self.assertEqual(len(records), 2)
@@ -2404,6 +2406,9 @@ class WorkflowStoreDbSerializationTests(TestCase):
 
 
 class StockStateFileLockTests(SimpleTestCase):
+    # These are intentional white-box tests that assert internal lock helpers
+    # around stock-state persistence/loading. Refactors of private helpers may
+    # require updating this test class even if public API behavior is unchanged.
     def test_persist_snapshot_uses_exclusive_file_lock(self) -> None:
         from replenishment import views
 

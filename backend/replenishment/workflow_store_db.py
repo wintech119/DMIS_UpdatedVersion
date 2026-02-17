@@ -41,6 +41,20 @@ _STATUS_ALIASES = {
 
 _NEEDS_LIST_NO_MAX_RETRIES = 5
 _WORKFLOW_METADATA_TABLE_NAME = "needs_list_workflow_metadata"
+_IN_PROGRESS_STAGE_BY_STATUS = {
+    status: status
+    for status, mapped_status in _STATUS_ALIASES.items()
+    if mapped_status == "IN_PROGRESS"
+}
+_IN_PROGRESS_STAGE_ALIASES = {
+    "IN_PREPARATION": "IN_PREPARATION",
+    "PREPARATION": "IN_PREPARATION",
+    "PREP": "IN_PREPARATION",
+    "DISPATCHED": "DISPATCHED",
+    "DISPATCH": "DISPATCHED",
+    "RECEIVED": "RECEIVED",
+    "RECEIVE": "RECEIVED",
+}
 
 
 def _utc_now() -> datetime:
@@ -113,6 +127,13 @@ def _coerce_int(value: object, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_in_progress_stage(stage: object) -> str | None:
+    normalized = str(stage or "").strip().upper()
+    if not normalized:
+        return None
+    return _IN_PROGRESS_STAGE_ALIASES.get(normalized)
 
 
 def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> float:
@@ -501,8 +522,8 @@ def create_draft(
 
     # Calculate totals
     total_gap_qty = sum(
-        Decimal(str(item.get('gap_qty', 0)))
-        for item in items
+        (_coerce_decimal(item.get('gap_qty', 0)) for item in items),
+        Decimal("0"),
     )
 
     # Create needs list header with retry in case of concurrent needs_list_no generation.
@@ -987,6 +1008,7 @@ def transition_status(
     to_status: str,
     actor: str | None,
     reason: str | None = None,
+    stage: str | None = None,
 ) -> Dict[str, object]:
     """
     Transition needs list to a new status.
@@ -996,6 +1018,7 @@ def transition_status(
         to_status: New status code
         actor: Username of the user performing the transition
         reason: Optional reason for the transition (for rejections, cancellations)
+        stage: Optional execution sub-stage for IN_PROGRESS transitions.
 
     Returns:
         Updated record dict
@@ -1009,61 +1032,82 @@ def transition_status(
     except ObjectDoesNotExist:
         raise ValueError(f'needs_list_id {needs_list_id} not found')
 
+    target_status = str(to_status or "").upper()
+    requested_stage = _normalize_in_progress_stage(stage)
+    if target_status in _IN_PROGRESS_STAGE_BY_STATUS:
+        target_status = "IN_PROGRESS"
+        if requested_stage is None:
+            requested_stage = _normalize_in_progress_stage(to_status)
+
     metadata = _load_workflow_metadata(needs_list)
     metadata_changed = False
     old_status = needs_list.status_code
-    needs_list.status_code = to_status
+    needs_list.status_code = target_status
     needs_list.update_by_id = actor or 'SYSTEM'
     actor_value = actor or "SYSTEM"
 
     # Update workflow timestamps based on new status
     now = _utc_now()
     now_iso = now.isoformat()
-    if to_status == 'PENDING_APPROVAL':
+    if target_status == 'PENDING_APPROVAL':
         needs_list.submitted_at = now
         needs_list.submitted_by = actor
-    elif to_status == 'UNDER_REVIEW':
+    elif target_status == 'UNDER_REVIEW':
         needs_list.under_review_at = now
         needs_list.under_review_by = actor
-    elif to_status == 'APPROVED':
+    elif target_status == 'APPROVED':
         needs_list.reviewed_at = now
         needs_list.reviewed_by = actor
         needs_list.approved_at = now
         needs_list.approved_by = actor
-    elif to_status == 'REJECTED':
+    elif target_status == 'REJECTED':
         needs_list.reviewed_at = now
         needs_list.reviewed_by = actor
         needs_list.rejected_at = now
         needs_list.rejected_by = actor
         needs_list.rejection_reason = reason
-    elif to_status == 'RETURNED':
+    elif target_status == 'RETURNED':
         needs_list.reviewed_at = now
         needs_list.reviewed_by = actor
         needs_list.returned_at = now
         needs_list.returned_by = actor
         needs_list.returned_reason = reason
-    elif to_status == 'CANCELLED':
+    elif target_status == 'CANCELLED':
         needs_list.cancelled_at = now
         needs_list.cancelled_by = actor
         needs_list.rejection_reason = reason  # Reuse rejection_reason field
 
-    if to_status == "IN_PROGRESS":
-        if old_status == "APPROVED" or not metadata.get("prep_started_at"):
+    if target_status == "IN_PROGRESS":
+        if requested_stage is None:
+            raise ValueError("IN_PROGRESS transitions require an explicit stage.")
+
+        if requested_stage == "IN_PREPARATION":
+            if old_status != "APPROVED":
+                raise ValueError("Preparation can only start from APPROVED status.")
+            if metadata.get("prep_started_at"):
+                raise ValueError("Preparation already started.")
+            metadata["prep_started_at"] = now_iso
+            metadata["prep_started_by"] = actor_value
+            metadata_changed = True
+        elif requested_stage == "DISPATCHED":
             if not metadata.get("prep_started_at"):
-                metadata["prep_started_at"] = now_iso
-                metadata_changed = True
-            if not metadata.get("prep_started_by"):
-                metadata["prep_started_by"] = actor_value
-                metadata_changed = True
-        elif not metadata.get("dispatched_at"):
+                raise ValueError("Dispatched stage requires preparation to be started first.")
+            if metadata.get("dispatched_at"):
+                raise ValueError("Needs list already dispatched.")
             metadata["dispatched_at"] = now_iso
             metadata["dispatched_by"] = actor_value
             metadata_changed = True
-        elif not metadata.get("received_at"):
+        elif requested_stage == "RECEIVED":
+            if not metadata.get("dispatched_at"):
+                raise ValueError("Received stage requires dispatch to be completed first.")
+            if metadata.get("received_at"):
+                raise ValueError("Needs list already received.")
             metadata["received_at"] = now_iso
             metadata["received_by"] = actor_value
             metadata_changed = True
-    elif to_status == "FULFILLED":
+        else:
+            raise ValueError(f"Unsupported IN_PROGRESS stage: {requested_stage}")
+    elif target_status == "FULFILLED":
         if not metadata.get("completed_at"):
             metadata["completed_at"] = now_iso
             metadata_changed = True
@@ -1082,9 +1126,9 @@ def transition_status(
         action_type='STATUS_CHANGED',
         field_name='status_code',
         old_value=old_status,
-        new_value=to_status,
+        new_value=target_status,
         reason_code=reason if reason else None,
-        notes_text=f"Status changed from {old_status} to {to_status}",
+        notes_text=f"Status changed from {old_status} to {target_status}",
         actor_user_id=actor or 'SYSTEM',
     )
 

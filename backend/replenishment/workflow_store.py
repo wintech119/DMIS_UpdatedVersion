@@ -244,6 +244,7 @@ def transition_status(
     to_status: str,
     actor: str | None,
     reason: str | None = None,
+    stage: str | None = None,
 ) -> Dict[str, object]:
     now = _utc_now()
     record["status"] = to_status
