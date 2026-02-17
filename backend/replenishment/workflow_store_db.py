@@ -111,6 +111,58 @@ def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) -> None:
+    needs_list.notes_text = json.dumps(metadata)
+
+
+def _execution_stage_fields(
+    needs_list: NeedsList,
+    metadata: Dict[str, object],
+) -> Dict[str, object]:
+    fields = {
+        "prep_started_by": metadata.get("prep_started_by"),
+        "prep_started_at": metadata.get("prep_started_at"),
+        "dispatched_by": metadata.get("dispatched_by"),
+        "dispatched_at": metadata.get("dispatched_at"),
+        "received_by": metadata.get("received_by"),
+        "received_at": metadata.get("received_at"),
+        "completed_by": metadata.get("completed_by"),
+        "completed_at": metadata.get("completed_at"),
+    }
+
+    # Backfill from audit history only for legacy rows that have no persisted
+    # execution stage metadata at all.
+    if any(
+        fields.get(key)
+        for key in ("prep_started_at", "dispatched_at", "received_at", "completed_at")
+    ):
+        return fields
+
+    status_audits = needs_list.audit_logs.filter(
+        action_type="STATUS_CHANGED",
+        field_name="status_code",
+    ).order_by("action_dtime")
+    for audit in status_audits:
+        new_value = str(audit.new_value or "").upper()
+        actor = audit.actor_user_id
+        action_at = audit.action_dtime.isoformat()
+        if new_value == "IN_PROGRESS":
+            if not fields.get("prep_started_at"):
+                fields["prep_started_at"] = action_at
+                fields["prep_started_by"] = fields.get("prep_started_by") or actor
+            elif not fields.get("dispatched_at"):
+                fields["dispatched_at"] = action_at
+                fields["dispatched_by"] = fields.get("dispatched_by") or actor
+            elif not fields.get("received_at"):
+                fields["received_at"] = action_at
+                fields["received_by"] = fields.get("received_by") or actor
+        elif new_value == "FULFILLED" and not fields.get("completed_at"):
+            fields["completed_at"] = action_at
+            fields["completed_by"] = fields.get("completed_by") or actor
+
+    return fields
+
+
 def _normalize_snapshot_item(
     item_data: Dict[str, object],
     *,
@@ -442,6 +494,8 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
     """
     try:
         needs_list = NeedsList.objects.get(needs_list_id=int(needs_list_id))
+        metadata = _load_workflow_metadata(needs_list)
+        metadata_changed = False
 
         # Update fields from record
         if 'status' in record:
@@ -478,6 +532,26 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
             needs_list.cancelled_at = record['cancelled_at']
             needs_list.cancelled_by = record.get('cancelled_by')
             needs_list.rejection_reason = record.get('cancel_reason')
+
+        stage_keys = (
+            "prep_started_by",
+            "prep_started_at",
+            "dispatched_by",
+            "dispatched_at",
+            "received_by",
+            "received_at",
+            "completed_by",
+            "completed_at",
+        )
+        for key in stage_keys:
+            if key in record:
+                value = record.get(key)
+                if value:
+                    metadata[key] = value
+                    metadata_changed = True
+
+        if metadata_changed:
+            _save_workflow_metadata(needs_list, metadata)
 
         needs_list.save()
 
@@ -727,12 +801,16 @@ def transition_status(
     except ObjectDoesNotExist:
         raise ValueError(f'needs_list_id {needs_list_id} not found')
 
+    metadata = _load_workflow_metadata(needs_list)
+    metadata_changed = False
     old_status = needs_list.status_code
     needs_list.status_code = to_status
     needs_list.update_by_id = actor or 'SYSTEM'
+    actor_value = actor or "SYSTEM"
 
     # Update workflow timestamps based on new status
     now = _utc_now()
+    now_iso = now.isoformat()
     if to_status == 'PENDING_APPROVAL':
         needs_list.submitted_at = now
         needs_list.submitted_by = actor
@@ -760,6 +838,33 @@ def transition_status(
         needs_list.cancelled_at = now
         needs_list.cancelled_by = actor
         needs_list.rejection_reason = reason  # Reuse rejection_reason field
+
+    if to_status == "IN_PROGRESS":
+        if old_status == "APPROVED" or not metadata.get("prep_started_at"):
+            if not metadata.get("prep_started_at"):
+                metadata["prep_started_at"] = now_iso
+                metadata_changed = True
+            if not metadata.get("prep_started_by"):
+                metadata["prep_started_by"] = actor_value
+                metadata_changed = True
+        elif not metadata.get("dispatched_at"):
+            metadata["dispatched_at"] = now_iso
+            metadata["dispatched_by"] = actor_value
+            metadata_changed = True
+        elif not metadata.get("received_at"):
+            metadata["received_at"] = now_iso
+            metadata["received_by"] = actor_value
+            metadata_changed = True
+    elif to_status == "FULFILLED":
+        if not metadata.get("completed_at"):
+            metadata["completed_at"] = now_iso
+            metadata_changed = True
+        if not metadata.get("completed_by"):
+            metadata["completed_by"] = actor_value
+            metadata_changed = True
+
+    if metadata_changed:
+        _save_workflow_metadata(needs_list, metadata)
 
     needs_list.save()
 
@@ -820,6 +925,7 @@ def _needs_list_to_dict(
             warnings = [str(w).strip() for w in raw_warnings if str(w).strip()]
         else:
             warnings = []
+    stage_fields = _execution_stage_fields(needs_list, metadata)
 
     warehouse_name = data_access.get_warehouse_name(needs_list.warehouse_id)
     event_name = data_access.get_event_name(needs_list.event_id)
@@ -945,14 +1051,14 @@ def _needs_list_to_dict(
         'approved_at': needs_list.approved_at.isoformat() if needs_list.approved_at else None,
         'approval_tier': None,  # TODO: Add to model if needed
         'approval_rationale': None,
-        'prep_started_by': None,  # TODO: Add workflow stages to model
-        'prep_started_at': None,
-        'dispatched_by': None,
-        'dispatched_at': None,
-        'received_by': None,
-        'received_at': None,
-        'completed_by': None,
-        'completed_at': None,
+        'prep_started_by': stage_fields.get("prep_started_by"),
+        'prep_started_at': stage_fields.get("prep_started_at"),
+        'dispatched_by': stage_fields.get("dispatched_by"),
+        'dispatched_at': stage_fields.get("dispatched_at"),
+        'received_by': stage_fields.get("received_by"),
+        'received_at': stage_fields.get("received_at"),
+        'completed_by': stage_fields.get("completed_by"),
+        'completed_at': stage_fields.get("completed_at"),
         'cancelled_by': needs_list.cancelled_by if needs_list.status_code == 'CANCELLED' else None,
         'cancelled_at': needs_list.cancelled_at.isoformat() if needs_list.status_code == 'CANCELLED' and needs_list.cancelled_at else None,
         'cancel_reason': needs_list.rejection_reason if needs_list.status_code == 'CANCELLED' else None,

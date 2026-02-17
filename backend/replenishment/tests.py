@@ -1700,6 +1700,124 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    def test_db_mode_enforces_execution_stage_sequence(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch("replenishment.views._use_db_workflow_store", return_value=True):
+            with patch(
+                "replenishment.workflow_store_db.data_access.get_item_names",
+                return_value=({1: {"name": "WATER BOTTLE", "code": "WB-01"}}, []),
+            ), patch(
+                "replenishment.workflow_store_db.data_access.get_warehouse_name",
+                return_value="Kingston Central Warehouse",
+            ), patch(
+                "replenishment.workflow_store_db.data_access.get_event_name",
+                return_value="Hurricane Test Event",
+            ):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                needs_list_id = draft["needs_list_id"]
+                self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+                with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
+                    approve = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(approve.status_code, 200)
+
+                with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="executor"):
+                    prep = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/start-preparation",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(prep.status_code, 200)
+                    self.assertEqual(prep.json().get("status"), "IN_PROGRESS")
+                    self.assertIsNotNone(prep.json().get("prep_started_at"))
+
+                    premature_received = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(premature_received.status_code, 409)
+
+                    premature_completed = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(premature_completed.status_code, 409)
+
+                    dispatched = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(dispatched.status_code, 200)
+                    self.assertIsNotNone(dispatched.json().get("dispatched_at"))
+
+                    dispatch_again = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(dispatch_again.status_code, 409)
+
+                    received = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(received.status_code, 200)
+                    self.assertIsNotNone(received.json().get("received_at"))
+
+                    completed = self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
+                        {},
+                        format="json",
+                    )
+                    self.assertEqual(completed.status_code, 200)
+                    self.assertEqual(completed.json().get("status"), "FULFILLED")
+                    self.assertIsNotNone(completed.json().get("completed_at"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
     def test_execution_denied_before_approved(
         self,
         mock_available,
