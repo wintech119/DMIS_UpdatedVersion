@@ -298,6 +298,12 @@ BEGIN
     SELECT id INTO v_role_dg FROM public.role WHERE code = 'TST_DG';
     SELECT id INTO v_role_readonly FROM public.role WHERE code = 'TST_READONLY';
 
+    IF v_role_logistics_mgr IS NULL OR v_role_logistics_officer IS NULL
+       OR v_role_dir_peod IS NULL OR v_role_dg IS NULL
+       OR v_role_readonly IS NULL THEN
+        RAISE EXCEPTION 'One or more TST_* roles not found. Run Section 5 first. Seed aborted.';
+    END IF;
+
     INSERT INTO public.user_role (user_id, role_id) VALUES
         (95001, v_role_logistics_mgr),
         (95002, v_role_dir_peod),
