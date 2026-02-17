@@ -1221,6 +1221,21 @@ mat-chip-option {
   &.badge-ok {
     background-color: #218838; // Darker green for better contrast
   }
+
+  &.badge-approved {
+    background-color: #218838; // Darker green for better contrast
+    color: #fff;
+  }
+
+  &.badge-returned {
+    background-color: #e8590c; // Darker orange for better contrast
+    color: #fff;
+  }
+
+  &.badge-rejected {
+    background-color: #c82333; // Darker red for better contrast
+    color: #fff;
+  }
 }
 
 // Stat chip improvements
