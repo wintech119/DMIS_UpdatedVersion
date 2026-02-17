@@ -1784,6 +1784,12 @@ def needs_list_cancel(request, needs_list_id: str):
     if not _status_matches(record.get("status"), "APPROVED", "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Cancel not allowed in current state."}}, status=409)
 
+    if any(record.get(field) for field in ("dispatched_at", "received_at", "completed_at")):
+        return Response(
+            {"errors": {"status": "Cancel not allowed after dispatch/receipt/completion."}},
+            status=409,
+        )
+
     reason = (request.data or {}).get("reason")
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)

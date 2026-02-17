@@ -246,6 +246,7 @@ def transition_status(
     reason: str | None = None,
     stage: str | None = None,
 ) -> Dict[str, object]:
+    _ = stage  # Signature is shared with DB-backed store; stage is ignored here.
     now = _utc_now()
     record["status"] = to_status
     record["updated_by"] = actor
