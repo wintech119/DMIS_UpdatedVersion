@@ -121,9 +121,7 @@
 
   @if (myNeedsListSummaries.length > 0) {
     <app-my-drafts-submissions-panel
-      [submissions]="myNeedsListSummaries"
-      (refresh)="refreshMyNeedsListSummary($event)"
-      (openAction)="openMyNeedsListAction($event)">
+      [submissions]="myNeedsListSummaries">
     </app-my-drafts-submissions-panel>
   }
 
