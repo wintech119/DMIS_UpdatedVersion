@@ -4,7 +4,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { forkJoin, fromEvent, interval, of, Subscription } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -12,6 +13,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NeedsListFulfillmentLine, NeedsListResponse } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
+import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 
 @Component({
   selector: 'app-needs-list-fulfillment-tracker',
@@ -22,7 +25,10 @@ import { DmisNotificationService } from '../services/notification.service';
     MatButtonModule,
     MatCardModule,
     MatIconModule,
-    MatProgressSpinnerModule
+    MatProgressBarModule,
+    MatTooltipModule,
+    DmisEmptyStateComponent,
+    DmisSkeletonLoaderComponent
   ],
   templateUrl: './needs-list-fulfillment-tracker.component.html',
   styleUrl: './needs-list-fulfillment-tracker.component.scss',
@@ -65,6 +71,64 @@ export class NeedsListFulfillmentTrackerComponent {
         return 'Fulfillment Tracker';
     }
   });
+
+  readonly pageSubtitle = computed(() => {
+    switch (this.mode()) {
+      case 'history':
+        return 'Completed fulfillment record';
+      case 'superseded':
+        return 'This needs list has been replaced by a newer version';
+      default:
+        return 'Track fulfillment progress and sources';
+    }
+  });
+
+  readonly statusLabel = computed(() => {
+    const status = this.needsList()?.status;
+    return status ? status.replace(/_/g, ' ') : '';
+  });
+
+  readonly totalCoverage = computed(() => {
+    const allLines = this.lines();
+    if (!allLines.length) return 0;
+    const totalOriginal = allLines.reduce((sum, l) => sum + (l.original_qty || 0), 0);
+    const totalCovered = allLines.reduce((sum, l) => sum + (l.covered_qty || 0), 0);
+    if (!totalOriginal) return 0;
+    return Number(((totalCovered / totalOriginal) * 100).toFixed(1));
+  });
+
+  getHorizonLabel(horizon: string): string {
+    switch (horizon) {
+      case 'A': return 'Transfer';
+      case 'B': return 'Donation';
+      case 'C': return 'Procurement';
+      default: return horizon;
+    }
+  }
+
+  getHorizonIcon(horizon: string): string {
+    switch (horizon) {
+      case 'A': return 'local_shipping';
+      case 'B': return 'volunteer_activism';
+      case 'C': return 'shopping_cart';
+      default: return 'help';
+    }
+  }
+
+  getSourceTypeLabel(type: string): string {
+    switch (type) {
+      case 'TRANSFER': return 'Transfer';
+      case 'DONATION': return 'Donation';
+      case 'PROCUREMENT': return 'Procurement';
+      case 'NEEDS_LIST_LINE': return 'Line Item';
+      default: return type || 'N/A';
+    }
+  }
+
+  getCoveragePercent(line: NeedsListFulfillmentLine): number {
+    if (!line.original_qty) return 0;
+    return Number(((line.covered_qty / line.original_qty) * 100).toFixed(1));
+  }
 
   constructor() {
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
