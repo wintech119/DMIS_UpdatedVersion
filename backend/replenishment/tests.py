@@ -1639,6 +1639,73 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    def test_new_draft_does_not_supersede_under_review_records(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            first_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            first_id = first_draft["needs_list_id"]
+
+            under_review_record = workflow_store.get_record(first_id)
+            self.assertIsNotNone(under_review_record)
+            under_review_record = dict(under_review_record or {})
+            under_review_record["status"] = "UNDER_REVIEW"
+            under_review_record["review_started_by"] = "approver"
+            under_review_record["review_started_at"] = timezone.now().isoformat()
+            workflow_store.update_record(first_id, under_review_record)
+
+            second_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+            self.assertEqual(second_draft.status_code, 200)
+            second_body = second_draft.json()
+
+            first_after = self.client.get(f"/api/v1/replenishment/needs-list/{first_id}")
+            self.assertEqual(first_after.status_code, 200)
+
+            queue = self.client.get(
+                "/api/v1/replenishment/needs-list/?status=UNDER_REVIEW"
+            )
+
+        self.assertEqual(first_after.json().get("status"), "UNDER_REVIEW")
+        self.assertNotIn(first_id, second_body.get("supersedes_needs_list_ids", []))
+        queue_ids = [row.get("needs_list_id") for row in queue.json().get("needs_lists", [])]
+        self.assertIn(first_id, queue_ids)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
     def test_rbac_denies_unauthorized_approve(
         self,
         mock_available,
@@ -2847,6 +2914,78 @@ class WorkflowStoreDbSerializationTests(TestCase):
             older_record.get("supersede_reason"),
             "Replaced by newer draft calculation.",
         )
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_create_draft_does_not_supersede_under_review_records(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+
+        older = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-002",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="UNDER_REVIEW",
+            total_gap_qty=100,
+            create_by_id="tester",
+            update_by_id="approver",
+            submitted_by="tester",
+            submitted_at=timezone.now(),
+            under_review_by="approver",
+            under_review_at=timezone.now(),
+        )
+
+        payload = {
+            "event_id": 1,
+            "warehouse_id": 2,
+            "phase": "BASELINE",
+            "as_of_datetime": timezone.now().isoformat(),
+            "planning_window_days": 3,
+            "selected_method": "A",
+            "selected_item_keys": ["9_2"],
+        }
+        items = [
+            {
+                "item_id": 9,
+                "available_qty": 20,
+                "inbound_strict_qty": 8,
+                "burn_rate_per_hour": 2.5,
+                "required_qty": 100,
+                "gap_qty": 72,
+                "time_to_stockout": 8,
+                "severity": "WARNING",
+                "horizon": {
+                    "A": {"recommended_qty": 10},
+                    "B": {"recommended_qty": 20},
+                    "C": {"recommended_qty": 42},
+                },
+            }
+        ]
+
+        record = workflow_store_db.create_draft(
+            payload,
+            items,
+            warnings=[],
+            actor="tester",
+        )
+
+        older.refresh_from_db()
+        self.assertEqual(older.status_code, "UNDER_REVIEW")
+        self.assertIsNone(older.superseded_by_id)
+        self.assertNotIn(str(older.needs_list_id), record.get("supersedes_needs_list_ids", []))
 
     @patch("replenishment.workflow_store_db.data_access.get_event_names")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
