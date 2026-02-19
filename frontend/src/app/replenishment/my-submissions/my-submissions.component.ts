@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { EMPTY, Subject } from 'rxjs';
+import { catchError, switchMap, tap } from 'rxjs/operators';
 
 import { NeedsListSummary, NeedsListSummaryStatus } from '../models/needs-list.model';
 import {
@@ -41,6 +44,8 @@ export class MySubmissionsComponent {
   private readonly notifications = inject(DmisNotificationService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly loadRequests = new Subject<void>();
 
   readonly loading = signal(false);
   readonly error = signal(false);
@@ -76,54 +81,50 @@ export class MySubmissionsComponent {
     if (statusParam) {
       this.statusFilter.set(statusParam);
     }
+    this.loadRequests.pipe(
+      tap(() => {
+        this.loading.set(true);
+        this.error.set(false);
+      }),
+      switchMap(() =>
+        this.replenishmentService.getMySubmissions(this.buildQueryParams()).pipe(
+          catchError(() => {
+            this.loading.set(false);
+            this.error.set(true);
+            this.submissions.set([]);
+            this.totalCount.set(0);
+            this.selectedDraftIds.set(new Set<string>());
+            this.notifications.showError('Failed to load your submissions.');
+            return EMPTY;
+          })
+        )
+      ),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((response) => {
+      this.submissions.set(response.results || []);
+      this.totalCount.set(response.count || 0);
+      this.mergeEventOptions(response.results || []);
+      this.loading.set(false);
+
+      const allowedOnPage = new Set(
+        (response.results || [])
+          .filter((row) => this.canBatchSelect(row.status))
+          .map((row) => row.id)
+      );
+      const nextSelection = new Set<string>();
+      for (const id of this.selectedDraftIds()) {
+        if (allowedOnPage.has(id)) {
+          nextSelection.add(id);
+        }
+      }
+      this.selectedDraftIds.set(nextSelection);
+    });
     this.loadWarehouseOptions();
     this.loadSubmissions();
   }
 
   loadSubmissions(): void {
-    this.loading.set(true);
-    this.error.set(false);
-    const params: MySubmissionsQueryParams = {
-      status: this.statusFilter() === 'ALL' ? undefined : this.statusFilter(),
-      warehouse_id: this.warehouseFilter() ?? undefined,
-      event_id: this.eventFilter() ?? undefined,
-      date_from: this.dateFromFilter() || undefined,
-      date_to: this.dateToFilter() || undefined,
-      sort_by: this.sortBy(),
-      sort_order: this.sortOrder(),
-      page: this.pageIndex() + 1,
-      page_size: this.pageSize()
-    };
-
-    this.replenishmentService.getMySubmissions(params).subscribe({
-      next: (response) => {
-        this.submissions.set(response.results || []);
-        this.totalCount.set(response.count || 0);
-        this.mergeEventOptions(response.results || []);
-        this.loading.set(false);
-
-        const allowedOnPage = new Set(
-          (response.results || [])
-            .filter((row) => this.canBatchSelect(row.status))
-            .map((row) => row.id)
-        );
-        const nextSelection = new Set<string>();
-        for (const id of this.selectedDraftIds()) {
-          if (allowedOnPage.has(id)) {
-            nextSelection.add(id);
-          }
-        }
-        this.selectedDraftIds.set(nextSelection);
-      },
-      error: () => {
-        this.loading.set(false);
-        this.error.set(true);
-        this.submissions.set([]);
-        this.totalCount.set(0);
-        this.selectedDraftIds.set(new Set<string>());
-        this.notifications.showError('Failed to load your submissions.');
-      }
-    });
+    this.loadRequests.next();
   }
 
   refreshSubmission(_id: string): void {
@@ -273,6 +274,20 @@ export class MySubmissionsComponent {
   private resetPageAndReload(): void {
     this.pageIndex.set(0);
     this.loadSubmissions();
+  }
+
+  private buildQueryParams(): MySubmissionsQueryParams {
+    return {
+      status: this.statusFilter() === 'ALL' ? undefined : this.statusFilter(),
+      warehouse_id: this.warehouseFilter() ?? undefined,
+      event_id: this.eventFilter() ?? undefined,
+      date_from: this.dateFromFilter() || undefined,
+      date_to: this.dateToFilter() || undefined,
+      sort_by: this.sortBy(),
+      sort_order: this.sortOrder(),
+      page: this.pageIndex() + 1,
+      page_size: this.pageSize()
+    };
   }
 
   private loadWarehouseOptions(): void {
