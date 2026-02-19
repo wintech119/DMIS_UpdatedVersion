@@ -36,6 +36,24 @@ def _normalize_actor(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _normalize_warehouse_ids(value: object) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set)):
+        candidates = value
+    else:
+        candidates = [value]
+
+    return sorted(
+        {
+            normalized
+            for candidate in candidates
+            if (normalized := str(candidate).strip())
+        }
+    )
+
+
 def _record_owned_by_actor(record: Dict[str, object], actor: str | None) -> bool:
     normalized_actor = _normalize_actor(actor)
     if not normalized_actor:
@@ -164,6 +182,7 @@ def create_draft(
     with STORE_LOCK:
         store = _load_store()
         needs_lists = store.setdefault("needs_lists", {})
+        requested_warehouse_ids = _normalize_warehouse_ids(payload.get("warehouse_ids"))
 
         superseded_ids: list[str] = []
         for existing_id, existing_record in needs_lists.items():
@@ -175,6 +194,8 @@ def create_draft(
             if existing_record.get("event_id") != payload.get("event_id"):
                 continue
             if existing_record.get("warehouse_id") != payload.get("warehouse_id"):
+                continue
+            if _normalize_warehouse_ids(existing_record.get("warehouse_ids")) != requested_warehouse_ids:
                 continue
             existing_phase = str(existing_record.get("phase") or "").strip().upper()
             requested_phase = str(payload.get("phase") or "").strip().upper()
