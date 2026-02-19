@@ -184,10 +184,51 @@ export class NeedsListWizardComponent implements OnInit {
         this.hydratedNeedsListId = needsListId;
         this.hydrateWizardStateFromNeedsList(record, needsListId);
       },
-      error: () => {
+      error: (error: unknown) => {
         this.hydratedNeedsListId = null;
+        this.notificationService.showError(this.extractNeedsListLoadErrorMessage(error));
       }
     });
+  }
+
+  private extractNeedsListLoadErrorMessage(error: unknown): string {
+    const fallback = 'Failed to load needs list.';
+    const maybeHttpError = error as {
+      error?: { errors?: Record<string, unknown>; detail?: unknown; message?: unknown };
+      message?: unknown;
+    };
+
+    const errorMap = maybeHttpError?.error?.errors;
+    if (errorMap && typeof errorMap === 'object') {
+      const firstValue = Object.values(errorMap)[0];
+      if (typeof firstValue === 'string' && firstValue.trim()) {
+        return `${fallback} ${firstValue.trim()}`;
+      }
+      if (Array.isArray(firstValue) && firstValue.length > 0) {
+        const firstItem = firstValue[0];
+        if (typeof firstItem === 'string' && firstItem.trim()) {
+          return `${fallback} ${firstItem.trim()}`;
+        }
+      }
+    }
+
+    const detail = maybeHttpError?.error?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      return `${fallback} ${detail.trim()}`;
+    }
+
+    const apiMessage = maybeHttpError?.error?.message;
+    if (typeof apiMessage === 'string' && apiMessage.trim()) {
+      return `${fallback} ${apiMessage.trim()}`;
+    }
+
+    if (error instanceof Error && error.message) {
+      return `${fallback} ${error.message}`;
+    }
+    if (typeof maybeHttpError?.message === 'string' && maybeHttpError.message.trim()) {
+      return `${fallback} ${maybeHttpError.message.trim()}`;
+    }
+    return fallback;
   }
 
   private hydrateWizardStateFromNeedsList(record: NeedsListResponse, needsListId: string): void {
