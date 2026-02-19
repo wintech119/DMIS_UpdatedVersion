@@ -827,12 +827,30 @@ def _item_is_fulfilled(item: Dict[str, Any], list_status: str) -> bool:
     if fulfillment_status in {"FULFILLED", "RECEIVED"}:
         return True
 
-    gap_qty = max(_to_float_or_none(item.get("gap_qty")) or 0.0, 0.0)
-    if gap_qty <= 0:
+    target_qty = _effective_line_target_qty(item)
+    if target_qty <= 0:
         return True
 
     fulfilled_qty = max(_to_float_or_none(item.get("fulfilled_qty")) or 0.0, 0.0)
-    return fulfilled_qty >= gap_qty
+    return fulfilled_qty >= target_qty
+
+
+def _effective_line_target_qty(item: Dict[str, Any]) -> float:
+    """
+    Return the effective requested quantity for fulfillment math.
+
+    When overrides are applied, required_qty is updated while gap_qty remains
+    the original computed shortage. Prefer required_qty so tracker/history math
+    reflects what was actually submitted.
+    """
+    required_qty = _to_float_or_none(item.get("required_qty"))
+    if required_qty is not None:
+        return max(required_qty, 0.0)
+
+    # Fallback to historical behavior for records without required_qty.
+    gap_qty = max(_to_float_or_none(item.get("gap_qty")) or 0.0, 0.0)
+    fulfilled_qty = max(_to_float_or_none(item.get("fulfilled_qty")) or 0.0, 0.0)
+    return max(gap_qty + fulfilled_qty, 0.0)
 
 
 def _horizon_item_qty(item: Dict[str, Any], horizon_key: str) -> float:
@@ -899,8 +917,7 @@ def _build_external_update_summary(
         if fulfilled_qty <= 0:
             continue
 
-        gap_qty = max(_to_float_or_none(item.get("gap_qty")) or 0.0, 0.0)
-        original_qty = gap_qty + fulfilled_qty
+        original_qty = _effective_line_target_qty(item)
         if original_qty <= 0:
             continue
 
@@ -1287,9 +1304,9 @@ def needs_list_fulfillment_sources(request, needs_list_id: str):
             continue
 
         item_id = _to_int_or_none(raw_item.get("item_id"))
-        gap_qty = max(_to_float_or_none(raw_item.get("gap_qty")) or 0.0, 0.0)
+        target_qty = _effective_line_target_qty(raw_item)
         fulfilled_qty = max(_to_float_or_none(raw_item.get("fulfilled_qty")) or 0.0, 0.0)
-        original_qty = round(gap_qty + fulfilled_qty, 2)
+        original_qty = round(target_qty, 2)
         remaining_qty = 0.0 if _item_is_fulfilled(raw_item, list_status) else round(max(original_qty - fulfilled_qty, 0.0), 2)
 
         donation_qty = max(_to_float_or_none(raw_item.get("inbound_donation_qty")) or 0.0, 0.0)
