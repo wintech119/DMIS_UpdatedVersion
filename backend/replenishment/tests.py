@@ -1405,36 +1405,37 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_fallback.return_value = ({}, [], {})
         mock_categories.return_value = ({1: 10}, [])
 
-        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
-            draft_one = self.client.post(
-                "/api/v1/replenishment/needs-list/draft",
-                self._draft_payload(),
-                format="json",
-            ).json()
+        with patch("replenishment.views.logger.info") as mock_logger_info:
+            with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+                draft_one = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
 
-            submit_response = self.client.post(
-                "/api/v1/replenishment/needs-list/bulk-submit/",
-                {"ids": [draft_one["needs_list_id"]]},
-                format="json",
-            )
+                submit_response = self.client.post(
+                    "/api/v1/replenishment/needs-list/bulk-submit/",
+                    {"ids": [draft_one["needs_list_id"]]},
+                    format="json",
+                )
 
-            draft_two = self.client.post(
-                "/api/v1/replenishment/needs-list/draft",
-                self._draft_payload(),
-                format="json",
-            ).json()
+                draft_two = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
 
-            delete_response = self.client.post(
-                "/api/v1/replenishment/needs-list/bulk-delete/",
-                {"ids": [draft_two["needs_list_id"]], "reason": "Cleanup"},
-                format="json",
-            )
-            version_response = self.client.get(
-                f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/summary-version"
-            )
-            sources_response = self.client.get(
-                f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/fulfillment-sources"
-            )
+                delete_response = self.client.post(
+                    "/api/v1/replenishment/needs-list/bulk-delete/",
+                    {"ids": [draft_two["needs_list_id"]], "reason": "Cleanup"},
+                    format="json",
+                )
+                version_response = self.client.get(
+                    f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/summary-version"
+                )
+                sources_response = self.client.get(
+                    f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/fulfillment-sources"
+                )
 
         self.assertEqual(submit_response.status_code, 200)
         self.assertEqual(delete_response.status_code, 200)
@@ -1444,6 +1445,21 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(delete_response.json().get("count"), 1)
         self.assertIn("data_version", version_response.json())
         self.assertIn("lines", sources_response.json())
+        submitted_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "needs_list_submitted"
+        ]
+        cancelled_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "needs_list_cancelled"
+        ]
+        self.assertGreaterEqual(len(submitted_logs), 1)
+        self.assertGreaterEqual(len(cancelled_logs), 1)
+        self.assertEqual(submitted_logs[0].get("event_type"), "STATE_CHANGE")
+        self.assertEqual(cancelled_logs[0].get("event_type"), "STATE_CHANGE")
+        self.assertEqual(cancelled_logs[0].get("reason"), "Cleanup")
 
     @override_settings(
         AUTH_ENABLED=False,
