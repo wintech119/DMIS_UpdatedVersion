@@ -790,6 +790,35 @@ def _normalize_status_for_ui(status: object) -> str:
     return normalized
 
 
+def _expand_submission_status_filters(
+    statuses: list[str] | None,
+) -> tuple[list[str] | None, set[str] | None]:
+    if not statuses:
+        return None, None
+
+    store_filters: set[str] = set()
+    ui_filters: set[str] = set()
+    for status in statuses:
+        raw = str(status or "").strip().upper()
+        if not raw:
+            continue
+
+        ui = _normalize_status_for_ui(raw)
+        ui_filters.add(ui)
+
+        if ui == "PENDING_APPROVAL":
+            store_filters.update({"PENDING_APPROVAL", "SUBMITTED", "PENDING", "UNDER_REVIEW"})
+        elif ui == "IN_PROGRESS":
+            store_filters.update({"IN_PROGRESS", "IN_PREPARATION", "DISPATCHED", "RECEIVED"})
+        elif ui == "FULFILLED":
+            store_filters.update({"FULFILLED", "COMPLETED"})
+        else:
+            store_filters.add(raw)
+            store_filters.add(ui)
+
+    return (sorted(store_filters) if store_filters else None), (ui_filters or None)
+
+
 def _item_is_fulfilled(item: Dict[str, Any], list_status: str) -> bool:
     if list_status in {"FULFILLED", "COMPLETED"}:
         return True
@@ -1132,7 +1161,10 @@ def needs_list_my_submissions(request):
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
     status_param = request.query_params.get("status")
-    statuses = [s.strip() for s in str(status_param or "").split(",") if s.strip()] or None
+    requested_statuses = [s.strip() for s in str(status_param or "").split(",") if s.strip()] or None
+    store_status_filters, ui_status_filters = _expand_submission_status_filters(
+        requested_statuses
+    )
     event_id_filter = _to_int_or_none(request.query_params.get("event_id"))
     warehouse_id_filter = _to_int_or_none(request.query_params.get("warehouse_id"))
     date_from_raw = request.query_params.get("date_from")
@@ -1154,7 +1186,7 @@ def needs_list_my_submissions(request):
     if sort_order not in {"asc", "desc"}:
         return Response({"errors": {"sort_order": "Must be asc or desc."}}, status=400)
 
-    records = workflow_store.list_records(statuses)
+    records = workflow_store.list_records(store_status_filters)
     summaries: list[Dict[str, Any]] = []
     for record in records:
         if not any(
@@ -1170,6 +1202,9 @@ def needs_list_my_submissions(request):
 
         serialized = _serialize_workflow_record(record, include_overrides=True)
         summary = _serialize_submission_summary(serialized)
+        summary_status = str(summary.get("status") or "").strip().upper()
+        if ui_status_filters and summary_status not in ui_status_filters:
+            continue
 
         if event_id_filter is not None and summary.get("event", {}).get("id") != event_id_filter:
             continue
