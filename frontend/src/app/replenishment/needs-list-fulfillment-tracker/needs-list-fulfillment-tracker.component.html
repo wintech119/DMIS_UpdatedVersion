@@ -1,113 +1,233 @@
 <div class="tracker-page">
+  <!-- Page Header -->
   <div class="page-header">
-    <button mat-icon-button type="button" aria-label="Back to my submissions" (click)="backToSubmissions()">
+    <button mat-icon-button class="back-btn" type="button" aria-label="Back to my submissions" (click)="backToSubmissions()">
       <mat-icon>arrow_back</mat-icon>
     </button>
-    <div class="header-copy">
+    <div class="header-text">
       <h1>{{ pageTitle() }}</h1>
-      <p>@if (needsList(); as list) { {{ list.needs_list_no ?? list.needs_list_id }} }</p>
+      <p class="subtitle">
+        @if (needsList(); as list) {
+          {{ list.needs_list_no ?? list.needs_list_id }}
+          <span class="separator">-</span>
+        }
+        {{ pageSubtitle() }}
+      </p>
     </div>
-    <button mat-stroked-button type="button" (click)="refreshData()">
-      <mat-icon aria-hidden="true">refresh</mat-icon>
+    <button mat-flat-button color="primary" type="button" class="refresh-btn" (click)="refreshData()">
+      <mat-icon>refresh</mat-icon>
       Refresh
     </button>
   </div>
 
+  <!-- Offline banner -->
   @if (isOffline()) {
-    <mat-card class="banner warning" role="status">
+    <div class="banner banner-warning" role="status">
       <mat-icon aria-hidden="true">wifi_off</mat-icon>
       <span>Offline - showing last synced data.</span>
-    </mat-card>
-  }
-
-  @if (isStale()) {
-    <mat-card class="banner info" role="status">
-      <mat-icon aria-hidden="true">update</mat-icon>
-      <span>Data changed. Refresh to see updates.</span>
-      <button mat-button type="button" (click)="refreshData()">Refresh</button>
-    </mat-card>
-  }
-
-  @if (loading()) {
-    <div class="loading">
-      <mat-spinner diameter="44"></mat-spinner>
     </div>
   }
 
-  @if (!loading() && error()) {
-    <mat-card class="error-card">
-      <mat-icon aria-hidden="true">error_outline</mat-icon>
-      <p>Unable to load fulfillment details.</p>
-      <button mat-stroked-button type="button" (click)="refreshData()">Retry</button>
-    </mat-card>
+  <!-- Stale data banner -->
+  @if (isStale()) {
+    <div class="banner banner-info" role="status">
+      <mat-icon aria-hidden="true">update</mat-icon>
+      <span>Data has changed since you last loaded. Refresh to see updates.</span>
+      <button mat-stroked-button type="button" (click)="refreshData()">Refresh</button>
+    </div>
   }
 
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="3"></dmis-skeleton-loader>
+  }
+
+  <!-- Error state -->
+  @if (!loading() && error()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Unable to load fulfillment details"
+      message="There was an error loading this needs list. Please try again."
+      actionLabel="Retry"
+      actionIcon="refresh"
+      (action)="refreshData()">
+    </dmis-empty-state>
+  }
+
+  <!-- Main content -->
   @if (!loading() && !error() && needsList(); as list) {
+    <!-- Superseded alert -->
     @if (mode() === 'superseded') {
-      <mat-card class="banner warning">
-        <mat-icon aria-hidden="true">warning</mat-icon>
-        <span>This draft has been superseded.</span>
+      <div class="superseded-banner" role="alert">
+        <mat-icon aria-hidden="true">info</mat-icon>
+        <div class="superseded-content">
+          <strong>This needs list has been superseded</strong>
+          <span>A newer version has replaced this draft. The data below is read-only.</span>
+        </div>
         @if (list.superseded_by_needs_list_id) {
-          <button mat-button type="button" (click)="goToReplacement()">
+          <button mat-flat-button color="primary" type="button" (click)="goToReplacement()">
+            <mat-icon>open_in_new</mat-icon>
             Open Replacement
           </button>
         }
-      </mat-card>
+      </div>
     }
 
-    <mat-card class="summary-card">
-      <div class="summary-row">
-        <span>Status: <strong>{{ list.status }}</strong></span>
-        <span>Updated: {{ list.updated_at ? (list.updated_at | date:'medium') : 'N/A' }}</span>
-        <span>Last Synced: {{ lastSyncedAt() ? (lastSyncedAt() | date:'mediumTime') : 'N/A' }}</span>
+    <!-- Summary card -->
+    <div class="summary-section">
+      <div class="summary-stat">
+        <mat-icon aria-hidden="true">assignment</mat-icon>
+        <div class="stat-text">
+          <span class="stat-label">Status</span>
+          <span class="stat-value status-value" [attr.data-status]="list.status">{{ statusLabel() }}</span>
+        </div>
       </div>
-    </mat-card>
+      <div class="summary-stat">
+        <mat-icon aria-hidden="true">inventory_2</mat-icon>
+        <div class="stat-text">
+          <span class="stat-label">Line Items</span>
+          <span class="stat-value">{{ lines().length }}</span>
+        </div>
+      </div>
+      <div class="summary-stat">
+        <mat-icon aria-hidden="true">pie_chart</mat-icon>
+        <div class="stat-text">
+          <span class="stat-label">Overall Coverage</span>
+          <span class="stat-value">{{ totalCoverage() }}%</span>
+        </div>
+      </div>
+      <div class="summary-stat">
+        <mat-icon aria-hidden="true">schedule</mat-icon>
+        <div class="stat-text">
+          <span class="stat-label">Last Synced</span>
+          <span class="stat-value">{{ lastSyncedAt() ? (lastSyncedAt() | date:'mediumTime') : 'N/A' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Line items -->
+    @if (lines().length === 0) {
+      <dmis-empty-state
+        icon="inventory_2"
+        title="No line items"
+        message="This needs list does not have any fulfillment line items recorded.">
+      </dmis-empty-state>
+    }
 
     <div class="line-list">
       @for (line of lines(); track line.id) {
-        <mat-card class="line-card">
+        <div class="line-card">
+          <!-- Line header -->
           <div class="line-header">
-            <h3>{{ line.item.name }} ({{ line.item.uom }})</h3>
-            <span class="line-horizon">Horizon {{ line.horizon }}</span>
+            <div class="line-title">
+              <h3>{{ line.item.name }}</h3>
+              <span class="line-uom">{{ line.item.uom }}</span>
+            </div>
+            <span class="horizon-badge" [attr.data-horizon]="line.horizon">
+              <mat-icon aria-hidden="true">{{ getHorizonIcon(line.horizon) }}</mat-icon>
+              {{ getHorizonLabel(line.horizon) }}
+            </span>
           </div>
 
+          <!-- Line progress -->
+          <div class="line-progress">
+            <div class="progress-header">
+              <span class="progress-label">Coverage</span>
+              <span class="progress-value">{{ line.covered_qty | number:'1.0-2' }} / {{ line.original_qty | number:'1.0-2' }} ({{ getCoveragePercent(line) }}%)</span>
+            </div>
+            <mat-progress-bar mode="determinate" [value]="getCoveragePercent(line)"></mat-progress-bar>
+          </div>
+
+          <!-- Line metrics -->
           <div class="line-metrics">
-            <span>Original: {{ line.original_qty | number:'1.0-2' }}</span>
-            <span>Covered: {{ line.covered_qty | number:'1.0-2' }}</span>
-            <span>Remaining: {{ line.remaining_qty | number:'1.0-2' }}</span>
-            <span>Total Coverage: {{ line.total_coverage | number:'1.0-2' }}</span>
+            <div class="metric">
+              <span class="metric-label">Original</span>
+              <span class="metric-value">{{ line.original_qty | number:'1.0-2' }}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Covered</span>
+              <span class="metric-value covered">{{ line.covered_qty | number:'1.0-2' }}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Remaining</span>
+              <span class="metric-value remaining">{{ line.remaining_qty | number:'1.0-2' }}</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Total Coverage</span>
+              <span class="metric-value">{{ line.total_coverage | number:'1.0-2' }}</span>
+            </div>
           </div>
 
+          <!-- Fulfillment sources -->
           <div class="sources-section">
-            <h4>Fulfillment Sources</h4>
+            <span class="sources-label">Fulfillment Sources</span>
             @if (line.fulfillment_sources.length > 0) {
-              <table class="sources-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Reference</th>
-                    <th>Qty</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
+              <!-- Desktop table -->
+              <div class="sources-table-container desktop-only">
+                <table class="sources-table">
+                  <thead>
                     <tr>
-                      <td>{{ source.source_type }}</td>
-                      <td>{{ source.source_reference }}</td>
-                      <td>{{ source.quantity | number:'1.0-2' }}</td>
-                      <td>{{ source.status }}</td>
-                      <td>{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
+                      <th>Type</th>
+                      <th>Reference</th>
+                      <th>Qty</th>
+                      <th>Status</th>
+                      <th>Date</th>
                     </tr>
-                  }
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
+                      <tr>
+                        <td>
+                          <span class="source-type">
+                            <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
+                            {{ getSourceTypeLabel(source.source_type) }}
+                          </span>
+                        </td>
+                        <td class="source-ref">{{ source.source_reference }}</td>
+                        <td class="source-qty">{{ source.quantity | number:'1.0-2' }}</td>
+                        <td>
+                          <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
+                        </td>
+                        <td class="source-date">{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Mobile cards -->
+              <div class="source-cards mobile-only">
+                @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
+                  <div class="source-card">
+                    <div class="source-card-header">
+                      <span class="source-type">
+                        <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
+                        {{ getSourceTypeLabel(source.source_type) }}
+                      </span>
+                      <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
+                    </div>
+                    <div class="source-card-body">
+                      <div class="source-field">
+                        <span class="field-label">Reference</span>
+                        <span>{{ source.source_reference }}</span>
+                      </div>
+                      <div class="source-field">
+                        <span class="field-label">Quantity</span>
+                        <span>{{ source.quantity | number:'1.0-2' }}</span>
+                      </div>
+                      <div class="source-field">
+                        <span class="field-label">Date</span>
+                        <span>{{ source.date ? (source.date | date:'short') : 'Pending' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
             } @else {
               <p class="no-sources">No fulfillment sources recorded yet.</p>
             }
           </div>
-        </mat-card>
+        </div>
       }
     </div>
   }
