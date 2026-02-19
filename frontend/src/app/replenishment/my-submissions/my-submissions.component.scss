@@ -239,7 +239,7 @@ mat-paginator {
   }
 
   .filter-actions {
-    justify-content: stretch;
+    justify-content: flex-start;
 
     button {
       flex: 1;
