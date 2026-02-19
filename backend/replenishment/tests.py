@@ -1460,6 +1460,99 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    def test_fulfillment_sources_use_overridden_required_qty_for_tracker_math(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+
+            override_response = self.client.patch(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/lines",
+                [{"item_id": 1, "overridden_qty": 5, "reason": "Adjust to approved level"}],
+                format="json",
+            )
+            self.assertEqual(override_response.status_code, 200)
+
+            record = workflow_store.get_record(needs_list_id)
+            self.assertIsNotNone(record)
+            snapshot_items = (record or {}).get("snapshot", {}).get("items", [])
+            self.assertTrue(snapshot_items)
+            snapshot_items[0]["fulfilled_qty"] = 3
+            workflow_store.update_record(needs_list_id, record)
+
+            partial_response = self.client.get(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/fulfillment-sources"
+            )
+            self.assertEqual(partial_response.status_code, 200)
+            partial_line = next(
+                (
+                    line
+                    for line in partial_response.json().get("lines", [])
+                    if line.get("id") == 1
+                ),
+                None,
+            )
+            self.assertIsNotNone(partial_line)
+            self.assertEqual(partial_line.get("original_qty"), 5.0)
+            self.assertEqual(partial_line.get("covered_qty"), 3.0)
+            self.assertEqual(partial_line.get("remaining_qty"), 2.0)
+            self.assertFalse(partial_line.get("is_fully_covered"))
+
+            snapshot_items[0]["fulfilled_qty"] = 5
+            workflow_store.update_record(needs_list_id, record)
+
+            covered_response = self.client.get(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/fulfillment-sources"
+            )
+
+        self.assertEqual(covered_response.status_code, 200)
+        covered_line = next(
+            (
+                line
+                for line in covered_response.json().get("lines", [])
+                if line.get("id") == 1
+            ),
+            None,
+        )
+        self.assertIsNotNone(covered_line)
+        self.assertEqual(covered_line.get("original_qty"), 5.0)
+        self.assertEqual(covered_line.get("covered_qty"), 5.0)
+        self.assertEqual(covered_line.get("remaining_qty"), 0.0)
+        self.assertTrue(covered_line.get("is_fully_covered"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
     def test_new_draft_supersedes_existing_submitted_for_same_scope_and_actor(
         self,
         mock_available,
