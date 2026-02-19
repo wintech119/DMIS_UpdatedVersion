@@ -1,0 +1,146 @@
+.tracker-page {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 1rem;
+}
+
+.page-header {
+  align-items: center;
+  background: #fff;
+  border-radius: 0.65rem;
+  box-shadow: 0 2px 6px rgb(15 23 42 / 8%);
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+  padding: 0.75rem;
+}
+
+.header-copy {
+  flex: 1;
+}
+
+.header-copy h1 {
+  margin: 0;
+}
+
+.header-copy p {
+  color: #64748b;
+  margin: 0.12rem 0 0;
+}
+
+.banner {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.banner.warning {
+  background: #fff7ed;
+}
+
+.banner.info {
+  background: #eff6ff;
+}
+
+.summary-card {
+  margin-bottom: 0.7rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.line-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.line-header {
+  align-items: baseline;
+  display: flex;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+
+.line-header h3 {
+  margin: 0;
+}
+
+.line-horizon {
+  background: #e2e8f0;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+}
+
+.line-metrics {
+  color: #334155;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  gap: 0.9rem;
+  margin: 0.4rem 0;
+}
+
+.sources-section h4 {
+  margin: 0.35rem 0;
+}
+
+.sources-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.sources-table th,
+.sources-table td {
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.83rem;
+  padding: 0.42rem 0.35rem;
+  text-align: left;
+}
+
+.sources-table th {
+  background: #f8fafc;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 1.3rem 0;
+}
+
+.error-card {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem;
+}
+
+.no-sources {
+  color: #64748b;
+  margin: 0.2rem 0;
+}
+
+@media (max-width: 760px) {
+  .tracker-page {
+    padding: 0.55rem;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .sources-table {
+    display: block;
+    overflow-x: auto;
+  }
+}

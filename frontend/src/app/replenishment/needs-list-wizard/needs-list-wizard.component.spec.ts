@@ -7,12 +7,15 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { NeedsListWizardComponent } from './needs-list-wizard.component';
 import { WizardStateService } from './services/wizard-state.service';
+import { ReplenishmentService } from '../services/replenishment.service';
+import { NeedsListResponse } from '../models/needs-list.model';
 
 describe('NeedsListWizardComponent', () => {
   let component: NeedsListWizardComponent;
   let fixture: ComponentFixture<NeedsListWizardComponent>;
   let mockRouter: jasmine.SpyObj<Router>;
   let mockActivatedRoute: Pick<ActivatedRoute, 'queryParams'>;
+  let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
   let wizardService: WizardStateService;
 
   beforeEach(async () => {
@@ -24,12 +27,37 @@ describe('NeedsListWizardComponent', () => {
         phase: 'BASELINE'
       }) as Observable<Record<string, string>>
     };
+    replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', [
+      'getNeedsList',
+      'getActiveEvent',
+      'getAllWarehouses'
+    ]);
+    const draftNeedsList: NeedsListResponse = {
+      event_id: 1,
+      phase: 'BASELINE',
+      items: [],
+      as_of_datetime: new Date().toISOString()
+    };
+    replenishmentService.getNeedsList.and.returnValue(of(draftNeedsList));
+    replenishmentService.getActiveEvent.and.returnValue(
+      of({
+        event_id: 1,
+        event_name: 'Event 1',
+        status: 'ACTIVE',
+        phase: 'BASELINE',
+        declaration_date: new Date().toISOString()
+      })
+    );
+    replenishmentService.getAllWarehouses.and.returnValue(
+      of([{ warehouse_id: 2, warehouse_name: 'Warehouse 2' }])
+    );
 
     await TestBed.configureTestingModule({
       imports: [NeedsListWizardComponent, NoopAnimationsModule],
       providers: [
         { provide: Router, useValue: mockRouter },
         { provide: ActivatedRoute, useValue: mockActivatedRoute },
+        { provide: ReplenishmentService, useValue: replenishmentService },
         WizardStateService
       ]
     }).compileComponents();

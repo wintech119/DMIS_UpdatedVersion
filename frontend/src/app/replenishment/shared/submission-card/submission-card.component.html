@@ -1,0 +1,151 @@
+<mat-card class="submission-card" [attr.data-status]="submission().status">
+  <!-- Card Header: Reference + Status -->
+  <div class="card-header">
+    @if (showSelection()) {
+      <label class="selection-control">
+        <input
+          type="checkbox"
+          [checked]="selected()"
+          (change)="onSelectionInput($event)"
+          [attr.aria-label]="'Select ' + submission().reference_number">
+      </label>
+    }
+
+    <div class="card-title">
+      <mat-icon aria-hidden="true">description</mat-icon>
+      <span class="reference">{{ submission().reference_number }}</span>
+    </div>
+
+    <span class="status-badge" [attr.data-status]="submission().status">
+      {{ statusLabel() }}
+    </span>
+  </div>
+
+  <!-- Context: Warehouse, Event, Phase -->
+  <div class="card-subtitle">
+    <mat-icon class="subtitle-icon" aria-hidden="true">warehouse</mat-icon>
+    <span>{{ submission().warehouse.name }}</span>
+    <span class="separator">|</span>
+    <mat-icon class="subtitle-icon" aria-hidden="true">storm</mat-icon>
+    <span>{{ submission().event.name }}</span>
+    <span class="phase-badge" [attr.data-phase]="submission().event.phase">
+      {{ submission().event.phase }}
+    </span>
+  </div>
+
+  <!-- Fulfillment Progress -->
+  <div class="progress-section">
+    <div class="progress-header">
+      <span class="progress-label">Fulfillment Progress</span>
+      <span class="progress-value">
+        {{ submission().fulfilled_items }}/{{ submission().total_items }} items
+        ({{ progressPercentage() | number:'1.0-1' }}%)
+      </span>
+    </div>
+    <mat-progress-bar mode="determinate" [value]="progressPercentage()"></mat-progress-bar>
+  </div>
+
+  <!-- External Update Alert -->
+  @if (submission().has_external_updates) {
+    <div class="update-alert" role="status" aria-live="polite">
+      <mat-icon aria-hidden="true">sync</mat-icon>
+      <div class="update-content">
+        <strong>UPDATED:</strong>
+        {{ submission().external_update_summary.length }} item(s) changed by external fulfillment.
+        @for (update of submission().external_update_summary; track update.item_name + '-' + update.source_reference) {
+          <div class="update-detail">
+            {{ update.item_name }}: {{ update.covered_qty | number:'1.0-1' }}/{{ update.original_qty | number:'1.0-1' }}
+            via {{ update.source_type }} {{ update.source_reference }}
+          </div>
+        }
+        <span class="update-time">Last updated: {{ submission().last_updated_at | date:'medium' }}</span>
+      </div>
+      <button
+        mat-icon-button
+        type="button"
+        (click)="onRefreshClick()"
+        matTooltip="Refresh data"
+        aria-label="Refresh submission">
+        <mat-icon>refresh</mat-icon>
+      </button>
+    </div>
+  }
+
+  <!-- Superseded Alert -->
+  @if (submission().status === 'SUPERSEDED' && submission().superseded_by_id) {
+    <div class="superseded-alert" role="alert">
+      <mat-icon aria-hidden="true">warning</mat-icon>
+      <span>This draft has been superseded by {{ submission().superseded_by_id }}</span>
+      <a [routerLink]="['/replenishment/needs-list', submission().superseded_by_id, 'review']">
+        Open Replacement
+      </a>
+    </div>
+  }
+
+  <!-- Replenishment Sources (Horizons) -->
+  <div class="horizons-section">
+    <span class="horizons-label">Replenishment Sources</span>
+    <div class="horizons-grid">
+      @for (horizon of horizonDisplays(); track horizon.key) {
+        <div class="horizon-card" [class.horizon-active]="horizon.bucket.count > 0" [class.horizon-empty]="horizon.bucket.count === 0">
+          <div class="horizon-icon-row">
+            <mat-icon aria-hidden="true">{{ horizon.icon }}</mat-icon>
+            <span class="horizon-name">{{ horizon.label }}</span>
+          </div>
+          <div class="horizon-stats">
+            <span class="horizon-count">{{ horizon.bucket.count }} items</span>
+            <span class="horizon-value">
+              @if (horizon.bucket.estimated_value > 0) {
+                {{ horizon.bucket.estimated_value | currency:'JMD':'symbol-narrow':'1.0-0' }}
+              } @else {
+                --
+              }
+            </span>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Card Footer: Timestamp + Actions -->
+  <div class="card-footer">
+    <span class="timestamp">
+      <mat-icon class="timestamp-icon" aria-hidden="true">schedule</mat-icon>
+      {{ contextualTimestamp().label }}:
+      {{ contextualTimestamp().value ? (contextualTimestamp().value | date:'short') : 'N/A' }}
+    </span>
+    <div class="actions">
+      <button mat-stroked-button type="button" (click)="toggleProgress()">
+        <mat-icon aria-hidden="true">{{ showProgress() ? 'expand_less' : 'expand_more' }}</mat-icon>
+        {{ showProgress() ? 'Hide' : 'Details' }}
+      </button>
+      <button mat-flat-button color="primary" type="button" (click)="onActionClick()">
+        {{ actionTarget().label }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Expanded Progress Detail -->
+  @if (showProgress()) {
+    <div class="progress-detail">
+      <div class="detail-row">
+        <span class="detail-label">Total Items</span>
+        <span class="detail-value">{{ submission().total_items }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Fulfilled</span>
+        <span class="detail-value fulfilled">{{ submission().fulfilled_items }}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Remaining</span>
+        <span class="detail-value remaining">{{ submission().remaining_items }}</span>
+      </div>
+      @if (totalEstimatedValue() > 0) {
+        <div class="detail-row">
+          <span class="detail-label">Total Estimated Value</span>
+          <span class="detail-value cost">{{ totalEstimatedValue() | currency:'JMD':'symbol-narrow':'1.0-0' }}</span>
+        </div>
+      }
+    </div>
+  }
+</mat-card>

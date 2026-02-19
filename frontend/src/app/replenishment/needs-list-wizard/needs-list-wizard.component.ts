@@ -10,9 +10,14 @@ import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { WizardStateService } from './services/wizard-state.service';
+import { ItemAdjustment, AdjustmentReason } from './models/wizard-state.model';
 import { ScopeStepComponent } from './steps/step1-scope/scope-step.component';
 import { PreviewStepComponent } from './steps/step2-preview/preview-step.component';
 import { SubmitStepComponent } from './steps/step3-submit/submit-step.component';
+import { NeedsListItem, NeedsListResponse } from '../models/needs-list.model';
+import { ReplenishmentService } from '../services/replenishment.service';
+import { EventPhase } from '../models/stock-status.model';
+import { DmisNotificationService } from '../services/notification.service';
 
 interface SubmitStepCompleteEvent {
   action: 'draft_saved' | 'submitted_for_approval';
@@ -52,6 +57,9 @@ export class NeedsListWizardComponent implements OnInit {
   public wizardService = inject(WizardStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private replenishmentService = inject(ReplenishmentService);
+  private notificationService = inject(DmisNotificationService);
+  private hydratedNeedsListId: string | null = null;
 
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
@@ -72,6 +80,12 @@ export class NeedsListWizardComponent implements OnInit {
           warehouse_ids: warehouseIds,
           phase: params['phase'] || 'BASELINE'
         });
+      }
+
+      const routeNeedsListId = String(this.route.snapshot.paramMap.get('id') ?? '').trim();
+      const needsListId = String(params['needs_list_id'] ?? routeNeedsListId).trim();
+      if (needsListId && needsListId !== this.hydratedNeedsListId) {
+        this.loadExistingNeedsList(needsListId);
       }
     });
   }
@@ -149,5 +163,162 @@ export class NeedsListWizardComponent implements OnInit {
       params.phase = state.phase;
     }
     return params;
+  }
+
+  private loadExistingNeedsList(needsListId: string): void {
+    this.replenishmentService.getNeedsList(needsListId).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: (record) => {
+        if (record.status === 'SUPERSEDED' || record.superseded_by_needs_list_id) {
+          this.hydratedNeedsListId = null;
+          const replacementId = String(record.superseded_by_needs_list_id ?? '').trim();
+          this.notificationService.showWarning('This draft has been superseded.');
+          if (replacementId) {
+            this.router.navigate(['/replenishment/needs-list', replacementId, 'review']);
+          } else {
+            this.router.navigate(['/replenishment/needs-list', needsListId, 'superseded']);
+          }
+          return;
+        }
+        this.hydratedNeedsListId = needsListId;
+        this.hydrateWizardStateFromNeedsList(record, needsListId);
+      },
+      error: () => {
+        this.hydratedNeedsListId = null;
+      }
+    });
+  }
+
+  private hydrateWizardStateFromNeedsList(record: NeedsListResponse, needsListId: string): void {
+    const warehouseIds = this.resolveWarehouseIds(record);
+    const normalizedItems = this.normalizeNeedsListItems(record.items || [], warehouseIds, record.warehouse_id);
+    const selectedItemKeys = this.resolveSelectedItemKeys(record, normalizedItems, warehouseIds);
+    const adjustments = this.extractAdjustments(record, normalizedItems);
+    const phase = (record.phase || 'BASELINE') as EventPhase;
+
+    this.wizardService.updateState({
+      event_id: record.event_id,
+      event_name: record.event_name,
+      warehouse_ids: warehouseIds,
+      phase,
+      as_of_datetime: record.as_of_datetime,
+      previewResponse: {
+        ...record,
+        phase,
+        warehouse_ids: warehouseIds,
+        items: normalizedItems
+      },
+      selectedItemKeys,
+      draft_ids: [needsListId],
+      adjustments
+    });
+
+    this.confirmationState = null;
+    this.cdr.detectChanges();
+    queueMicrotask(() => {
+      if (this.stepper && normalizedItems.length > 0) {
+        this.stepper.selectedIndex = 1;
+      }
+    });
+  }
+
+  private resolveWarehouseIds(record: NeedsListResponse): number[] {
+    if (Array.isArray(record.warehouse_ids) && record.warehouse_ids.length > 0) {
+      return record.warehouse_ids.filter((warehouseId) => Number.isInteger(warehouseId) && warehouseId > 0);
+    }
+    if (Number.isInteger(record.warehouse_id) && (record.warehouse_id ?? 0) > 0) {
+      return [record.warehouse_id as number];
+    }
+    return [];
+  }
+
+  private normalizeNeedsListItems(
+    items: NeedsListItem[],
+    warehouseIds: number[],
+    fallbackWarehouseId?: number
+  ): NeedsListItem[] {
+    const defaultWarehouseId = warehouseIds[0] ?? fallbackWarehouseId ?? 0;
+    return items.map((item) => ({
+      ...item,
+      warehouse_id: item.warehouse_id ?? defaultWarehouseId,
+    }));
+  }
+
+  private resolveSelectedItemKeys(
+    record: NeedsListResponse,
+    items: NeedsListItem[],
+    warehouseIds: number[]
+  ): string[] {
+    const explicit = (record.selected_item_keys || [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length > 0);
+    if (explicit.length > 0) {
+      return explicit;
+    }
+
+    const defaultWarehouseId = warehouseIds[0] ?? record.warehouse_id ?? 0;
+    return items
+      .filter((item) => Number(item.gap_qty || 0) > 0)
+      .map((item) => `${item.item_id}_${item.warehouse_id ?? defaultWarehouseId}`);
+  }
+
+  private extractAdjustments(
+    record: NeedsListResponse,
+    items: NeedsListItem[]
+  ): Record<string, ItemAdjustment> {
+    const rawRecord = record as NeedsListResponse & {
+      line_overrides?: Record<string, { overridden_qty?: number; reason?: string }>;
+    };
+    const lineOverrides = rawRecord.line_overrides;
+    if (!lineOverrides || typeof lineOverrides !== 'object') {
+      return {};
+    }
+
+    const itemsById = new Map<number, NeedsListItem>();
+    for (const item of items) {
+      if (!itemsById.has(item.item_id)) {
+        itemsById.set(item.item_id, item);
+      }
+    }
+
+    const adjustments: Record<string, ItemAdjustment> = {};
+    for (const [itemIdKey, override] of Object.entries(lineOverrides)) {
+      const itemId = Number(itemIdKey);
+      if (!Number.isFinite(itemId) || itemId <= 0) {
+        continue;
+      }
+      const item = itemsById.get(itemId);
+      if (!item) {
+        continue;
+      }
+      const warehouseId = item.warehouse_id || 0;
+      const rawReason = String(override?.reason || '').trim();
+      const reason = this.toAdjustmentReason(rawReason);
+      const adjustedQty = Number(override?.overridden_qty ?? item.gap_qty ?? 0);
+      adjustments[`${itemId}_${warehouseId}`] = {
+        item_id: itemId,
+        warehouse_id: warehouseId,
+        original_qty: Number(item.gap_qty || 0),
+        adjusted_qty: Number.isFinite(adjustedQty) ? adjustedQty : Number(item.gap_qty || 0),
+        reason,
+        notes: reason === 'OTHER' && rawReason && rawReason !== 'OTHER' ? rawReason : ''
+      };
+    }
+    return adjustments;
+  }
+
+  private toAdjustmentReason(value: string): AdjustmentReason {
+    const normalized = value.toUpperCase();
+    if (
+      normalized === 'PARTIAL_COVERAGE' ||
+      normalized === 'DEMAND_ADJUSTED' ||
+      normalized === 'PRIORITY_CHANGE' ||
+      normalized === 'BUDGET_CONSTRAINT' ||
+      normalized === 'OTHER'
+    ) {
+      return normalized;
+    }
+    return 'OTHER';
   }
 }

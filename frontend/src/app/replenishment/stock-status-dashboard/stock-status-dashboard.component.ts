@@ -25,11 +25,20 @@ import { DataFreshnessService } from '../services/data-freshness.service';
 import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { StockStatusItem, formatTimeToStockout, EventPhase, SeverityLevel, FreshnessLevel, WarehouseStockGroup } from '../models/stock-status.model';
-import { NeedsListResponse } from '../models/needs-list.model';
+import {
+  ExternalUpdateSummary,
+  NeedsListItem,
+  NeedsListResponse,
+  NeedsListSummary,
+  NeedsListSummaryStatus
+} from '../models/needs-list.model';
+import { formatStatusLabel } from '../needs-list-review/status-label.util';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { MyDraftsSubmissionsPanelComponent } from '../shared/my-drafts-submissions-panel/my-drafts-submissions-panel.component';
+import { getNeedsListActionTarget } from '../shared/needs-list-action.util';
 
 interface FilterState {
   categories: string[];
@@ -61,7 +70,8 @@ interface FilterState {
     MatProgressSpinnerModule,
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
-    DmisEmptyStateComponent
+    DmisEmptyStateComponent,
+    MyDraftsSubmissionsPanelComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
@@ -90,6 +100,29 @@ export class StockStatusDashboardComponent implements OnInit {
   viewMode: 'multi' | 'single' = 'multi';
   canAccessReviewQueue = false;
   mySubmissionUpdates: NeedsListResponse[] = [];
+  myNeedsLists: NeedsListResponse[] = [];
+  myNeedsListsCollapsed = false;
+  private readonly myNeedsListOpenStatuses: string[] = [
+    'DRAFT',
+    'MODIFIED',
+    'RETURNED',
+    'SUBMITTED',
+    'PENDING_APPROVAL',
+    'PENDING',
+    'UNDER_REVIEW',
+    'APPROVED',
+    'IN_PROGRESS',
+    'IN_PREPARATION',
+    'DISPATCHED',
+    'RECEIVED',
+    'FULFILLED',
+    'COMPLETED',
+    'REJECTED',
+    'SUPERSEDED',
+    'CANCELLED'
+  ];
+  private readonly myNeedsListRevisionStatuses = new Set(['DRAFT', 'MODIFIED', 'RETURNED']);
+  private readonly expandedMyNeedsListKeys = new Set<string>();
 
   loading = false;
   refreshing = false;
@@ -767,11 +800,13 @@ export class StockStatusDashboardComponent implements OnInit {
             roles.has('EXECUTIVE') ||
             reviewPermissions.some((perm) => permissions.has(perm))
           );
+        this.loadMyNeedsLists();
         this.loadMySubmissionUpdates();
       },
       error: () => {
         this.canAccessReviewQueue = false;
         this.setCurrentUserRef(null);
+        this.myNeedsLists = [];
         this.mySubmissionUpdates = [];
       }
     });
@@ -839,11 +874,122 @@ export class StockStatusDashboardComponent implements OnInit {
     return first.every((warehouseId, index) => warehouseId === second[index]);
   }
 
+  get myNeedsListSummaries(): NeedsListSummary[] {
+    return this.myNeedsLists.map((row) => this.toNeedsListSummary(row));
+  }
+
+  openMyNeedsListAction(event: { id: string; status: NeedsListSummaryStatus }): void {
+    const target = getNeedsListActionTarget(event.id, event.status);
+    this.router.navigate(target.commands, { queryParams: target.queryParams });
+  }
+
+  refreshMyNeedsListSummary(_id: string): void {
+    void _id;
+    this.loadMyNeedsLists();
+  }
+
   openNeedsListUpdate(row: NeedsListResponse): void {
     if (!row.needs_list_id) {
       return;
     }
     this.router.navigate(['/replenishment/needs-list-review', row.needs_list_id]);
+  }
+
+  openMyNeedsList(row: NeedsListResponse, event?: Event): void {
+    event?.stopPropagation();
+    this.openNeedsListUpdate(row);
+  }
+
+  canReviseNeedsList(row: NeedsListResponse): boolean {
+    return this.myNeedsListRevisionStatuses.has(String(row.status ?? '').toUpperCase());
+  }
+
+  reviseMyNeedsList(row: NeedsListResponse, event?: Event): void {
+    event?.stopPropagation();
+    const warehouseId = row.warehouse_id ?? row.warehouse_ids?.[0];
+    this.router.navigate(['/replenishment/needs-list-wizard'], {
+      queryParams: {
+        needs_list_id: row.needs_list_id,
+        event_id: row.event_id,
+        event_name: row.event_name,
+        warehouse_id: warehouseId,
+        phase: row.phase
+      }
+    });
+  }
+
+  statusLabel(status: string | undefined): string {
+    return formatStatusLabel(status);
+  }
+
+  toggleMyNeedsListsCollapsed(event?: Event): void {
+    event?.stopPropagation();
+    this.myNeedsListsCollapsed = !this.myNeedsListsCollapsed;
+  }
+
+  isNeedsListExpanded(row: NeedsListResponse): boolean {
+    const key = this.myNeedsListKey(row);
+    return key ? this.expandedMyNeedsListKeys.has(key) : false;
+  }
+
+  toggleNeedsListExpanded(row: NeedsListResponse, event?: Event): void {
+    event?.stopPropagation();
+    const key = this.myNeedsListKey(row);
+    if (!key) {
+      return;
+    }
+    if (this.expandedMyNeedsListKeys.has(key)) {
+      this.expandedMyNeedsListKeys.delete(key);
+    } else {
+      this.expandedMyNeedsListKeys.add(key);
+    }
+  }
+
+  remainingNeedsListItems(row: NeedsListResponse): NeedsListItem[] {
+    return (row.items ?? []).filter((item) => this.itemRemainingQty(item, row) > 0);
+  }
+
+  fulfilledNeedsListItems(row: NeedsListResponse): NeedsListItem[] {
+    return (row.items ?? []).filter((item) => this.isItemFulfilled(item, row));
+  }
+
+  needsListProgressSummary(row: NeedsListResponse): string {
+    const remainingCount = this.remainingNeedsListItems(row).length;
+    const fulfilledCount = this.fulfilledNeedsListItems(row).length;
+    return `Remaining ${remainingCount} • Fulfilled ${fulfilledCount}`;
+  }
+
+  needsListItemLabel(item: NeedsListItem): string {
+    return String(item.item_name || `Item ${item.item_id}`);
+  }
+
+  needsListItemRemainingQty(item: NeedsListItem, row: NeedsListResponse): number {
+    return this.itemRemainingQty(item, row);
+  }
+
+  private loadMyNeedsLists(): void {
+    if (!this.currentUserRef) {
+      this.myNeedsLists = [];
+      this.expandedMyNeedsListKeys.clear();
+      return;
+    }
+
+    this.replenishmentService
+      .listNeedsLists(this.myNeedsListOpenStatuses, { mine: true, includeClosed: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => {
+          this.myNeedsLists = [...(data.needs_lists ?? [])]
+            .sort((a, b) => this.updateTimestamp(b) - this.updateTimestamp(a))
+            .slice(0, 8);
+          this.syncExpandedNeedsListKeys(this.myNeedsLists);
+        },
+        error: () => {
+          // Keep dashboard functional when this optional feed is unavailable.
+          this.myNeedsLists = [];
+          this.expandedMyNeedsListKeys.clear();
+        }
+      });
   }
 
   private loadMySubmissionUpdates(): void {
@@ -853,7 +999,7 @@ export class StockStatusDashboardComponent implements OnInit {
     }
 
     this.replenishmentService
-      .listNeedsLists(['APPROVED', 'RETURNED', 'REJECTED'])
+      .listNeedsLists(['APPROVED', 'RETURNED', 'REJECTED'], { mine: true })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => {
@@ -910,6 +1056,65 @@ export class StockStatusDashboardComponent implements OnInit {
     return [needsListId, status, activityAt, fallbackIdentity].join('|');
   }
 
+  private myNeedsListKey(row: NeedsListResponse): string | null {
+    const needsListId = String(row.needs_list_id ?? '').trim();
+    if (needsListId) {
+      return needsListId;
+    }
+    const needsListNo = String(row.needs_list_no ?? '').trim();
+    if (needsListNo) {
+      return needsListNo;
+    }
+    return null;
+  }
+
+  private syncExpandedNeedsListKeys(rows: NeedsListResponse[]): void {
+    const keys = new Set(
+      rows
+        .map((row) => this.myNeedsListKey(row))
+        .filter((key): key is string => typeof key === 'string' && key.length > 0)
+    );
+    for (const existingKey of Array.from(this.expandedMyNeedsListKeys)) {
+      if (!keys.has(existingKey)) {
+        this.expandedMyNeedsListKeys.delete(existingKey);
+      }
+    }
+  }
+
+  private isItemFulfilled(item: NeedsListItem, row: NeedsListResponse): boolean {
+    const listStatus = String(row.status ?? '').toUpperCase();
+    if (listStatus === 'FULFILLED' || listStatus === 'COMPLETED') {
+      return true;
+    }
+
+    const fulfillmentStatus = String(item.fulfillment_status ?? '').toUpperCase();
+    if (fulfillmentStatus === 'FULFILLED' || fulfillmentStatus === 'RECEIVED') {
+      return true;
+    }
+
+    const gapQty = Math.max(this.toFiniteNumber(item.gap_qty), 0);
+    if (gapQty <= 0) {
+      return true;
+    }
+
+    const fulfilledQty = Math.max(this.toFiniteNumber(item.fulfilled_qty), 0);
+    return fulfilledQty >= gapQty;
+  }
+
+  private itemRemainingQty(item: NeedsListItem, row: NeedsListResponse): number {
+    if (this.isItemFulfilled(item, row)) {
+      return 0;
+    }
+    const gapQty = Math.max(this.toFiniteNumber(item.gap_qty), 0);
+    const fulfilledQty = Math.max(this.toFiniteNumber(item.fulfilled_qty), 0);
+    return Math.max(gapQty - fulfilledQty, 0);
+  }
+
+  private toFiniteNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   private stableRowFingerprint(row: NeedsListResponse): string {
     const normalize = (value: unknown): unknown => {
       if (Array.isArray(value)) {
@@ -931,6 +1136,131 @@ export class StockStatusDashboardComponent implements OnInit {
     } catch {
       return String(row.needs_list_no ?? row.status ?? '');
     }
+  }
+
+  private toNeedsListSummary(row: NeedsListResponse): NeedsListSummary {
+    const status = this.toSummaryStatus(row.status);
+    const items = row.items ?? [];
+    const fulfilledItems = items.filter((item) => this.isItemFulfilled(item, row)).length;
+    const totalItems = items.length;
+    const horizonSummary = {
+      horizon_a: { count: 0, estimated_value: 0 },
+      horizon_b: { count: 0, estimated_value: 0 },
+      horizon_c: { count: 0, estimated_value: 0 }
+    };
+
+    for (const item of items) {
+      const unitCost = Number(item.procurement?.est_unit_cost ?? 0) || 0;
+      const cTotal = Number(item.procurement?.est_total_cost ?? 0) || 0;
+      const horizonA = Number(item.horizon?.A?.recommended_qty ?? 0) || 0;
+      const horizonB = Number(item.horizon?.B?.recommended_qty ?? 0) || 0;
+      const horizonC = Number(item.horizon?.C?.recommended_qty ?? 0) || 0;
+
+      if (horizonA > 0) {
+        horizonSummary.horizon_a.count += 1;
+        horizonSummary.horizon_a.estimated_value += unitCost > 0 ? horizonA * unitCost : 0;
+      }
+      if (horizonB > 0) {
+        horizonSummary.horizon_b.count += 1;
+        horizonSummary.horizon_b.estimated_value += unitCost > 0 ? horizonB * unitCost : 0;
+      }
+      if (horizonC > 0) {
+        horizonSummary.horizon_c.count += 1;
+        horizonSummary.horizon_c.estimated_value += unitCost > 0 ? horizonC * unitCost : cTotal;
+      }
+    }
+
+    const externalUpdates: ExternalUpdateSummary[] = items
+      .filter((item) => (Number(item.fulfilled_qty ?? 0) || 0) > 0)
+      .map((item) => {
+        const fulfilledQty = Math.max(Number(item.fulfilled_qty ?? 0) || 0, 0);
+        const gapQty = Math.max(Number(item.gap_qty ?? 0) || 0, 0);
+        const originalQty = fulfilledQty + gapQty;
+
+        let sourceType: 'DONATION' | 'TRANSFER' | 'PROCUREMENT' = 'TRANSFER';
+        let sourceReference = 'External Supply';
+        if ((Number(item.inbound_donation_qty ?? 0) || 0) > 0) {
+          sourceType = 'DONATION';
+          sourceReference = 'Inbound Donation';
+        } else if ((Number(item.inbound_procurement_qty ?? 0) || 0) > 0) {
+          sourceType = 'PROCUREMENT';
+          sourceReference = 'Procurement Pipeline';
+        } else if ((Number(item.inbound_transfer_qty ?? 0) || 0) > 0) {
+          sourceType = 'TRANSFER';
+          sourceReference = 'Inbound Transfer';
+        }
+
+        return {
+          item_name: this.needsListItemLabel(item),
+          original_qty: originalQty,
+          covered_qty: fulfilledQty,
+          remaining_qty: Math.max(originalQty - fulfilledQty, 0),
+          source_type: sourceType,
+          source_reference: sourceReference,
+          updated_at: row.updated_at ?? null
+        };
+      });
+
+    const warehouseId = row.warehouse_id ?? row.warehouse_ids?.[0] ?? null;
+    return {
+      id: String(row.needs_list_id ?? ''),
+      reference_number: String(row.needs_list_no ?? row.needs_list_id ?? 'Needs List'),
+      warehouse: {
+        id: warehouseId,
+        name: row.warehouses?.[0]?.warehouse_name || (warehouseId ? `Warehouse ${warehouseId}` : 'Unknown'),
+        code: warehouseId ? String(warehouseId) : ''
+      },
+      event: {
+        id: row.event_id ?? null,
+        name: row.event_name || (row.event_id ? `Event ${row.event_id}` : 'Unknown'),
+        phase: (row.phase || 'BASELINE') as EventPhase
+      },
+      status,
+      total_items: totalItems,
+      fulfilled_items: fulfilledItems,
+      remaining_items: Math.max(totalItems - fulfilledItems, 0),
+      horizon_summary: horizonSummary,
+      submitted_at: row.submitted_at ?? null,
+      approved_at: row.approved_at ?? null,
+      last_updated_at: row.updated_at ?? row.submitted_at ?? row.created_at ?? null,
+      superseded_by_id: row.superseded_by_needs_list_id ?? row.superseded_by ?? null,
+      supersedes_id: row.supersedes_needs_list_ids?.[0] ?? null,
+      has_external_updates: externalUpdates.length > 0,
+      external_update_summary: externalUpdates,
+      data_version: `${row.needs_list_id}|${row.updated_at || ''}|${status}`,
+      created_by: {
+        id: null,
+        name: row.created_by ?? ''
+      }
+    };
+  }
+
+  private toSummaryStatus(status: string | undefined): NeedsListSummaryStatus {
+    const normalized = String(status || '').trim().toUpperCase();
+    if (normalized === 'SUBMITTED' || normalized === 'PENDING' || normalized === 'UNDER_REVIEW') {
+      return 'PENDING_APPROVAL';
+    }
+    if (normalized === 'IN_PREPARATION' || normalized === 'DISPATCHED' || normalized === 'RECEIVED') {
+      return 'IN_PROGRESS';
+    }
+    if (normalized === 'COMPLETED') {
+      return 'FULFILLED';
+    }
+    if (
+      normalized === 'DRAFT' ||
+      normalized === 'MODIFIED' ||
+      normalized === 'RETURNED' ||
+      normalized === 'PENDING_APPROVAL' ||
+      normalized === 'APPROVED' ||
+      normalized === 'REJECTED' ||
+      normalized === 'IN_PROGRESS' ||
+      normalized === 'FULFILLED' ||
+      normalized === 'SUPERSEDED' ||
+      normalized === 'CANCELLED'
+    ) {
+      return normalized;
+    }
+    return 'PENDING_APPROVAL';
   }
 
   private notifySubmitterStatusUpdates(rows: NeedsListResponse[]): void {

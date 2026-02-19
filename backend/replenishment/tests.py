@@ -1166,6 +1166,318 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    def test_needs_list_list_mine_filter_returns_only_actor_records(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            mine_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            with self.settings(
+                DEV_AUTH_USER_ID="another-user",
+                DEV_AUTH_ROLES=["LOGISTICS"],
+                DEV_AUTH_PERMISSIONS=[],
+            ):
+                self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                )
+
+            mine_only = self.client.get(
+                "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
+            )
+
+        self.assertEqual(mine_only.status_code, 200)
+        mine_ids = [row.get("needs_list_id") for row in mine_only.json().get("needs_lists", [])]
+        self.assertEqual(mine_ids, [mine_draft.get("needs_list_id")])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_endpoint_returns_paginated_summary(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=10"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertGreaterEqual(body.get("count", 0), 1)
+        self.assertIn("results", body)
+        result = body["results"][0]
+        self.assertEqual(result.get("id"), draft.get("needs_list_id"))
+        self.assertIn("horizon_summary", result)
+        self.assertIn("status", result)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_date_to_filter_is_inclusive_for_day_only_values(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            unfiltered = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=10"
+            )
+            self.assertEqual(unfiltered.status_code, 200)
+
+            matching = next(
+                (
+                    row
+                    for row in unfiltered.json().get("results", [])
+                    if row.get("id") == draft.get("needs_list_id")
+                ),
+                None,
+            )
+            self.assertIsNotNone(matching)
+            last_updated_at = str((matching or {}).get("last_updated_at") or "")
+            self.assertTrue(last_updated_at)
+            date_to = last_updated_at.split("T", 1)[0]
+
+            filtered = self.client.get(
+                f"/api/v1/replenishment/needs-list/my-submissions/?date_to={date_to}&page=1&page_size=10"
+            )
+
+        self.assertEqual(filtered.status_code, 200)
+        filtered_ids = [row.get("id") for row in filtered.json().get("results", [])]
+        self.assertIn(draft.get("needs_list_id"), filtered_ids)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_bulk_submit_and_bulk_delete_endpoints(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft_one = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            submit_response = self.client.post(
+                "/api/v1/replenishment/needs-list/bulk-submit/",
+                {"ids": [draft_one["needs_list_id"]]},
+                format="json",
+            )
+
+            draft_two = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            delete_response = self.client.post(
+                "/api/v1/replenishment/needs-list/bulk-delete/",
+                {"ids": [draft_two["needs_list_id"]], "reason": "Cleanup"},
+                format="json",
+            )
+            version_response = self.client.get(
+                f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/summary-version"
+            )
+            sources_response = self.client.get(
+                f"/api/v1/replenishment/needs-list/{draft_one['needs_list_id']}/fulfillment-sources"
+            )
+
+        self.assertEqual(submit_response.status_code, 200)
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(version_response.status_code, 200)
+        self.assertEqual(sources_response.status_code, 200)
+        self.assertEqual(submit_response.json().get("count"), 1)
+        self.assertEqual(delete_response.json().get("count"), 1)
+        self.assertIn("data_version", version_response.json())
+        self.assertIn("lines", sources_response.json())
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_new_draft_supersedes_existing_submitted_for_same_scope_and_actor(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            first_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            first_id = first_draft["needs_list_id"]
+
+            submit = self.client.post(
+                f"/api/v1/replenishment/needs-list/{first_id}/submit",
+                {},
+                format="json",
+            )
+            self.assertEqual(submit.status_code, 200)
+
+            second_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+            self.assertEqual(second_draft.status_code, 200)
+            second_body = second_draft.json()
+            second_id = second_body["needs_list_id"]
+
+            superseded = self.client.get(f"/api/v1/replenishment/needs-list/{first_id}")
+            self.assertEqual(superseded.status_code, 200)
+
+            queue = self.client.get(
+                "/api/v1/replenishment/needs-list/?status=SUBMITTED,UNDER_REVIEW"
+            )
+
+        self.assertNotEqual(first_id, second_id)
+        self.assertIn(first_id, second_body.get("supersedes_needs_list_ids", []))
+        superseded_body = superseded.json()
+        self.assertEqual(superseded_body.get("status"), "SUPERSEDED")
+        self.assertEqual(superseded_body.get("superseded_by"), second_id)
+        queue_ids = [row.get("needs_list_id") for row in queue.json().get("needs_lists", [])]
+        self.assertNotIn(first_id, queue_ids)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
     def test_rbac_denies_unauthorized_approve(
         self,
         mock_available,
@@ -2299,6 +2611,81 @@ class WorkflowStoreDbSerializationTests(TestCase):
         self.assertEqual(float(saved_item.inbound_transfer_qty), 0.0)
         self.assertEqual(float(saved_item.inbound_donation_qty), 3.0)
         self.assertEqual(float(saved_item.coverage_qty), 22.0)
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_name")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_create_draft_supersedes_open_records_for_same_scope_and_actor(
+        self,
+        mock_item_names,
+        mock_warehouse_name,
+        mock_event_name,
+    ) -> None:
+        mock_item_names.return_value = ({9: {"name": "MEALS READY TO EAT", "code": "MRE-12"}}, [])
+        mock_warehouse_name.return_value = "ODPEM MARCUS GARVEY WAREHOUSE (MG)"
+        mock_event_name.return_value = "HURRICANE MELISSA"
+
+        older = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-001",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=100,
+            create_by_id="tester",
+            update_by_id="tester",
+            submitted_by="tester",
+            submitted_at=timezone.now(),
+        )
+
+        payload = {
+            "event_id": 1,
+            "warehouse_id": 2,
+            "phase": "BASELINE",
+            "as_of_datetime": timezone.now().isoformat(),
+            "planning_window_days": 3,
+            "selected_method": "A",
+            "selected_item_keys": ["9_2"],
+        }
+        items = [
+            {
+                "item_id": 9,
+                "available_qty": 20,
+                "inbound_strict_qty": 8,
+                "burn_rate_per_hour": 2.5,
+                "required_qty": 100,
+                "gap_qty": 72,
+                "time_to_stockout": 8,
+                "severity": "WARNING",
+                "horizon": {
+                    "A": {"recommended_qty": 10},
+                    "B": {"recommended_qty": 20},
+                    "C": {"recommended_qty": 42},
+                },
+            }
+        ]
+
+        record = workflow_store_db.create_draft(
+            payload,
+            items,
+            warnings=[],
+            actor="tester",
+        )
+
+        older.refresh_from_db()
+        self.assertEqual(older.status_code, "SUPERSEDED")
+        self.assertEqual(str(older.superseded_by_id), str(record["needs_list_id"]))
+        self.assertIn(str(older.needs_list_id), record.get("supersedes_needs_list_ids", []))
+        older_record = workflow_store_db._needs_list_to_dict(older)
+        self.assertEqual(
+            older_record.get("supersede_reason"),
+            "Replaced by newer draft calculation.",
+        )
 
     @patch("replenishment.workflow_store_db.data_access.get_event_names")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")

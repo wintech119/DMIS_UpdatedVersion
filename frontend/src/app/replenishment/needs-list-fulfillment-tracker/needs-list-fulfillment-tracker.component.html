@@ -1,0 +1,114 @@
+<div class="tracker-page">
+  <div class="page-header">
+    <button mat-icon-button type="button" aria-label="Back to my submissions" (click)="backToSubmissions()">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-copy">
+      <h1>{{ pageTitle() }}</h1>
+      <p>@if (needsList(); as list) { {{ list.needs_list_no ?? list.needs_list_id }} }</p>
+    </div>
+    <button mat-stroked-button type="button" (click)="refreshData()">
+      <mat-icon aria-hidden="true">refresh</mat-icon>
+      Refresh
+    </button>
+  </div>
+
+  @if (isOffline()) {
+    <mat-card class="banner warning" role="status">
+      <mat-icon aria-hidden="true">wifi_off</mat-icon>
+      <span>Offline - showing last synced data.</span>
+    </mat-card>
+  }
+
+  @if (isStale()) {
+    <mat-card class="banner info" role="status">
+      <mat-icon aria-hidden="true">update</mat-icon>
+      <span>Data changed. Refresh to see updates.</span>
+      <button mat-button type="button" (click)="refreshData()">Refresh</button>
+    </mat-card>
+  }
+
+  @if (loading()) {
+    <div class="loading">
+      <mat-spinner diameter="44"></mat-spinner>
+    </div>
+  }
+
+  @if (!loading() && error()) {
+    <mat-card class="error-card">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      <p>Unable to load fulfillment details.</p>
+      <button mat-stroked-button type="button" (click)="refreshData()">Retry</button>
+    </mat-card>
+  }
+
+  @if (!loading() && !error() && needsList(); as list) {
+    @if (mode() === 'superseded') {
+      <mat-card class="banner warning">
+        <mat-icon aria-hidden="true">warning</mat-icon>
+        <span>This draft has been superseded.</span>
+        @if (list.superseded_by_needs_list_id) {
+          <button mat-button type="button" (click)="goToReplacement()">
+            Open Replacement
+          </button>
+        }
+      </mat-card>
+    }
+
+    <mat-card class="summary-card">
+      <div class="summary-row">
+        <span>Status: <strong>{{ list.status }}</strong></span>
+        <span>Updated: {{ list.updated_at ? (list.updated_at | date:'medium') : 'N/A' }}</span>
+        <span>Last Synced: {{ lastSyncedAt() ? (lastSyncedAt() | date:'mediumTime') : 'N/A' }}</span>
+      </div>
+    </mat-card>
+
+    <div class="line-list">
+      @for (line of lines(); track line.id) {
+        <mat-card class="line-card">
+          <div class="line-header">
+            <h3>{{ line.item.name }} ({{ line.item.uom }})</h3>
+            <span class="line-horizon">Horizon {{ line.horizon }}</span>
+          </div>
+
+          <div class="line-metrics">
+            <span>Original: {{ line.original_qty | number:'1.0-2' }}</span>
+            <span>Covered: {{ line.covered_qty | number:'1.0-2' }}</span>
+            <span>Remaining: {{ line.remaining_qty | number:'1.0-2' }}</span>
+            <span>Total Coverage: {{ line.total_coverage | number:'1.0-2' }}</span>
+          </div>
+
+          <div class="sources-section">
+            <h4>Fulfillment Sources</h4>
+            @if (line.fulfillment_sources.length > 0) {
+              <table class="sources-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Reference</th>
+                    <th>Qty</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
+                    <tr>
+                      <td>{{ source.source_type }}</td>
+                      <td>{{ source.source_reference }}</td>
+                      <td>{{ source.quantity | number:'1.0-2' }}</td>
+                      <td>{{ source.status }}</td>
+                      <td>{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <p class="no-sources">No fulfillment sources recorded yet.</p>
+            }
+          </div>
+        </mat-card>
+      }
+    </div>
+  }
+</div>

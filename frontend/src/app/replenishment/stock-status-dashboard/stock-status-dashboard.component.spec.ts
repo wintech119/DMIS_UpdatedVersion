@@ -10,6 +10,7 @@ import { DataFreshnessService } from '../services/data-freshness.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { ActiveEvent, ReplenishmentService, Warehouse } from '../services/replenishment.service';
 import { WarehouseStockGroup } from '../models/stock-status.model';
+import { NeedsListResponse } from '../models/needs-list.model';
 
 describe('StockStatusDashboardComponent', () => {
   let fixture: ComponentFixture<StockStatusDashboardComponent>;
@@ -20,6 +21,7 @@ describe('StockStatusDashboardComponent', () => {
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let httpClient: jasmine.SpyObj<HttpClient>;
   let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
+  let router: jasmine.SpyObj<Router>;
 
   const refreshRequested$ = new Subject<void>();
   const event: ActiveEvent = {
@@ -86,7 +88,7 @@ describe('StockStatusDashboardComponent', () => {
     replenishmentService.getAllWarehouses.and.returnValue(of(warehouses));
     replenishmentService.listNeedsLists.and.returnValue(of({ needs_lists: [], count: 0 }));
 
-    const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
     httpClient = jasmine.createSpyObj<HttpClient>('HttpClient', ['get']);
     httpClient.get.and.returnValue(of({ roles: [], permissions: [] }));
@@ -294,6 +296,88 @@ describe('StockStatusDashboardComponent', () => {
     expect(component.mySubmissionUpdates.map((row) => row.needs_list_id)).toEqual(['NL-1']);
   });
 
+  it('loads my drafts and submissions with mine filter enabled', () => {
+    httpClient.get.and.returnValue(of({
+      user_id: 'EMP-123',
+      username: 'alice',
+      roles: [],
+      permissions: ['replenishment.needs_list.preview']
+    }));
+    replenishmentService.listNeedsLists.and.returnValue(of({
+      needs_lists: [
+        {
+          needs_list_id: 'NL-2',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          created_by: 'EMP-123',
+          status: 'SUBMITTED',
+          updated_at: '2026-02-16T13:00:00Z'
+        },
+        {
+          needs_list_id: 'NL-1',
+          event_id: 99,
+          phase: 'SURGE',
+          items: [],
+          as_of_datetime: '2026-02-16T12:00:00Z',
+          created_by: 'EMP-123',
+          status: 'DRAFT',
+          updated_at: '2026-02-16T14:00:00Z'
+        }
+      ],
+      count: 2
+    }));
+
+    component['loadReviewQueueAccess']();
+
+    const mineCall = replenishmentService.listNeedsLists.calls.allArgs().find((args) =>
+      args[1]?.mine === true && args[1]?.includeClosed === true
+    );
+    expect(mineCall).toBeDefined();
+    expect(component.myNeedsLists.map((row) => row.needs_list_id)).toEqual(['NL-1', 'NL-2']);
+  });
+
+  it('opens revision in wizard with existing needs_list_id context', () => {
+    component.reviseMyNeedsList({
+      needs_list_id: 'NL-55',
+      event_id: 99,
+      phase: 'SURGE',
+      warehouse_id: 2,
+      items: [],
+      as_of_datetime: '2026-02-16T12:00:00Z'
+    });
+
+    expect(router.navigate).toHaveBeenCalledWith(
+      ['/replenishment/needs-list-wizard'],
+      {
+        queryParams: jasmine.objectContaining({
+          needs_list_id: 'NL-55',
+          event_id: 99,
+          warehouse_id: 2,
+          phase: 'SURGE'
+        })
+      }
+    );
+  });
+
+  it('computes remaining and fulfilled item groups for my needs lists', () => {
+    const row: NeedsListResponse = {
+      needs_list_id: 'NL-70',
+      event_id: 99,
+      phase: 'SURGE',
+      status: 'IN_PROGRESS',
+      as_of_datetime: '2026-02-16T12:00:00Z',
+      items: [
+        { item_id: 1, item_name: 'Water', gap_qty: 100, fulfilled_qty: 25, fulfillment_status: 'PENDING', available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0 },
+        { item_id: 2, item_name: 'Rice', gap_qty: 40, fulfilled_qty: 40, fulfillment_status: 'FULFILLED', available_qty: 0, inbound_strict_qty: 0, burn_rate_per_hour: 0 }
+      ]
+    };
+
+    expect(component.remainingNeedsListItems(row).map((item) => item.item_id)).toEqual([1]);
+    expect(component.fulfilledNeedsListItems(row).map((item) => item.item_id)).toEqual([2]);
+  });
+
   it('keeps fetched event context when requested event id does not match', () => {
     component['requestedEventId'] = 777;
     component['requestedPhase'] = 'BASELINE';
@@ -320,6 +404,10 @@ describe('StockStatusDashboardComponent', () => {
     const storageKey = component['getSeenSubmitterUpdateStorageKey']();
 
     expect(storageKey).toBe('dmis_needs_list_submitter_updates_seen:emp-123');
+  });
+
+  it('preserves RETURNED status when creating my needs list summaries', () => {
+    expect(component['toSummaryStatus']('RETURNED')).toBe('RETURNED');
   });
 
   it('migrates legacy seen-state and reloads when current user changes', () => {

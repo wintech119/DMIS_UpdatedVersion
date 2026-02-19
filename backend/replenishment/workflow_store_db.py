@@ -40,6 +40,14 @@ _STATUS_ALIASES = {
 }
 
 _NEEDS_LIST_NO_MAX_RETRIES = 5
+_SUPERSEDE_CANDIDATE_STATUSES = {
+    "DRAFT",
+    "RETURNED",
+    "SUBMITTED",
+    "PENDING",
+    "PENDING_APPROVAL",
+    "UNDER_REVIEW",
+}
 _WORKFLOW_METADATA_TABLE_NAME = "needs_list_workflow_metadata"
 _IN_PROGRESS_STAGE_BY_STATUS = {
     status: status
@@ -55,6 +63,26 @@ _IN_PROGRESS_STAGE_ALIASES = {
     "RECEIVED": "RECEIVED",
     "RECEIVE": "RECEIVED",
 }
+
+
+def _normalize_actor(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _record_owned_by_actor(needs_list: NeedsList, actor: str | None) -> bool:
+    normalized_actor = _normalize_actor(actor)
+    if not normalized_actor:
+        return False
+
+    return any(
+        _normalize_actor(candidate) == normalized_actor
+        for candidate in (
+            needs_list.create_by_id,
+            needs_list.submitted_by,
+            needs_list.update_by_id,
+        )
+        if candidate
+    )
 
 
 def _utc_now() -> datetime:
@@ -291,6 +319,78 @@ def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) 
             )
 
 
+def _supersede_open_scope_records(
+    *,
+    event_id: int,
+    warehouse_id: int,
+    phase: str,
+    actor: str | None,
+    superseding_needs_list: NeedsList,
+) -> list[str]:
+    """
+    Mark existing open records for the same scope and actor as SUPERSEDED.
+
+    This keeps only the newest draft/revision active for a scope while preserving
+    older drafts/submissions as history.
+    """
+    normalized_phase = str(phase or "").strip().upper()
+    actor_value = actor or "SYSTEM"
+    superseded_at = _utc_now_str()
+
+    existing_records = (
+        NeedsList.objects.select_for_update()
+        .filter(
+            event_id=event_id,
+            warehouse_id=warehouse_id,
+            event_phase=normalized_phase,
+            status_code__in=_SUPERSEDE_CANDIDATE_STATUSES,
+        )
+        .exclude(needs_list_id=superseding_needs_list.needs_list_id)
+        .order_by("-needs_list_id")
+    )
+
+    superseded_ids: list[str] = []
+    for existing in existing_records:
+        if not _record_owned_by_actor(existing, actor):
+            continue
+
+        previous_status = str(existing.status_code or "").upper()
+        if previous_status == "SUPERSEDED":
+            continue
+
+        metadata = _load_workflow_metadata(existing)
+        metadata["superseded_at"] = superseded_at
+        metadata["superseded_by"] = actor_value
+        metadata["supersede_reason"] = "Replaced by newer draft calculation."
+        metadata["superseded_by_needs_list_id"] = str(
+            superseding_needs_list.needs_list_id
+        )
+        _save_workflow_metadata(existing, metadata)
+
+        existing.status_code = "SUPERSEDED"
+        existing.superseded_by = superseding_needs_list
+        existing.update_by_id = actor_value
+        existing.save(
+            update_fields=["status_code", "superseded_by", "update_by_id", "update_dtime"]
+        )
+
+        NeedsListAudit.objects.create(
+            needs_list=existing,
+            action_type="SUPERSEDED",
+            field_name="status_code",
+            old_value=previous_status,
+            new_value="SUPERSEDED",
+            notes_text=(
+                "Superseded by newer draft "
+                f"{superseding_needs_list.needs_list_no or superseding_needs_list.needs_list_id}"
+            ),
+            actor_user_id=actor_value,
+        )
+        superseded_ids.append(str(existing.needs_list_id))
+
+    return superseded_ids
+
+
 def _safe_get_warehouse_name(warehouse_id: int) -> str:
     try:
         return data_access.get_warehouse_name(warehouse_id)
@@ -475,6 +575,10 @@ def _normalize_snapshot_item(
         normalized["procurement"] = item_data.get("procurement")
     if item_data.get("procurement_status") is not None:
         normalized["procurement_status"] = item_data.get("procurement_status")
+    if item_data.get("fulfilled_qty") is not None:
+        normalized["fulfilled_qty"] = round(_coerce_float(item_data.get("fulfilled_qty"), 0.0), 2)
+    if item_data.get("fulfillment_status") is not None:
+        normalized["fulfillment_status"] = str(item_data.get("fulfillment_status") or "").strip() or None
     if isinstance(item_data.get("triggers"), dict):
         normalized["triggers"] = item_data.get("triggers")
     if isinstance(item_data.get("confidence"), dict):
@@ -593,6 +697,21 @@ def create_draft(
         if last_integrity_error is not None:
             raise last_integrity_error
         raise RuntimeError("Unable to allocate needs_list_no for draft creation")
+
+    superseded_ids = _supersede_open_scope_records(
+        event_id=int(event_id),
+        warehouse_id=int(warehouse_id),
+        phase=str(phase or ""),
+        actor=actor,
+        superseding_needs_list=needs_list,
+    )
+    if superseded_ids:
+        metadata = _load_workflow_metadata(needs_list)
+        metadata["supersedes_needs_list_ids"] = superseded_ids
+        metadata["supersede_reason"] = (
+            "Superseded previous draft/submitted needs list records for this scope."
+        )
+        _save_workflow_metadata(needs_list, metadata)
 
     # Create line items
     for item_data in items:
@@ -1209,6 +1328,15 @@ def _needs_list_to_dict(
     selected_method = metadata.get("selected_method")
     selected_item_keys = metadata.get("selected_item_keys")
     filters = metadata.get("filters")
+    supersedes_needs_list_ids = metadata.get("supersedes_needs_list_ids")
+    if isinstance(supersedes_needs_list_ids, list):
+        supersedes_needs_list_ids = [
+            str(needs_list_id).strip()
+            for needs_list_id in supersedes_needs_list_ids
+            if str(needs_list_id).strip()
+        ]
+    else:
+        supersedes_needs_list_ids = []
     if warnings is None:
         raw_warnings = metadata.get("warnings")
         if isinstance(raw_warnings, list):
@@ -1271,6 +1399,8 @@ def _needs_list_to_dict(
                 "override_reason": item.adjustment_notes if item.adjusted_qty is not None else None,
                 "override_updated_by": item.adjusted_by if item.adjusted_qty is not None else None,
                 "override_updated_at": item.adjusted_at.isoformat() if item.adjusted_at else None,
+                "fulfilled_qty": float(item.fulfilled_qty),
+                "fulfillment_status": item.fulfillment_status,
             }
             items.append(
                 _normalize_snapshot_item(
@@ -1385,6 +1515,12 @@ def _needs_list_to_dict(
         'escalated_by': metadata.get("escalated_by"),
         'escalated_at': metadata.get("escalated_at"),
         'escalation_reason': metadata.get("escalation_reason"),
+        'superseded_by': str(needs_list.superseded_by_id) if needs_list.superseded_by_id else None,
+        'superseded_at': metadata.get("superseded_at"),
+        'superseded_by_actor': metadata.get("superseded_by"),
+        'superseded_by_needs_list_id': metadata.get("superseded_by_needs_list_id"),
+        'supersedes_needs_list_ids': supersedes_needs_list_ids,
+        'supersede_reason': metadata.get("supersede_reason") or metadata.get("superseded_reason"),
         'returned_by': needs_list.returned_by,
         'returned_at': needs_list.returned_at.isoformat() if needs_list.returned_at else None,
         'return_reason': needs_list.returned_reason if needs_list.status_code == 'RETURNED' else None,
