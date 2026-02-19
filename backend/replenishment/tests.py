@@ -1691,6 +1691,99 @@ class NeedsListWorkflowApiTests(TestCase):
         queue_ids = [row.get("needs_list_id") for row in queue.json().get("needs_lists", [])]
         self.assertIn(first_id, queue_ids)
 
+    def test_create_draft_does_not_supersede_when_warehouse_ids_differ(self) -> None:
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            first = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": 1,
+                    "warehouse_ids": [1, 2],
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            second = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": 1,
+                    "warehouse_ids": [1],
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            first_after = workflow_store.get_record(first["needs_list_id"])
+
+            self.assertIsNotNone(first_after)
+            self.assertEqual(first_after.get("status"), "DRAFT")
+            self.assertNotIn(first["needs_list_id"], second.get("supersedes_needs_list_ids", []))
+
+    def test_create_draft_does_not_supersede_when_warehouse_ids_differ_with_no_warehouse_id(
+        self,
+    ) -> None:
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            first = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": None,
+                    "warehouse_ids": [1, 2],
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            second = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": None,
+                    "warehouse_ids": [1],
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            first_after = workflow_store.get_record(first["needs_list_id"])
+
+            self.assertIsNotNone(first_after)
+            self.assertEqual(first_after.get("status"), "DRAFT")
+            self.assertNotIn(first["needs_list_id"], second.get("supersedes_needs_list_ids", []))
+
+    def test_create_draft_treats_empty_and_none_warehouse_ids_as_same_scope(self) -> None:
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            first = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": None,
+                    "warehouse_ids": None,
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            second = workflow_store.create_draft(
+                {
+                    "event_id": 1,
+                    "warehouse_id": None,
+                    "warehouse_ids": [],
+                    "phase": "BASELINE",
+                },
+                [],
+                [],
+                "submitter",
+            )
+            first_after = workflow_store.get_record(first["needs_list_id"])
+
+            self.assertIsNotNone(first_after)
+            self.assertEqual(first_after.get("status"), "SUPERSEDED")
+            self.assertEqual(first_after.get("superseded_by"), second.get("needs_list_id"))
+            self.assertIn(first["needs_list_id"], second.get("supersedes_needs_list_ids", []))
+
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
