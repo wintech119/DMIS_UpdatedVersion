@@ -58,6 +58,13 @@ export function getNeedsListActionTarget(
         queryParams: { rejected: 'true' },
         readOnly: true
       };
+    case 'ESCALATED':
+      return {
+        label: 'View Escalation',
+        commands: ['/replenishment/needs-list', id, 'review'],
+        queryParams: { escalated: 'true' },
+        readOnly: true
+      };
     case 'SUPERSEDED':
       return {
         label: 'View Superseded',
