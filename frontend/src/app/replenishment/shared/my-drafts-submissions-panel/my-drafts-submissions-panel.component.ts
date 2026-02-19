@@ -14,7 +14,7 @@ interface StatusGroup {
 }
 
 @Component({
-  selector: 'app-my-drafts-submissions-panel',
+  selector: 'dmis-my-drafts-submissions-panel',
   standalone: true,
   imports: [NgClass, MatButtonModule, MatIconModule],
   templateUrl: './my-drafts-submissions-panel.component.html',
