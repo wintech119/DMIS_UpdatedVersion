@@ -63,4 +63,13 @@ describe('MyDraftsSubmissionsPanelComponent', () => {
 
     expect(component.hasDrafts()).toBeTrue();
   });
+
+  it('groups returned records under drafts', () => {
+    fixture.componentRef.setInput('submissions', [createSummary('RETURNED')]);
+    fixture.detectChanges();
+
+    expect(component.statusGroups()).toEqual([
+      jasmine.objectContaining({ label: 'Drafts', count: 1 })
+    ]);
+  });
 });

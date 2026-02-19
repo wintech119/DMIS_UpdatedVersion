@@ -35,7 +35,7 @@ export class MyDraftsSubmissionsPanelComponent {
   readonly statusGroups = computed<StatusGroup[]>(() => {
     const items = this.submissions();
     const draftCount = items.filter(
-      (s) => s.status === 'DRAFT' || s.status === 'MODIFIED'
+      (s) => s.status === 'DRAFT' || s.status === 'MODIFIED' || s.status === 'RETURNED'
     ).length;
     const pendingCount = items.filter((s) => s.status === 'PENDING_APPROVAL').length;
     const activeCount = items.filter(
