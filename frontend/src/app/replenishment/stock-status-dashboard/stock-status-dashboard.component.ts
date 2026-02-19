@@ -38,7 +38,6 @@ import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { MyDraftsSubmissionsPanelComponent } from '../shared/my-drafts-submissions-panel/my-drafts-submissions-panel.component';
-import { getNeedsListActionTarget } from '../shared/needs-list-action.util';
 
 interface FilterState {
   categories: string[];
@@ -876,16 +875,6 @@ export class StockStatusDashboardComponent implements OnInit {
 
   get myNeedsListSummaries(): NeedsListSummary[] {
     return this.myNeedsLists.map((row) => this.toNeedsListSummary(row));
-  }
-
-  openMyNeedsListAction(event: { id: string; status: NeedsListSummaryStatus }): void {
-    const target = getNeedsListActionTarget(event.id, event.status);
-    this.router.navigate(target.commands, { queryParams: target.queryParams });
-  }
-
-  refreshMyNeedsListSummary(_id: string): void {
-    void _id;
-    this.loadMyNeedsLists();
   }
 
   openNeedsListUpdate(row: NeedsListResponse): void {

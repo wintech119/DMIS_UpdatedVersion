@@ -1,10 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
-import { NeedsListSummary, NeedsListSummaryStatus } from '../../models/needs-list.model';
+import { NeedsListSummary } from '../../models/needs-list.model';
 
 interface StatusGroup {
   label: string;
@@ -14,7 +14,7 @@ interface StatusGroup {
 }
 
 @Component({
-  selector: 'dmis-my-drafts-submissions-panel',
+  selector: 'app-my-drafts-submissions-panel',
   standalone: true,
   imports: [NgClass, MatButtonModule, MatIconModule],
   templateUrl: './my-drafts-submissions-panel.component.html',
@@ -26,9 +26,6 @@ export class MyDraftsSubmissionsPanelComponent {
 
   readonly submissions = input<NeedsListSummary[]>([]);
   readonly title = input('My Drafts & Submissions');
-
-  readonly openAction = output<{ id: string; status: NeedsListSummaryStatus }>();
-  readonly refresh = output<string>();
 
   readonly totalCount = computed(() => this.submissions().length);
 
