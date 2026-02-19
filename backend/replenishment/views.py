@@ -1417,6 +1417,8 @@ def needs_list_bulk_submit(request):
 
     submitted_ids: list[str] = []
     errors: list[Dict[str, str]] = []
+    actor = _actor_id(request)
+    target_status = _workflow_target_status("SUBMITTED")
     for needs_list_id in ids:
         record = workflow_store.get_record(needs_list_id)
         if not record:
@@ -1435,14 +1437,26 @@ def needs_list_bulk_submit(request):
 
         updated_record = workflow_store.transition_status(
             record,
-            _workflow_target_status("SUBMITTED"),
-            _actor_id(request),
+            target_status,
+            actor,
         )
         updated_record["submitted_approval_summary"] = _compute_approval_summary(
             updated_record,
             workflow_store.apply_overrides(updated_record),
         )
         workflow_store.update_record(needs_list_id, updated_record)
+        logger.info(
+            "needs_list_submitted",
+            extra={
+                "event_type": "STATE_CHANGE",
+                "user_id": getattr(request.user, "user_id", None),
+                "username": getattr(request.user, "username", None),
+                "needs_list_id": needs_list_id,
+                "from_status": previous_status,
+                "to_status": target_status,
+                "item_count": item_count,
+            },
+        )
         submitted_ids.append(needs_list_id)
 
     return Response({"submitted_ids": submitted_ids, "errors": errors, "count": len(submitted_ids)})
@@ -1463,6 +1477,7 @@ def needs_list_bulk_delete(request):
 
     cancelled_ids: list[str] = []
     errors: list[Dict[str, str]] = []
+    actor = _actor_id(request)
     reason = str((request.data or {}).get("reason") or "Removed from My Submissions.").strip()
     for needs_list_id in ids:
         record = workflow_store.get_record(needs_list_id)
@@ -1478,10 +1493,22 @@ def needs_list_bulk_delete(request):
         updated_record = workflow_store.transition_status(
             record,
             "CANCELLED",
-            _actor_id(request),
+            actor,
             reason=reason,
         )
         workflow_store.update_record(needs_list_id, updated_record)
+        logger.info(
+            "needs_list_cancelled",
+            extra={
+                "event_type": "STATE_CHANGE",
+                "user_id": getattr(request.user, "user_id", None),
+                "username": getattr(request.user, "username", None),
+                "needs_list_id": needs_list_id,
+                "from_status": status,
+                "to_status": "CANCELLED",
+                "reason": reason,
+            },
+        )
         cancelled_ids.append(needs_list_id)
 
     return Response({"cancelled_ids": cancelled_ids, "errors": errors, "count": len(cancelled_ids)})
