@@ -3,6 +3,7 @@ import re
 import math
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Dict
@@ -61,6 +62,7 @@ REQUEST_CHANGE_REASON_CODES = {
     "POLICY_COMPLIANCE",
     "OTHER",
 }
+_CLOSED_NEEDS_LIST_STATUSES = {"FULFILLED", "CANCELLED", "SUPERSEDED", "REJECTED"}
 
 
 def _use_db_workflow_store() -> bool:
@@ -150,6 +152,23 @@ def _parse_selected_item_keys(
 
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+def _normalize_actor(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _query_param_truthy(value: object, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
 
 
 def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
@@ -745,6 +764,12 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "escalated_by": record.get("escalated_by"),
             "escalated_at": record.get("escalated_at"),
             "escalation_reason": record.get("escalation_reason"),
+            "superseded_by": record.get("superseded_by"),
+            "superseded_at": record.get("superseded_at"),
+            "superseded_by_actor": record.get("superseded_by_actor"),
+            "superseded_by_needs_list_id": record.get("superseded_by_needs_list_id"),
+            "supersedes_needs_list_ids": record.get("supersedes_needs_list_ids"),
+            "supersede_reason": record.get("supersede_reason"),
             "return_reason": record.get("return_reason"),
             "return_reason_code": record.get("return_reason_code"),
             "reject_reason": record.get("reject_reason"),
@@ -752,6 +777,243 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
         }
     )
     return response
+
+
+def _normalize_status_for_ui(status: object) -> str:
+    normalized = str(status or "").strip().upper()
+    if normalized in {"SUBMITTED", "PENDING", "UNDER_REVIEW"}:
+        return "PENDING_APPROVAL"
+    if normalized in {"IN_PREPARATION", "DISPATCHED", "RECEIVED"}:
+        return "IN_PROGRESS"
+    if normalized == "COMPLETED":
+        return "FULFILLED"
+    return normalized
+
+
+def _item_is_fulfilled(item: Dict[str, Any], list_status: str) -> bool:
+    if list_status in {"FULFILLED", "COMPLETED"}:
+        return True
+
+    fulfillment_status = str(item.get("fulfillment_status") or "").strip().upper()
+    if fulfillment_status in {"FULFILLED", "RECEIVED"}:
+        return True
+
+    gap_qty = max(_to_float_or_none(item.get("gap_qty")) or 0.0, 0.0)
+    if gap_qty <= 0:
+        return True
+
+    fulfilled_qty = max(_to_float_or_none(item.get("fulfilled_qty")) or 0.0, 0.0)
+    return fulfilled_qty >= gap_qty
+
+
+def _horizon_item_qty(item: Dict[str, Any], horizon_key: str) -> float:
+    horizon = item.get("horizon")
+    if isinstance(horizon, dict):
+        bucket = horizon.get(horizon_key)
+        if isinstance(bucket, dict):
+            return max(_to_float_or_none(bucket.get("recommended_qty")) or 0.0, 0.0)
+    return 0.0
+
+
+def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str, float | int]]:
+    summary = {
+        "horizon_a": {"count": 0, "estimated_value": 0.0},
+        "horizon_b": {"count": 0, "estimated_value": 0.0},
+        "horizon_c": {"count": 0, "estimated_value": 0.0},
+    }
+
+    for item in items:
+        procurement = item.get("procurement")
+        procurement_data = procurement if isinstance(procurement, dict) else {}
+        unit_cost = max(_to_float_or_none(procurement_data.get("est_unit_cost")) or 0.0, 0.0)
+        total_cost = max(_to_float_or_none(procurement_data.get("est_total_cost")) or 0.0, 0.0)
+
+        for key, bucket in (
+            ("A", "horizon_a"),
+            ("B", "horizon_b"),
+            ("C", "horizon_c"),
+        ):
+            qty = _horizon_item_qty(item, key)
+            if qty <= 0:
+                continue
+
+            summary[bucket]["count"] = int(summary[bucket]["count"]) + 1
+            if unit_cost > 0:
+                summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + (qty * unit_cost)
+            elif key == "C" and total_cost > 0:
+                summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + total_cost
+
+    return summary
+
+
+def _infer_external_source(item: Dict[str, Any]) -> tuple[str, str]:
+    donation_qty = max(_to_float_or_none(item.get("inbound_donation_qty")) or 0.0, 0.0)
+    transfer_qty = max(_to_float_or_none(item.get("inbound_transfer_qty")) or 0.0, 0.0)
+    procurement_qty = max(_to_float_or_none(item.get("inbound_procurement_qty")) or 0.0, 0.0)
+
+    if donation_qty > 0:
+        return ("DONATION", "Inbound Donation")
+    if transfer_qty > 0:
+        return ("TRANSFER", "Inbound Transfer")
+    if procurement_qty > 0:
+        return ("PROCUREMENT", "Procurement Pipeline")
+    return ("TRANSFER", "External Supply")
+
+
+def _build_external_update_summary(
+    items: list[Dict[str, Any]],
+    updated_at: str | None,
+) -> list[Dict[str, Any]]:
+    updates: list[Dict[str, Any]] = []
+    for item in items:
+        fulfilled_qty = max(_to_float_or_none(item.get("fulfilled_qty")) or 0.0, 0.0)
+        if fulfilled_qty <= 0:
+            continue
+
+        gap_qty = max(_to_float_or_none(item.get("gap_qty")) or 0.0, 0.0)
+        original_qty = gap_qty + fulfilled_qty
+        if original_qty <= 0:
+            continue
+
+        source_type, source_reference = _infer_external_source(item)
+        updates.append(
+            {
+                "item_name": item.get("item_name") or f"Item {item.get('item_id')}",
+                "original_qty": round(original_qty, 2),
+                "covered_qty": round(fulfilled_qty, 2),
+                "remaining_qty": round(max(original_qty - fulfilled_qty, 0.0), 2),
+                "source_type": source_type,
+                "source_reference": source_reference,
+                "updated_at": updated_at,
+            }
+        )
+    return updates
+
+
+def _serialize_submission_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    items_raw = record.get("items")
+    items = [item for item in items_raw if isinstance(item, dict)] if isinstance(items_raw, list) else []
+
+    list_status_raw = str(record.get("status") or "").strip().upper()
+    list_status = _normalize_status_for_ui(list_status_raw)
+
+    total_items = len(items)
+    fulfilled_items = sum(1 for item in items if _item_is_fulfilled(item, list_status_raw))
+    remaining_items = max(total_items - fulfilled_items, 0)
+
+    updated_at = (
+        str(record.get("updated_at") or "").strip()
+        or str(record.get("approved_at") or "").strip()
+        or str(record.get("submitted_at") or "").strip()
+        or str(record.get("created_at") or "").strip()
+        or None
+    )
+
+    warehouses = record.get("warehouses")
+    warehouse_obj = warehouses[0] if isinstance(warehouses, list) and warehouses else {}
+    warehouse_name = (
+        str(warehouse_obj.get("warehouse_name") or "").strip()
+        if isinstance(warehouse_obj, dict)
+        else ""
+    )
+    warehouse_id = (
+        _to_int_or_none(warehouse_obj.get("warehouse_id")) if isinstance(warehouse_obj, dict) else None
+    )
+    if warehouse_id is None:
+        warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+
+    event_name = str(record.get("event_name") or "").strip()
+    event_id = _to_int_or_none(record.get("event_id"))
+    phase = str(record.get("phase") or "").strip().upper() or "BASELINE"
+
+    external_update_summary = _build_external_update_summary(items, updated_at)
+
+    return {
+        "id": str(record.get("needs_list_id") or ""),
+        "reference_number": str(record.get("needs_list_no") or record.get("needs_list_id") or ""),
+        "warehouse": {
+            "id": warehouse_id,
+            "name": warehouse_name or (f"Warehouse {warehouse_id}" if warehouse_id is not None else "Unknown"),
+            "code": str(warehouse_id) if warehouse_id is not None else "",
+        },
+        "event": {
+            "id": event_id,
+            "name": event_name or (f"Event {event_id}" if event_id is not None else "Unknown"),
+            "phase": phase,
+        },
+        "status": list_status,
+        "total_items": total_items,
+        "fulfilled_items": fulfilled_items,
+        "remaining_items": remaining_items,
+        "horizon_summary": _compute_horizon_summary(items),
+        "submitted_at": record.get("submitted_at"),
+        "approved_at": record.get("approved_at"),
+        "last_updated_at": updated_at,
+        "superseded_by_id": (
+            record.get("superseded_by_needs_list_id")
+            or record.get("superseded_by")
+        ),
+        "supersedes_id": (
+            (record.get("supersedes_needs_list_ids") or [None])[0]
+            if isinstance(record.get("supersedes_needs_list_ids"), list)
+            else None
+        ),
+        "has_external_updates": len(external_update_summary) > 0,
+        "external_update_summary": external_update_summary,
+        "data_version": f"{record.get('needs_list_id')}|{updated_at or ''}|{list_status}",
+        "created_by": {
+            "id": None,
+            "name": str(record.get("created_by") or ""),
+        },
+    }
+
+
+def _parse_iso_datetime(value: object) -> Any | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+
+    parsed = parse_datetime(normalized)
+    if parsed is None:
+        # Accept date-only values by appending midnight UTC.
+        parsed = parse_datetime(f"{normalized}T00:00:00Z")
+    if parsed is None:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+    return parsed
+
+
+def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size: int = 10, max_page_size: int = 100) -> Dict[str, Any]:
+    page = _parse_positive_int(request.query_params.get("page"), "page", {}) or 1
+    page_size = _parse_positive_int(request.query_params.get("page_size"), "page_size", {}) or default_page_size
+    page_size = max(1, min(page_size, max_page_size))
+
+    total_count = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_items = items[start:end] if start < total_count else []
+
+    next_url = None
+    prev_url = None
+    query = request.query_params.copy()
+    query["page_size"] = str(page_size)
+
+    if end < total_count:
+        query["page"] = str(page + 1)
+        next_url = f"{request.path}?{query.urlencode()}"
+    if page > 1 and total_count > 0:
+        query["page"] = str(page - 1)
+        prev_url = f"{request.path}?{query.urlencode()}"
+
+    return {
+        "count": total_count,
+        "next": next_url,
+        "previous": prev_url,
+        "results": page_items,
+    }
 
 
 def _workflow_disabled_response() -> Response:
@@ -766,9 +1028,14 @@ def _workflow_disabled_response() -> Response:
 @permission_classes([NeedsListPreviewPermission])
 def needs_list_list(request):
     """
-    List needs lists, optionally filtered by status.
+    List needs lists, optionally filtered by query params.
     Query params:
         status - comma-separated list of statuses (e.g. SUBMITTED,PENDING_APPROVAL,UNDER_REVIEW)
+        mine - when true, only records authored/submitted/updated by current actor
+        include_closed - when false, excludes terminal statuses
+        event_id - optional positive integer event scope
+        warehouse_id - optional positive integer warehouse scope
+        phase - optional phase filter (SURGE, STABILIZED, BASELINE)
     """
     try:
         workflow_store.store_enabled_or_raise()
@@ -777,13 +1044,396 @@ def needs_list_list(request):
 
     status_param = request.query_params.get("status")
     statuses = [s.strip() for s in status_param.split(",") if s.strip()] if status_param else None
+    mine_only = _query_param_truthy(request.query_params.get("mine"), default=False)
+    include_closed = _query_param_truthy(
+        request.query_params.get("include_closed"), default=True
+    )
+
+    errors: Dict[str, str] = {}
+    event_id_filter = _parse_positive_int(
+        request.query_params.get("event_id"), "event_id", errors
+    ) if request.query_params.get("event_id") is not None else None
+    warehouse_id_filter = _parse_positive_int(
+        request.query_params.get("warehouse_id"), "warehouse_id", errors
+    ) if request.query_params.get("warehouse_id") is not None else None
+    phase_raw = request.query_params.get("phase")
+    phase_filter = str(phase_raw or "").strip().upper() or None
+    if phase_filter and phase_filter not in rules.PHASES:
+        errors["phase"] = "Must be SURGE, STABILIZED, or BASELINE."
+    if errors:
+        return Response({"errors": errors}, status=400)
 
     records = workflow_store.list_records(statuses)
-    serialized = [_serialize_workflow_record(r) for r in records]
-    # Sort by submitted_at ascending (oldest first), nulls last
-    serialized.sort(key=lambda r: r.get("submitted_at") or "9999")
+    actor = _normalize_actor(_actor_id(request))
+    filtered_records: list[Dict[str, Any]] = []
+    for record in records:
+        status_value = str(record.get("status") or "").upper()
+        if not include_closed and status_value in _CLOSED_NEEDS_LIST_STATUSES:
+            continue
+
+        if mine_only:
+            if not actor:
+                continue
+            if not any(
+                _normalize_actor(candidate) == actor
+                for candidate in (
+                    record.get("created_by"),
+                    record.get("submitted_by"),
+                    record.get("updated_by"),
+                )
+                if candidate
+            ):
+                continue
+
+        if event_id_filter is not None and record.get("event_id") != event_id_filter:
+            continue
+
+        if warehouse_id_filter is not None:
+            record_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+            record_warehouse_ids = {
+                _to_int_or_none(value)
+                for value in (record.get("warehouse_ids") or [])
+            }
+            if (
+                record_warehouse_id != warehouse_id_filter
+                and warehouse_id_filter not in record_warehouse_ids
+            ):
+                continue
+
+        if phase_filter and str(record.get("phase") or "").strip().upper() != phase_filter:
+            continue
+
+        filtered_records.append(record)
+
+    serialized = [_serialize_workflow_record(r) for r in filtered_records]
+    if mine_only:
+        serialized.sort(key=_record_sort_timestamp, reverse=True)
+    else:
+        # Sort by submitted_at ascending (oldest first), nulls last.
+        serialized.sort(key=lambda r: r.get("submitted_at") or "9999")
 
     return Response({"needs_lists": serialized, "count": len(serialized)})
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_my_submissions(request):
+    """
+    Paginated, filterable summaries for the current actor's submissions.
+    """
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    actor = _normalize_actor(_actor_id(request))
+    if not actor:
+        return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+    status_param = request.query_params.get("status")
+    statuses = [s.strip() for s in str(status_param or "").split(",") if s.strip()] or None
+    event_id_filter = _to_int_or_none(request.query_params.get("event_id"))
+    warehouse_id_filter = _to_int_or_none(request.query_params.get("warehouse_id"))
+    date_from_raw = request.query_params.get("date_from")
+    date_to_raw = request.query_params.get("date_to")
+    date_from = _parse_iso_datetime(date_from_raw)
+    date_to = _parse_iso_datetime(date_to_raw)
+    if (
+        date_to is not None
+        and isinstance(date_to_raw, str)
+        and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_to_raw.strip())
+    ):
+        # Treat day-only end filters as inclusive through end-of-day.
+        date_to = date_to + timedelta(days=1) - timedelta(microseconds=1)
+
+    sort_by = str(request.query_params.get("sort_by") or "date").strip().lower()
+    sort_order = str(request.query_params.get("sort_order") or "desc").strip().lower()
+    if sort_by not in {"date", "status", "warehouse"}:
+        return Response({"errors": {"sort_by": "Must be one of: date, status, warehouse."}}, status=400)
+    if sort_order not in {"asc", "desc"}:
+        return Response({"errors": {"sort_order": "Must be asc or desc."}}, status=400)
+
+    records = workflow_store.list_records(statuses)
+    summaries: list[Dict[str, Any]] = []
+    for record in records:
+        if not any(
+            _normalize_actor(candidate) == actor
+            for candidate in (
+                record.get("created_by"),
+                record.get("submitted_by"),
+                record.get("updated_by"),
+            )
+            if candidate
+        ):
+            continue
+
+        serialized = _serialize_workflow_record(record, include_overrides=True)
+        summary = _serialize_submission_summary(serialized)
+
+        if event_id_filter is not None and summary.get("event", {}).get("id") != event_id_filter:
+            continue
+        if warehouse_id_filter is not None and summary.get("warehouse", {}).get("id") != warehouse_id_filter:
+            continue
+
+        summary_ts = _parse_iso_datetime(summary.get("last_updated_at"))
+        if date_from and (summary_ts is None or summary_ts < date_from):
+            continue
+        if date_to and (summary_ts is None or summary_ts > date_to):
+            continue
+
+        summaries.append(summary)
+
+    reverse = sort_order == "desc"
+    if sort_by == "status":
+        summaries.sort(key=lambda row: str(row.get("status") or ""), reverse=reverse)
+    elif sort_by == "warehouse":
+        summaries.sort(
+            key=lambda row: str((row.get("warehouse") or {}).get("name") or ""),
+            reverse=reverse,
+        )
+    else:
+        summaries.sort(key=lambda row: _record_sort_timestamp({"updated_at": row.get("last_updated_at")}), reverse=reverse)
+
+    return Response(_paginate_results(request, summaries))
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_summary_version(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    serialized = _serialize_workflow_record(record, include_overrides=False)
+    normalized_status = _normalize_status_for_ui(serialized.get("status"))
+    updated_at = (
+        serialized.get("updated_at")
+        or serialized.get("approved_at")
+        or serialized.get("submitted_at")
+        or serialized.get("created_at")
+    )
+    return Response(
+        {
+            "needs_list_id": str(serialized.get("needs_list_id") or needs_list_id),
+            "status": normalized_status,
+            "last_updated_at": updated_at,
+            "data_version": f"{serialized.get('needs_list_id')}|{updated_at or ''}|{normalized_status}",
+        }
+    )
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
+def needs_list_fulfillment_sources(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    serialized = _serialize_workflow_record(record, include_overrides=True)
+    list_status = str(serialized.get("status") or "").strip().upper()
+    updated_at = serialized.get("updated_at")
+    lines: list[Dict[str, Any]] = []
+
+    for raw_item in serialized.get("items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+
+        item_id = _to_int_or_none(raw_item.get("item_id"))
+        gap_qty = max(_to_float_or_none(raw_item.get("gap_qty")) or 0.0, 0.0)
+        fulfilled_qty = max(_to_float_or_none(raw_item.get("fulfilled_qty")) or 0.0, 0.0)
+        original_qty = round(gap_qty + fulfilled_qty, 2)
+        remaining_qty = 0.0 if _item_is_fulfilled(raw_item, list_status) else round(max(original_qty - fulfilled_qty, 0.0), 2)
+
+        donation_qty = max(_to_float_or_none(raw_item.get("inbound_donation_qty")) or 0.0, 0.0)
+        transfer_qty = max(_to_float_or_none(raw_item.get("inbound_transfer_qty")) or 0.0, 0.0)
+        procurement_qty = max(_to_float_or_none(raw_item.get("inbound_procurement_qty")) or 0.0, 0.0)
+
+        sources: list[Dict[str, Any]] = []
+        if donation_qty > 0:
+            sources.append(
+                {
+                    "source_type": "DONATION",
+                    "source_id": None,
+                    "source_reference": "Inbound Donation",
+                    "quantity": round(donation_qty, 2),
+                    "status": "RECEIVED",
+                    "date": updated_at,
+                }
+            )
+        if transfer_qty > 0:
+            sources.append(
+                {
+                    "source_type": "TRANSFER",
+                    "source_id": None,
+                    "source_reference": "Inbound Transfer",
+                    "quantity": round(transfer_qty, 2),
+                    "status": "DISPATCHED",
+                    "date": updated_at,
+                }
+            )
+        if procurement_qty > 0:
+            sources.append(
+                {
+                    "source_type": "PROCUREMENT",
+                    "source_id": None,
+                    "source_reference": "Procurement Pipeline",
+                    "quantity": round(procurement_qty, 2),
+                    "status": "DRAFT",
+                    "date": None,
+                }
+            )
+
+        if remaining_qty > 0:
+            sources.append(
+                {
+                    "source_type": "NEEDS_LIST_LINE",
+                    "source_id": item_id,
+                    "source_reference": f"{serialized.get('needs_list_no') or serialized.get('needs_list_id')} (This needs list)",
+                    "quantity": round(remaining_qty, 2),
+                    "status": _normalize_status_for_ui(serialized.get("status")),
+                    "date": None,
+                }
+            )
+
+        total_coverage = round(sum(_to_float_or_none(source.get("quantity")) or 0.0 for source in sources), 2)
+        lines.append(
+            {
+                "id": item_id,
+                "item": {
+                    "id": item_id,
+                    "name": raw_item.get("item_name") or (f"Item {item_id}" if item_id is not None else "Item"),
+                    "uom": raw_item.get("uom_code") or "EA",
+                },
+                "original_qty": original_qty,
+                "covered_qty": round(fulfilled_qty, 2),
+                "remaining_qty": round(max(remaining_qty, 0.0), 2),
+                "horizon": (
+                    "C"
+                    if _horizon_item_qty(raw_item, "C") > 0
+                    else ("B" if _horizon_item_qty(raw_item, "B") > 0 else "A")
+                ),
+                "fulfillment_sources": sources,
+                "total_coverage": total_coverage,
+                "is_fully_covered": remaining_qty <= 0,
+            }
+        )
+
+    return Response({"needs_list_id": str(serialized.get("needs_list_id") or needs_list_id), "lines": lines})
+
+
+def _parse_bulk_ids(raw_ids: Any) -> tuple[list[str], Dict[str, str] | None]:
+    if not isinstance(raw_ids, list):
+        return ([], {"ids": "Expected an array of needs list IDs."})
+
+    parsed_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_id in raw_ids:
+        value = str(raw_id or "").strip()
+        if not value:
+            return ([], {"ids": "Each ID must be a non-empty string or number."})
+        if value in seen:
+            continue
+        seen.add(value)
+        parsed_ids.append(value)
+    return (parsed_ids, None)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_bulk_submit(request):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    ids, parse_error = _parse_bulk_ids((request.data or {}).get("ids"))
+    if parse_error:
+        return Response({"errors": parse_error}, status=400)
+
+    submitted_ids: list[str] = []
+    errors: list[Dict[str, str]] = []
+    for needs_list_id in ids:
+        record = workflow_store.get_record(needs_list_id)
+        if not record:
+            errors.append({"id": needs_list_id, "error": "Not found."})
+            continue
+
+        previous_status = str(record.get("status") or "").upper()
+        if not _status_matches(previous_status, "DRAFT", "MODIFIED", include_db_transitions=True):
+            errors.append({"id": needs_list_id, "error": "Only draft or modified needs lists can be submitted."})
+            continue
+
+        item_count = len(record.get("snapshot", {}).get("items") or [])
+        if item_count == 0:
+            errors.append({"id": needs_list_id, "error": "Cannot submit an empty needs list."})
+            continue
+
+        updated_record = workflow_store.transition_status(
+            record,
+            _workflow_target_status("SUBMITTED"),
+            _actor_id(request),
+        )
+        updated_record["submitted_approval_summary"] = _compute_approval_summary(
+            updated_record,
+            workflow_store.apply_overrides(updated_record),
+        )
+        workflow_store.update_record(needs_list_id, updated_record)
+        submitted_ids.append(needs_list_id)
+
+    return Response({"submitted_ids": submitted_ids, "errors": errors, "count": len(submitted_ids)})
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_bulk_delete(request):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    ids, parse_error = _parse_bulk_ids((request.data or {}).get("ids"))
+    if parse_error:
+        return Response({"errors": parse_error}, status=400)
+
+    cancelled_ids: list[str] = []
+    errors: list[Dict[str, str]] = []
+    reason = str((request.data or {}).get("reason") or "Removed from My Submissions.").strip()
+    for needs_list_id in ids:
+        record = workflow_store.get_record(needs_list_id)
+        if not record:
+            errors.append({"id": needs_list_id, "error": "Not found."})
+            continue
+
+        status = str(record.get("status") or "").upper()
+        if not _status_matches(status, "DRAFT", "MODIFIED", include_db_transitions=True):
+            errors.append({"id": needs_list_id, "error": "Only draft or modified needs lists can be removed."})
+            continue
+
+        updated_record = workflow_store.transition_status(
+            record,
+            "CANCELLED",
+            _actor_id(request),
+            reason=reason,
+        )
+        workflow_store.update_record(needs_list_id, updated_record)
+        cancelled_ids.append(needs_list_id)
+
+    return Response({"cancelled_ids": cancelled_ids, "errors": errors, "count": len(cancelled_ids)})
 
 
 @api_view(["GET"])
@@ -1841,6 +2491,8 @@ needs_list_review_reminder.required_permission = [
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_ESCALATE,
 ]
+needs_list_bulk_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
+needs_list_bulk_delete.required_permission = PERM_NEEDS_LIST_CANCEL
 needs_list_start_preparation.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_dispatched.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_received.required_permission = PERM_NEEDS_LIST_EXECUTE
@@ -1858,6 +2510,8 @@ for view_func in (
     needs_list_approve,
     needs_list_escalate,
     needs_list_review_reminder,
+    needs_list_bulk_submit,
+    needs_list_bulk_delete,
     needs_list_start_preparation,
     needs_list_mark_dispatched,
     needs_list_mark_received,

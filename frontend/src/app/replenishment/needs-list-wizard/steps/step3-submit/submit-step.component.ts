@@ -138,9 +138,13 @@ export class SubmitStepComponent implements OnInit {
     ).subscribe(state => {
       const items = state.previewResponse?.items || [];
       const selectedItemKeys = state.selectedItemKeys || [];
+      const selectedMethod = this.normalizeSelectedMethod(state.previewResponse?.selected_method);
 
       this.items = items;
       this.totalReviewed = items.length;
+      if (selectedMethod) {
+        this.selectedMethod = selectedMethod;
+      }
 
       // Filter to only selected items
       const selectedKeys = new Set(selectedItemKeys);
@@ -652,7 +656,7 @@ export class SubmitStepComponent implements OnInit {
     const expectedWarehouseIds = new Set(warehouseIds);
     const expectedMethod = this.selectedMethod;
 
-    return this.replenishmentService.listNeedsLists(['DRAFT']).pipe(
+    return this.replenishmentService.listNeedsLists(['DRAFT'], { mine: true }).pipe(
       map(({ needs_lists }) => {
         const recordsById = new Map<string, NeedsListResponse>();
         for (const record of needs_lists) {
@@ -955,6 +959,13 @@ export class SubmitStepComponent implements OnInit {
 
   goBack(): void {
     this.back.emit();
+  }
+
+  private normalizeSelectedMethod(method: string | undefined): HorizonType | null {
+    if (method === 'A' || method === 'B' || method === 'C') {
+      return method;
+    }
+    return null;
   }
 
   get hasAdjustments(): boolean {
