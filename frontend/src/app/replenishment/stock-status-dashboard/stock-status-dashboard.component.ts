@@ -100,6 +100,7 @@ export class StockStatusDashboardComponent implements OnInit {
   canAccessReviewQueue = false;
   mySubmissionUpdates: NeedsListResponse[] = [];
   myNeedsLists: NeedsListResponse[] = [];
+  private myNeedsListSummariesCache: NeedsListSummary[] = [];
   myNeedsListsCollapsed = false;
   private readonly myNeedsListOpenStatuses: string[] = [
     'DRAFT',
@@ -805,7 +806,7 @@ export class StockStatusDashboardComponent implements OnInit {
       error: () => {
         this.canAccessReviewQueue = false;
         this.setCurrentUserRef(null);
-        this.myNeedsLists = [];
+        this.setMyNeedsLists([]);
         this.mySubmissionUpdates = [];
       }
     });
@@ -874,7 +875,7 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   get myNeedsListSummaries(): NeedsListSummary[] {
-    return this.myNeedsLists.map((row) => this.toNeedsListSummary(row));
+    return this.myNeedsListSummariesCache;
   }
 
   openNeedsListUpdate(row: NeedsListResponse): void {
@@ -958,7 +959,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   private loadMyNeedsLists(): void {
     if (!this.currentUserRef) {
-      this.myNeedsLists = [];
+      this.setMyNeedsLists([]);
       this.expandedMyNeedsListKeys.clear();
       return;
     }
@@ -968,17 +969,23 @@ export class StockStatusDashboardComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => {
-          this.myNeedsLists = [...(data.needs_lists ?? [])]
+          const rows = [...(data.needs_lists ?? [])]
             .sort((a, b) => this.updateTimestamp(b) - this.updateTimestamp(a))
             .slice(0, 8);
-          this.syncExpandedNeedsListKeys(this.myNeedsLists);
+          this.setMyNeedsLists(rows);
+          this.syncExpandedNeedsListKeys(rows);
         },
         error: () => {
           // Keep dashboard functional when this optional feed is unavailable.
-          this.myNeedsLists = [];
+          this.setMyNeedsLists([]);
           this.expandedMyNeedsListKeys.clear();
         }
       });
+  }
+
+  private setMyNeedsLists(rows: NeedsListResponse[]): void {
+    this.myNeedsLists = [...rows];
+    this.myNeedsListSummariesCache = this.myNeedsLists.map((row) => this.toNeedsListSummary(row));
   }
 
   private loadMySubmissionUpdates(): void {
