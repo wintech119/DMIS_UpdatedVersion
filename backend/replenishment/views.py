@@ -1403,6 +1403,8 @@ def _parse_bulk_ids(raw_ids: Any) -> tuple[list[str], Dict[str, str] | None]:
 
     parsed_ids: list[str] = []
     seen: set[str] = set()
+    if not raw_ids:
+        return ([], {"ids": "At least one ID is required."})
     for raw_id in raw_ids:
         value = str(raw_id or "").strip()
         if not value:
