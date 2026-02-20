@@ -1023,14 +1023,17 @@ def _parse_iso_datetime(value: object) -> Any | None:
     if not normalized:
         return None
 
+    default_tz = timezone.get_default_timezone()
     parsed = parse_datetime(normalized)
     if parsed is None:
-        # Accept date-only values by appending midnight UTC.
-        parsed = parse_datetime(f"{normalized}T00:00:00Z")
+        # Accept date-only values by appending midnight in default timezone context.
+        parsed = parse_datetime(f"{normalized}T00:00:00")
     if parsed is None:
         return None
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
+        parsed = timezone.make_aware(parsed, default_tz)
+    else:
+        parsed = timezone.localtime(parsed, default_tz)
     return parsed
 
 
