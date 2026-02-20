@@ -232,22 +232,25 @@ constructor() {
       return;
     }
 
-    this.replenishmentService.bulkSubmitDrafts(ids).subscribe({
-      next: (result) => {
-        this.selectedDraftIds.set(new Set<string>());
-        if (result.errors?.length) {
-          this.notifications.showWarning(
-            `Submitted ${result.count}. ${result.errors.length} could not be submitted.`
-          );
-        } else {
-          this.notifications.showSuccess(`Submitted ${result.count} draft(s).`);
+    this.replenishmentService
+      .bulkSubmitDrafts(ids)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.selectedDraftIds.set(new Set<string>());
+          if (result.errors?.length) {
+            this.notifications.showWarning(
+              `Submitted ${result.count}. ${result.errors.length} could not be submitted.`
+            );
+          } else {
+            this.notifications.showSuccess(`Submitted ${result.count} draft(s).`);
+          }
+          this.loadSubmissions();
+        },
+        error: () => {
+          this.notifications.showError('Failed to submit selected drafts.');
         }
-        this.loadSubmissions();
-      },
-      error: () => {
-        this.notifications.showError('Failed to submit selected drafts.');
-      }
-    });
+      });
   }
 
   deleteSelectedDrafts(): void {
@@ -256,22 +259,25 @@ constructor() {
       return;
     }
 
-    this.replenishmentService.bulkDeleteDrafts(ids).subscribe({
-      next: (result) => {
-        this.selectedDraftIds.set(new Set<string>());
-        if (result.errors?.length) {
-          this.notifications.showWarning(
-            `Removed ${result.count}. ${result.errors.length} could not be removed.`
-          );
-        } else {
-          this.notifications.showSuccess(`Removed ${result.count} draft(s).`);
+    this.replenishmentService
+      .bulkDeleteDrafts(ids)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.selectedDraftIds.set(new Set<string>());
+          if (result.errors?.length) {
+            this.notifications.showWarning(
+              `Removed ${result.count}. ${result.errors.length} could not be removed.`
+            );
+          } else {
+            this.notifications.showSuccess(`Removed ${result.count} draft(s).`);
+          }
+          this.loadSubmissions();
+        },
+        error: () => {
+          this.notifications.showError('Failed to remove selected drafts.');
         }
-        this.loadSubmissions();
-      },
-      error: () => {
-        this.notifications.showError('Failed to remove selected drafts.');
-      }
-    });
+      });
   }
 
   backToDashboard(): void {
@@ -298,14 +304,17 @@ constructor() {
   }
 
   private loadWarehouseOptions(): void {
-    this.replenishmentService.getAllWarehouses().subscribe({
-      next: (warehouses) => {
-        this.warehouseOptions.set(warehouses || []);
-      },
-      error: () => {
-        this.warehouseOptions.set([]);
-      }
-    });
+    this.replenishmentService
+      .getAllWarehouses()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (warehouses) => {
+          this.warehouseOptions.set(warehouses || []);
+        },
+        error: () => {
+          this.warehouseOptions.set([]);
+        }
+      });
   }
 
   private mergeEventOptions(rows: NeedsListSummary[]): void {
