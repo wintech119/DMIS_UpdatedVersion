@@ -3,16 +3,22 @@ import { Router } from '@angular/router';
 import { ActivatedRoute } from '@angular/router';
 import { Observable } from 'rxjs';
 import { of } from 'rxjs';
+import { throwError } from 'rxjs';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { NeedsListWizardComponent } from './needs-list-wizard.component';
 import { WizardStateService } from './services/wizard-state.service';
+import { ReplenishmentService } from '../services/replenishment.service';
+import { NeedsListResponse } from '../models/needs-list.model';
+import { DmisNotificationService } from '../services/notification.service';
 
 describe('NeedsListWizardComponent', () => {
   let component: NeedsListWizardComponent;
   let fixture: ComponentFixture<NeedsListWizardComponent>;
   let mockRouter: jasmine.SpyObj<Router>;
   let mockActivatedRoute: Pick<ActivatedRoute, 'queryParams'>;
+  let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
+  let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let wizardService: WizardStateService;
 
   beforeEach(async () => {
@@ -24,12 +30,42 @@ describe('NeedsListWizardComponent', () => {
         phase: 'BASELINE'
       }) as Observable<Record<string, string>>
     };
+    replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', [
+      'getNeedsList',
+      'getActiveEvent',
+      'getAllWarehouses'
+    ]);
+    notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+      'showError',
+      'showWarning'
+    ]);
+    const draftNeedsList: NeedsListResponse = {
+      event_id: 1,
+      phase: 'BASELINE',
+      items: [],
+      as_of_datetime: new Date().toISOString()
+    };
+    replenishmentService.getNeedsList.and.returnValue(of(draftNeedsList));
+    replenishmentService.getActiveEvent.and.returnValue(
+      of({
+        event_id: 1,
+        event_name: 'Event 1',
+        status: 'ACTIVE',
+        phase: 'BASELINE',
+        declaration_date: new Date().toISOString()
+      })
+    );
+    replenishmentService.getAllWarehouses.and.returnValue(
+      of([{ warehouse_id: 2, warehouse_name: 'Warehouse 2' }])
+    );
 
     await TestBed.configureTestingModule({
       imports: [NeedsListWizardComponent, NoopAnimationsModule],
       providers: [
         { provide: Router, useValue: mockRouter },
         { provide: ActivatedRoute, useValue: mockActivatedRoute },
+        { provide: ReplenishmentService, useValue: replenishmentService },
+        { provide: DmisNotificationService, useValue: notificationService },
         WizardStateService
       ]
     }).compileComponents();
@@ -115,5 +151,18 @@ describe('NeedsListWizardComponent', () => {
 
     expect(component.confirmationState).toBeNull();
     expect(mockStepper.selectedIndex).toBe(2);
+  });
+
+  it('should show error feedback and reset hydration on loadExistingNeedsList failure', () => {
+    replenishmentService.getNeedsList.and.returnValue(
+      throwError(() => ({ error: { errors: { needs_list_id: 'Not found.' } } }))
+    );
+    (component as unknown as { hydratedNeedsListId: string | null }).hydratedNeedsListId = 'abc-123';
+
+    (component as unknown as { loadExistingNeedsList: (needsListId: string) => void })
+      .loadExistingNeedsList('abc-123');
+
+    expect((component as unknown as { hydratedNeedsListId: string | null }).hydratedNeedsListId).toBeNull();
+    expect(notificationService.showError).toHaveBeenCalledWith('Failed to load needs list. Not found.');
   });
 });

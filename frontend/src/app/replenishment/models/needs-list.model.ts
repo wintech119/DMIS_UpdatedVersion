@@ -8,6 +8,9 @@ export interface NeedsListItem {
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
   inbound_strict_qty: number;
+  inbound_transfer_qty?: number;
+  inbound_donation_qty?: number;
+  inbound_procurement_qty?: number;
   burn_rate_per_hour: number;
   required_qty?: number;
   computed_required_qty?: number;
@@ -25,6 +28,8 @@ export interface NeedsListItem {
   review_comment?: string;
   review_updated_by?: string;
   review_updated_at?: string;
+  fulfilled_qty?: number;
+  fulfillment_status?: string | null;
   procurement?: ProcurementInfo;
   triggers?: {
     activate_B: boolean;
@@ -92,6 +97,114 @@ export interface ReviewReminderInfo {
   escalation_recommended: boolean;
 }
 
+export type NeedsListSummaryStatus =
+  | 'DRAFT'
+  | 'MODIFIED'
+  | 'RETURNED'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'IN_PROGRESS'
+  | 'FULFILLED'
+  | 'SUPERSEDED'
+  | 'CANCELLED';
+
+export interface HorizonSummaryBucket {
+  count: number;
+  estimated_value: number;
+}
+
+export interface ExternalUpdateSummary {
+  item_name: string;
+  original_qty: number;
+  covered_qty: number;
+  remaining_qty: number;
+  source_type: 'DONATION' | 'TRANSFER' | 'PROCUREMENT';
+  source_reference: string;
+  updated_at: string | null;
+}
+
+export interface NeedsListSummary {
+  id: string;
+  reference_number: string;
+  warehouse: {
+    id: number | null;
+    name: string;
+    code: string;
+  };
+  event: {
+    id: number | null;
+    name: string;
+    phase: EventPhase;
+  };
+  status: NeedsListSummaryStatus;
+  total_items: number;
+  fulfilled_items: number;
+  remaining_items: number;
+  horizon_summary: {
+    horizon_a: HorizonSummaryBucket;
+    horizon_b: HorizonSummaryBucket;
+    horizon_c: HorizonSummaryBucket;
+  };
+  submitted_at: string | null;
+  approved_at: string | null;
+  last_updated_at: string | null;
+  superseded_by_id: string | null;
+  supersedes_id: string | null;
+  has_external_updates: boolean;
+  external_update_summary: ExternalUpdateSummary[];
+  data_version?: string;
+  created_by: {
+    id: number | null;
+    name: string;
+  };
+}
+
+export interface MySubmissionsResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: NeedsListSummary[];
+}
+
+export interface NeedsListFulfillmentSource {
+  source_type: 'DONATION' | 'TRANSFER' | 'PROCUREMENT' | 'NEEDS_LIST_LINE';
+  source_id: number | null;
+  source_reference: string;
+  quantity: number;
+  status: string;
+  date: string | null;
+  eta?: string | null;
+}
+
+export interface NeedsListFulfillmentLine {
+  id: number | null;
+  item: {
+    id: number | null;
+    name: string;
+    uom: string;
+  };
+  original_qty: number;
+  covered_qty: number;
+  remaining_qty: number;
+  horizon: 'A' | 'B' | 'C';
+  fulfillment_sources: NeedsListFulfillmentSource[];
+  total_coverage: number;
+  is_fully_covered: boolean;
+}
+
+export interface NeedsListFulfillmentSourcesResponse {
+  needs_list_id: string;
+  lines: NeedsListFulfillmentLine[];
+}
+
+export interface NeedsListSummaryVersionResponse {
+  needs_list_id: string;
+  status: NeedsListSummaryStatus;
+  last_updated_at: string | null;
+  data_version: string;
+}
+
 export interface NeedsListResponse {
   event_id: number;
   event_name?: string;
@@ -127,6 +240,12 @@ export interface NeedsListResponse {
   review_reminder?: ReviewReminderInfo;
   selected_method?: 'A' | 'B' | 'C';
   selected_item_keys?: string[];
+  superseded_by?: string | null;
+  superseded_at?: string | null;
+  superseded_by_actor?: string | null;
+  superseded_by_needs_list_id?: string | null;
+  supersedes_needs_list_ids?: string[];
+  supersede_reason?: string | null;
 }
 
 export type NeedsListStatus =

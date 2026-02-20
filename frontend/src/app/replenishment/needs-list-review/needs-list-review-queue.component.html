@@ -1,5 +1,5 @@
 <div class="review-queue-page">
-  <!-- Header (matches wizard-header) -->
+  <!-- Header -->
   <div class="page-header">
     <button mat-icon-button class="back-btn" (click)="backToDashboard()" aria-label="Back to dashboard">
       <mat-icon>arrow_back</mat-icon>
@@ -43,128 +43,193 @@
     </dmis-empty-state>
   }
 
-  <!-- Desktop table -->
   @if (!loading() && !error() && needsLists().length > 0) {
-    <div class="table-container desktop-only">
-      <table mat-table [dataSource]="needsLists()" class="review-table">
+    <div class="filters-panel" role="region" aria-label="Needs list submission filters">
+      <div class="filters-grid">
+        <label class="filter-field filter-search">
+          <span class="filter-label">Search Submissions</span>
+          <input
+            type="text"
+            class="filter-input"
+            [value]="searchQuery()"
+            (input)="onSearchInput($event)"
+            placeholder="Needs list, event, warehouse, submitter">
+        </label>
 
-        <ng-container matColumnDef="needs_list_id">
-          <th mat-header-cell *matHeaderCellDef>ID</th>
-          <td mat-cell *matCellDef="let row">
-            <span class="id-cell">{{ row.needs_list_id | slice:0:8 }}...</span>
-          </td>
-        </ng-container>
+        <label class="filter-field">
+          <span class="filter-label">Status</span>
+          <select class="filter-select" [value]="selectedStatus()" (change)="onStatusFilterChange($event)">
+            <option value="ALL">All statuses</option>
+            @for (option of statusFilterOptions(); track option.value) {
+              <option [value]="option.value">{{ option.label }}</option>
+            }
+          </select>
+        </label>
 
-        <ng-container matColumnDef="event_id">
-          <th mat-header-cell *matHeaderCellDef>Event</th>
-          <td mat-cell *matCellDef="let row">{{ row.event_name ?? ('Event ' + row.event_id) }}</td>
-        </ng-container>
+        <label class="filter-field">
+          <span class="filter-label">Phase</span>
+          <select class="filter-select" [value]="selectedPhase()" (change)="onPhaseFilterChange($event)">
+            <option value="ALL">All phases</option>
+            @for (phase of phaseFilterOptions(); track phase) {
+              <option [value]="phase">{{ phase }}</option>
+            }
+          </select>
+        </label>
 
-        <ng-container matColumnDef="phase">
-          <th mat-header-cell *matHeaderCellDef>Phase</th>
-          <td mat-cell *matCellDef="let row">
-            <span class="phase-chip" [attr.data-phase]="row.phase">{{ row.phase }}</span>
-          </td>
-        </ng-container>
+        <label class="filter-field">
+          <span class="filter-label">Submitted By</span>
+          <select class="filter-select" [value]="selectedSubmitter()" (change)="onSubmitterFilterChange($event)">
+            <option value="ALL">All submitters</option>
+            @for (submitter of submitterFilterOptions(); track submitter) {
+              <option [value]="submitter">{{ submitter }}</option>
+            }
+          </select>
+        </label>
 
-        <ng-container matColumnDef="warehouse">
-          <th mat-header-cell *matHeaderCellDef>Warehouse</th>
-          <td mat-cell *matCellDef="let row">{{ warehouseLabel(row) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="submitted_by">
-          <th mat-header-cell *matHeaderCellDef>Submitted By</th>
-          <td mat-cell *matCellDef="let row">{{ row.submitted_by ?? '—' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="submitted_at">
-          <th mat-header-cell *matHeaderCellDef>Submitted At</th>
-          <td mat-cell *matCellDef="let row">
-            {{ row.submitted_at ? (row.submitted_at | date:'short') : '—' }}
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="items_count">
-          <th mat-header-cell *matHeaderCellDef>Items</th>
-          <td mat-cell *matCellDef="let row">{{ row.items.length }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let row">
-            <span class="status-chip" [attr.data-status]="row.status">
-              <mat-icon class="status-icon">{{ statusIcon(row.status) }}</mat-icon>
-              {{ statusLabel(row.status) }}
-            </span>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row
-            *matRowDef="let row; columns: displayedColumns;"
-            class="clickable-row"
-            (click)="openReview(row)"
-            tabindex="0"
-            (keydown.enter)="openReview(row)"
-            [attr.aria-label]="'Review needs list ' + (row.needs_list_id | slice:0:8)"
-            role="link">
-        </tr>
-      </table>
+        <div class="filter-actions">
+          <button mat-stroked-button type="button" (click)="clearFilters()" [disabled]="!hasActiveFilters()">
+            Clear Filters
+          </button>
+        </div>
+      </div>
+      <p class="filter-summary" aria-live="polite">Showing {{ filteredNeedsLists().length }} of {{ needsLists().length }} submissions</p>
+      <p class="queue-hint">Select a submission to open full review details.</p>
     </div>
 
-    <!-- Mobile card list -->
-    <div class="mobile-only card-list">
-      @for (row of needsLists(); track row.needs_list_id) {
-        <mat-card class="review-card"
-                  (click)="openReview(row)"
-                  tabindex="0"
-                  (keydown.enter)="openReview(row)"
-                  [attr.aria-label]="'Review needs list ' + (row.needs_list_id | slice:0:8)"
-                  role="link">
-          <mat-card-header>
-            <span class="status-chip" [attr.data-status]="row.status">
-              <mat-icon class="status-icon">{{ statusIcon(row.status) }}</mat-icon>
-              {{ statusLabel(row.status) }}
-            </span>
-          </mat-card-header>
-          <mat-card-content>
-            <div class="card-field">
-              <span class="card-label">ID</span>
-              <span>{{ row.needs_list_id | slice:0:8 }}...</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Event</span>
-              <span>{{ row.event_name ?? ('Event ' + row.event_id) }}</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Phase</span>
+    @if (filteredNeedsLists().length === 0) {
+      <dmis-empty-state
+        icon="filter_alt_off"
+        title="No submissions match your filters"
+        message="Try adjusting or clearing the current filters to see more needs lists."
+        actionLabel="Clear Filters"
+        actionIcon="restart_alt"
+        (action)="clearFilters()">
+      </dmis-empty-state>
+    }
+
+    @if (filteredNeedsLists().length > 0) {
+      <!-- Desktop table -->
+      <div class="table-container desktop-only">
+        <table mat-table [dataSource]="filteredNeedsLists()" class="review-table">
+
+          <ng-container matColumnDef="needs_list_ref">
+            <th mat-header-cell *matHeaderCellDef>Needs List #</th>
+            <td mat-cell *matCellDef="let row">
+              <span class="id-cell" [matTooltip]="needsListReferenceTooltip(row)">{{ needsListReference(row) }}</span>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="event_id">
+            <th mat-header-cell *matHeaderCellDef>Event</th>
+            <td mat-cell *matCellDef="let row">{{ row.event_name ?? ('Event ' + row.event_id) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="phase">
+            <th mat-header-cell *matHeaderCellDef>Phase</th>
+            <td mat-cell *matCellDef="let row">
               <span class="phase-chip" [attr.data-phase]="row.phase">{{ row.phase }}</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Warehouse</span>
-              <span>{{ warehouseLabel(row) }}</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Submitted By</span>
-              <span>{{ row.submitted_by ?? '—' }}</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Submitted</span>
-              <span>{{ row.submitted_at ? (row.submitted_at | date:'short') : '—' }}</span>
-            </div>
-            <div class="card-field">
-              <span class="card-label">Items</span>
-              <span>{{ row.items.length }}</span>
-            </div>
-          </mat-card-content>
-          <mat-card-actions align="end">
-            <button mat-button color="primary">
-              <mat-icon>chevron_right</mat-icon>
-              Review
-            </button>
-          </mat-card-actions>
-        </mat-card>
-      }
-    </div>
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="warehouse">
+            <th mat-header-cell *matHeaderCellDef>Warehouse</th>
+            <td mat-cell *matCellDef="let row">{{ warehouseLabel(row) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="submitted_by">
+            <th mat-header-cell *matHeaderCellDef>Submitted By</th>
+            <td mat-cell *matCellDef="let row">{{ row.submitted_by ?? 'N/A' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="submitted_at">
+            <th mat-header-cell *matHeaderCellDef>Submitted At</th>
+            <td mat-cell *matCellDef="let row">
+              {{ row.submitted_at ? (row.submitted_at | date:'short') : 'N/A' }}
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="items_count">
+            <th mat-header-cell *matHeaderCellDef>Items</th>
+            <td mat-cell *matCellDef="let row">{{ itemsCount(row) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="status">
+            <th mat-header-cell *matHeaderCellDef>Status</th>
+            <td mat-cell *matCellDef="let row">
+              <span class="status-chip" [attr.data-status]="row.status">
+                <mat-icon class="status-icon">{{ statusIcon(row.status) }}</mat-icon>
+                {{ statusLabel(row.status) }}
+              </span>
+            </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row
+              *matRowDef="let row; columns: displayedColumns;"
+              class="clickable-row"
+              (click)="openReview(row)"
+              tabindex="0"
+              (keydown.enter)="openReview(row)"
+              [attr.aria-label]="reviewAriaLabel(row)"
+              role="link">
+          </tr>
+        </table>
+      </div>
+
+      <!-- Mobile card list -->
+      <div class="mobile-only card-list">
+        @for (row of filteredNeedsLists(); track row.needs_list_id ?? row.needs_list_no ?? $index) {
+          <mat-card class="review-card"
+                    (click)="openReview(row)"
+                    tabindex="0"
+                    (keydown.enter)="openReview(row)"
+                    [attr.aria-label]="reviewAriaLabel(row)"
+                    role="link">
+            <mat-card-header>
+              <span class="status-chip" [attr.data-status]="row.status">
+                <mat-icon class="status-icon">{{ statusIcon(row.status) }}</mat-icon>
+                {{ statusLabel(row.status) }}
+              </span>
+            </mat-card-header>
+            <mat-card-content>
+              <div class="card-field">
+                <span class="card-label">Needs List #</span>
+                <span [matTooltip]="needsListReferenceTooltip(row)">{{ needsListReference(row) }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Event</span>
+                <span>{{ row.event_name ?? ('Event ' + row.event_id) }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Phase</span>
+                <span class="phase-chip" [attr.data-phase]="row.phase">{{ row.phase }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Warehouse</span>
+                <span>{{ warehouseLabel(row) }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Submitted By</span>
+                <span>{{ row.submitted_by ?? 'N/A' }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Submitted</span>
+                <span>{{ row.submitted_at ? (row.submitted_at | date:'short') : 'N/A' }}</span>
+              </div>
+              <div class="card-field">
+                <span class="card-label">Items</span>
+                <span>{{ itemsCount(row) }}</span>
+              </div>
+            </mat-card-content>
+            <mat-card-actions align="end">
+              <button mat-button color="primary">
+                <mat-icon>chevron_right</mat-icon>
+                Review
+              </button>
+            </mat-card-actions>
+          </mat-card>
+        }
+      </div>
+    }
   }
 </div>

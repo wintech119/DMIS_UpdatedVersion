@@ -3,7 +3,12 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
-import { NeedsListResponse } from '../models/needs-list.model';
+import {
+  MySubmissionsResponse,
+  NeedsListFulfillmentSourcesResponse,
+  NeedsListResponse,
+  NeedsListSummaryVersionResponse
+} from '../models/needs-list.model';
 
 export interface ActiveEvent {
   event_id: number;
@@ -50,6 +55,26 @@ export interface NeedsListLineOverridePayload {
   item_id: number;
   overridden_qty: number;
   reason: string;
+}
+
+export interface NeedsListListOptions {
+  mine?: boolean;
+  eventId?: number;
+  warehouseId?: number;
+  phase?: string;
+  includeClosed?: boolean;
+}
+
+export interface MySubmissionsQueryParams {
+  status?: string;
+  warehouse_id?: number;
+  event_id?: number;
+  date_from?: string;
+  date_to?: string;
+  sort_by?: 'date' | 'status' | 'warehouse';
+  sort_order?: 'asc' | 'desc';
+  page?: number;
+  page_size?: number;
 }
 
 @Injectable({
@@ -173,10 +198,104 @@ export class ReplenishmentService {
     );
   }
 
-  listNeedsLists(statuses?: string[]): Observable<{ needs_lists: NeedsListResponse[]; count: number }> {
-    const params = statuses?.length ? `?status=${statuses.join(',')}` : '';
+  listNeedsLists(
+    statuses?: string[],
+    options: NeedsListListOptions = {}
+  ): Observable<{ needs_lists: NeedsListResponse[]; count: number }> {
+    const query = new URLSearchParams();
+    if (statuses?.length) {
+      query.set('status', statuses.join(','));
+    }
+    if (options.mine) {
+      query.set('mine', 'true');
+    }
+    if (Number.isInteger(options.eventId) && (options.eventId ?? 0) > 0) {
+      query.set('event_id', String(options.eventId));
+    }
+    if (Number.isInteger(options.warehouseId) && (options.warehouseId ?? 0) > 0) {
+      query.set('warehouse_id', String(options.warehouseId));
+    }
+    if (options.phase) {
+      query.set('phase', options.phase);
+    }
+    if (options.includeClosed !== undefined) {
+      query.set('include_closed', options.includeClosed ? 'true' : 'false');
+    }
+    const suffix = query.toString();
+
     return this.http.get<{ needs_lists: NeedsListResponse[]; count: number }>(
-      `${this.apiUrl}/needs-list/${params}`
+      `${this.apiUrl}/needs-list/${suffix ? `?${suffix}` : ''}`
+    );
+  }
+
+  getMySubmissions(
+    params: MySubmissionsQueryParams = {}
+  ): Observable<MySubmissionsResponse> {
+    const query = new URLSearchParams();
+    if (params.status) {
+      query.set('status', params.status);
+    }
+    if (Number.isInteger(params.warehouse_id) && (params.warehouse_id ?? 0) > 0) {
+      query.set('warehouse_id', String(params.warehouse_id));
+    }
+    if (Number.isInteger(params.event_id) && (params.event_id ?? 0) > 0) {
+      query.set('event_id', String(params.event_id));
+    }
+    if (params.date_from) {
+      query.set('date_from', params.date_from);
+    }
+    if (params.date_to) {
+      query.set('date_to', params.date_to);
+    }
+    if (params.sort_by) {
+      query.set('sort_by', params.sort_by);
+    }
+    if (params.sort_order) {
+      query.set('sort_order', params.sort_order);
+    }
+    if (Number.isInteger(params.page) && (params.page ?? 0) > 0) {
+      query.set('page', String(params.page));
+    }
+    if (Number.isInteger(params.page_size) && (params.page_size ?? 0) > 0) {
+      query.set('page_size', String(params.page_size));
+    }
+
+    const suffix = query.toString();
+    return this.http.get<MySubmissionsResponse>(
+      `${this.apiUrl}/needs-list/my-submissions/${suffix ? `?${suffix}` : ''}`
+    );
+  }
+
+  getNeedsListSummaryVersion(
+    needsListId: string
+  ): Observable<NeedsListSummaryVersionResponse> {
+    return this.http.get<NeedsListSummaryVersionResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/summary-version`
+    );
+  }
+
+  getNeedsListFulfillmentSources(
+    needsListId: string
+  ): Observable<NeedsListFulfillmentSourcesResponse> {
+    return this.http.get<NeedsListFulfillmentSourcesResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/fulfillment-sources`
+    );
+  }
+
+  bulkSubmitDrafts(ids: string[]): Observable<{ submitted_ids: string[]; errors: { id: string; error: string }[]; count: number }> {
+    return this.http.post<{ submitted_ids: string[]; errors: { id: string; error: string }[]; count: number }>(
+      `${this.apiUrl}/needs-list/bulk-submit/`,
+      { ids }
+    );
+  }
+
+  bulkDeleteDrafts(
+    ids: string[],
+    reason = 'Removed from My Submissions.'
+  ): Observable<{ cancelled_ids: string[]; errors: { id: string; error: string }[]; count: number }> {
+    return this.http.post<{ cancelled_ids: string[]; errors: { id: string; error: string }[]; count: number }>(
+      `${this.apiUrl}/needs-list/bulk-delete/`,
+      { ids, reason }
     );
   }
 

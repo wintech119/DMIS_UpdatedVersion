@@ -1,0 +1,181 @@
+<div class="my-submissions-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <button mat-icon-button class="back-btn" type="button" aria-label="Back to dashboard" (click)="backToDashboard()">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h1>My Needs List Submissions</h1>
+      <p class="subtitle">Track drafts, approvals, and fulfillment activity</p>
+    </div>
+    <button mat-flat-button color="primary" type="button" class="refresh-btn" (click)="loadSubmissions()">
+      <mat-icon>refresh</mat-icon>
+      Refresh
+    </button>
+  </div>
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="4"></dmis-skeleton-loader>
+  }
+
+  <!-- Error state -->
+  @if (error() && !loading()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Failed to load submissions"
+      message="There was an error loading your needs list submissions. Please try again."
+      actionLabel="Retry"
+      actionIcon="refresh"
+      (action)="loadSubmissions()">
+    </dmis-empty-state>
+  }
+
+  <!-- Main content (filters + results) -->
+  @if (!loading() && !error()) {
+    <!-- Filters Panel -->
+    <div class="filters-panel" role="region" aria-label="Submission filters">
+      <div class="filters-grid">
+        <label class="filter-field">
+          <span class="filter-label">Status</span>
+          <select class="filter-select" [value]="statusFilter()" (change)="onStatusFilterChange($event)">
+            <option value="ALL">All Statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="MODIFIED">Modified</option>
+            <option value="PENDING_APPROVAL">Pending Approval</option>
+            <option value="APPROVED">Approved</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="FULFILLED">Fulfilled</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="SUPERSEDED">Superseded</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </label>
+
+        <label class="filter-field">
+          <span class="filter-label">Warehouse</span>
+          <select class="filter-select" [value]="warehouseFilter() ?? ''" (change)="onWarehouseFilterChange($event)">
+            <option value="">All Warehouses</option>
+            @for (warehouse of warehouseOptions(); track warehouse.warehouse_id) {
+              <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="filter-field">
+          <span class="filter-label">Event</span>
+          <select class="filter-select" [value]="eventFilter() ?? ''" (change)="onEventFilterChange($event)">
+            <option value="">All Events</option>
+            @for (event of eventOptions(); track event.id) {
+              <option [value]="event.id">{{ event.name }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="filter-field">
+          <span class="filter-label">Date From</span>
+          <input type="date" class="filter-input" [value]="dateFromFilter()" (change)="onDateFromChange($event)">
+        </label>
+
+        <label class="filter-field">
+          <span class="filter-label">Date To</span>
+          <input type="date" class="filter-input" [value]="dateToFilter()" (change)="onDateToChange($event)">
+        </label>
+
+        <label class="filter-field">
+          <span class="filter-label">Sort By</span>
+          <select class="filter-select" [value]="sortBy()" (change)="onSortByChange($event)">
+            <option value="date">Date</option>
+            <option value="status">Status</option>
+            <option value="warehouse">Warehouse</option>
+          </select>
+        </label>
+
+        <div class="filter-actions">
+          <button
+            mat-icon-button
+            type="button"
+            class="sort-toggle"
+            [attr.aria-label]="'Sort ' + (sortOrder() === 'desc' ? 'ascending' : 'descending')"
+            (click)="toggleSortOrder()">
+            <mat-icon>{{ sortOrder() === 'desc' ? 'arrow_downward' : 'arrow_upward' }}</mat-icon>
+          </button>
+          <button mat-stroked-button type="button" (click)="clearFilters()" [disabled]="!hasActiveFilters()">
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
+      <p class="filter-summary" aria-live="polite">
+        Showing {{ submissions().length }} of {{ totalCount() }} submissions
+      </p>
+    </div>
+
+    <!-- Batch actions toolbar -->
+    @if (selectedCount() > 0) {
+      <div class="batch-actions" role="toolbar" aria-label="Draft batch actions">
+        <div class="batch-info">
+          <mat-icon>checklist</mat-icon>
+          <span>{{ selectedCount() }} draft(s) selected</span>
+        </div>
+        <div class="batch-buttons">
+          <button mat-flat-button color="primary" type="button" (click)="submitSelectedDrafts()">
+            <mat-icon>send</mat-icon>
+            Submit Selected
+          </button>
+          <button mat-stroked-button color="warn" type="button" (click)="deleteSelectedDrafts()">
+            <mat-icon>delete_outline</mat-icon>
+            Remove Selected
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- Submissions list -->
+    @if (hasResults()) {
+      <div class="submissions-list">
+        @for (submission of submissions(); track submission.id) {
+          <app-submission-card
+            [submission]="submission"
+            [showSelection]="canBatchSelect(submission.status)"
+            [selected]="isSelected(submission.id)"
+            (selectedChange)="onDraftSelectionChange(submission.id, $event)"
+            (refresh)="refreshSubmission($event)"
+            (openAction)="onOpenAction($event)">
+          </app-submission-card>
+        }
+      </div>
+
+      <mat-paginator
+        [length]="totalCount()"
+        [pageSize]="pageSize()"
+        [pageIndex]="pageIndex()"
+        [pageSizeOptions]="[5, 10, 20, 50]"
+        (page)="onPageChange($event)">
+      </mat-paginator>
+    }
+
+    <!-- Empty state -->
+    @if (!hasResults()) {
+      @if (hasActiveFilters()) {
+        <dmis-empty-state
+          icon="filter_alt_off"
+          title="No submissions match your filters"
+          message="Try adjusting or clearing the current filters to see more submissions."
+          actionLabel="Clear Filters"
+          actionIcon="restart_alt"
+          (action)="clearFilters()">
+        </dmis-empty-state>
+      } @else {
+        <dmis-empty-state
+          icon="inbox"
+          title="No submissions found"
+          message="You haven't created any needs lists yet. Start from the dashboard to generate one."
+          actionLabel="Back to Dashboard"
+          actionIcon="dashboard"
+          (action)="backToDashboard()">
+        </dmis-empty-state>
+      }
+    }
+  }
+</div>

@@ -1,6 +1,6 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, signal, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { DatePipe, SlicePipe } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -19,7 +19,6 @@ import { formatStatusLabel } from './status-label.util';
   selector: 'app-needs-list-review-queue',
   imports: [
     DatePipe,
-    SlicePipe,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
@@ -37,13 +36,18 @@ export class NeedsListReviewQueueComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly notifications = inject(DmisNotificationService);
+  private readonly reviewQueueStatuses = ['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW'] as const;
 
   readonly loading = signal(true);
   readonly needsLists = signal<NeedsListResponse[]>([]);
   readonly error = signal(false);
+  readonly searchQuery = signal('');
+  readonly selectedStatus = signal('ALL');
+  readonly selectedPhase = signal('ALL');
+  readonly selectedSubmitter = signal('ALL');
 
   readonly displayedColumns = [
-    'needs_list_id',
+    'needs_list_ref',
     'event_id',
     'phase',
     'warehouse',
@@ -53,6 +57,60 @@ export class NeedsListReviewQueueComponent implements OnInit {
     'status'
   ];
 
+  readonly phaseFilterOptions = computed(() =>
+    this.uniqueNonEmptyValues(this.needsLists().map((row) => row.phase))
+  );
+
+  readonly submitterFilterOptions = computed(() =>
+    this.uniqueNonEmptyValues(this.needsLists().map((row) => row.submitted_by))
+  );
+
+  readonly statusFilterOptions = computed(() => {
+    const statuses = this.uniqueNonEmptyValues(
+      this.needsLists().map((row) => this.normalizeStatusForFilter(row.status))
+    );
+    return statuses.map((value) => ({
+      value,
+      label: this.statusLabel(value)
+    }));
+  });
+
+  readonly filteredNeedsLists = computed(() => {
+    const query = this.searchQuery().trim().toLowerCase();
+    const selectedStatus = this.selectedStatus();
+    const selectedPhase = this.selectedPhase();
+    const selectedSubmitter = this.selectedSubmitter();
+
+    return this.needsLists().filter((row) => {
+      if (selectedStatus !== 'ALL' && this.normalizeStatusForFilter(row.status) !== selectedStatus) {
+        return false;
+      }
+
+      if (selectedPhase !== 'ALL' && (row.phase ?? '') !== selectedPhase) {
+        return false;
+      }
+
+      const submitter = this.normalizedText(row.submitted_by);
+      if (selectedSubmitter !== 'ALL' && submitter !== selectedSubmitter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return this.buildSearchableText(row).includes(query);
+    });
+  });
+
+  readonly hasActiveFilters = computed(
+    () =>
+      this.searchQuery().trim().length > 0 ||
+      this.selectedStatus() !== 'ALL' ||
+      this.selectedPhase() !== 'ALL' ||
+      this.selectedSubmitter() !== 'ALL'
+  );
+
   ngOnInit(): void {
     this.loadQueue();
   }
@@ -60,9 +118,10 @@ export class NeedsListReviewQueueComponent implements OnInit {
   loadQueue(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.replenishmentService.listNeedsLists(['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW']).subscribe({
+    this.replenishmentService.listNeedsLists([...this.reviewQueueStatuses]).subscribe({
       next: (data) => {
-        this.needsLists.set(data.needs_lists);
+        const sorted = [...data.needs_lists].sort((a, b) => this.submittedAtTimestamp(b) - this.submittedAtTimestamp(a));
+        this.needsLists.set(sorted);
         this.loading.set(false);
       },
       error: () => {
@@ -108,5 +167,106 @@ export class NeedsListReviewQueueComponent implements OnInit {
 
   statusLabel(status: string | undefined): string {
     return formatStatusLabel(status);
+  }
+
+  needsListReference(row: NeedsListResponse): string {
+    const value = this.needsListReferenceValue(row);
+    if (value === 'N/A') {
+      return value;
+    }
+    if (/^\d+$/.test(value) || value.length <= 18) {
+      return value;
+    }
+    return `${value.slice(0, 12)}...`;
+  }
+
+  needsListReferenceTooltip(row: NeedsListResponse): string {
+    return this.needsListReferenceValue(row);
+  }
+
+  itemsCount(row: NeedsListResponse): number {
+    return row.items?.length ?? 0;
+  }
+
+  onSearchInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.searchQuery.set(target.value);
+  }
+
+  onStatusFilterChange(event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    this.selectedStatus.set(target.value);
+  }
+
+  onPhaseFilterChange(event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    this.selectedPhase.set(target.value);
+  }
+
+  onSubmitterFilterChange(event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    this.selectedSubmitter.set(target.value);
+  }
+
+  clearFilters(): void {
+    this.searchQuery.set('');
+    this.selectedStatus.set('ALL');
+    this.selectedPhase.set('ALL');
+    this.selectedSubmitter.set('ALL');
+  }
+
+  reviewAriaLabel(row: NeedsListResponse): string {
+    return `Review needs list ${this.needsListReferenceValue(row)}`;
+  }
+
+  private normalizeStatusForFilter(status: string | undefined): string {
+    if (!status) {
+      return '';
+    }
+    return status.toUpperCase() === 'PENDING' ? 'PENDING_APPROVAL' : status.toUpperCase();
+  }
+
+  private uniqueNonEmptyValues(values: (string | undefined | null)[]): string[] {
+    return Array.from(
+      new Set(
+        values
+          .map((value) => this.normalizedText(value))
+          .filter((value) => value.length > 0)
+      )
+    ).sort((left, right) => left.localeCompare(right));
+  }
+
+  private normalizedText(value: string | undefined | null): string {
+    return (value ?? '').trim();
+  }
+
+  private needsListReferenceValue(row: NeedsListResponse): string {
+    const value = this.normalizedText(row.needs_list_no) || this.normalizedText(row.needs_list_id);
+    return value || 'N/A';
+  }
+
+  private buildSearchableText(row: NeedsListResponse): string {
+    return [
+      this.needsListReferenceValue(row),
+      row.needs_list_id,
+      row.needs_list_no,
+      row.event_name,
+      row.event_id?.toString(),
+      row.phase,
+      this.warehouseLabel(row),
+      row.submitted_by,
+      row.submitted_at,
+      this.statusLabel(row.status)
+    ]
+      .map((value) => this.normalizedText(value).toLowerCase())
+      .join(' ');
+  }
+
+  private submittedAtTimestamp(row: NeedsListResponse): number {
+    if (!row.submitted_at) {
+      return 0;
+    }
+    const parsed = Date.parse(row.submitted_at);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 }
