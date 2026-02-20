@@ -1273,6 +1273,71 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_pagination_links_use_absolute_urls(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+            self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+
+            page_one = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=1"
+            )
+            page_two = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=2&page_size=1"
+            )
+
+        self.assertEqual(page_one.status_code, 200)
+        self.assertEqual(page_two.status_code, 200)
+
+        next_url = page_one.json().get("next")
+        previous_url = page_two.json().get("previous")
+
+        self.assertIsNotNone(next_url)
+        self.assertIn("http://testserver/api/v1/replenishment/needs-list/my-submissions/", str(next_url))
+        self.assertIn("page=2", str(next_url))
+        self.assertIsNone(page_one.json().get("previous"))
+
+        self.assertIsNotNone(previous_url)
+        self.assertIn("http://testserver/api/v1/replenishment/needs-list/my-submissions/", str(previous_url))
+        self.assertIn("page=1", str(previous_url))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
     def test_my_submissions_date_to_filter_is_inclusive_for_day_only_values(
         self,
         mock_available,
