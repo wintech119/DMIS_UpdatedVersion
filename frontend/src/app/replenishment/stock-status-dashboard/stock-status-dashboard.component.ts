@@ -1234,6 +1234,7 @@ export class StockStatusDashboardComponent implements OnInit {
   }
 
   private toSummaryStatus(status: string | undefined): NeedsListSummaryStatus {
+    const originalStatus = status;
     const normalized = String(status || '').trim().toUpperCase();
     if (normalized === 'SUBMITTED' || normalized === 'PENDING' || normalized === 'UNDER_REVIEW') {
       return 'PENDING_APPROVAL';
@@ -1258,7 +1259,11 @@ export class StockStatusDashboardComponent implements OnInit {
     ) {
       return normalized;
     }
-    return 'PENDING_APPROVAL';
+    console.warn(
+      '[StockStatusDashboard] Unrecognized needs list status in toSummaryStatus:',
+      originalStatus
+    );
+    return 'DRAFT';
   }
 
   private notifySubmitterStatusUpdates(rows: NeedsListResponse[]): void {
