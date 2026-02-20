@@ -945,8 +945,8 @@ export class StockStatusDashboardComponent implements OnInit {
 
   needsListProgressSummary(row: NeedsListResponse): string {
     const remainingCount = this.remainingNeedsListItems(row).length;
-    const fulfilledCount = this.fulfilledNeedsListItems(row).length;
-    return `Remaining ${remainingCount} • Fulfilled ${fulfilledCount}`;
+    const resolvedCount = this.fulfilledNeedsListItems(row).length;
+    return `Remaining ${remainingCount} • Resolved ${resolvedCount}`;
   }
 
   needsListItemLabel(item: NeedsListItem): string {
@@ -1089,6 +1089,8 @@ export class StockStatusDashboardComponent implements OnInit {
     }
 
     const gapQty = Math.max(this.toFiniteNumber(item.gap_qty), 0);
+    // Dashboard progress treats items with no remaining gap as fulfilled so
+    // needsListProgressSummary/itemRemainingQty both resolve to zero remaining.
     if (gapQty <= 0) {
       return true;
     }
