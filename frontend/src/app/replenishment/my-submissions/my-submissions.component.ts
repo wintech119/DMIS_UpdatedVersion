@@ -24,6 +24,19 @@ interface EventOption {
   name: string;
 }
 
+const VALID_STATUSES: ReadonlySet<NeedsListSummaryStatus> = new Set([
+  'DRAFT',
+  'MODIFIED',
+  'RETURNED',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'IN_PROGRESS',
+  'FULFILLED',
+  'SUPERSEDED',
+  'CANCELLED'
+]);
+
 @Component({
   selector: 'app-my-submissions',
   standalone: true,
@@ -77,17 +90,20 @@ export class MySubmissionsComponent {
   );
 
   constructor() {
-const VALID_STATUSES: ReadonlySet<string> = new Set([
-  'ALL', 'DRAFT', 'MODIFIED', 'SUBMITTED', /* ... remaining NeedsListSummaryStatus values */
-]);
-
-constructor() {
     const statusParam = this.route.snapshot.queryParamMap.get('status');
-    if (statusParam && VALID_STATUSES.has(statusParam)) {
-      this.statusFilter.set(statusParam);
+    if (statusParam) {
+      if (statusParam === 'ALL') {
+        this.statusFilter.set('ALL');
+      } else {
+        const parsedStatuses = statusParam
+          .split(',')
+          .map((value) => value.trim().toUpperCase())
+          .filter(Boolean);
+        if (parsedStatuses.length > 0 && parsedStatuses.every((value) => VALID_STATUSES.has(value as NeedsListSummaryStatus))) {
+          this.statusFilter.set(parsedStatuses.join(','));
+        }
+      }
     }
-    // ...existing constructor logic...
-}
     this.loadRequests.pipe(
       tap(() => {
         this.loading.set(true);
