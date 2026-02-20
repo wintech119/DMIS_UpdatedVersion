@@ -1,0 +1,332 @@
+.transfer-drafts-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: var(--dmis-font-sans, 'Trebuchet MS', 'Segoe UI', sans-serif);
+  color: var(--dmis-text-primary, #1a1a1a);
+}
+
+// ── Page Header ──────────────────────────────────────────────────────────────
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+
+  .back-btn {
+    color: #666;
+
+    &:hover { color: #333; }
+  }
+
+  .header-text {
+    flex: 1;
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--dmis-text-primary, #1a1a1a);
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+    }
+  }
+}
+
+// ── Generate Section ────────────────────────────────────────────────────────
+.generate-section {
+  text-align: center;
+}
+
+.generate-action {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 12px 24px;
+    font-size: 1rem;
+  }
+}
+
+// ── Transfer Cards ──────────────────────────────────────────────────────────
+.transfers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.transfer-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+  padding: 16px;
+  border-left: 4px solid #3b82f6;
+
+  &.transfer-confirmed {
+    border-left-color: #059669;
+    opacity: 0.85;
+  }
+}
+
+.transfer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.transfer-route {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.warehouse-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    color: #64748b;
+  }
+}
+
+.route-arrow {
+  color: #94a3b8;
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+.transfer-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #f1f5f9;
+  color: #334155;
+
+  &[data-status='P'] {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  &[data-status='D'] {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  &[data-status='C'],
+  &[data-status='V'] {
+    background: #d1fae5;
+    color: #065f46;
+  }
+}
+
+// ── Items Table ─────────────────────────────────────────────────────────────
+.items-table-container {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 12px;
+}
+
+.items-table {
+  border-collapse: collapse;
+  width: 100%;
+
+  th {
+    background: #f8fafc;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #5f6368;
+    padding: 8px 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 12px;
+    font-size: 0.875rem;
+    border-top: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+
+  tbody tr:hover {
+    background-color: #f8fafc;
+  }
+}
+
+.qty-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.qty-input {
+  width: 80px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+
+  &:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgb(59 130 246 / 20%);
+  }
+}
+
+// ── Mobile Item Cards ───────────────────────────────────────────────────────
+.item-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.item-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+
+  .item-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+
+    strong { font-size: 0.875rem; }
+
+    .item-uom {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+  }
+
+  .item-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .item-field {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8125rem;
+
+    .field-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+  }
+}
+
+// ── Reason Field ────────────────────────────────────────────────────────────
+.reason-field {
+  margin-bottom: 12px;
+
+  .reason-input {
+    width: 100%;
+  }
+}
+
+// ── Transfer Actions ────────────────────────────────────────────────────────
+.transfer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+}
+
+// ── Visibility helpers ──────────────────────────────────────────────────────
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+// ── Responsive ──────────────────────────────────────────────────────────────
+@media (max-width: 1024px) {
+  .transfer-drafts-page {
+    padding: 12px;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+}
+
+@media (max-width: 768px) {
+  .transfer-drafts-page {
+    padding: 10px;
+  }
+
+  .page-header .header-text h1 {
+    font-size: 18px;
+  }
+
+  .transfer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .transfer-route {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+
+    .route-arrow {
+      transform: rotate(90deg);
+      align-self: center;
+    }
+  }
+
+  .transfer-actions {
+    flex-direction: column;
+
+    button {
+      width: 100%;
+      min-height: 44px;
+      justify-content: center;
+    }
+  }
+}

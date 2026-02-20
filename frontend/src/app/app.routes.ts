@@ -6,6 +6,9 @@ import { NeedsListReviewQueueComponent } from './replenishment/needs-list-review
 import { NeedsListReviewDetailComponent } from './replenishment/needs-list-review/needs-list-review-detail.component';
 import { MySubmissionsComponent } from './replenishment/my-submissions/my-submissions.component';
 import { NeedsListFulfillmentTrackerComponent } from './replenishment/needs-list-fulfillment-tracker/needs-list-fulfillment-tracker.component';
+import { TransferDraftsComponent } from './replenishment/transfer-drafts/transfer-drafts.component';
+import { DonationAllocationComponent } from './replenishment/donation-allocation/donation-allocation.component';
+import { ProcurementExportComponent } from './replenishment/procurement-export/procurement-export.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'replenishment/dashboard', pathMatch: 'full' },
@@ -19,5 +22,8 @@ export const routes: Routes = [
   { path: 'replenishment/needs-list/:id/track', component: NeedsListFulfillmentTrackerComponent },
   { path: 'replenishment/needs-list/:id/history', component: NeedsListFulfillmentTrackerComponent },
   { path: 'replenishment/needs-list/:id/superseded', component: NeedsListFulfillmentTrackerComponent },
+  { path: 'replenishment/needs-list/:id/transfers', component: TransferDraftsComponent },
+  { path: 'replenishment/needs-list/:id/donations', component: DonationAllocationComponent },
+  { path: 'replenishment/needs-list/:id/procurement', component: ProcurementExportComponent },
   { path: '**', redirectTo: 'replenishment/dashboard' }
 ];

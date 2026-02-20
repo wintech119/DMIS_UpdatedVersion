@@ -139,9 +139,11 @@
             [submission]="submission"
             [showSelection]="canBatchSelect(submission.status)"
             [selected]="isSelected(submission.id)"
+            [recentlyChanged]="recentlyChangedIds().has(submission.id)"
             (selectedChange)="onDraftSelectionChange(submission.id, $event)"
             (refresh)="refreshSubmission($event)"
-            (openAction)="onOpenAction($event)">
+            (openAction)="onOpenAction($event)"
+            (horizonAction)="onHorizonAction($event)">
           </app-submission-card>
         }
       </div>

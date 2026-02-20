@@ -30,6 +30,7 @@
 .submission-card[data-status='IN_PROGRESS'] { border-left-color: #3b82f6; }
 .submission-card[data-status='FULFILLED'] { border-left-color: #059669; }
 .submission-card[data-status='REJECTED'] { border-left-color: #ef4444; }
+.submission-card[data-status='RETURNED'] { border-left-color: #f59e0b; }
 
 .submission-card[data-status='SUPERSEDED'],
 .submission-card[data-status='CANCELLED'] {
@@ -99,6 +100,7 @@
 .status-badge[data-status='FULFILLED'] { background: #d1fae5; color: #065f46; }
 .status-badge[data-status='IN_PROGRESS'] { background: #dbeafe; color: #1e40af; }
 .status-badge[data-status='REJECTED'] { background: #fee2e2; color: #991b1b; }
+.status-badge[data-status='RETURNED'] { background: #fef3c7; color: #92400e; }
 .status-badge[data-status='SUPERSEDED'],
 .status-badge[data-status='CANCELLED'] { background: #e5e7eb; color: #374151; }
 
@@ -258,6 +260,33 @@
   .horizon-value { color: #94a3b8; }
 }
 
+// ── Horizon Actions ─────────────────────────────────────────────────────────
+.horizon-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding-top: 0.3rem;
+
+  .horizon-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.78rem;
+    flex: 0 0 auto;
+    white-space: nowrap;
+
+    mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    &[data-horizon='A'] { color: #1e40af; border-color: #93c5fd; }
+    &[data-horizon='B'] { color: #9d174d; border-color: #f9a8d4; }
+    &[data-horizon='C'] { color: #92400e; border-color: #fcd34d; }
+  }
+}
+
 // ── Alerts ───────────────────────────────────────────────────────────────────
 .update-alert {
   align-items: flex-start;
@@ -375,6 +404,59 @@
   .cost { color: #1976d2; }
 }
 
+// ── Recently Changed Highlight ───────────────────────────────────────────────
+.submission-card.recently-changed {
+  box-shadow: 0 0 0 2px #667eea, 0 4px 12px rgb(102 126 234 / 15%);
+  animation: status-update-pulse 2s ease-out;
+}
+
+@keyframes status-update-pulse {
+  0% { box-shadow: 0 0 0 4px rgb(102 126 234 / 40%), 0 4px 16px rgb(102 126 234 / 25%); }
+  100% { box-shadow: 0 0 0 2px #667eea, 0 4px 12px rgb(102 126 234 / 15%); }
+}
+
+.status-change-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(135deg, #eff6ff 0%, #e8eaff 100%);
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #1e3a8a;
+
+  mat-icon {
+    color: #667eea;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+}
+
+// Per-status tints on the change alert
+.submission-card[data-status='APPROVED'] .status-change-alert {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: #6ee7b7;
+  color: #065f46;
+  mat-icon { color: #10b981; }
+}
+
+.submission-card[data-status='REJECTED'] .status-change-alert {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border-color: #fca5a5;
+  color: #991b1b;
+  mat-icon { color: #ef4444; }
+}
+
+.submission-card[data-status='RETURNED'] .status-change-alert {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: #fcd34d;
+  color: #92400e;
+  mat-icon { color: #f59e0b; }
+}
+
 // ── Mobile ───────────────────────────────────────────────────────────────────
 @media (max-width: 1024px) {
   .horizons-grid {
@@ -419,10 +501,10 @@
   }
 
   .actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
+    justify-content: flex-end;
   }
 }
 
@@ -430,9 +512,5 @@
   .submission-card,
   .submission-card.mat-mdc-card {
     padding: 12px;
-  }
-
-  .actions {
-    grid-template-columns: 1fr;
   }
 }

@@ -290,3 +290,64 @@ export interface TrackerBranch {
   timestamp: string | null;
   fromStep: TrackerStepId;
 }
+
+// ── Transfer Draft Models (Horizon A) ─────────────────────────────────────
+
+export interface TransferDraftItem {
+  item_id: number;
+  item_name: string;
+  uom_code: string;
+  item_qty: number;
+}
+
+export interface TransferDraft {
+  transfer_id: number;
+  from_warehouse: { id: number; name: string };
+  to_warehouse: { id: number; name: string };
+  status: string;
+  transfer_date: string | null;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  items: TransferDraftItem[];
+}
+
+export interface TransferDraftsResponse {
+  needs_list_id: string;
+  transfers: TransferDraft[];
+  warnings?: string[];
+}
+
+// ── Donation Models (Horizon B) ───────────────────────────────────────────
+
+export interface DonationLineItem {
+  item_id: number;
+  item_name: string;
+  uom: string;
+  required_qty: number;
+  allocated_qty: number;
+  available_donations: { donation_id: number; donor_name: string; available_qty: number }[];
+}
+
+export interface DonationsResponse {
+  needs_list_id: string;
+  lines: DonationLineItem[];
+  warnings?: string[];
+}
+
+// ── Procurement Models (Horizon C) ────────────────────────────────────────
+
+export interface ProcurementLineItem {
+  item_id: number;
+  item_name: string;
+  uom: string;
+  required_qty: number;
+  est_unit_cost: number | null;
+  est_total_cost: number | null;
+}
+
+export interface ProcurementExportResponse {
+  needs_list_id: string;
+  format: string;
+  items: ProcurementLineItem[];
+}

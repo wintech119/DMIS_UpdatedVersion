@@ -10,11 +10,15 @@ import { forkJoin, fromEvent, interval, of, Subscription } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-import { NeedsListFulfillmentLine, NeedsListResponse } from '../models/needs-list.model';
+import { NeedsListFulfillmentLine, NeedsListResponse, NeedsListStatus } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+
+const APPROVED_STATUSES: ReadonlySet<string> = new Set([
+  'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION'
+]);
 
 @Component({
   selector: 'app-needs-list-fulfillment-tracker',
@@ -97,6 +101,41 @@ export class NeedsListFulfillmentTrackerComponent {
     return Number(((totalCovered / totalOriginal) * 100).toFixed(1));
   });
 
+  readonly isApproved = computed(() => {
+    const status = this.needsList()?.status;
+    return status ? APPROVED_STATUSES.has(status) : false;
+  });
+
+  readonly horizonACount = computed(() =>
+    this.lines().filter(l => l.horizon === 'A').length
+  );
+
+  readonly horizonBCount = computed(() =>
+    this.lines().filter(l => l.horizon === 'B').length
+  );
+
+  readonly horizonCCount = computed(() =>
+    this.lines().filter(l => l.horizon === 'C').length
+  );
+
+  readonly hasHorizonA = computed(() => this.horizonACount() > 0);
+  readonly hasHorizonB = computed(() => this.horizonBCount() > 0);
+  readonly hasHorizonC = computed(() => this.horizonCCount() > 0);
+
+  readonly showExecutionActions = computed(() =>
+    this.mode() === 'track' && this.isApproved()
+  );
+
+  readonly coverageLevel = computed<'full' | 'partial' | 'none'>(() => {
+    const pct = this.totalCoverage();
+    if (pct >= 100) return 'full';
+    if (pct > 0) return 'partial';
+    return 'none';
+  });
+
+  readonly showApprovalSuccess = signal(false);
+  readonly expandedLineIds = signal<Set<number | null>>(new Set());
+
   getHorizonLabel(horizon: string): string {
     switch (horizon) {
       case 'A': return 'Transfer';
@@ -130,7 +169,44 @@ export class NeedsListFulfillmentTrackerComponent {
     return Number(((line.covered_qty / line.original_qty) * 100).toFixed(1));
   }
 
+  getCoverageLevel(pct: number): 'full' | 'partial' | 'none' {
+    if (pct >= 100) return 'full';
+    if (pct > 0) return 'partial';
+    return 'none';
+  }
+
+  formatSourceReference(sourceType: string, reference: string): string {
+    if (sourceType === 'NEEDS_LIST_LINE') {
+      return 'Approved Line Item';
+    }
+    return reference || 'N/A';
+  }
+
+  dismissApprovalSuccess(): void {
+    this.showApprovalSuccess.set(false);
+  }
+
+  isLineExpanded(lineId: number | null): boolean {
+    return this.expandedLineIds().has(lineId);
+  }
+
+  toggleLineExpanded(lineId: number | null): void {
+    const next = new Set(this.expandedLineIds());
+    if (next.has(lineId)) {
+      next.delete(lineId);
+    } else {
+      next.add(lineId);
+    }
+    this.expandedLineIds.set(next);
+  }
+
   constructor() {
+    // Show approval success overlay if navigated here after approving
+    const approvedParam = this.route.snapshot.queryParamMap.get('approved');
+    if (approvedParam === 'true') {
+      this.showApprovalSuccess.set(true);
+    }
+
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       this.needsListId = String(params.get('id') || '').trim();
       if (!this.needsListId) {
@@ -168,6 +244,41 @@ export class NeedsListFulfillmentTrackerComponent {
       return;
     }
     this.router.navigate(['/replenishment/needs-list', replacementId, 'review']);
+  }
+
+  navigateToTransfers(): void {
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'transfers']);
+  }
+
+  navigateToDonations(): void {
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'donations']);
+  }
+
+  navigateToProcurement(): void {
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'procurement']);
+  }
+
+  exportDonationNeeds(): void {
+    this.replenishmentService.exportDonationNeeds(this.needsListId, 'csv').subscribe({
+      next: (blob) => this.downloadBlob(blob, `donation_needs_${this.needsListId}.csv`),
+      error: () => this.notifications.showError('Failed to export donation needs.')
+    });
+  }
+
+  exportProcurementNeeds(): void {
+    this.replenishmentService.exportProcurementNeeds(this.needsListId, 'csv').subscribe({
+      next: (blob) => this.downloadBlob(blob, `procurement_needs_${this.needsListId}.csv`),
+      error: () => this.notifications.showError('Failed to export procurement needs.')
+    });
+  }
+
+  private downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   private loadData(): void {

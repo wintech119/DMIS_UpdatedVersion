@@ -82,18 +82,18 @@
           <span class="stat-value status-value" [attr.data-status]="list.status">{{ statusLabel() }}</span>
         </div>
       </div>
+      <div class="summary-stat stat-coverage" [attr.data-coverage]="coverageLevel()">
+        <mat-icon aria-hidden="true">pie_chart</mat-icon>
+        <div class="stat-text">
+          <span class="stat-label">Overall Coverage</span>
+          <span class="stat-value">{{ totalCoverage() }}%</span>
+        </div>
+      </div>
       <div class="summary-stat">
         <mat-icon aria-hidden="true">inventory_2</mat-icon>
         <div class="stat-text">
           <span class="stat-label">Line Items</span>
           <span class="stat-value">{{ lines().length }}</span>
-        </div>
-      </div>
-      <div class="summary-stat">
-        <mat-icon aria-hidden="true">pie_chart</mat-icon>
-        <div class="stat-text">
-          <span class="stat-label">Overall Coverage</span>
-          <span class="stat-value">{{ totalCoverage() }}%</span>
         </div>
       </div>
       <div class="summary-stat">
@@ -105,6 +105,87 @@
       </div>
     </div>
 
+    <!-- Execution Actions Panel -->
+    @if (showExecutionActions()) {
+      <div class="execution-actions">
+        <span class="section-label">Execution Actions</span>
+        <div class="actions-grid">
+          @if (hasHorizonA()) {
+            <div class="action-card action-card-a">
+              <div class="action-card-header">
+                <mat-icon aria-hidden="true">local_shipping</mat-icon>
+                <div>
+                  <span class="action-card-title">Transfers</span>
+                  <span class="action-card-count">{{ horizonACount() }} items</span>
+                </div>
+              </div>
+              <p class="action-card-desc">Draft inter-warehouse transfers for Horizon A items</p>
+              <button mat-flat-button color="primary" type="button" (click)="navigateToTransfers()">
+                <mat-icon>edit_note</mat-icon>
+                Draft Transfers
+              </button>
+            </div>
+          }
+          @if (hasHorizonB()) {
+            <div class="action-card action-card-b">
+              <div class="action-card-header">
+                <mat-icon aria-hidden="true">volunteer_activism</mat-icon>
+                <div>
+                  <span class="action-card-title">Donations</span>
+                  <span class="action-card-count">{{ horizonBCount() }} items</span>
+                </div>
+              </div>
+              <p class="action-card-desc">Allocate available donations or export needs for NGOs</p>
+              <div class="action-card-buttons">
+                <button mat-flat-button color="primary" type="button" (click)="navigateToDonations()">
+                  <mat-icon>assignment</mat-icon>
+                  Allocate Donations
+                </button>
+                <button mat-stroked-button type="button" (click)="exportDonationNeeds()">
+                  <mat-icon>download</mat-icon>
+                  Export Needs
+                </button>
+              </div>
+            </div>
+          }
+          @if (hasHorizonC()) {
+            <div class="action-card action-card-c">
+              <div class="action-card-header">
+                <mat-icon aria-hidden="true">shopping_cart</mat-icon>
+                <div>
+                  <span class="action-card-title">Procurement</span>
+                  <span class="action-card-count">{{ horizonCCount() }} items</span>
+                </div>
+              </div>
+              <p class="action-card-desc">Export procurement request for items that cannot be sourced internally</p>
+              <button mat-stroked-button type="button" (click)="navigateToProcurement()">
+                <mat-icon>download</mat-icon>
+                Export Procurement Request
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Approval Success Overlay -->
+    @if (showApprovalSuccess()) {
+      <div class="approval-overlay" (click)="dismissApprovalSuccess()">
+        <div class="approval-dialog" (click)="$event.stopPropagation()">
+          <div class="approval-check">
+            <mat-icon aria-hidden="true">check</mat-icon>
+          </div>
+          <h2 class="approval-title">Approved</h2>
+          <p class="approval-message">
+            This needs list has been approved and is now ready for fulfillment execution.
+          </p>
+          <button mat-flat-button color="primary" class="approval-ok-btn" type="button" (click)="dismissApprovalSuccess()">
+            OK
+          </button>
+        </div>
+      </div>
+    }
+
     <!-- Line items -->
     @if (lines().length === 0) {
       <dmis-empty-state
@@ -112,123 +193,159 @@
         title="No line items"
         message="This needs list does not have any fulfillment line items recorded.">
       </dmis-empty-state>
-    }
+    } @else {
+      <div class="lines-section">
+        <span class="section-label">Line Items</span>
 
-    <div class="line-list">
-      @for (line of lines(); track line.id) {
-        <div class="line-card">
-          <!-- Line header -->
-          <div class="line-header">
-            <div class="line-title">
-              <h3>{{ line.item.name }}</h3>
-              <span class="line-uom">{{ line.item.uom }}</span>
-            </div>
-            <span class="horizon-badge" [attr.data-horizon]="line.horizon">
-              <mat-icon aria-hidden="true">{{ getHorizonIcon(line.horizon) }}</mat-icon>
-              {{ getHorizonLabel(line.horizon) }}
-            </span>
-          </div>
+        <!-- Desktop compact table -->
+        <div class="lines-table-wrap desktop-only">
+          <table class="lines-table">
+            <thead>
+              <tr>
+                <th class="col-expand"></th>
+                <th class="col-item">Item</th>
+                <th class="col-horizon">Source</th>
+                <th class="col-num">Required</th>
+                <th class="col-num">Covered</th>
+                <th class="col-num">Remaining</th>
+                <th class="col-coverage">Coverage</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (line of lines(); track line.id) {
+                <!-- Main row -->
+                <tr
+                  class="line-row"
+                  [class.row-expanded]="isLineExpanded(line.id)"
+                  [class.row-fully-covered]="line.is_fully_covered"
+                  (click)="toggleLineExpanded(line.id)">
+                  <td class="col-expand">
+                    <mat-icon class="expand-icon" [class.rotated]="isLineExpanded(line.id)">expand_more</mat-icon>
+                  </td>
+                  <td class="col-item">
+                    <span class="item-name">{{ line.item.name }}</span>
+                    <span class="item-uom">{{ line.item.uom }}</span>
+                  </td>
+                  <td class="col-horizon">
+                    <span class="horizon-chip" [attr.data-horizon]="line.horizon">
+                      {{ getHorizonLabel(line.horizon) }}
+                    </span>
+                  </td>
+                  <td class="col-num">{{ line.original_qty | number:'1.0-0' }}</td>
+                  <td class="col-num covered-text">{{ line.covered_qty | number:'1.0-0' }}</td>
+                  <td class="col-num remaining-text">{{ line.remaining_qty | number:'1.0-0' }}</td>
+                  <td class="col-coverage">
+                    <div class="coverage-cell">
+                      <div class="coverage-bar-bg">
+                        <div class="coverage-bar-fill" [style.width.%]="getCoveragePercent(line)" [attr.data-level]="getCoverageLevel(getCoveragePercent(line))"></div>
+                      </div>
+                      <span class="coverage-pct" [attr.data-level]="getCoverageLevel(getCoveragePercent(line))">{{ getCoveragePercent(line) }}%</span>
+                    </div>
+                  </td>
+                </tr>
 
-          <!-- Line progress -->
-          <div class="line-progress">
-            <div class="progress-header">
-              <span class="progress-label">Coverage</span>
-              <span class="progress-value">{{ line.covered_qty | number:'1.0-2' }} / {{ line.original_qty | number:'1.0-2' }} ({{ getCoveragePercent(line) }}%)</span>
-            </div>
-            <mat-progress-bar mode="determinate" [value]="getCoveragePercent(line)"></mat-progress-bar>
-          </div>
+                <!-- Expanded detail row -->
+                @if (isLineExpanded(line.id)) {
+                  <tr class="detail-row">
+                    <td colspan="7">
+                      <div class="detail-content">
+                        @if (line.fulfillment_sources.length > 0) {
+                          <span class="detail-label">Fulfillment Sources</span>
+                          <table class="sources-table">
+                            <thead>
+                              <tr>
+                                <th>Type</th>
+                                <th>Reference</th>
+                                <th>Qty</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
+                                <tr>
+                                  <td>
+                                    <span class="source-type">
+                                      <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
+                                      {{ getSourceTypeLabel(source.source_type) }}
+                                    </span>
+                                  </td>
+                                  <td>{{ formatSourceReference(source.source_type, source.source_reference) }}</td>
+                                  <td class="source-qty">{{ source.quantity | number:'1.0-2' }}</td>
+                                  <td>
+                                    <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
+                                  </td>
+                                  <td class="source-date">{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
+                                </tr>
+                              }
+                            </tbody>
+                          </table>
+                        } @else {
+                          <p class="no-sources">No fulfillment sources recorded yet.</p>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
 
-          <!-- Line metrics -->
-          <div class="line-metrics">
-            <div class="metric">
-              <span class="metric-label">Original</span>
-              <span class="metric-value">{{ line.original_qty | number:'1.0-2' }}</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Covered</span>
-              <span class="metric-value covered">{{ line.covered_qty | number:'1.0-2' }}</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Remaining</span>
-              <span class="metric-value remaining">{{ line.remaining_qty | number:'1.0-2' }}</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Total Coverage</span>
-              <span class="metric-value">{{ line.total_coverage | number:'1.0-2' }}</span>
-            </div>
-          </div>
+        <!-- Mobile card list -->
+        <div class="lines-mobile mobile-only">
+          @for (line of lines(); track line.id) {
+            <div class="mobile-line-card" [class.mobile-fully-covered]="line.is_fully_covered" (click)="toggleLineExpanded(line.id)">
+              <div class="mobile-line-header">
+                <div class="mobile-line-info">
+                  <span class="item-name">{{ line.item.name }}</span>
+                  <span class="item-uom">{{ line.item.uom }}</span>
+                </div>
+                <span class="horizon-chip" [attr.data-horizon]="line.horizon">{{ getHorizonLabel(line.horizon) }}</span>
+              </div>
+              <div class="mobile-line-stats">
+                <span>{{ line.covered_qty | number:'1.0-0' }} / {{ line.original_qty | number:'1.0-0' }}</span>
+                <span class="coverage-pct" [attr.data-level]="getCoverageLevel(getCoveragePercent(line))">{{ getCoveragePercent(line) }}%</span>
+              </div>
+              <mat-progress-bar mode="determinate" [value]="getCoveragePercent(line)"></mat-progress-bar>
 
-          <!-- Fulfillment sources -->
-          <div class="sources-section">
-            <span class="sources-label">Fulfillment Sources</span>
-            @if (line.fulfillment_sources.length > 0) {
-              <!-- Desktop table -->
-              <div class="sources-table-container desktop-only">
-                <table class="sources-table">
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Reference</th>
-                      <th>Qty</th>
-                      <th>Status</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              @if (isLineExpanded(line.id)) {
+                <div class="mobile-line-detail" (click)="$event.stopPropagation()">
+                  @if (line.fulfillment_sources.length > 0) {
                     @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
-                      <tr>
-                        <td>
+                      <div class="source-card">
+                        <div class="source-card-header">
                           <span class="source-type">
                             <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
                             {{ getSourceTypeLabel(source.source_type) }}
                           </span>
-                        </td>
-                        <td class="source-ref">{{ source.source_reference }}</td>
-                        <td class="source-qty">{{ source.quantity | number:'1.0-2' }}</td>
-                        <td>
                           <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
-                        </td>
-                        <td class="source-date">{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
-                      </tr>
+                        </div>
+                        <div class="source-card-body">
+                          <div class="source-field">
+                            <span class="field-label">Reference</span>
+                            <span>{{ formatSourceReference(source.source_type, source.source_reference) }}</span>
+                          </div>
+                          <div class="source-field">
+                            <span class="field-label">Quantity</span>
+                            <span>{{ source.quantity | number:'1.0-2' }}</span>
+                          </div>
+                          <div class="source-field">
+                            <span class="field-label">Date</span>
+                            <span>{{ source.date ? (source.date | date:'short') : 'Pending' }}</span>
+                          </div>
+                        </div>
+                      </div>
                     }
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Mobile cards -->
-              <div class="source-cards mobile-only">
-                @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
-                  <div class="source-card">
-                    <div class="source-card-header">
-                      <span class="source-type">
-                        <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
-                        {{ getSourceTypeLabel(source.source_type) }}
-                      </span>
-                      <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
-                    </div>
-                    <div class="source-card-body">
-                      <div class="source-field">
-                        <span class="field-label">Reference</span>
-                        <span>{{ source.source_reference }}</span>
-                      </div>
-                      <div class="source-field">
-                        <span class="field-label">Quantity</span>
-                        <span>{{ source.quantity | number:'1.0-2' }}</span>
-                      </div>
-                      <div class="source-field">
-                        <span class="field-label">Date</span>
-                        <span>{{ source.date ? (source.date | date:'short') : 'Pending' }}</span>
-                      </div>
-                    </div>
-                  </div>
-                }
-              </div>
-            } @else {
-              <p class="no-sources">No fulfillment sources recorded yet.</p>
-            }
-          </div>
+                  } @else {
+                    <p class="no-sources">No fulfillment sources recorded yet.</p>
+                  }
+                </div>
+              }
+            </div>
+          }
         </div>
-      }
-    </div>
+      </div>
+    }
   }
 </div>

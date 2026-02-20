@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 
 from replenishment import rules, workflow_store, workflow_store_db
 from replenishment.models import NeedsList, NeedsListItem
-from replenishment.services import needs_list
+from replenishment.services import approval as approval_service, needs_list
 from replenishment.services.needs_list import (
     allocate_horizons,
     compute_confidence_and_warnings,
@@ -432,6 +432,44 @@ class NeedsListServiceTests(SimpleTestCase):
             codes, warnings = rules.resolve_strict_inbound_transfer_codes()
             self.assertEqual(codes, ["D"])
             self.assertNotIn("strict_inbound_mapping_best_effort", warnings)
+
+
+class ApprovalRoleResolutionTests(SimpleTestCase):
+    def test_transfer_policy_allows_on_behalf_for_logistics_submitter(self) -> None:
+        roles = approval_service.required_roles_for_approval(
+            {"approver_role": "Logistics Manager (Kemar)"},
+            record={"selected_method": "A", "warehouse_id": 1},
+            submitter_roles={"LOGISTICS_MANAGER"},
+        )
+        self.assertIn("LOGISTICS_MANAGER", roles)
+        self.assertIn("ODPEM_DIR_PEOD", roles)
+
+    def test_transfer_policy_excludes_on_behalf_when_condition_not_met(self) -> None:
+        roles = approval_service.required_roles_for_approval(
+            {"approver_role": "Logistics Manager (Kemar)"},
+            record={"selected_method": "A", "warehouse_id": 1},
+            submitter_roles={"INVENTORY_CLERK"},
+        )
+        self.assertIn("LOGISTICS_MANAGER", roles)
+        self.assertNotIn("ODPEM_DIR_PEOD", roles)
+
+    def test_procurement_policy_uses_director_peod_only(self) -> None:
+        roles = approval_service.required_roles_for_approval(
+            {"approver_role": "DG + PPC Endorsement"},
+            record={"selected_method": "C", "warehouse_id": 1},
+            submitter_roles={"LOGISTICS_MANAGER"},
+        )
+        self.assertIn("ODPEM_DIR_PEOD", roles)
+        self.assertIn("SYSTEM_ADMINISTRATOR", roles)
+        self.assertNotIn("ODPEM_DG", roles)
+
+    def test_procurement_policy_includes_test_role_alias_for_dir_peod(self) -> None:
+        roles = approval_service.required_roles_for_approval(
+            {"approver_role": "DG + PPC Endorsement"},
+            record={"selected_method": "C", "warehouse_id": 1},
+            submitter_roles={"TST_LOGISTICS_MANAGER"},
+        )
+        self.assertIn("TST_DIR_PEOD", roles)
 
 
 class NeedsListPreviewApiTests(TestCase):

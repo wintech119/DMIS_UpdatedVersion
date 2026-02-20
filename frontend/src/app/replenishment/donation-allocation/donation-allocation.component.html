@@ -1,0 +1,124 @@
+<div class="donation-allocation-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <button mat-icon-button class="back-btn" type="button" aria-label="Back to tracker" (click)="backToTracker()">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h1>Donation Allocation</h1>
+      <p class="subtitle">Horizon B - Allocate available donations or export needs</p>
+    </div>
+  </div>
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="2"></dmis-skeleton-loader>
+  }
+
+  <!-- Error state -->
+  @if (!loading() && error()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Unable to load donation needs"
+      message="There was an error loading the donation allocation data. Please try again."
+      actionLabel="Back to Tracker"
+      actionIcon="arrow_back"
+      (action)="backToTracker()">
+    </dmis-empty-state>
+  }
+
+  @if (!loading() && !error()) {
+    <!-- Export Section -->
+    <div class="export-section">
+      <div class="export-info">
+        <mat-icon aria-hidden="true">volunteer_activism</mat-icon>
+        <div>
+          <strong>Export Donation Needs</strong>
+          <span>Share this list with NGOs and donors to request contributions</span>
+        </div>
+      </div>
+      <div class="export-buttons">
+        <button
+          mat-flat-button
+          color="primary"
+          type="button"
+          [disabled]="exporting()"
+          (click)="exportNeeds('csv')">
+          <mat-icon>download</mat-icon>
+          {{ exporting() ? 'Exporting...' : 'Export as CSV' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    @if (hasLines()) {
+      <div class="summary-section">
+        <div class="summary-stat">
+          <span class="stat-label">Total Items</span>
+          <span class="stat-value">{{ lines().length }}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="stat-label">Total Required</span>
+          <span class="stat-value">{{ totalRequired() | number:'1.0-2' }}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="stat-label">Total Allocated</span>
+          <span class="stat-value allocated">{{ totalAllocated() | number:'1.0-2' }}</span>
+        </div>
+      </div>
+    }
+
+    <!-- Allocation Table -->
+    @if (hasLines()) {
+      <div class="allocation-list">
+        @for (line of lines(); track line.item_id) {
+          <div class="allocation-card">
+            <div class="allocation-header">
+              <div class="item-info">
+                <h3>{{ line.item_name }}</h3>
+                <span class="item-uom">{{ line.uom }}</span>
+              </div>
+              <span class="horizon-badge" data-horizon="B">
+                <mat-icon aria-hidden="true">volunteer_activism</mat-icon>
+                Donation
+              </span>
+            </div>
+
+            <div class="allocation-progress">
+              <div class="progress-header">
+                <span class="progress-label">Allocation</span>
+                <span class="progress-value">
+                  {{ line.allocated_qty | number:'1.0-2' }} / {{ line.required_qty | number:'1.0-2' }}
+                  ({{ getAllocationPercent(line) }}%)
+                </span>
+              </div>
+              <mat-progress-bar mode="determinate" [value]="getAllocationPercent(line)"></mat-progress-bar>
+            </div>
+
+            @if (line.available_donations.length > 0) {
+              <div class="available-donations">
+                <span class="donations-label">Available Donations</span>
+                @for (donation of line.available_donations; track donation.donation_id) {
+                  <div class="donation-option">
+                    <span>{{ donation.donor_name }}</span>
+                    <span class="donation-qty">{{ donation.available_qty | number:'1.0-2' }} available</span>
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="no-donations">No available donations for this item yet.</p>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    @if (!hasLines()) {
+      <dmis-empty-state
+        icon="volunteer_activism"
+        title="No Horizon B items"
+        message="This needs list does not have any items requiring donation fulfillment.">
+      </dmis-empty-state>
+    }
+  }
+</div>

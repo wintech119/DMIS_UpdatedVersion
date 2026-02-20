@@ -9,7 +9,9 @@ import { RouterModule } from '@angular/router';
 
 import { HorizonSummaryBucket, NeedsListSummary, NeedsListSummaryStatus } from '../../models/needs-list.model';
 import {
+  getHorizonActionTargets,
   getNeedsListActionTarget,
+  HorizonActionTarget,
   toNeedsListStatusLabel
 } from '../needs-list-action.util';
 
@@ -42,9 +44,11 @@ export class SubmissionCardComponent {
   readonly submission = input.required<NeedsListSummary>();
   readonly showSelection = input(false);
   readonly selected = input(false);
+  readonly recentlyChanged = input(false);
 
   readonly refresh = output<string>();
   readonly openAction = output<{ id: string; status: NeedsListSummaryStatus }>();
+  readonly horizonAction = output<HorizonActionTarget>();
   readonly selectedChange = output<boolean>();
 
   readonly showProgress = signal(false);
@@ -79,6 +83,14 @@ export class SubmissionCardComponent {
     this.horizonDisplays().filter(h => h.bucket.count > 0)
   );
 
+  readonly horizonActions = computed(() =>
+    getHorizonActionTargets(
+      this.submission().id,
+      this.submission().status,
+      this.submission().horizon_summary
+    )
+  );
+
   readonly totalItems = computed(() => this.submission().total_items);
   readonly totalEstimatedValue = computed(() => {
     const hs = this.submission().horizon_summary;
@@ -106,6 +118,10 @@ export class SubmissionCardComponent {
   onActionClick(): void {
     const current = this.submission();
     this.openAction.emit({ id: current.id, status: current.status });
+  }
+
+  onHorizonActionClick(target: HorizonActionTarget): void {
+    this.horizonAction.emit(target);
   }
 
   toggleProgress(): void {

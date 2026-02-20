@@ -65,6 +65,10 @@ def resolve_roles_and_permissions(
                 permissions = _dedupe_preserve_order(
                     list(permissions) + list(_fetch_permissions(user_id))
                 )
+            if roles:
+                permissions = _dedupe_preserve_order(
+                    list(permissions) + list(_fetch_permissions_for_role_codes(roles))
+                )
         except DatabaseError as exc:
             db_error = True
             logger.warning("RBAC DB lookup failed: %s", exc)
@@ -128,6 +132,28 @@ def _fetch_permissions(user_id: int) -> set[str]:
             WHERE ur.user_id = %s
             """,
             [user_id],
+        )
+        return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
+
+
+def _fetch_permissions_for_role_codes(role_codes: Iterable[str]) -> set[str]:
+    normalized_codes = sorted(
+        {str(code).strip().upper() for code in role_codes if str(code).strip()}
+    )
+    if not normalized_codes:
+        return set()
+
+    placeholders = ", ".join(["%s"] * len(normalized_codes))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT DISTINCT p.resource, p.action
+            FROM role r
+            JOIN role_permission rp ON rp.role_id = r.id
+            JOIN permission p ON p.perm_id = rp.perm_id
+            WHERE UPPER(r.code) IN ({placeholders})
+            """,
+            normalized_codes,
         )
         return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
 
