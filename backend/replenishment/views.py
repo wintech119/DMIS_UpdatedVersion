@@ -1249,10 +1249,10 @@ def needs_list_my_submissions(request):
     return Response(_paginate_results(request, summaries))
 
 
-@api_view(["GET"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([NeedsListPreviewPermission])
-def needs_list_summary_version(request, needs_list_id: str):
+`@api_view`(["GET"])
+`@authentication_classes`([LegacyCompatAuthentication])
+`@permission_classes`([NeedsListPreviewPermission])
+def needs_list_summary_version(_request, needs_list_id: str):
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -1280,10 +1280,10 @@ def needs_list_summary_version(request, needs_list_id: str):
     )
 
 
-@api_view(["GET"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([NeedsListPreviewPermission])
-def needs_list_fulfillment_sources(request, needs_list_id: str):
+`@api_view`(["GET"])
+`@authentication_classes`([LegacyCompatAuthentication])
+`@permission_classes`([NeedsListPreviewPermission])
+def needs_list_fulfillment_sources(_request, needs_list_id: str):
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
