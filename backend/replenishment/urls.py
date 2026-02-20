@@ -11,6 +11,7 @@ from replenishment.views import (
     needs_list_edit_lines,
     needs_list_escalate,
     needs_list_fulfillment_sources,
+    needs_list_generate_transfers,
     needs_list_get,
     needs_list_list,
     needs_list_mark_completed,
@@ -26,6 +27,13 @@ from replenishment.views import (
     needs_list_summary_version,
     needs_list_start_preparation,
     needs_list_submit,
+    needs_list_transfer_confirm,
+    needs_list_transfer_update,
+    needs_list_transfers,
+    needs_list_donations,
+    needs_list_donations_allocate,
+    needs_list_donations_export,
+    needs_list_procurement_export,
 )
 
 urlpatterns = [
@@ -113,5 +121,45 @@ urlpatterns = [
         "needs-list/<str:needs_list_id>/cancel",
         needs_list_cancel,
         name="needs_list_cancel",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/generate-transfers",
+        needs_list_generate_transfers,
+        name="needs_list_generate_transfers",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers",
+        needs_list_transfers,
+        name="needs_list_transfers",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers/<int:transfer_id>",
+        needs_list_transfer_update,
+        name="needs_list_transfer_update",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers/<int:transfer_id>/confirm",
+        needs_list_transfer_confirm,
+        name="needs_list_transfer_confirm",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations",
+        needs_list_donations,
+        name="needs_list_donations",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations/allocate",
+        needs_list_donations_allocate,
+        name="needs_list_donations_allocate",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations/export",
+        needs_list_donations_export,
+        name="needs_list_donations_export",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/procurement/export",
+        needs_list_procurement_export,
+        name="needs_list_procurement_export",
     ),
 ]

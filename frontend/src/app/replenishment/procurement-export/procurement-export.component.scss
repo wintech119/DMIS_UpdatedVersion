@@ -1,0 +1,241 @@
+.procurement-export-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: var(--dmis-font-sans, 'Trebuchet MS', 'Segoe UI', sans-serif);
+  color: var(--dmis-text-primary, #1a1a1a);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+
+  .back-btn {
+    color: #666;
+    &:hover { color: #333; }
+  }
+
+  .header-text {
+    flex: 1;
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+    }
+  }
+}
+
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-radius: 8px;
+  border-left: 4px solid #3b82f6;
+
+  > mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: #1e40af;
+    flex-shrink: 0;
+  }
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    strong { font-size: 0.9375rem; color: #1e293b; }
+    span { font-size: 0.8125rem; color: #64748b; }
+  }
+}
+
+.export-section {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+}
+
+.items-table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+}
+
+.items-table {
+  border-collapse: collapse;
+  width: 100%;
+
+  th {
+    background: #f8fafc;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #5f6368;
+    padding: 10px 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 12px 14px;
+    font-size: 0.875rem;
+    border-top: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+
+  tbody tr:hover {
+    background-color: #f8fafc;
+  }
+
+  tfoot td {
+    border-top: 2px solid #e2e8f0;
+    font-weight: 600;
+    background: #f8fafc;
+  }
+}
+
+.qty-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.cost-cell {
+  font-variant-numeric: tabular-nums;
+  color: #1976d2;
+  font-weight: 500;
+}
+
+.total-label {
+  text-align: right;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #5f6368;
+}
+
+.total-value {
+  font-size: 1rem;
+  color: #1976d2;
+}
+
+.na {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+// ── Mobile Cards ────────────────────────────────────────────────────────────
+.item-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  border-left: 4px solid #f59e0b;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+
+  .item-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+
+    strong { font-size: 0.9375rem; }
+
+    .item-uom {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+  }
+
+  .item-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .item-field {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    padding: 2px 0;
+
+    &:not(:last-child) {
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .field-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+  }
+}
+
+// ── Visibility helpers ──────────────────────────────────────────────────────
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+}
+
+@media (max-width: 768px) {
+  .procurement-export-page {
+    padding: 10px;
+  }
+
+  .page-header .header-text h1 {
+    font-size: 18px;
+  }
+
+  .info-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .export-section {
+    flex-direction: column;
+
+    button {
+      width: 100%;
+      min-height: 44px;
+      justify-content: center;
+    }
+  }
+}

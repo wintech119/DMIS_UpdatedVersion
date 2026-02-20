@@ -2,7 +2,19 @@
 
 ## Overview
 
-This guide provides structured prompts and context for using Claude Code in Cursor AI to refine the Supply Replenishment (Needs List Generation) module. The goal is to create a seamless, intuitive UI/UX that Kemar (Logistics Manager) can use efficiently under pressure.
+This guide provides structured prompts and context for using Claude Code in Cursor AI to refine the Supply Replenishment (Needs List Generation) module.
+
+### Angular MCP server with Claude Code CLI
+
+This project’s `.mcp.json` already includes the **Angular** MCP server, so when you run `claude` from this repo, the Angular CLI tools (e.g. `list_projects`, `get_best_practices`, `search_documentation`) are available.
+
+To add the Angular MCP server to Claude Code CLI for **all projects** (user scope), run this in **Git Bash** (Claude Code on Windows expects Git Bash):
+
+```bash
+claude mcp add --transport stdio --scope user angular -- cmd /c "npx -y @angular/cli mcp"
+```
+
+Then run `claude mcp list` to confirm. To remove it: `claude mcp remove angular`. The goal is to create a seamless, intuitive UI/UX that Kemar (Logistics Manager) can use efficiently under pressure.
 
 ---
 

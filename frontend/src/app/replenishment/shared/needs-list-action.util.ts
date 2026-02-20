@@ -1,4 +1,4 @@
-import { NeedsListStatus, NeedsListSummaryStatus } from '../models/needs-list.model';
+import { HorizonSummaryBucket, NeedsListStatus, NeedsListSummaryStatus } from '../models/needs-list.model';
 
 export type NeedsListActionStatus = NeedsListStatus | NeedsListSummaryStatus;
 
@@ -7,6 +7,19 @@ export interface NeedsListActionTarget {
   commands: (string | number)[];
   queryParams?: Record<string, string>;
   readOnly: boolean;
+}
+
+export interface HorizonActionTarget {
+  horizon: 'A' | 'B' | 'C';
+  label: string;
+  icon: string;
+  commands: (string | number)[];
+}
+
+export interface HorizonSummary {
+  horizon_a: HorizonSummaryBucket;
+  horizon_b: HorizonSummaryBucket;
+  horizon_c: HorizonSummaryBucket;
 }
 
 export function getNeedsListActionTarget(
@@ -86,10 +99,77 @@ export function getNeedsListActionTarget(
   }
 }
 
+const EXECUTION_STATUSES: ReadonlySet<string> = new Set([
+  'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION'
+]);
+
+export function getHorizonActionTargets(
+  id: string,
+  status: NeedsListActionStatus,
+  horizonSummary: HorizonSummary | undefined
+): HorizonActionTarget[] {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (!EXECUTION_STATUSES.has(normalized) || !horizonSummary) {
+    return [];
+  }
+
+  const targets: HorizonActionTarget[] = [];
+
+  if (horizonSummary.horizon_a.count > 0) {
+    targets.push({
+      horizon: 'A',
+      label: 'Draft Transfers',
+      icon: 'local_shipping',
+      commands: ['/replenishment/needs-list', id, 'transfers']
+    });
+  }
+
+  if (horizonSummary.horizon_b.count > 0) {
+    targets.push({
+      horizon: 'B',
+      label: 'Allocate Donations',
+      icon: 'volunteer_activism',
+      commands: ['/replenishment/needs-list', id, 'donations']
+    });
+  }
+
+  if (horizonSummary.horizon_c.count > 0) {
+    targets.push({
+      horizon: 'C',
+      label: 'Export Procurement',
+      icon: 'shopping_cart',
+      commands: ['/replenishment/needs-list', id, 'procurement']
+    });
+  }
+
+  return targets;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  MODIFIED: 'Modified',
+  RETURNED: 'Returned',
+  PENDING_APPROVAL: 'Pending Approval',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  IN_PROGRESS: 'In Progress',
+  FULFILLED: 'Fulfilled',
+  SUPERSEDED: 'Superseded',
+  CANCELLED: 'Cancelled',
+  SUBMITTED: 'Submitted',
+  PENDING: 'Pending',
+  UNDER_REVIEW: 'Under Review',
+  IN_PREPARATION: 'In Preparation',
+  DISPATCHED: 'Dispatched',
+  RECEIVED: 'Received',
+  COMPLETED: 'Completed',
+  ESCALATED: 'Escalated'
+};
+
 export function toNeedsListStatusLabel(status: string | null | undefined): string {
-  const normalized = String(status || '').trim();
+  const normalized = String(status || '').trim().toUpperCase();
   if (!normalized) {
     return 'Unknown';
   }
-  return normalized.replaceAll('_', ' ');
+  return STATUS_LABELS[normalized] ?? normalized.replaceAll('_', ' ');
 }
