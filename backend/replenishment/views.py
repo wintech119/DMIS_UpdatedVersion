@@ -887,6 +887,9 @@ def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str,
             if unit_cost > 0:
                 summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + (qty * unit_cost)
             elif key == "C" and total_cost > 0:
+                # Procurement fallback is intentionally scoped to Horizon C:
+                # est_total_cost comes from procurement metadata and is used only
+                # when unit cost is unavailable for the C recommendation.
                 summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + total_cost
 
     return summary
