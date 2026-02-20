@@ -303,11 +303,6 @@ export class MySubmissionsComponent {
 
   private mergeEventOptions(rows: NeedsListSummary[]): void {
     const existing = new Map<number, EventOption>();
-    for (const event of this.eventOptions()) {
-      if (event.id !== null) {
-        existing.set(event.id, event);
-      }
-    }
 
     for (const row of rows) {
       const id = row.event.id;
