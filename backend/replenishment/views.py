@@ -1133,8 +1133,10 @@ def needs_list_list(request):
             ):
                 continue
 
-        if event_id_filter is not None and record.get("event_id") != event_id_filter:
-            continue
+        if event_id_filter is not None:
+            record_event_id = _to_int_or_none(record.get("event_id"))
+            if record_event_id != event_id_filter:
+                continue
 
         if warehouse_id_filter is not None:
             record_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
@@ -1252,9 +1254,9 @@ def needs_list_my_submissions(request):
     return Response(_paginate_results(request, summaries))
 
 
-`@api_view`(["GET"])
-`@authentication_classes`([LegacyCompatAuthentication])
-`@permission_classes`([NeedsListPreviewPermission])
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
 def needs_list_summary_version(_request, needs_list_id: str):
     try:
         workflow_store.store_enabled_or_raise()
@@ -1283,9 +1285,9 @@ def needs_list_summary_version(_request, needs_list_id: str):
     )
 
 
-`@api_view`(["GET"])
-`@authentication_classes`([LegacyCompatAuthentication])
-`@permission_classes`([NeedsListPreviewPermission])
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPreviewPermission])
 def needs_list_fulfillment_sources(_request, needs_list_id: str):
     try:
         workflow_store.store_enabled_or_raise()
