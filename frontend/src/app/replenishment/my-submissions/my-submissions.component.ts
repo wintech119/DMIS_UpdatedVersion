@@ -77,10 +77,17 @@ export class MySubmissionsComponent {
   );
 
   constructor() {
+const VALID_STATUSES: ReadonlySet<string> = new Set([
+  'ALL', 'DRAFT', 'MODIFIED', 'SUBMITTED', /* ... remaining NeedsListSummaryStatus values */
+]);
+
+constructor() {
     const statusParam = this.route.snapshot.queryParamMap.get('status');
-    if (statusParam) {
+    if (statusParam && VALID_STATUSES.has(statusParam)) {
       this.statusFilter.set(statusParam);
     }
+    // ...existing constructor logic...
+}
     this.loadRequests.pipe(
       tap(() => {
         this.loading.set(true);
