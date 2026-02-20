@@ -33,10 +33,10 @@
     </span>
   </div>
 
-  <!-- Fulfillment Progress -->
+  <!-- Resolution Progress -->
   <div class="progress-section">
     <div class="progress-header">
-      <span class="progress-label">Fulfillment Progress</span>
+      <span class="progress-label">Resolution Progress</span>
       <span class="progress-value">
         {{ submission().fulfilled_items }}/{{ submission().total_items }} items
         ({{ progressPercentage() | number:'1.0-1' }}%)
@@ -133,7 +133,7 @@
         <span class="detail-value">{{ submission().total_items }}</span>
       </div>
       <div class="detail-row">
-        <span class="detail-label">Fulfilled</span>
+        <span class="detail-label">Resolved</span>
         <span class="detail-value fulfilled">{{ submission().fulfilled_items }}</span>
       </div>
       <div class="detail-row">
