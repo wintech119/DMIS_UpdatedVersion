@@ -1054,10 +1054,14 @@ def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size
 
     if end < total_count:
         query["page"] = str(page + 1)
-        next_url = f"{request.path}?{query.urlencode()}"
+        next_url = request.build_absolute_uri(
+            f"{request.path}?{query.urlencode()}"
+        )
     if page > 1 and total_count > 0:
         query["page"] = str(page - 1)
-        prev_url = f"{request.path}?{query.urlencode()}"
+        prev_url = request.build_absolute_uri(
+            f"{request.path}?{query.urlencode()}"
+        )
 
     return {
         "count": total_count,
