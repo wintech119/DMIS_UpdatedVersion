@@ -13,6 +13,9 @@ interface StatusGroup {
   cssClass: string;
 }
 
+const DRAFT_FILTER_STATUS_SET = new Set<string>(['DRAFT', 'MODIFIED', 'RETURNED']);
+const DRAFT_FILTER_STATUS_QUERY = 'DRAFT,MODIFIED,RETURNED';
+
 @Component({
   selector: 'app-my-drafts-submissions-panel',
   standalone: true,
@@ -31,9 +34,7 @@ export class MyDraftsSubmissionsPanelComponent {
 
   readonly statusGroups = computed<StatusGroup[]>(() => {
     const items = this.submissions();
-    const draftCount = items.filter(
-      (s) => s.status === 'DRAFT' || s.status === 'MODIFIED' || s.status === 'RETURNED'
-    ).length;
+    const draftCount = items.filter((s) => DRAFT_FILTER_STATUS_SET.has(s.status)).length;
     const pendingCount = items.filter((s) => s.status === 'PENDING_APPROVAL').length;
     const activeCount = items.filter(
       (s) => s.status === 'APPROVED' || s.status === 'IN_PROGRESS'
@@ -63,7 +64,7 @@ export class MyDraftsSubmissionsPanelComponent {
   });
 
   readonly hasDrafts = computed(() =>
-    this.submissions().some((s) => s.status === 'DRAFT' || s.status === 'MODIFIED')
+    this.submissions().some((s) => DRAFT_FILTER_STATUS_SET.has(s.status))
   );
 
   navigateToFullPage(): void {
@@ -72,7 +73,7 @@ export class MyDraftsSubmissionsPanelComponent {
 
   navigateToDrafts(): void {
     this.router.navigate(['/replenishment/my-submissions'], {
-      queryParams: { status: 'DRAFT,MODIFIED' }
+      queryParams: { status: DRAFT_FILTER_STATUS_QUERY }
     });
   }
 }

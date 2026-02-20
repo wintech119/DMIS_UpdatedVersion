@@ -49,16 +49,23 @@ describe('MyDraftsSubmissionsPanelComponent', () => {
     component = fixture.componentInstance;
   });
 
-  it('navigates to drafts including modified status', () => {
+  it('navigates to drafts including modified and returned statuses', () => {
     component.navigateToDrafts();
 
     expect(router.navigate).toHaveBeenCalledWith(['/replenishment/my-submissions'], {
-      queryParams: { status: 'DRAFT,MODIFIED' }
+      queryParams: { status: 'DRAFT,MODIFIED,RETURNED' }
     });
   });
 
   it('treats modified records as drafts', () => {
     fixture.componentRef.setInput('submissions', [createSummary('MODIFIED')]);
+    fixture.detectChanges();
+
+    expect(component.hasDrafts()).toBeTrue();
+  });
+
+  it('treats returned records as drafts', () => {
+    fixture.componentRef.setInput('submissions', [createSummary('RETURNED')]);
     fixture.detectChanges();
 
     expect(component.hasDrafts()).toBeTrue();
