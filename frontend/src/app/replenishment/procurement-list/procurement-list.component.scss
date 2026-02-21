@@ -1,0 +1,199 @@
+.procurement-list-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: var(--dmis-font-sans, 'Trebuchet MS', 'Segoe UI', sans-serif);
+  color: var(--dmis-text-primary, #1a1a1a);
+}
+
+// ── Page Header ───────────────────────────────────────────────────────────────
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+
+  .back-btn {
+    color: #666;
+    &:hover { color: #333; }
+  }
+
+  .header-text {
+    flex: 1;
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+    }
+  }
+
+  .create-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+  }
+}
+
+// ── Desktop Table ─────────────────────────────────────────────────────────────
+.table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+}
+
+.procurement-table {
+  border-collapse: collapse;
+  width: 100%;
+
+  th {
+    background: #f8fafc;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #5f6368;
+    padding: 10px 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 12px 14px;
+    font-size: 0.875rem;
+    border-top: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+
+  .clickable-row {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background-color: #f8fafc;
+    }
+  }
+}
+
+.procurement-no {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+.value-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: #1976d2;
+}
+
+.date-cell {
+  color: #64748b;
+  white-space: nowrap;
+}
+
+// ── Mobile Cards ──────────────────────────────────────────────────────────────
+.order-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.order-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  border-left: 4px solid #2196f3;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  }
+
+  .order-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+
+    strong {
+      font-size: 0.9375rem;
+      color: #1976d2;
+    }
+  }
+
+  .order-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .order-field {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    padding: 2px 0;
+
+    &:not(:last-child) {
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .field-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .value-text {
+      color: #1976d2;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+// ── Visibility Helpers ────────────────────────────────────────────────────────
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+
+  .procurement-list-page {
+    padding: 10px;
+  }
+
+  .page-header {
+    flex-wrap: wrap;
+
+    .header-text h1 {
+      font-size: 18px;
+    }
+
+    .create-btn {
+      width: 100%;
+      min-height: 44px;
+      justify-content: center;
+    }
+  }
+}

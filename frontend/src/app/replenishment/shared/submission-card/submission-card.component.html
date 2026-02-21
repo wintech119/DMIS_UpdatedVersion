@@ -1,4 +1,12 @@
-<mat-card class="submission-card" [attr.data-status]="submission().status">
+<mat-card class="submission-card" [attr.data-status]="submission().status" [class.recently-changed]="recentlyChanged()">
+  <!-- Status Change Alert -->
+  @if (recentlyChanged()) {
+    <div class="status-change-alert" role="status" aria-live="polite">
+      <mat-icon aria-hidden="true">notifications_active</mat-icon>
+      <span>Status updated to <strong>{{ statusLabel() }}</strong></span>
+    </div>
+  }
+
   <!-- Card Header: Reference + Status -->
   <div class="card-header">
     @if (showSelection()) {
@@ -106,6 +114,23 @@
       }
     </div>
   </div>
+
+  <!-- Horizon Action Buttons (for APPROVED cards) -->
+  @if (horizonActions().length > 0) {
+    <div class="horizon-actions">
+      @for (target of horizonActions(); track target.horizon) {
+        <button
+          mat-stroked-button
+          type="button"
+          class="horizon-action-btn"
+          [attr.data-horizon]="target.horizon"
+          (click)="onHorizonActionClick(target)">
+          <mat-icon>{{ target.icon }}</mat-icon>
+          {{ target.label }}
+        </button>
+      }
+    </div>
+  }
 
   <!-- Card Footer: Timestamp + Actions -->
   <div class="card-footer">

@@ -1,0 +1,495 @@
+.procurement-form-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: var(--dmis-font-sans, 'Trebuchet MS', 'Segoe UI', sans-serif);
+  color: var(--dmis-text-primary, #1a1a1a);
+}
+
+// ── Page Header ──────────────────────────────────────────────────────────────
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+
+  .back-btn {
+    color: #666;
+
+    &:hover { color: #333; }
+  }
+
+  .header-text {
+    flex: 1;
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--dmis-text-primary, #1a1a1a);
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+    }
+  }
+}
+
+// ── Error Banner ─────────────────────────────────────────────────────────────
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 0.875rem;
+
+  mat-icon {
+    color: #dc2626;
+    flex-shrink: 0;
+  }
+
+  span {
+    flex: 1;
+  }
+}
+
+// ── Form Sections ────────────────────────────────────────────────────────────
+.form-section {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--dmis-text-primary, #1a1a1a);
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+    color: #3b82f6;
+  }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+}
+
+.form-field {
+  width: 100%;
+}
+
+.form-field-full {
+  grid-column: 1 / -1;
+}
+
+.form-field-grow {
+  flex: 1;
+}
+
+// ── Supplier Field Row ───────────────────────────────────────────────────────
+.supplier-field-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.add-supplier-btn {
+  margin-top: 4px;
+  white-space: nowrap;
+  min-height: 56px;
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.supplier-code {
+  color: #64748b;
+  font-size: 0.8125rem;
+  margin-left: 4px;
+}
+
+// ── Supplier Dialog Section ──────────────────────────────────────────────────
+.supplier-dialog-section {
+  border-left: 4px solid #3b82f6;
+}
+
+.supplier-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+// ── Line Items Table ─────────────────────────────────────────────────────────
+.items-table-container {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.items-table {
+  border-collapse: collapse;
+  width: 100%;
+
+  th {
+    background: #f8fafc;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #5f6368;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    border-top: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+
+  tbody tr:hover {
+    background-color: #f8fafc;
+  }
+}
+
+.col-number {
+  text-align: right;
+}
+
+.col-action {
+  width: 48px;
+  text-align: center;
+}
+
+.item-name-cell {
+  font-weight: 500;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-field {
+  width: 100px;
+
+  ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+    height: 16px;
+  }
+}
+
+.number-input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.line-total-cell {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// ── Summary Row ──────────────────────────────────────────────────────────────
+.summary-row {
+  background: #f8fafc;
+
+  td {
+    border-top: 2px solid #e2e8f0;
+    padding: 12px;
+  }
+}
+
+.total-label {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.total-value {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #1e40af;
+  font-variant-numeric: tabular-nums;
+}
+
+// ── Empty Lines ──────────────────────────────────────────────────────────────
+.empty-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px;
+  color: #64748b;
+  text-align: center;
+
+  mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+    max-width: 360px;
+  }
+}
+
+// ── Mobile Item Cards ────────────────────────────────────────────────────────
+.item-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+
+  .item-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+
+    strong {
+      font-size: 0.875rem;
+    }
+  }
+
+  .item-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .item-field {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8125rem;
+
+    .field-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+  }
+
+  .total-field {
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .line-total-value {
+    font-weight: 600;
+    color: #1e40af;
+  }
+}
+
+.inline-field-mobile {
+  width: 90px;
+
+  ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+    height: 0;
+  }
+}
+
+.mobile-grand-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-top: 4px;
+
+  .total-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #334155;
+  }
+
+  .total-value {
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: #1e40af;
+  }
+}
+
+// ── Summary Section ──────────────────────────────────────────────────────────
+.summary-section {
+  border-left: 4px solid #059669;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .summary-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #64748b;
+  }
+
+  .summary-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--dmis-text-primary, #1a1a1a);
+  }
+}
+
+// ── Action Buttons ───────────────────────────────────────────────────────────
+.form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.action-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.save-btn {
+  background-color: #f1f5f9;
+  color: #334155;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.submit-btn {
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+// ── Visibility helpers ───────────────────────────────────────────────────────
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
+// ── Responsive ───────────────────────────────────────────────────────────────
+@media (max-width: 1024px) {
+  .procurement-form-page {
+    padding: 12px;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+}
+
+@media (max-width: 768px) {
+  .procurement-form-page {
+    padding: 10px;
+  }
+
+  .page-header .header-text h1 {
+    font-size: 18px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .supplier-field-row {
+    flex-direction: column;
+
+    .add-supplier-btn {
+      width: 100%;
+      min-height: 44px;
+    }
+  }
+
+  .btn-label {
+    display: inline;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    gap: 10px;
+
+    button {
+      width: 100%;
+      min-height: 44px;
+      justify-content: center;
+    }
+
+    .action-group {
+      width: 100%;
+      flex-direction: column;
+    }
+  }
+}

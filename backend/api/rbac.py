@@ -22,6 +22,17 @@ PERM_NEEDS_LIST_EXECUTE = "replenishment.needs_list.execute"
 PERM_NEEDS_LIST_CANCEL = "replenishment.needs_list.cancel"
 PERM_NEEDS_LIST_REVIEW_COMMENTS = "replenishment.needs_list.review_comments"
 
+# Procurement permissions
+PERM_PROCUREMENT_CREATE = "replenishment.procurement.create"
+PERM_PROCUREMENT_VIEW = "replenishment.procurement.view"
+PERM_PROCUREMENT_EDIT = "replenishment.procurement.edit"
+PERM_PROCUREMENT_SUBMIT = "replenishment.procurement.submit"
+PERM_PROCUREMENT_APPROVE = "replenishment.procurement.approve"
+PERM_PROCUREMENT_REJECT = "replenishment.procurement.reject"
+PERM_PROCUREMENT_ORDER = "replenishment.procurement.order"
+PERM_PROCUREMENT_RECEIVE = "replenishment.procurement.receive"
+PERM_PROCUREMENT_CANCEL = "replenishment.procurement.cancel"
+
 _DEV_ROLE_PERMISSION_MAP = {
     "LOGISTICS": {
         REQUIRED_PERMISSION,
@@ -30,6 +41,13 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_SUBMIT,
         PERM_NEEDS_LIST_EXECUTE,
         PERM_NEEDS_LIST_CANCEL,
+        PERM_PROCUREMENT_CREATE,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_EDIT,
+        PERM_PROCUREMENT_SUBMIT,
+        PERM_PROCUREMENT_ORDER,
+        PERM_PROCUREMENT_RECEIVE,
+        PERM_PROCUREMENT_CANCEL,
     },
     "EXECUTIVE": {
         REQUIRED_PERMISSION,
@@ -38,6 +56,9 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_APPROVE,
         PERM_NEEDS_LIST_ESCALATE,
         PERM_NEEDS_LIST_REVIEW_COMMENTS,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_APPROVE,
+        PERM_PROCUREMENT_REJECT,
     },
 }
 
@@ -64,6 +85,10 @@ def resolve_roles_and_permissions(
                 roles = _dedupe_preserve_order(list(roles) + _fetch_roles(user_id))
                 permissions = _dedupe_preserve_order(
                     list(permissions) + list(_fetch_permissions(user_id))
+                )
+            if roles:
+                permissions = _dedupe_preserve_order(
+                    list(permissions) + list(_fetch_permissions_for_role_codes(roles))
                 )
         except DatabaseError as exc:
             db_error = True
@@ -128,6 +153,28 @@ def _fetch_permissions(user_id: int) -> set[str]:
             WHERE ur.user_id = %s
             """,
             [user_id],
+        )
+        return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
+
+
+def _fetch_permissions_for_role_codes(role_codes: Iterable[str]) -> set[str]:
+    normalized_codes = sorted(
+        {str(code).strip().upper() for code in role_codes if str(code).strip()}
+    )
+    if not normalized_codes:
+        return set()
+
+    placeholders = ", ".join(["%s"] * len(normalized_codes))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT DISTINCT p.resource, p.action
+            FROM role r
+            JOIN role_permission rp ON rp.role_id = r.id
+            JOIN permission p ON p.perm_id = rp.perm_id
+            WHERE UPPER(r.code) IN ({placeholders})
+            """,
+            normalized_codes,
         )
         return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
 

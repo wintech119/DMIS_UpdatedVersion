@@ -4,11 +4,24 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
 import {
+  DonationsResponse,
   MySubmissionsResponse,
   NeedsListFulfillmentSourcesResponse,
   NeedsListResponse,
-  NeedsListSummaryVersionResponse
+  NeedsListSummaryVersionResponse,
+  ProcurementExportResponse,
+  TransferDraft,
+  TransferDraftsResponse
 } from '../models/needs-list.model';
+import {
+  CreateProcurementPayload,
+  CreateSupplierPayload,
+  ProcurementListResponse,
+  ProcurementOrder,
+  ReceivePayload,
+  Supplier,
+  UpdateProcurementPayload,
+} from '../models/procurement.model';
 
 export interface ActiveEvent {
   event_id: number;
@@ -334,6 +347,206 @@ export class ReplenishmentService {
       `${this.apiUrl}/needs-list/${encodeURIComponent(id)}/review/reminder`,
       {}
     );
+  }
+
+  startPreparation(needsListId: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/start-preparation`,
+      {}
+    );
+  }
+
+  markDispatched(needsListId: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-dispatched`,
+      {}
+    );
+  }
+
+  markReceived(needsListId: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-received`,
+      {}
+    );
+  }
+
+  markCompleted(needsListId: string): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-completed`,
+      {}
+    );
+  }
+
+  // ── Transfer Draft Methods (Horizon A) ──────────────────────────────────
+
+  generateTransfers(needsListId: string): Observable<TransferDraftsResponse> {
+    return this.http.post<TransferDraftsResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/generate-transfers`,
+      {}
+    );
+  }
+
+  getTransfers(needsListId: string): Observable<TransferDraftsResponse> {
+    return this.http.get<TransferDraftsResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/transfers`
+    );
+  }
+
+  updateTransferDraft(
+    needsListId: string,
+    transferId: number,
+    updates: { reason: string; items: { item_id: number; item_qty: number }[] }
+  ): Observable<{ transfer: TransferDraft; warnings: string[] }> {
+    return this.http.patch<{ transfer: TransferDraft; warnings: string[] }>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/transfers/${transferId}`,
+      updates
+    );
+  }
+
+  confirmTransfer(
+    needsListId: string,
+    transferId: number
+  ): Observable<{ transfer: TransferDraft; warnings: string[] }> {
+    return this.http.post<{ transfer: TransferDraft; warnings: string[] }>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/transfers/${transferId}/confirm`,
+      {}
+    );
+  }
+
+  // ── Donation Methods (Horizon B) ────────────────────────────────────────
+
+  getDonations(needsListId: string): Observable<DonationsResponse> {
+    return this.http.get<DonationsResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/donations`
+    );
+  }
+
+  allocateDonation(
+    needsListId: string,
+    allocations: { item_id: number; donation_id: number; allocated_qty: number }[]
+  ): Observable<{ needs_list_id: string; allocated_count: number; warnings: string[] }> {
+    return this.http.post<{ needs_list_id: string; allocated_count: number; warnings: string[] }>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/donations/allocate`,
+      allocations
+    );
+  }
+
+  exportDonationNeeds(needsListId: string, format: 'csv' | 'pdf' = 'csv'): Observable<Blob> {
+    return this.http.get(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/donations/export?format=${format}`,
+      { responseType: 'blob' }
+    );
+  }
+
+  // ── Procurement Methods (Horizon C) ─────────────────────────────────────
+
+  exportProcurementNeeds(needsListId: string, format: 'csv' | 'pdf' = 'csv'): Observable<Blob> {
+    return this.http.get(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/procurement/export?format=${format}`,
+      { responseType: 'blob' }
+    );
+  }
+
+  createProcurement(payload: CreateProcurementPayload): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(`${this.apiUrl}/procurement/`, payload);
+  }
+
+  listProcurements(filters?: {
+    status?: string;
+    warehouse_id?: number;
+    event_id?: number;
+    needs_list_id?: string;
+    supplier_id?: number;
+  }): Observable<ProcurementListResponse> {
+    const query = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val !== undefined && val !== null) {
+          query.set(key, String(val));
+        }
+      });
+    }
+    const suffix = query.toString();
+    return this.http.get<ProcurementListResponse>(
+      `${this.apiUrl}/procurement/${suffix ? `?${suffix}` : ''}`
+    );
+  }
+
+  getProcurement(id: number): Observable<ProcurementOrder> {
+    return this.http.get<ProcurementOrder>(`${this.apiUrl}/procurement/${id}`);
+  }
+
+  updateProcurement(id: number, updates: UpdateProcurementPayload): Observable<ProcurementOrder> {
+    return this.http.patch<ProcurementOrder>(`${this.apiUrl}/procurement/${id}`, updates);
+  }
+
+  submitProcurement(id: number): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(`${this.apiUrl}/procurement/${id}/submit`, {});
+  }
+
+  approveProcurement(id: number, notes?: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/approve`,
+      notes ? { notes } : {}
+    );
+  }
+
+  rejectProcurement(id: number, reason: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/reject`,
+      { reason }
+    );
+  }
+
+  markProcurementOrdered(id: number, poNumber: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/order`,
+      { po_number: poNumber }
+    );
+  }
+
+  markProcurementShipped(
+    id: number,
+    details: { shipped_at?: string; expected_arrival?: string }
+  ): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/ship`,
+      details
+    );
+  }
+
+  receiveProcurementItems(id: number, payload: ReceivePayload): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/receive`,
+      payload
+    );
+  }
+
+  cancelProcurement(id: number, reason: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/cancel`,
+      { reason }
+    );
+  }
+
+  // ── Supplier Methods ──────────────────────────────────────────────────────
+
+  listSuppliers(): Observable<{ suppliers: Supplier[]; count: number }> {
+    return this.http.get<{ suppliers: Supplier[]; count: number }>(
+      `${this.apiUrl}/suppliers/`
+    );
+  }
+
+  createSupplier(payload: CreateSupplierPayload): Observable<Supplier> {
+    return this.http.post<Supplier>(`${this.apiUrl}/suppliers/`, payload);
+  }
+
+  getSupplier(id: number): Observable<Supplier> {
+    return this.http.get<Supplier>(`${this.apiUrl}/suppliers/${id}`);
+  }
+
+  updateSupplier(id: number, updates: Partial<CreateSupplierPayload>): Observable<Supplier> {
+    return this.http.patch<Supplier>(`${this.apiUrl}/suppliers/${id}`, updates);
   }
 
   private enrichStockStatusResponse(response: StockStatusResponse): StockStatusResponse {

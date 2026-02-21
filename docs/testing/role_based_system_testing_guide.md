@@ -2,6 +2,7 @@
 
 ## Overview
 This guide provides comprehensive test scenarios for validating DRIMS role-based access control, dynamic navigation, and feature-based permissions across all user roles.
+For current replenishment approval rules and deferred tenant-config policy scope, see `docs/ops/replenishment-approval-policy-current-state.md`.
 
 ## Test Accounts
 

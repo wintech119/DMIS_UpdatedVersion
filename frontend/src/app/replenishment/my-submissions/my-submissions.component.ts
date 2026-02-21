@@ -14,10 +14,11 @@ import {
   Warehouse
 } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
+import { SubmissionSnapshotService } from '../services/submission-snapshot.service';
 import { SubmissionCardComponent } from '../shared/submission-card/submission-card.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { getNeedsListActionTarget } from '../shared/needs-list-action.util';
+import { getNeedsListActionTarget, HorizonActionTarget } from '../shared/needs-list-action.util';
 
 interface EventOption {
   id: number | null;
@@ -55,15 +56,18 @@ const VALID_STATUSES: ReadonlySet<NeedsListSummaryStatus> = new Set([
 export class MySubmissionsComponent {
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly notifications = inject(DmisNotificationService);
+  private readonly snapshotService = inject(SubmissionSnapshotService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly loadRequests = new Subject<void>();
+  private seenTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly loading = signal(false);
   readonly error = signal(false);
   readonly submissions = signal<NeedsListSummary[]>([]);
   readonly totalCount = signal(0);
+  readonly recentlyChangedIds = signal<Set<string>>(new Set());
 
   readonly statusFilter = signal<string>('ALL');
   readonly warehouseFilter = signal<number | null>(null);
@@ -124,13 +128,27 @@ export class MySubmissionsComponent {
       ),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe((response) => {
-      this.submissions.set(response.results || []);
+      const results = response.results || [];
+
+      // Detect which submissions changed since last visit
+      const changed = this.snapshotService.detectChanges(results);
+      this.recentlyChangedIds.set(changed);
+
+      // Sort changed submissions to the top, preserving relative order within each group
+      if (changed.size > 0) {
+        const changedItems = results.filter((r) => changed.has(r.id));
+        const otherItems = results.filter((r) => !changed.has(r.id));
+        this.submissions.set([...changedItems, ...otherItems]);
+      } else {
+        this.submissions.set(results);
+      }
+
       this.totalCount.set(response.count || 0);
-      this.mergeEventOptions(response.results || []);
+      this.mergeEventOptions(results);
       this.loading.set(false);
 
       const allowedOnPage = new Set(
-        (response.results || [])
+        results
           .filter((row) => this.canBatchSelect(row.status))
           .map((row) => row.id)
       );
@@ -141,6 +159,15 @@ export class MySubmissionsComponent {
         }
       }
       this.selectedDraftIds.set(nextSelection);
+
+      // Mark as seen after 5 seconds so highlights clear on next visit
+      if (this.seenTimer !== null) {
+        clearTimeout(this.seenTimer);
+      }
+      this.seenTimer = setTimeout(() => {
+        this.snapshotService.markAsSeen(results);
+        this.seenTimer = null;
+      }, 5000);
     });
     this.loadWarehouseOptions();
     this.loadSubmissions();
@@ -158,6 +185,10 @@ export class MySubmissionsComponent {
   onOpenAction(event: { id: string; status: NeedsListSummaryStatus }): void {
     const target = getNeedsListActionTarget(event.id, event.status);
     this.router.navigate(target.commands, { queryParams: target.queryParams });
+  }
+
+  onHorizonAction(target: HorizonActionTarget): void {
+    this.router.navigate(target.commands);
   }
 
   onStatusFilterChange(event: Event): void {

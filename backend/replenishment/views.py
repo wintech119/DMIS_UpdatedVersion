@@ -2182,12 +2182,21 @@ def needs_list_approve(request, needs_list_id: str):
             },
             status=409,
         )
-    required_roles = approval_service.required_roles_for_approval(approval)
+    submitter_roles = approval_service.resolve_submitter_roles(record)
+    required_roles = approval_service.required_roles_for_approval(
+        approval,
+        record=record,
+        submitter_roles=submitter_roles,
+    )
 
     from api.rbac import resolve_roles_and_permissions
 
     roles, _ = resolve_roles_and_permissions(request, request.user)
-    role_set = {role.upper() for role in roles}
+    role_set = {
+        str(role).strip().upper().replace("-", "_").replace(" ", "_")
+        for role in roles
+        if str(role).strip()
+    }
     if not role_set.intersection(required_roles):
         return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 
@@ -2558,6 +2567,441 @@ def needs_list_cancel(request, needs_list_id: str):
     return Response(_serialize_workflow_record(record, include_overrides=True))
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_generate_transfers(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    if not _status_matches(
+        record.get("status"), "APPROVED", "IN_PREPARATION", "IN_PROGRESS",
+        include_db_transitions=True,
+    ):
+        return Response(
+            {"errors": {"status": "Needs list must be approved or in progress."}},
+            status=409,
+        )
+
+    existing, existing_warnings = data_access.get_transfers_for_needs_list(needs_list_id)
+    if existing:
+        return Response(
+            {"errors": {"transfers": "Draft transfers already exist for this needs list."},
+             "transfers": existing},
+            status=409,
+        )
+
+    items = record.get("items", [])
+    warehouse_id = record.get("warehouse_id")
+    event_id = record.get("event_id")
+    actor = _actor_id(request)
+
+    horizon_a_items = [
+        item for item in items
+        if (item.get("horizon") or {}).get("A", {}).get("recommended_qty") and
+           (item["horizon"]["A"]["recommended_qty"] or 0) > 0
+    ]
+
+    if not horizon_a_items:
+        return Response(
+            {"errors": {"items": "No Horizon A (transfer) items found."}},
+            status=400,
+        )
+
+    item_ids = [item["item_id"] for item in horizon_a_items]
+    source_stock, stock_warnings = data_access.get_warehouses_with_stock(item_ids, warehouse_id)
+
+    created_transfers = []
+    all_warnings = stock_warnings + existing_warnings
+
+    sources_used: dict = {}
+    for item in horizon_a_items:
+        iid = item["item_id"]
+        needed = item["horizon"]["A"]["recommended_qty"]
+        available_sources = source_stock.get(iid, [])
+        remaining = needed
+
+        for source in available_sources:
+            if remaining <= 0:
+                break
+            alloc_qty = min(remaining, source["available_qty"])
+            src_wh = source["warehouse_id"]
+
+            key = src_wh
+            if key not in sources_used:
+                sources_used[key] = {"from_warehouse_id": src_wh, "items": []}
+            sources_used[key]["items"].append({
+                "item_id": iid,
+                "item_qty": alloc_qty,
+                "uom_code": item.get("uom_code", "EA"),
+                "inventory_id": src_wh,
+                "item_name": item.get("item_name", f"Item {iid}"),
+            })
+            remaining -= alloc_qty
+
+        if remaining > 0:
+            all_warnings.append(f"insufficient_source_stock_item_{iid}")
+
+    for src_wh, transfer_data in sources_used.items():
+        tid, tw = data_access.insert_draft_transfer(
+            from_warehouse_id=src_wh,
+            to_warehouse_id=warehouse_id,
+            event_id=event_id,
+            needs_list_id=needs_list_id,
+            reason=f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
+            actor_id=str(actor),
+        )
+        all_warnings.extend(tw)
+        if tid:
+            iw = data_access.insert_transfer_items(tid, transfer_data["items"])
+            all_warnings.extend(iw)
+            created_transfers.append({
+                "transfer_id": tid,
+                "from_warehouse_id": src_wh,
+                "item_count": len(transfer_data["items"]),
+            })
+
+    logger.info(
+        "needs_list_transfers_generated",
+        extra={
+            "event_type": "EXECUTION",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "transfers_created": len(created_transfers),
+        },
+    )
+
+    transfers, _ = data_access.get_transfers_for_needs_list(needs_list_id)
+    return Response({
+        "needs_list_id": needs_list_id,
+        "transfers": transfers,
+        "warnings": all_warnings,
+    }, status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_transfers(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    transfers, warnings = data_access.get_transfers_for_needs_list(needs_list_id)
+    return Response({
+        "needs_list_id": needs_list_id,
+        "transfers": transfers,
+        "warnings": warnings,
+    })
+
+
+@api_view(["PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_transfer_update(request, needs_list_id: str, transfer_id: int):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    body = request.data or {}
+    reason = body.get("reason", "").strip()
+    items = body.get("items", [])
+
+    if items and not reason:
+        return Response(
+            {"errors": {"reason": "Reason is required when modifying quantities."}},
+            status=400,
+        )
+
+    warnings = data_access.update_transfer_draft(transfer_id, needs_list_id, {
+        "reason": reason,
+        "items": items,
+    })
+    if "transfer_not_found_for_needs_list" in warnings:
+        return Response(
+            {"errors": {"transfer_id": "Not found for this needs list."}, "warnings": warnings},
+            status=404,
+        )
+    if "transfer_not_found_or_not_draft" in warnings:
+        return Response(
+            {"errors": {"status": "Only draft transfers can be updated."}, "warnings": warnings},
+            status=409,
+        )
+
+    logger.info(
+        "needs_list_transfer_updated",
+        extra={
+            "event_type": "EXECUTION",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "transfer_id": transfer_id,
+            "reason": reason,
+        },
+    )
+
+    transfers, tw = data_access.get_transfers_for_needs_list(needs_list_id)
+    warnings.extend(tw)
+    updated = next((t for t in transfers if t["transfer_id"] == transfer_id), None)
+    return Response({
+        "transfer": updated,
+        "warnings": warnings,
+    })
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_transfer_confirm(request, needs_list_id: str, transfer_id: int):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    actor = _actor_id(request)
+    success, warnings = data_access.confirm_transfer_draft(transfer_id, str(actor))
+
+    if not success:
+        return Response(
+            {"errors": {"transfer": "Transfer not found or not in draft status."},
+             "warnings": warnings},
+            status=409,
+        )
+
+    logger.info(
+        "needs_list_transfer_confirmed",
+        extra={
+            "event_type": "EXECUTION",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "transfer_id": transfer_id,
+        },
+    )
+
+    transfers, tw = data_access.get_transfers_for_needs_list(needs_list_id)
+    warnings.extend(tw)
+    confirmed = next((t for t in transfers if t["transfer_id"] == transfer_id), None)
+    return Response({
+        "transfer": confirmed,
+        "warnings": warnings,
+    })
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_donations(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    items = record.get("items", [])
+    warehouse_id = record.get("warehouse_id")
+    as_of = record.get("as_of_datetime")
+
+    horizon_b_lines = []
+    for item in items:
+        horizon = item.get("horizon") or {}
+        b_qty = (horizon.get("B") or {}).get("recommended_qty") or 0
+        if b_qty > 0:
+            horizon_b_lines.append({
+                "item_id": item["item_id"],
+                "item_name": item.get("item_name", f"Item {item['item_id']}"),
+                "uom": item.get("uom_code", "EA"),
+                "required_qty": b_qty,
+                "allocated_qty": 0,
+                "available_donations": [],
+            })
+
+    return Response({
+        "needs_list_id": needs_list_id,
+        "lines": horizon_b_lines,
+        "warnings": ["donation_in_transit_unmodeled"],
+    })
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_donations_allocate(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    allocations = request.data if isinstance(request.data, list) else []
+    if not allocations:
+        return Response(
+            {"errors": {"allocations": "Must provide a list of allocations."}},
+            status=400,
+        )
+
+    logger.info(
+        "needs_list_donations_allocated",
+        extra={
+            "event_type": "EXECUTION",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "allocation_count": len(allocations),
+        },
+    )
+
+    return Response({
+        "needs_list_id": needs_list_id,
+        "allocated_count": len(allocations),
+        "warnings": ["donation_allocation_not_yet_persisted"],
+    })
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_donations_export(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    fmt = request.query_params.get("format", "csv").lower()
+    items = record.get("items", [])
+    horizon_b_items = [
+        item for item in items
+        if ((item.get("horizon") or {}).get("B") or {}).get("recommended_qty", 0) > 0
+    ]
+
+    if fmt == "csv":
+        import csv
+        import io
+        from django.http import HttpResponse
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty"])
+        for item in horizon_b_items:
+            writer.writerow([
+                item["item_id"],
+                item.get("item_name", ""),
+                item.get("uom_code", "EA"),
+                item["horizon"]["B"]["recommended_qty"],
+            ])
+        response = HttpResponse(output.getvalue(), content_type="text/csv")
+        ref = record.get("needs_list_no", needs_list_id)
+        response["Content-Disposition"] = f'attachment; filename="donation_needs_{ref}.csv"'
+        return response
+
+    return Response({
+        "needs_list_id": needs_list_id,
+        "format": fmt,
+        "items": [
+            {
+                "item_id": item["item_id"],
+                "item_name": item.get("item_name", ""),
+                "uom": item.get("uom_code", "EA"),
+                "required_qty": item["horizon"]["B"]["recommended_qty"],
+            }
+            for item in horizon_b_items
+        ],
+    })
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_procurement_export(request, needs_list_id: str):
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    fmt = request.query_params.get("format", "csv").lower()
+    items = record.get("items", [])
+    horizon_c_items = [
+        item for item in items
+        if ((item.get("horizon") or {}).get("C") or {}).get("recommended_qty", 0) > 0
+    ]
+
+    if fmt == "csv":
+        import csv
+        import io
+        from django.http import HttpResponse
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty", "Est Unit Cost", "Est Total Cost"])
+        for item in horizon_c_items:
+            proc = item.get("procurement") or {}
+            qty = item["horizon"]["C"]["recommended_qty"]
+            unit_cost = proc.get("est_unit_cost") or 0
+            writer.writerow([
+                item["item_id"],
+                item.get("item_name", ""),
+                item.get("uom_code", "EA"),
+                qty,
+                unit_cost,
+                unit_cost * qty if unit_cost else "",
+            ])
+        response = HttpResponse(output.getvalue(), content_type="text/csv")
+        ref = record.get("needs_list_no", needs_list_id)
+        response["Content-Disposition"] = f'attachment; filename="procurement_needs_{ref}.csv"'
+        return response
+
+    return Response({
+        "needs_list_id": needs_list_id,
+        "format": fmt,
+        "items": [
+            {
+                "item_id": item["item_id"],
+                "item_name": item.get("item_name", ""),
+                "uom": item.get("uom_code", "EA"),
+                "required_qty": item["horizon"]["C"]["recommended_qty"],
+                "est_unit_cost": (item.get("procurement") or {}).get("est_unit_cost"),
+                "est_total_cost": (item.get("procurement") or {}).get("est_total_cost"),
+            }
+            for item in horizon_c_items
+        ],
+    })
+
+
 needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT
 needs_list_get.required_permission = [
     PERM_NEEDS_LIST_CREATE_DRAFT,
@@ -2590,6 +3034,14 @@ needs_list_mark_dispatched.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_received.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_completed.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_cancel.required_permission = PERM_NEEDS_LIST_CANCEL
+needs_list_generate_transfers.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_transfers.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_transfer_update.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_transfer_confirm.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_donations.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_donations_allocate.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_donations_export.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_procurement_export.required_permission = PERM_NEEDS_LIST_EXECUTE
 
 for view_func in (
     needs_list_draft,
@@ -2609,6 +3061,299 @@ for view_func in (
     needs_list_mark_received,
     needs_list_mark_completed,
     needs_list_cancel,
+    needs_list_generate_transfers,
+    needs_list_transfers,
+    needs_list_transfer_update,
+    needs_list_transfer_confirm,
+    needs_list_donations,
+    needs_list_donations_allocate,
+    needs_list_donations_export,
+    needs_list_procurement_export,
 ):
     if hasattr(view_func, "cls"):
         view_func.cls.required_permission = view_func.required_permission
+
+
+# =============================================================================
+# Procurement Views (Horizon C)
+# =============================================================================
+
+from api.permissions import ProcurementPermission
+from api.rbac import (
+    PERM_PROCUREMENT_CREATE,
+    PERM_PROCUREMENT_VIEW,
+    PERM_PROCUREMENT_EDIT,
+    PERM_PROCUREMENT_SUBMIT,
+    PERM_PROCUREMENT_APPROVE,
+    PERM_PROCUREMENT_REJECT,
+    PERM_PROCUREMENT_ORDER,
+    PERM_PROCUREMENT_RECEIVE,
+    PERM_PROCUREMENT_CANCEL,
+)
+from replenishment.services import procurement as procurement_service
+from replenishment.services.procurement import ProcurementError
+
+
+def _actor_id(request) -> str:
+    """Extract actor identifier from authenticated request."""
+    user = request.user
+    return str(getattr(user, "user_id", None) or getattr(user, "username", "system"))
+
+
+@api_view(["POST", "GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_list_create(request):
+    """List procurement orders (GET) or create a new one (POST)."""
+    if request.method == "GET":
+        filters = {}
+        for key in ("status", "warehouse_id", "event_id", "needs_list_id", "supplier_id"):
+            val = request.query_params.get(key)
+            if val:
+                filters[key] = val
+        procurements, count = procurement_service.list_procurements(filters or None)
+        return Response({"procurements": procurements, "count": count})
+
+    # POST - create
+    data = request.data
+    actor = _actor_id(request)
+    try:
+        needs_list_id = data.get("needs_list_id")
+        if needs_list_id:
+            result = procurement_service.create_procurement_from_needs_list(
+                needs_list_id, actor
+            )
+        else:
+            result = procurement_service.create_procurement_standalone(
+                event_id=int(data["event_id"]),
+                target_warehouse_id=int(data["target_warehouse_id"]),
+                items=data.get("items", []),
+                actor_id=actor,
+                procurement_method=data.get("procurement_method", "SINGLE_SOURCE"),
+                supplier_id=data.get("supplier_id"),
+                notes=data.get("notes", ""),
+            )
+        return Response(result, status=201)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+    except (KeyError, ValueError, TypeError) as exc:
+        return Response(
+            {"errors": {"validation": f"Invalid request data: {exc}"}}, status=400
+        )
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_detail(request, procurement_id: int):
+    """Get (GET) or update (PATCH) a procurement order."""
+    try:
+        if request.method == "GET":
+            result = procurement_service.get_procurement(procurement_id)
+            return Response(result)
+        else:
+            result = procurement_service.update_procurement_draft(
+                procurement_id, request.data, _actor_id(request)
+            )
+            return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_submit(request, procurement_id: int):
+    """Submit procurement for approval."""
+    try:
+        result = procurement_service.submit_procurement(
+            procurement_id, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_approve(request, procurement_id: int):
+    """Approve a procurement order."""
+    try:
+        result = procurement_service.approve_procurement(
+            procurement_id,
+            _actor_id(request),
+            notes=request.data.get("notes", ""),
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_reject(request, procurement_id: int):
+    """Reject a procurement order."""
+    try:
+        reason = request.data.get("reason", "")
+        result = procurement_service.reject_procurement(
+            procurement_id, _actor_id(request), reason
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_mark_ordered(request, procurement_id: int):
+    """Mark procurement as ordered with a PO number."""
+    try:
+        po_number = request.data.get("po_number", "")
+        result = procurement_service.mark_ordered(
+            procurement_id, po_number, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_mark_shipped(request, procurement_id: int):
+    """Mark procurement as shipped."""
+    try:
+        result = procurement_service.mark_shipped(
+            procurement_id,
+            shipped_at=request.data.get("shipped_at"),
+            expected_arrival=request.data.get("expected_arrival"),
+            actor_id=_actor_id(request),
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_receive(request, procurement_id: int):
+    """Record received quantities for procurement items."""
+    try:
+        receipts = request.data.get("receipts", [])
+        result = procurement_service.receive_items(
+            procurement_id, receipts, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_cancel(request, procurement_id: int):
+    """Cancel a procurement order."""
+    try:
+        reason = request.data.get("reason", "")
+        result = procurement_service.cancel_procurement(
+            procurement_id, reason, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+# ── Supplier Views ───────────────────────────────────────────────────────────
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def supplier_list_create(request):
+    """List suppliers (GET) or create a new one (POST)."""
+    if request.method == "GET":
+        suppliers = procurement_service.list_suppliers()
+        return Response({"suppliers": suppliers, "count": len(suppliers)})
+
+    try:
+        result = procurement_service.create_supplier(request.data, _actor_id(request))
+        return Response(result, status=201)
+    except ProcurementError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=400)
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def supplier_detail(request, supplier_id: int):
+    """Get (GET) or update (PATCH) a supplier."""
+    try:
+        if request.method == "GET":
+            result = procurement_service.get_supplier(supplier_id)
+            return Response(result)
+        else:
+            result = procurement_service.update_supplier(
+                supplier_id, request.data, _actor_id(request)
+            )
+            return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+# ── Procurement Permission Assignments ──────────────────────────────────────
+
+# Combined-method views use method-specific permission mappings.
+procurement_list_create.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "POST": PERM_PROCUREMENT_CREATE,
+}
+procurement_detail.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "PATCH": PERM_PROCUREMENT_EDIT,
+}
+procurement_submit.required_permission = PERM_PROCUREMENT_SUBMIT
+procurement_approve.required_permission = PERM_PROCUREMENT_APPROVE
+procurement_reject.required_permission = PERM_PROCUREMENT_REJECT
+procurement_mark_ordered.required_permission = PERM_PROCUREMENT_ORDER
+procurement_mark_shipped.required_permission = PERM_PROCUREMENT_ORDER
+procurement_receive.required_permission = PERM_PROCUREMENT_RECEIVE
+procurement_cancel.required_permission = PERM_PROCUREMENT_CANCEL
+
+supplier_list_create.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "POST": PERM_PROCUREMENT_CREATE,
+}
+supplier_detail.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "PATCH": PERM_PROCUREMENT_EDIT,
+}
+
+for _pview in (
+    procurement_list_create,
+    procurement_detail,
+    procurement_submit,
+    procurement_approve,
+    procurement_reject,
+    procurement_mark_ordered,
+    procurement_mark_shipped,
+    procurement_receive,
+    procurement_cancel,
+    supplier_list_create,
+    supplier_detail,
+):
+    if hasattr(_pview, "cls"):
+        _pview.cls.required_permission = _pview.required_permission

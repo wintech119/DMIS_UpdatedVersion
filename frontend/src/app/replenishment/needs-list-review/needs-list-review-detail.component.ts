@@ -205,10 +205,12 @@ export class NeedsListReviewDetailComponent implements OnInit {
     if (!this.canApprove() || this.actionLoading()) return;
     this.actionLoading.set('approve');
     this.replenishmentService.approveNeedsList(this.needsListId).subscribe({
-      next: (data) => {
-        this.needsList.set(data);
+      next: () => {
         this.actionLoading.set(null);
-        this.notifications.showSuccess('Needs list approved. Submitter update has been recorded.');
+        this.router.navigate(
+          ['/replenishment/needs-list', this.needsListId, 'track'],
+          { queryParams: { approved: 'true' } }
+        );
       },
       error: (err: HttpErrorResponse) => {
         this.actionLoading.set(null);

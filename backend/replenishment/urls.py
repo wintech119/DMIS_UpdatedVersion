@@ -11,6 +11,7 @@ from replenishment.views import (
     needs_list_edit_lines,
     needs_list_escalate,
     needs_list_fulfillment_sources,
+    needs_list_generate_transfers,
     needs_list_get,
     needs_list_list,
     needs_list_mark_completed,
@@ -26,6 +27,25 @@ from replenishment.views import (
     needs_list_summary_version,
     needs_list_start_preparation,
     needs_list_submit,
+    needs_list_transfer_confirm,
+    needs_list_transfer_update,
+    needs_list_transfers,
+    needs_list_donations,
+    needs_list_donations_allocate,
+    needs_list_donations_export,
+    needs_list_procurement_export,
+    # Procurement views
+    procurement_list_create,
+    procurement_detail,
+    procurement_submit,
+    procurement_approve,
+    procurement_reject,
+    procurement_mark_ordered,
+    procurement_mark_shipped,
+    procurement_receive,
+    procurement_cancel,
+    supplier_list_create,
+    supplier_detail,
 )
 
 urlpatterns = [
@@ -114,4 +134,57 @@ urlpatterns = [
         needs_list_cancel,
         name="needs_list_cancel",
     ),
+    path(
+        "needs-list/<str:needs_list_id>/generate-transfers",
+        needs_list_generate_transfers,
+        name="needs_list_generate_transfers",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers",
+        needs_list_transfers,
+        name="needs_list_transfers",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers/<int:transfer_id>",
+        needs_list_transfer_update,
+        name="needs_list_transfer_update",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/transfers/<int:transfer_id>/confirm",
+        needs_list_transfer_confirm,
+        name="needs_list_transfer_confirm",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations",
+        needs_list_donations,
+        name="needs_list_donations",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations/allocate",
+        needs_list_donations_allocate,
+        name="needs_list_donations_allocate",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/donations/export",
+        needs_list_donations_export,
+        name="needs_list_donations_export",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/procurement/export",
+        needs_list_procurement_export,
+        name="needs_list_procurement_export",
+    ),
+    # ── Procurement (Horizon C) ──────────────────────────────────────────
+    path("procurement/", procurement_list_create, name="procurement_list_create"),
+    path("procurement/<int:procurement_id>", procurement_detail, name="procurement_detail"),
+    path("procurement/<int:procurement_id>/submit", procurement_submit, name="procurement_submit"),
+    path("procurement/<int:procurement_id>/approve", procurement_approve, name="procurement_approve"),
+    path("procurement/<int:procurement_id>/reject", procurement_reject, name="procurement_reject"),
+    path("procurement/<int:procurement_id>/order", procurement_mark_ordered, name="procurement_mark_ordered"),
+    path("procurement/<int:procurement_id>/ship", procurement_mark_shipped, name="procurement_mark_shipped"),
+    path("procurement/<int:procurement_id>/receive", procurement_receive, name="procurement_receive"),
+    path("procurement/<int:procurement_id>/cancel", procurement_cancel, name="procurement_cancel"),
+    # ── Suppliers ────────────────────────────────────────────────────────
+    path("suppliers/", supplier_list_create, name="supplier_list_create"),
+    path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
 ]
