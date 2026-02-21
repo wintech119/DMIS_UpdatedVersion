@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from typing import Dict, Iterable, List, Tuple
 
 from django.conf import settings
@@ -7,7 +9,7 @@ from django.db import DatabaseError, connection
 
 from replenishment import rules
 
-_TABLE_COLUMNS_CACHE: dict[tuple[str, str], set[str]] = {}
+_TABLE_COLUMNS_CACHE: dict[tuple[str, str, str], set[str]] = {}
 
 _LOGISTICS_MANAGER_APPROVER_ROLES = {
     "LOGISTICS",
@@ -142,8 +144,28 @@ def _normalized_role_set(values: object) -> set[str]:
     return _expand_role_aliases(roles)
 
 
+def _schema_name() -> str:
+    configured = str(os.getenv("DMIS_DB_SCHEMA", "")).strip()
+    if configured and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", configured):
+        return configured
+
+    if connection.vendor == "postgresql":
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_schema()")
+                row = cursor.fetchone()
+            detected = str((row[0] if row else "") or "").strip()
+            if detected and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", detected):
+                return detected
+        except DatabaseError:
+            pass
+
+    return "public"
+
+
 def _table_columns(table_name: str) -> set[str]:
-    cache_key = (connection.vendor, table_name)
+    schema = _schema_name()
+    cache_key = (connection.vendor, schema, table_name)
     if cache_key in _TABLE_COLUMNS_CACHE:
         return _TABLE_COLUMNS_CACHE[cache_key]
 
@@ -155,9 +177,9 @@ def _table_columns(table_name: str) -> set[str]:
                     """
                     SELECT column_name
                     FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = %s
+                    WHERE table_schema = %s AND table_name = %s
                     """,
-                    [table_name],
+                    [schema, table_name],
                 )
                 columns = {str(row[0]) for row in cursor.fetchall()}
             elif connection.vendor == "sqlite":

@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -436,6 +436,9 @@ class NeedsListServiceTests(SimpleTestCase):
 
 
 class ApprovalRoleResolutionTests(SimpleTestCase):
+    def setUp(self) -> None:
+        approval_service._TABLE_COLUMNS_CACHE.clear()
+
     def test_transfer_policy_allows_on_behalf_for_logistics_submitter(self) -> None:
         roles = approval_service.required_roles_for_approval(
             {"approver_role": "Logistics Manager (Kemar)"},
@@ -471,6 +474,52 @@ class ApprovalRoleResolutionTests(SimpleTestCase):
             submitter_roles={"TST_LOGISTICS_MANAGER"},
         )
         self.assertIn("TST_DIR_PEOD", roles)
+
+    def test_table_columns_uses_configured_schema_for_postgres_introspection(
+        self,
+    ) -> None:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [("user_id",), ("username",)]
+        mock_context = MagicMock()
+        mock_context.__enter__.return_value = mock_cursor
+        mock_context.__exit__.return_value = False
+        mock_connection = MagicMock()
+        mock_connection.vendor = "postgresql"
+        mock_connection.cursor.return_value = mock_context
+
+        with patch.dict(os.environ, {"DMIS_DB_SCHEMA": "dmis_custom"}), patch(
+            "replenishment.services.approval.connection",
+            mock_connection,
+        ):
+            columns = approval_service._table_columns("user")
+
+        self.assertEqual(columns, {"user_id", "username"})
+        mock_cursor.execute.assert_called_once()
+        execute_sql, execute_params = mock_cursor.execute.call_args.args
+        self.assertIn("table_schema = %s", execute_sql)
+        self.assertEqual(execute_params, ["dmis_custom", "user"])
+
+    def test_table_columns_cache_is_scoped_by_schema(
+        self,
+    ) -> None:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [("user_id",)]
+        mock_context = MagicMock()
+        mock_context.__enter__.return_value = mock_cursor
+        mock_context.__exit__.return_value = False
+        mock_connection = MagicMock()
+        mock_connection.vendor = "postgresql"
+        mock_connection.cursor.return_value = mock_context
+
+        with patch("replenishment.services.approval.connection", mock_connection):
+            with patch.dict(os.environ, {"DMIS_DB_SCHEMA": "schema_one"}):
+                first = approval_service._table_columns("user")
+            with patch.dict(os.environ, {"DMIS_DB_SCHEMA": "schema_two"}):
+                second = approval_service._table_columns("user")
+
+        self.assertEqual(first, {"user_id"})
+        self.assertEqual(second, {"user_id"})
+        self.assertEqual(mock_cursor.execute.call_count, 2)
 
 
 class NeedsListPreviewApiTests(TestCase):
