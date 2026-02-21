@@ -3656,3 +3656,59 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertIsNone(line.unit_price)
         self.assertIsNone(line.line_total)
         self.assertEqual(proc.total_value, Decimal("0.00"))
+
+    def test_update_procurement_draft_deletes_removed_items(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-002",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line_one = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=100,
+            ordered_qty=Decimal("5.00"),
+            unit_price=Decimal("2.00"),
+            line_total=Decimal("10.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line_two = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=200,
+            ordered_qty=Decimal("1.00"),
+            unit_price=Decimal("3.00"),
+            line_total=Decimal("3.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        procurement_service.update_procurement_draft(
+            proc.procurement_id,
+            {
+                "deleted_procurement_item_ids": [line_two.procurement_item_id],
+                "items": [
+                    {
+                        "procurement_item_id": line_one.procurement_item_id,
+                        "ordered_qty": 5,
+                        "unit_price": 2,
+                    }
+                ],
+            },
+            actor_id="editor",
+        )
+
+        proc.refresh_from_db()
+        remaining_item_ids = set(
+            ProcurementItem.objects.filter(procurement=proc).values_list(
+                "procurement_item_id", flat=True
+            )
+        )
+        self.assertIn(line_one.procurement_item_id, remaining_item_ids)
+        self.assertNotIn(line_two.procurement_item_id, remaining_item_ids)
+        self.assertEqual(proc.total_value, Decimal("10.00"))

@@ -415,13 +415,32 @@ def update_procurement_draft(
         proc.notes_text = updates["notes"]
         update_fields.append("notes_text")
 
+    deleted_item_ids: set[int] = set()
+    if "deleted_procurement_item_ids" in updates:
+        for raw_item_id in updates.get("deleted_procurement_item_ids") or []:
+            try:
+                deleted_item_ids.add(int(raw_item_id))
+            except (TypeError, ValueError):
+                continue
+        if deleted_item_ids:
+            ProcurementItem.objects.filter(
+                procurement=proc,
+                procurement_item_id__in=list(deleted_item_ids),
+            ).delete()
+
     # Update line items if provided
     if "items" in updates:
         for line in updates["items"]:
             if line.get("procurement_item_id"):
                 try:
+                    procurement_item_id = int(line["procurement_item_id"])
+                except (TypeError, ValueError):
+                    continue
+                if procurement_item_id in deleted_item_ids:
+                    continue
+                try:
                     pi = ProcurementItem.objects.get(
-                        procurement_item_id=line["procurement_item_id"],
+                        procurement_item_id=procurement_item_id,
                         procurement=proc,
                     )
                 except ProcurementItem.DoesNotExist:

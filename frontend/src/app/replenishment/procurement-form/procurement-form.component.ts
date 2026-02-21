@@ -79,6 +79,7 @@ export class ProcurementFormComponent implements OnInit {
   readonly procurement = signal<ProcurementOrder | null>(null);
   readonly suppliers = signal<Supplier[]>([]);
   readonly filteredSuppliers = signal<Supplier[]>([]);
+  readonly removedProcurementItemIds = signal<number[]>([]);
 
   readonly isEditMode = signal(false);
   readonly pageTitle = computed(() => this.isEditMode() ? 'Edit Procurement Order' : 'New Procurement Order');
@@ -244,6 +245,7 @@ export class ProcurementFormComponent implements OnInit {
 
   // ── Form population ────────────────────────────────────────────────────────
   private populateForm(order: ProcurementOrder): void {
+    this.removedProcurementItemIds.set([]);
     this.headerForm.patchValue({
       supplier_id: order.supplier?.supplier_id ?? null,
       supplier_search: order.supplier
@@ -356,6 +358,13 @@ export class ProcurementFormComponent implements OnInit {
 
   // ── Line item management ───────────────────────────────────────────────────
   removeLine(index: number): void {
+    const group = this.lineItemsArray.at(index);
+    const procurementItemId = Number(group.get('procurement_item_id')?.value);
+    if (Number.isFinite(procurementItemId) && procurementItemId > 0) {
+      this.removedProcurementItemIds.update((ids) =>
+        ids.includes(procurementItemId) ? ids : [...ids, procurementItemId]
+      );
+    }
     this.lineItemsArray.removeAt(index);
     this.procurement.update(p => p ? { ...p } : p);
   }
@@ -394,6 +403,7 @@ export class ProcurementFormComponent implements OnInit {
       next: (updated) => {
         this.saving.set(false);
         this.procurement.set(updated);
+        this.populateForm(updated);
         this.notifications.showSuccess('Procurement draft saved.');
       },
       error: () => {
@@ -493,10 +503,12 @@ export class ProcurementFormComponent implements OnInit {
 
   private buildUpdatePayload(): UpdateProcurementPayload {
     const formVal = this.headerForm.getRawValue();
+    const removedItemIds = this.removedProcurementItemIds();
     return {
       supplier_id: formVal.supplier_id,
       procurement_method: formVal.procurement_method as ProcurementMethod,
       notes: formVal.notes || '',
+      deleted_procurement_item_ids: removedItemIds.length ? removedItemIds : undefined,
       items: this.lineItemsArray.controls.map(group => {
         const val = group.getRawValue();
         return {

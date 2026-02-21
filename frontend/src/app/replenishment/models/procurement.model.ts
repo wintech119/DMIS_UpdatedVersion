@@ -100,6 +100,7 @@ export interface UpdateProcurementPayload {
   supplier_id?: number | null;
   procurement_method?: ProcurementMethod;
   notes?: string;
+  deleted_procurement_item_ids?: number[];
   items?: {
     procurement_item_id?: number;
     item_id?: number;
