@@ -13,6 +13,15 @@ import {
   TransferDraft,
   TransferDraftsResponse
 } from '../models/needs-list.model';
+import {
+  CreateProcurementPayload,
+  CreateSupplierPayload,
+  ProcurementListResponse,
+  ProcurementOrder,
+  ReceivePayload,
+  Supplier,
+  UpdateProcurementPayload,
+} from '../models/procurement.model';
 
 export interface ActiveEvent {
   event_id: number;
@@ -436,6 +445,108 @@ export class ReplenishmentService {
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/procurement/export?format=${format}`,
       { responseType: 'blob' }
     );
+  }
+
+  createProcurement(payload: CreateProcurementPayload): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(`${this.apiUrl}/procurement/`, payload);
+  }
+
+  listProcurements(filters?: {
+    status?: string;
+    warehouse_id?: number;
+    event_id?: number;
+    needs_list_id?: string;
+    supplier_id?: number;
+  }): Observable<ProcurementListResponse> {
+    const query = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val !== undefined && val !== null) {
+          query.set(key, String(val));
+        }
+      });
+    }
+    const suffix = query.toString();
+    return this.http.get<ProcurementListResponse>(
+      `${this.apiUrl}/procurement/${suffix ? `?${suffix}` : ''}`
+    );
+  }
+
+  getProcurement(id: number): Observable<ProcurementOrder> {
+    return this.http.get<ProcurementOrder>(`${this.apiUrl}/procurement/${id}`);
+  }
+
+  updateProcurement(id: number, updates: UpdateProcurementPayload): Observable<ProcurementOrder> {
+    return this.http.patch<ProcurementOrder>(`${this.apiUrl}/procurement/${id}`, updates);
+  }
+
+  submitProcurement(id: number): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(`${this.apiUrl}/procurement/${id}/submit`, {});
+  }
+
+  approveProcurement(id: number, notes?: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/approve`,
+      notes ? { notes } : {}
+    );
+  }
+
+  rejectProcurement(id: number, reason: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/reject`,
+      { reason }
+    );
+  }
+
+  markProcurementOrdered(id: number, poNumber: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/order`,
+      { po_number: poNumber }
+    );
+  }
+
+  markProcurementShipped(
+    id: number,
+    details: { shipped_at?: string; expected_arrival?: string }
+  ): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/ship`,
+      details
+    );
+  }
+
+  receiveProcurementItems(id: number, payload: ReceivePayload): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/receive`,
+      payload
+    );
+  }
+
+  cancelProcurement(id: number, reason: string): Observable<ProcurementOrder> {
+    return this.http.post<ProcurementOrder>(
+      `${this.apiUrl}/procurement/${id}/cancel`,
+      { reason }
+    );
+  }
+
+  // ── Supplier Methods ──────────────────────────────────────────────────────
+
+  listSuppliers(): Observable<{ suppliers: Supplier[]; count: number }> {
+    return this.http.get<{ suppliers: Supplier[]; count: number }>(
+      `${this.apiUrl}/suppliers/`
+    );
+  }
+
+  createSupplier(payload: CreateSupplierPayload): Observable<Supplier> {
+    return this.http.post<Supplier>(`${this.apiUrl}/suppliers/`, payload);
+  }
+
+  getSupplier(id: number): Observable<Supplier> {
+    return this.http.get<Supplier>(`${this.apiUrl}/suppliers/${id}`);
+  }
+
+  updateSupplier(id: number, updates: Partial<CreateSupplierPayload>): Observable<Supplier> {
+    return this.http.patch<Supplier>(`${this.apiUrl}/suppliers/${id}`, updates);
   }
 
   private enrichStockStatusResponse(response: StockStatusResponse): StockStatusResponse {

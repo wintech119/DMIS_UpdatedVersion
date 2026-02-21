@@ -157,11 +157,17 @@
                   <span class="action-card-count">{{ horizonCCount() }} items</span>
                 </div>
               </div>
-              <p class="action-card-desc">Export procurement request for items that cannot be sourced internally</p>
-              <button mat-stroked-button type="button" (click)="navigateToProcurement()">
-                <mat-icon>download</mat-icon>
-                Export Procurement Request
-              </button>
+              <p class="action-card-desc">Create and manage procurement orders for items that cannot be sourced internally</p>
+              <div class="action-card-buttons">
+                <button mat-flat-button color="primary" type="button" (click)="navigateToProcurement()">
+                  <mat-icon>shopping_cart</mat-icon>
+                  Manage Procurement
+                </button>
+                <button mat-stroked-button type="button" (click)="exportProcurementNeeds()">
+                  <mat-icon>download</mat-icon>
+                  Export CSV
+                </button>
+              </div>
             </div>
           }
         </div>

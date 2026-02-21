@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -9,8 +10,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from replenishment import rules, workflow_store, workflow_store_db
-from replenishment.models import NeedsList, NeedsListItem
-from replenishment.services import approval as approval_service, needs_list
+from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
+from replenishment.services import approval as approval_service, needs_list, procurement as procurement_service
 from replenishment.services.needs_list import (
     allocate_horizons,
     compute_confidence_and_warnings,
@@ -721,6 +722,141 @@ class NeedsListWorkflowApiTests(TestCase):
 
     def _draft_payload(self) -> dict:
         return {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"}
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views.data_access.update_transfer_draft")
+    def test_transfer_update_scoped_to_needs_list(
+        self,
+        mock_update_transfer,
+        _mock_store_enabled,
+        mock_get_record,
+    ) -> None:
+        mock_get_record.return_value = {"needs_list_id": "NL-A"}
+        mock_update_transfer.return_value = ["transfer_not_found_for_needs_list"]
+
+        response = self.client.patch(
+            "/api/v1/replenishment/needs-list/NL-A/transfers/77",
+            {"reason": "Update requested", "items": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json().get("errors", {}).get("transfer_id"),
+            "Not found for this needs list.",
+        )
+        mock_update_transfer.assert_called_once_with(
+            77,
+            "NL-A",
+            {"reason": "Update requested", "items": []},
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views.data_access.update_transfer_draft")
+    def test_transfer_update_rejects_non_draft_transfer(
+        self,
+        mock_update_transfer,
+        _mock_store_enabled,
+        mock_get_record,
+    ) -> None:
+        mock_get_record.return_value = {"needs_list_id": "NL-A"}
+        mock_update_transfer.return_value = ["transfer_not_found_or_not_draft"]
+
+        response = self.client.patch(
+            "/api/v1/replenishment/needs-list/NL-A/transfers/77",
+            {"reason": "Update requested", "items": [{"item_id": 1, "item_qty": 2}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json().get("errors", {}).get("status"),
+            "Only draft transfers can be updated.",
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_generate_transfers_sets_item_inventory_id_from_source(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-A-001",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "event_id": 1,
+            "items": [
+                {
+                    "item_id": 101,
+                    "item_name": "Water",
+                    "uom_code": "EA",
+                    "horizon": {"A": {"recommended_qty": 5}},
+                }
+            ],
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ), patch(
+            "replenishment.views.data_access.get_transfers_for_needs_list",
+            side_effect=[([], []), ([{"transfer_id": 99}], [])],
+        ), patch(
+            "replenishment.views.data_access.get_warehouses_with_stock",
+            return_value=(
+                {
+                    101: [
+                        {
+                            "warehouse_id": 2,
+                            "warehouse_name": "Source",
+                            "available_qty": 10,
+                        }
+                    ]
+                },
+                [],
+            ),
+        ), patch(
+            "replenishment.views.data_access.insert_draft_transfer",
+            return_value=(99, []),
+        ), patch(
+            "replenishment.views.data_access.insert_transfer_items",
+            return_value=[],
+        ) as mock_insert_items:
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/generate-transfers",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mock_insert_items.assert_called_once()
+        args, _ = mock_insert_items.call_args
+        self.assertEqual(args[0], 99)
+        self.assertEqual(args[1][0]["inventory_id"], 2)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -3355,3 +3491,93 @@ class StockStateFileLockTests(SimpleTestCase):
                 self.assertTrue(
                     any(call.kwargs.get("exclusive") is False for call in mock_lock.call_args_list)
                 )
+
+
+class ProcurementPermissionApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.list_procurements", return_value=([], 0))
+    def test_procurement_create_requires_create_permission(self, _mock_list_procurements) -> None:
+        get_response = self.client.get("/api/v1/replenishment/procurement/")
+        self.assertEqual(get_response.status_code, 200)
+
+        post_response = self.client.post(
+            "/api/v1/replenishment/procurement/",
+            {"needs_list_id": "NL-1"},
+            format="json",
+        )
+        self.assertEqual(post_response.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.list_suppliers", return_value=[])
+    def test_supplier_create_requires_create_permission(self, _mock_list_suppliers) -> None:
+        get_response = self.client.get("/api/v1/replenishment/suppliers/")
+        self.assertEqual(get_response.status_code, 200)
+
+        post_response = self.client.post(
+            "/api/v1/replenishment/suppliers/",
+            {"supplier_code": "SUP-1", "supplier_name": "Supplier 1"},
+            format="json",
+        )
+        self.assertEqual(post_response.status_code, 403)
+
+
+class ProcurementDraftUpdateTests(TestCase):
+    def test_update_procurement_draft_clears_line_total_when_price_removed(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-001",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=100,
+            ordered_qty=Decimal("5.00"),
+            unit_price=Decimal("2.00"),
+            line_total=Decimal("10.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        procurement_service.update_procurement_draft(
+            proc.procurement_id,
+            {
+                "items": [
+                    {
+                        "procurement_item_id": line.procurement_item_id,
+                        "unit_price": None,
+                    }
+                ]
+            },
+            actor_id="editor",
+        )
+
+        line.refresh_from_db()
+        proc.refresh_from_db()
+
+        self.assertIsNone(line.unit_price)
+        self.assertIsNone(line.line_total)
+        self.assertEqual(proc.total_value, Decimal("0.00"))

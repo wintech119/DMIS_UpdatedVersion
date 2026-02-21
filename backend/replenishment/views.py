@@ -2640,6 +2640,7 @@ def needs_list_generate_transfers(request, needs_list_id: str):
                 "item_id": iid,
                 "item_qty": alloc_qty,
                 "uom_code": item.get("uom_code", "EA"),
+                "inventory_id": src_wh,
                 "item_name": item.get("item_name", f"Item {iid}"),
             })
             remaining -= alloc_qty
@@ -2729,10 +2730,20 @@ def needs_list_transfer_update(request, needs_list_id: str, transfer_id: int):
             status=400,
         )
 
-    warnings = data_access.update_transfer_draft(transfer_id, {
+    warnings = data_access.update_transfer_draft(transfer_id, needs_list_id, {
         "reason": reason,
         "items": items,
     })
+    if "transfer_not_found_for_needs_list" in warnings:
+        return Response(
+            {"errors": {"transfer_id": "Not found for this needs list."}, "warnings": warnings},
+            status=404,
+        )
+    if "transfer_not_found_or_not_draft" in warnings:
+        return Response(
+            {"errors": {"status": "Only draft transfers can be updated."}, "warnings": warnings},
+            status=409,
+        )
 
     logger.info(
         "needs_list_transfer_updated",
@@ -3061,3 +3072,288 @@ for view_func in (
 ):
     if hasattr(view_func, "cls"):
         view_func.cls.required_permission = view_func.required_permission
+
+
+# =============================================================================
+# Procurement Views (Horizon C)
+# =============================================================================
+
+from api.permissions import ProcurementPermission
+from api.rbac import (
+    PERM_PROCUREMENT_CREATE,
+    PERM_PROCUREMENT_VIEW,
+    PERM_PROCUREMENT_EDIT,
+    PERM_PROCUREMENT_SUBMIT,
+    PERM_PROCUREMENT_APPROVE,
+    PERM_PROCUREMENT_REJECT,
+    PERM_PROCUREMENT_ORDER,
+    PERM_PROCUREMENT_RECEIVE,
+    PERM_PROCUREMENT_CANCEL,
+)
+from replenishment.services import procurement as procurement_service
+from replenishment.services.procurement import ProcurementError
+
+
+def _actor_id(request) -> str:
+    """Extract actor identifier from authenticated request."""
+    user = request.user
+    return str(getattr(user, "user_id", None) or getattr(user, "username", "system"))
+
+
+@api_view(["POST", "GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_list_create(request):
+    """List procurement orders (GET) or create a new one (POST)."""
+    if request.method == "GET":
+        filters = {}
+        for key in ("status", "warehouse_id", "event_id", "needs_list_id", "supplier_id"):
+            val = request.query_params.get(key)
+            if val:
+                filters[key] = val
+        procurements, count = procurement_service.list_procurements(filters or None)
+        return Response({"procurements": procurements, "count": count})
+
+    # POST - create
+    data = request.data
+    actor = _actor_id(request)
+    try:
+        needs_list_id = data.get("needs_list_id")
+        if needs_list_id:
+            result = procurement_service.create_procurement_from_needs_list(
+                needs_list_id, actor
+            )
+        else:
+            result = procurement_service.create_procurement_standalone(
+                event_id=int(data["event_id"]),
+                target_warehouse_id=int(data["target_warehouse_id"]),
+                items=data.get("items", []),
+                actor_id=actor,
+                procurement_method=data.get("procurement_method", "SINGLE_SOURCE"),
+                supplier_id=data.get("supplier_id"),
+                notes=data.get("notes", ""),
+            )
+        return Response(result, status=201)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+    except (KeyError, ValueError, TypeError) as exc:
+        return Response(
+            {"errors": {"validation": f"Invalid request data: {exc}"}}, status=400
+        )
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_detail(request, procurement_id: int):
+    """Get (GET) or update (PATCH) a procurement order."""
+    try:
+        if request.method == "GET":
+            result = procurement_service.get_procurement(procurement_id)
+            return Response(result)
+        else:
+            result = procurement_service.update_procurement_draft(
+                procurement_id, request.data, _actor_id(request)
+            )
+            return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_submit(request, procurement_id: int):
+    """Submit procurement for approval."""
+    try:
+        result = procurement_service.submit_procurement(
+            procurement_id, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_approve(request, procurement_id: int):
+    """Approve a procurement order."""
+    try:
+        result = procurement_service.approve_procurement(
+            procurement_id,
+            _actor_id(request),
+            notes=request.data.get("notes", ""),
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_reject(request, procurement_id: int):
+    """Reject a procurement order."""
+    try:
+        reason = request.data.get("reason", "")
+        result = procurement_service.reject_procurement(
+            procurement_id, _actor_id(request), reason
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_mark_ordered(request, procurement_id: int):
+    """Mark procurement as ordered with a PO number."""
+    try:
+        po_number = request.data.get("po_number", "")
+        result = procurement_service.mark_ordered(
+            procurement_id, po_number, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_mark_shipped(request, procurement_id: int):
+    """Mark procurement as shipped."""
+    try:
+        result = procurement_service.mark_shipped(
+            procurement_id,
+            shipped_at=request.data.get("shipped_at"),
+            expected_arrival=request.data.get("expected_arrival"),
+            actor_id=_actor_id(request),
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_receive(request, procurement_id: int):
+    """Record received quantities for procurement items."""
+    try:
+        receipts = request.data.get("receipts", [])
+        result = procurement_service.receive_items(
+            procurement_id, receipts, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def procurement_cancel(request, procurement_id: int):
+    """Cancel a procurement order."""
+    try:
+        reason = request.data.get("reason", "")
+        result = procurement_service.cancel_procurement(
+            procurement_id, reason, _actor_id(request)
+        )
+        return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+# ── Supplier Views ───────────────────────────────────────────────────────────
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def supplier_list_create(request):
+    """List suppliers (GET) or create a new one (POST)."""
+    if request.method == "GET":
+        suppliers = procurement_service.list_suppliers()
+        return Response({"suppliers": suppliers, "count": len(suppliers)})
+
+    try:
+        result = procurement_service.create_supplier(request.data, _actor_id(request))
+        return Response(result, status=201)
+    except ProcurementError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=400)
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([ProcurementPermission])
+def supplier_detail(request, supplier_id: int):
+    """Get (GET) or update (PATCH) a supplier."""
+    try:
+        if request.method == "GET":
+            result = procurement_service.get_supplier(supplier_id)
+            return Response(result)
+        else:
+            result = procurement_service.update_supplier(
+                supplier_id, request.data, _actor_id(request)
+            )
+            return Response(result)
+    except ProcurementError as exc:
+        status_code = 404 if exc.code == "not_found" else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status_code)
+
+
+# ── Procurement Permission Assignments ──────────────────────────────────────
+
+# Combined-method views use method-specific permission mappings.
+procurement_list_create.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "POST": PERM_PROCUREMENT_CREATE,
+}
+procurement_detail.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "PATCH": PERM_PROCUREMENT_EDIT,
+}
+procurement_submit.required_permission = PERM_PROCUREMENT_SUBMIT
+procurement_approve.required_permission = PERM_PROCUREMENT_APPROVE
+procurement_reject.required_permission = PERM_PROCUREMENT_REJECT
+procurement_mark_ordered.required_permission = PERM_PROCUREMENT_ORDER
+procurement_mark_shipped.required_permission = PERM_PROCUREMENT_ORDER
+procurement_receive.required_permission = PERM_PROCUREMENT_RECEIVE
+procurement_cancel.required_permission = PERM_PROCUREMENT_CANCEL
+
+supplier_list_create.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "POST": PERM_PROCUREMENT_CREATE,
+}
+supplier_detail.required_permission = {
+    "GET": PERM_PROCUREMENT_VIEW,
+    "PATCH": PERM_PROCUREMENT_EDIT,
+}
+
+for _pview in (
+    procurement_list_create,
+    procurement_detail,
+    procurement_submit,
+    procurement_approve,
+    procurement_reject,
+    procurement_mark_ordered,
+    procurement_mark_shipped,
+    procurement_receive,
+    procurement_cancel,
+    supplier_list_create,
+    supplier_detail,
+):
+    if hasattr(_pview, "cls"):
+        _pview.cls.required_permission = _pview.required_permission

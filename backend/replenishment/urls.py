@@ -34,6 +34,18 @@ from replenishment.views import (
     needs_list_donations_allocate,
     needs_list_donations_export,
     needs_list_procurement_export,
+    # Procurement views
+    procurement_list_create,
+    procurement_detail,
+    procurement_submit,
+    procurement_approve,
+    procurement_reject,
+    procurement_mark_ordered,
+    procurement_mark_shipped,
+    procurement_receive,
+    procurement_cancel,
+    supplier_list_create,
+    supplier_detail,
 )
 
 urlpatterns = [
@@ -162,4 +174,17 @@ urlpatterns = [
         needs_list_procurement_export,
         name="needs_list_procurement_export",
     ),
+    # ── Procurement (Horizon C) ──────────────────────────────────────────
+    path("procurement/", procurement_list_create, name="procurement_list_create"),
+    path("procurement/<int:procurement_id>", procurement_detail, name="procurement_detail"),
+    path("procurement/<int:procurement_id>/submit", procurement_submit, name="procurement_submit"),
+    path("procurement/<int:procurement_id>/approve", procurement_approve, name="procurement_approve"),
+    path("procurement/<int:procurement_id>/reject", procurement_reject, name="procurement_reject"),
+    path("procurement/<int:procurement_id>/order", procurement_mark_ordered, name="procurement_mark_ordered"),
+    path("procurement/<int:procurement_id>/ship", procurement_mark_shipped, name="procurement_mark_shipped"),
+    path("procurement/<int:procurement_id>/receive", procurement_receive, name="procurement_receive"),
+    path("procurement/<int:procurement_id>/cancel", procurement_cancel, name="procurement_cancel"),
+    # ── Suppliers ────────────────────────────────────────────────────────
+    path("suppliers/", supplier_list_create, name="supplier_list_create"),
+    path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
 ]
