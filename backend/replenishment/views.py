@@ -2780,9 +2780,14 @@ def needs_list_transfer_confirm(request, needs_list_id: str, transfer_id: int):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     actor = _actor_id(request)
-    success, warnings = data_access.confirm_transfer_draft(transfer_id, str(actor))
+    success, warnings = data_access.confirm_transfer_draft(transfer_id, needs_list_id, str(actor))
 
     if not success:
+        if "transfer_not_found_for_needs_list" in warnings:
+            return Response(
+                {"errors": {"transfer_id": "Not found for this needs list."}, "warnings": warnings},
+                status=404,
+            )
         return Response(
             {"errors": {"transfer": "Transfer not found or not in draft status."},
              "warnings": warnings},

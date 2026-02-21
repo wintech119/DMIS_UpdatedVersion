@@ -803,6 +803,81 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views.data_access.confirm_transfer_draft")
+    def test_transfer_confirm_scoped_to_needs_list(
+        self,
+        mock_confirm_transfer,
+        _mock_store_enabled,
+        mock_get_record,
+    ) -> None:
+        mock_get_record.return_value = {"needs_list_id": "NL-A"}
+        mock_confirm_transfer.return_value = (
+            False,
+            ["transfer_not_found_for_needs_list"],
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/transfers/77/confirm",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json().get("errors", {}).get("transfer_id"),
+            "Not found for this needs list.",
+        )
+        args, _ = mock_confirm_transfer.call_args
+        self.assertEqual(args[0], 77)
+        self.assertEqual(args[1], "NL-A")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views.data_access.confirm_transfer_draft")
+    def test_transfer_confirm_rejects_non_draft_transfer(
+        self,
+        mock_confirm_transfer,
+        _mock_store_enabled,
+        mock_get_record,
+    ) -> None:
+        mock_get_record.return_value = {"needs_list_id": "NL-A"}
+        mock_confirm_transfer.return_value = (
+            False,
+            ["transfer_not_found_or_not_draft"],
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/transfers/77/confirm",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(
+            "Transfer not found or not in draft status.",
+            response.json().get("errors", {}).get("transfer", ""),
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     def test_generate_transfers_sets_item_inventory_id_from_source(self) -> None:
         record = {
             "needs_list_id": "NL-A",
