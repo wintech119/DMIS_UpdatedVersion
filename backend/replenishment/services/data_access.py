@@ -350,6 +350,7 @@ def insert_transfer_items(
     """
     Insert items into transfer_item table for a given transfer.
     Each item dict must have: item_id, item_qty, uom_code.
+    inventory_id defaults to the transfer's source inventory when omitted.
     """
     if _is_sqlite():
         return ["db_unavailable_preview_stub"]
@@ -360,7 +361,23 @@ def insert_transfer_items(
     warnings: List[str] = []
     try:
         with connection.cursor() as cursor:
+            default_inventory_id = None
+            if any(item.get("inventory_id") is None for item in items):
+                cursor.execute(
+                    f"SELECT fr_inventory_id FROM {schema}.transfer WHERE transfer_id = %s",
+                    [transfer_id],
+                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found")
+                    return warnings
+                default_inventory_id = int(row[0]) if row[0] is not None else None
+
             for item in items:
+                inventory_id = item.get("inventory_id", default_inventory_id)
+                if inventory_id is None:
+                    warnings.append(f"transfer_source_inventory_missing_item_{item['item_id']}")
+                    continue
                 cursor.execute(
                     f"""
                     INSERT INTO {schema}.transfer_item
@@ -368,7 +385,7 @@ def insert_transfer_items(
                     VALUES (%s, %s, %s, %s, %s)
                     """,
                     [transfer_id, item["item_id"], item["item_qty"],
-                     item.get("uom_code", "EA"), item.get("inventory_id", transfer_id)],
+                     item.get("uom_code", "EA"), inventory_id],
                 )
     except DatabaseError as exc:
         logger.warning("Insert transfer items failed: %s", exc)
@@ -466,7 +483,7 @@ def get_transfers_for_needs_list(
 
 
 def update_transfer_draft(
-    transfer_id: int, updates: Dict
+    transfer_id: int, needs_list_id: str, updates: Dict
 ) -> List[str]:
     """
     Update a draft transfer's items (qty, source warehouse).
@@ -479,19 +496,47 @@ def update_transfer_draft(
     warnings: List[str] = []
     try:
         with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT status_code
+                FROM {schema}.transfer
+                WHERE transfer_id = %s
+                  AND needs_list_id = %s
+                """,
+                [transfer_id, needs_list_id],
+            )
+            row = cursor.fetchone()
+            if not row:
+                warnings.append("transfer_not_found_for_needs_list")
+                return warnings
+            if str(row[0]) != "P":
+                warnings.append("transfer_not_found_or_not_draft")
+                return warnings
+
             if updates.get("reason"):
                 cursor.execute(
-                    f"UPDATE {schema}.transfer SET reason_text = %s WHERE transfer_id = %s AND status_code = 'P'",
-                    [updates["reason"], transfer_id],
+                    f"""
+                    UPDATE {schema}.transfer
+                    SET reason_text = %s
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                      AND status_code = 'P'
+                    """,
+                    [updates["reason"], transfer_id, needs_list_id],
                 )
             for item in updates.get("items", []):
                 cursor.execute(
                     f"""
-                    UPDATE {schema}.transfer_item
+                    UPDATE {schema}.transfer_item ti
                     SET item_qty = %s
-                    WHERE transfer_id = %s AND item_id = %s
+                    FROM {schema}.transfer t
+                    WHERE ti.transfer_id = %s
+                      AND ti.item_id = %s
+                      AND t.transfer_id = ti.transfer_id
+                      AND t.needs_list_id = %s
+                      AND t.status_code = 'P'
                     """,
-                    [item["item_qty"], transfer_id, item["item_id"]],
+                    [item["item_qty"], transfer_id, item["item_id"], needs_list_id],
                 )
     except DatabaseError as exc:
         logger.warning("Update transfer draft failed: %s", exc)

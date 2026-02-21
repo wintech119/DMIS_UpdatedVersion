@@ -22,6 +22,17 @@ PERM_NEEDS_LIST_EXECUTE = "replenishment.needs_list.execute"
 PERM_NEEDS_LIST_CANCEL = "replenishment.needs_list.cancel"
 PERM_NEEDS_LIST_REVIEW_COMMENTS = "replenishment.needs_list.review_comments"
 
+# Procurement permissions
+PERM_PROCUREMENT_CREATE = "replenishment.procurement.create"
+PERM_PROCUREMENT_VIEW = "replenishment.procurement.view"
+PERM_PROCUREMENT_EDIT = "replenishment.procurement.edit"
+PERM_PROCUREMENT_SUBMIT = "replenishment.procurement.submit"
+PERM_PROCUREMENT_APPROVE = "replenishment.procurement.approve"
+PERM_PROCUREMENT_REJECT = "replenishment.procurement.reject"
+PERM_PROCUREMENT_ORDER = "replenishment.procurement.order"
+PERM_PROCUREMENT_RECEIVE = "replenishment.procurement.receive"
+PERM_PROCUREMENT_CANCEL = "replenishment.procurement.cancel"
+
 _DEV_ROLE_PERMISSION_MAP = {
     "LOGISTICS": {
         REQUIRED_PERMISSION,
@@ -30,6 +41,13 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_SUBMIT,
         PERM_NEEDS_LIST_EXECUTE,
         PERM_NEEDS_LIST_CANCEL,
+        PERM_PROCUREMENT_CREATE,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_EDIT,
+        PERM_PROCUREMENT_SUBMIT,
+        PERM_PROCUREMENT_ORDER,
+        PERM_PROCUREMENT_RECEIVE,
+        PERM_PROCUREMENT_CANCEL,
     },
     "EXECUTIVE": {
         REQUIRED_PERMISSION,
@@ -38,6 +56,9 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_APPROVE,
         PERM_NEEDS_LIST_ESCALATE,
         PERM_NEEDS_LIST_REVIEW_COMMENTS,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_APPROVE,
+        PERM_PROCUREMENT_REJECT,
     },
 }
 
