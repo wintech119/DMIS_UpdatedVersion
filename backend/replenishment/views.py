@@ -3223,11 +3223,6 @@ from replenishment.services import procurement as procurement_service
 from replenishment.services.procurement import ProcurementError
 
 
-def _actor_id(request) -> str:
-    """Extract actor identifier from authenticated request."""
-    user = request.user
-    return str(getattr(user, "user_id", None) or getattr(user, "username", "system"))
-
 
 @api_view(["POST", "GET"])
 @authentication_classes([LegacyCompatAuthentication])
