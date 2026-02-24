@@ -2958,8 +2958,7 @@ def needs_list_donations(request, needs_list_id: str):
 
     snapshot = workflow_store.apply_overrides(record)
     items = snapshot.get("items", [])
-    warehouse_id = record.get("warehouse_id")
-    as_of = record.get("as_of_datetime")
+    items = record.get("items", [])
 
     horizon_b_lines = []
     for item in items:
