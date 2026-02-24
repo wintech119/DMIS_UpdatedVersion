@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 import re
 import math
@@ -9,6 +11,7 @@ from contextlib import contextmanager
 from typing import Any, Dict
 
 from django.conf import settings
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -168,6 +171,24 @@ def _query_param_truthy(value: object, *, default: bool = False) -> bool:
     if normalized in {"0", "false", "no", "n", "off"}:
         return False
     return default
+
+
+def _safe_content_disposition_ref(value: object, fallback: object) -> str:
+    def _clean(raw: object) -> str:
+        cleaned = (
+            str(raw or "")
+            .replace("\r", "")
+            .replace("\n", "")
+            .replace('"', "")
+            .strip()
+        )
+        return cleaned
+
+    cleaned = _clean(value)
+    if cleaned:
+        return cleaned
+    fallback_cleaned = _clean(fallback)
+    return fallback_cleaned or "needs_list"
 
 
 def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
@@ -3039,10 +3060,6 @@ def needs_list_donations_export(request, needs_list_id: str):
     ]
 
     if fmt == "csv":
-        import csv
-        import io
-        from django.http import HttpResponse
-
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty"])
@@ -3054,7 +3071,10 @@ def needs_list_donations_export(request, needs_list_id: str):
                 item["horizon"]["B"]["recommended_qty"],
             ])
         response = HttpResponse(output.getvalue(), content_type="text/csv")
-        ref = record.get("needs_list_no", needs_list_id)
+        ref = _safe_content_disposition_ref(
+            record.get("needs_list_no"),
+            needs_list_id,
+        )
         response["Content-Disposition"] = f'attachment; filename="donation_needs_{ref}.csv"'
         return response
 
@@ -3095,10 +3115,6 @@ def needs_list_procurement_export(request, needs_list_id: str):
     ]
 
     if fmt == "csv":
-        import csv
-        import io
-        from django.http import HttpResponse
-
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty", "Est Unit Cost", "Est Total Cost"])
@@ -3115,7 +3131,10 @@ def needs_list_procurement_export(request, needs_list_id: str):
                 unit_cost * qty if unit_cost else "",
             ])
         response = HttpResponse(output.getvalue(), content_type="text/csv")
-        ref = record.get("needs_list_no", needs_list_id)
+        ref = _safe_content_disposition_ref(
+            record.get("needs_list_no"),
+            needs_list_id,
+        )
         response["Content-Disposition"] = f'attachment; filename="procurement_needs_{ref}.csv"'
         return response
 

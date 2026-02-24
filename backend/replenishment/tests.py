@@ -1146,6 +1146,27 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    def test_donations_export_sanitizes_content_disposition_ref(self) -> None:
+        from replenishment.views import _safe_content_disposition_ref
+
+        safe_ref = _safe_content_disposition_ref(
+            'NL-A"\r\nX-Test: injected',
+            "NL-A",
+        )
+        self.assertEqual(safe_ref, "NL-AX-Test: injected")
+        self.assertNotIn("\r", safe_ref)
+        self.assertNotIn("\n", safe_ref)
+        self.assertNotIn('"', safe_ref)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     def test_donations_allocate_returns_not_implemented(self) -> None:
         record = {
             "needs_list_id": "NL-A",
@@ -1208,6 +1229,21 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["item_id"], 203)
         self.assertEqual(items[0]["required_qty"], 4)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_procurement_export_sanitizes_content_disposition_ref(self) -> None:
+        from replenishment.views import _safe_content_disposition_ref
+
+        safe_ref = _safe_content_disposition_ref('"\r\n', "NL-A")
+        self.assertEqual(safe_ref, "NL-A")
 
     @override_settings(
         AUTH_ENABLED=False,
