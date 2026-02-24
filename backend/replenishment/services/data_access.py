@@ -478,6 +478,74 @@ def create_draft_transfer_with_items(
         return None, warnings
 
 
+def create_draft_transfers_if_absent(
+    needs_list_id: str,
+    transfer_specs: List[Dict[str, object]],
+) -> Tuple[List[Dict], int, bool, List[str]]:
+    """
+    Atomically create draft transfers if none exist for the given needs list.
+
+    Uses a transaction-scoped advisory lock (PostgreSQL) to prevent concurrent
+    check-then-insert races for the same needs_list_id.
+
+    Returns (transfers, created_count, already_exists, warnings).
+    """
+    if _is_sqlite():
+        return [], 0, False, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    created_count = 0
+    already_exists = False
+
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                if connection.vendor == "postgresql":
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        [f"needs_list_transfer_generation:{needs_list_id}"],
+                    )
+
+                cursor.execute(
+                    f"""
+                    SELECT 1
+                    FROM {schema}.transfer
+                    WHERE needs_list_id = %s
+                    LIMIT 1
+                    """,
+                    [needs_list_id],
+                )
+                already_exists = cursor.fetchone() is not None
+
+            if not already_exists:
+                for spec in transfer_specs:
+                    transfer_id, transfer_warnings = create_draft_transfer_with_items(
+                        from_warehouse_id=int(spec["from_warehouse_id"]),
+                        to_warehouse_id=int(spec["to_warehouse_id"]),
+                        event_id=int(spec["event_id"]),
+                        needs_list_id=needs_list_id,
+                        reason=str(spec["reason"]),
+                        actor_id=str(spec["actor_id"]),
+                        items=list(spec["items"]) if isinstance(spec["items"], list) else [],
+                    )
+                    warnings.extend(transfer_warnings)
+                    if transfer_id:
+                        created_count += 1
+    except DatabaseError as exc:
+        logger.warning(
+            "Atomic transfer generation failed for needs_list_id=%s: %s",
+            needs_list_id,
+            exc,
+        )
+        warnings.append("db_error_insert_transfer")
+        return [], 0, False, warnings
+
+    transfers, fetch_warnings = get_transfers_for_needs_list(needs_list_id)
+    warnings.extend(fetch_warnings)
+    return transfers, created_count, already_exists, warnings
+
+
 def get_transfers_for_needs_list(
     needs_list_id: str,
 ) -> Tuple[List[Dict], List[str]]:

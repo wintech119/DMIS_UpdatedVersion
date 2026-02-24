@@ -966,8 +966,67 @@ class NeedsListWorkflowApiTests(TestCase):
         with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
             "replenishment.views.workflow_store.get_record", return_value=record
         ), patch(
-            "replenishment.views.data_access.get_transfers_for_needs_list",
-            side_effect=[([], []), ([{"transfer_id": 99}], [])],
+            "replenishment.views.data_access.get_warehouses_with_stock",
+            return_value=(
+                {
+                    101: [
+                        {
+                            "warehouse_id": 2,
+                            "warehouse_name": "Source",
+                            "available_qty": 10,
+                        }
+                    ]
+                },
+                [],
+            ),
+        ), patch(
+            "replenishment.views.data_access.create_draft_transfers_if_absent",
+            return_value=([{"transfer_id": 99}], 1, False, []),
+        ) as mock_create_transfers:
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/generate-transfers",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mock_create_transfers.assert_called_once()
+        _, kwargs = mock_create_transfers.call_args
+        transfer_specs = kwargs["transfer_specs"]
+        self.assertEqual(kwargs["needs_list_id"], "NL-A")
+        self.assertEqual(transfer_specs[0]["from_warehouse_id"], 2)
+        self.assertEqual(transfer_specs[0]["to_warehouse_id"], 10)
+        self.assertEqual(transfer_specs[0]["items"][0]["inventory_id"], 2)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_generate_transfers_returns_existing_when_atomic_helper_detects_drafts(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-A-001",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "event_id": 1,
+            "items": [
+                {
+                    "item_id": 101,
+                    "item_name": "Water",
+                    "uom_code": "EA",
+                    "horizon": {"A": {"recommended_qty": 5}},
+                }
+            ],
+        }
+        existing_transfers = [{"transfer_id": 91}]
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
         ), patch(
             "replenishment.views.data_access.get_warehouses_with_stock",
             return_value=(
@@ -983,21 +1042,17 @@ class NeedsListWorkflowApiTests(TestCase):
                 [],
             ),
         ), patch(
-            "replenishment.views.data_access.create_draft_transfer_with_items",
-            return_value=(99, []),
-        ) as mock_create_transfer:
+            "replenishment.views.data_access.create_draft_transfers_if_absent",
+            return_value=(existing_transfers, 0, True, []),
+        ):
             response = self.client.post(
                 "/api/v1/replenishment/needs-list/NL-A/generate-transfers",
                 {},
                 format="json",
             )
 
-        self.assertEqual(response.status_code, 201)
-        mock_create_transfer.assert_called_once()
-        _, kwargs = mock_create_transfer.call_args
-        self.assertEqual(kwargs["from_warehouse_id"], 2)
-        self.assertEqual(kwargs["to_warehouse_id"], 10)
-        self.assertEqual(kwargs["items"][0]["inventory_id"], 2)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json().get("transfers"), existing_transfers)
 
     @override_settings(
         AUTH_ENABLED=False,

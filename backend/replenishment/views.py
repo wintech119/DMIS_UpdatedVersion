@@ -2716,14 +2716,6 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             status=409,
         )
 
-    existing, existing_warnings = data_access.get_transfers_for_needs_list(needs_list_id)
-    if existing:
-        return Response(
-            {"errors": {"transfers": "Draft transfers already exist for this needs list."},
-             "transfers": existing},
-            status=409,
-        )
-
     items = record.get("items", [])
     warehouse_id = record.get("warehouse_id")
     event_id = record.get("event_id")
@@ -2744,8 +2736,7 @@ def needs_list_generate_transfers(request, needs_list_id: str):
     item_ids = [item["item_id"] for item in horizon_a_items]
     source_stock, stock_warnings = data_access.get_warehouses_with_stock(item_ids, warehouse_id)
 
-    created_transfers = []
-    all_warnings = stock_warnings + existing_warnings
+    all_warnings = list(stock_warnings)
 
     sources_used: dict = {}
     for item in horizon_a_items:
@@ -2775,23 +2766,35 @@ def needs_list_generate_transfers(request, needs_list_id: str):
         if remaining > 0:
             all_warnings.append(f"insufficient_source_stock_item_{iid}")
 
-    for src_wh, transfer_data in sources_used.items():
-        tid, tw = data_access.create_draft_transfer_with_items(
-            from_warehouse_id=src_wh,
-            to_warehouse_id=warehouse_id,
-            event_id=event_id,
+    transfer_specs = [
+        {
+            "from_warehouse_id": src_wh,
+            "to_warehouse_id": warehouse_id,
+            "event_id": event_id,
+            "reason": f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
+            "actor_id": str(actor),
+            "items": transfer_data["items"],
+        }
+        for src_wh, transfer_data in sources_used.items()
+    ]
+
+    transfers, created_count, already_exists, transfer_warnings = (
+        data_access.create_draft_transfers_if_absent(
             needs_list_id=needs_list_id,
-            reason=f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
-            actor_id=str(actor),
-            items=transfer_data["items"],
+            transfer_specs=transfer_specs,
         )
-        all_warnings.extend(tw)
-        if tid:
-            created_transfers.append({
-                "transfer_id": tid,
-                "from_warehouse_id": src_wh,
-                "item_count": len(transfer_data["items"]),
-            })
+    )
+    all_warnings.extend(transfer_warnings)
+
+    if already_exists:
+        return Response(
+            {
+                "errors": {"transfers": "Draft transfers already exist for this needs list."},
+                "transfers": transfers,
+                "warnings": all_warnings,
+            },
+            status=409,
+        )
 
     logger.info(
         "needs_list_transfers_generated",
@@ -2800,11 +2803,10 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             "user_id": getattr(request.user, "user_id", None),
             "username": getattr(request.user, "username", None),
             "needs_list_id": needs_list_id,
-            "transfers_created": len(created_transfers),
+            "transfers_created": created_count,
         },
     )
 
-    transfers, _ = data_access.get_transfers_for_needs_list(needs_list_id)
     return Response({
         "needs_list_id": needs_list_id,
         "transfers": transfers,
