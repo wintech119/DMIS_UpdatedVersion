@@ -142,6 +142,18 @@ export class ProcurementFormComponent implements OnInit {
       debounceTime(200),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(searchTerm => {
+      if (typeof searchTerm === 'string') {
+        const supplierIdControl = this.headerForm.get('supplier_id');
+        const selectedSupplierId = supplierIdControl?.value;
+        const selectedSupplier = this.suppliers().find(
+          supplier => supplier.supplier_id === selectedSupplierId
+        );
+        const selectedLabel = selectedSupplier ? this.formatSupplierLabel(selectedSupplier) : '';
+        if (selectedSupplierId !== null && searchTerm.trim() !== selectedLabel) {
+          supplierIdControl?.setValue(null, { emitEvent: false });
+        }
+      }
+
       const term = this.normalizeSupplierSearchTerm(searchTerm);
       if (!term) {
         this.filteredSuppliers.set(this.suppliers());
@@ -156,15 +168,19 @@ export class ProcurementFormComponent implements OnInit {
     });
   }
 
+  private formatSupplierLabel(supplier: Pick<Supplier, 'supplier_name' | 'supplier_code'>): string {
+    return `${supplier.supplier_name} (${supplier.supplier_code})`;
+  }
+
   displaySupplierFn = (supplier: Supplier | null): string => {
-    return supplier ? `${supplier.supplier_name} (${supplier.supplier_code})` : '';
+    return supplier ? this.formatSupplierLabel(supplier) : '';
   };
 
   selectSupplier(supplier: Supplier): void {
     this.headerForm.patchValue(
       {
         supplier_id: supplier.supplier_id,
-        supplier_search: `${supplier.supplier_name} (${supplier.supplier_code})`
+        supplier_search: this.formatSupplierLabel(supplier)
       },
       { emitEvent: false }
     );
