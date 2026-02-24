@@ -16,6 +16,7 @@ import zipfile
 
 from github_utils import github_request
 DEFAULT_REF = "main"
+GIT_COMMAND_TIMEOUT_SECONDS = 120
 
 
 @dataclass
@@ -97,9 +98,24 @@ def _download_repo_zip(owner: str, repo: str, ref: str, dest_dir: str) -> str:
 
 
 def _run_git(args: list[str]) -> None:
-    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
-        raise InstallError(result.stderr.strip() or "Git command failed.")
+    try:
+        subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial_output = ((exc.stderr or "") + "\n" + (exc.stdout or "")).strip()
+        details = f" Partial output: {partial_output}" if partial_output else ""
+        raise InstallError(
+            f"Git command timed out after {GIT_COMMAND_TIMEOUT_SECONDS}s.{details}"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise InstallError(stderr or "Git command failed.") from exc
 
 
 def _safe_extract_zip(zip_file: zipfile.ZipFile, dest_dir: str) -> None:
