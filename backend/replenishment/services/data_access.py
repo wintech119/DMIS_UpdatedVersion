@@ -576,55 +576,52 @@ def update_transfer_draft(
     schema = _schema_name()
     warnings: List[str] = []
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT status_code
-                FROM {schema}.transfer
-                WHERE transfer_id = %s
-                  AND needs_list_id = %s
-                """,
-                [transfer_id, needs_list_id],
-            )
-            row = cursor.fetchone()
-            if not row:
-                warnings.append("transfer_not_found_for_needs_list")
-                return warnings
-            if str(row[0]) != "P":
-                warnings.append("transfer_not_found_or_not_draft")
-                return warnings
-
-            if updates.get("reason"):
+        with transaction.atomic():
+            with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
-                    UPDATE {schema}.transfer
-                    SET reason_text = %s
+                    SELECT status_code
+                    FROM {schema}.transfer
                     WHERE transfer_id = %s
                       AND needs_list_id = %s
-                      AND status_code = 'P'
                     """,
-                    [updates["reason"], transfer_id, needs_list_id],
+                    [transfer_id, needs_list_id],
                 )
-            for item in updates.get("items", []):
-                cursor.execute(
-                    f"""
-                    UPDATE {schema}.transfer_item ti
-                    SET item_qty = %s
-                    FROM {schema}.transfer t
-                    WHERE ti.transfer_id = %s
-                      AND ti.item_id = %s
-                      AND t.transfer_id = ti.transfer_id
-                      AND t.needs_list_id = %s
-                      AND t.status_code = 'P'
-                    """,
-                    [item["item_qty"], transfer_id, item["item_id"], needs_list_id],
-                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found_for_needs_list")
+                    return warnings
+                if str(row[0]) != "P":
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return warnings
+
+                if updates.get("reason"):
+                    cursor.execute(
+                        f"""
+                        UPDATE {schema}.transfer
+                        SET reason_text = %s
+                        WHERE transfer_id = %s
+                          AND needs_list_id = %s
+                          AND status_code = 'P'
+                        """,
+                        [updates["reason"], transfer_id, needs_list_id],
+                    )
+                for item in updates.get("items", []):
+                    cursor.execute(
+                        f"""
+                        UPDATE {schema}.transfer_item ti
+                        SET item_qty = %s
+                        FROM {schema}.transfer t
+                        WHERE ti.transfer_id = %s
+                          AND ti.item_id = %s
+                          AND t.transfer_id = ti.transfer_id
+                          AND t.needs_list_id = %s
+                          AND t.status_code = 'P'
+                        """,
+                        [item["item_qty"], transfer_id, item["item_id"], needs_list_id],
+                    )
     except DatabaseError as exc:
         logger.warning("Update transfer draft failed: %s", exc)
-        try:
-            connection.rollback()
-        except Exception as rollback_exc:
-            logger.warning("DB rollback failed: %s", rollback_exc)
         warnings.append("db_error_update_transfer")
     return warnings
 
