@@ -4390,3 +4390,45 @@ class ProcurementNumberGenerationTests(TestCase):
                 )
 
         self.assertEqual(ctx.exception.code, "duplicate_procurement_no")
+
+    def test_create_procurement_standalone_rejects_invalid_unit_price(self) -> None:
+        procurement_count = Procurement.objects.count()
+
+        with self.assertRaises(procurement_service.ProcurementError) as ctx:
+            procurement_service.create_procurement_standalone(
+                event_id=1,
+                target_warehouse_id=1,
+                items=[
+                    {
+                        "item_id": 100,
+                        "ordered_qty": 2,
+                        "unit_price": {"value": "bad"},
+                    }
+                ],
+                actor_id="tester",
+            )
+
+        self.assertEqual(ctx.exception.code, "invalid_unit_price")
+        self.assertIn("item 100", ctx.exception.message)
+        self.assertEqual(Procurement.objects.count(), procurement_count)
+
+    def test_create_procurement_standalone_rejects_invalid_ordered_qty(self) -> None:
+        procurement_count = Procurement.objects.count()
+
+        with self.assertRaises(procurement_service.ProcurementError) as ctx:
+            procurement_service.create_procurement_standalone(
+                event_id=1,
+                target_warehouse_id=1,
+                items=[
+                    {
+                        "item_id": 100,
+                        "ordered_qty": {"qty": "bad"},
+                        "unit_price": "3.00",
+                    }
+                ],
+                actor_id="tester",
+            )
+
+        self.assertEqual(ctx.exception.code, "invalid_ordered_qty")
+        self.assertIn("item 100", ctx.exception.message)
+        self.assertEqual(Procurement.objects.count(), procurement_count)

@@ -381,19 +381,40 @@ def create_procurement_standalone(
         )
 
     for line in items:
-        unit_price = None
-        if line.get("unit_price") is not None:
-            try:
-                unit_price = Decimal(str(line["unit_price"]))
-            except (InvalidOperation, ValueError):
-                pass
+        raw_item_id = line.get("item_id")
+        try:
+            item_id = int(raw_item_id)
+        except (TypeError, ValueError):
+            raise ProcurementError(
+                f"Invalid item_id for line item: {raw_item_id!r}.",
+                code="invalid_item_id",
+            )
 
-        ordered_qty = Decimal(str(line.get("ordered_qty", 0)))
+        unit_price = None
+        raw_unit_price = line.get("unit_price")
+        if raw_unit_price is not None:
+            try:
+                unit_price = Decimal(str(raw_unit_price))
+            except (InvalidOperation, ValueError, TypeError):
+                raise ProcurementError(
+                    f"Invalid unit_price for item {item_id}: {raw_unit_price!r}.",
+                    code="invalid_unit_price",
+                )
+
+        raw_ordered_qty = line.get("ordered_qty", 0)
+        try:
+            ordered_qty = Decimal(str(raw_ordered_qty))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ProcurementError(
+                f"Invalid ordered_qty for item {item_id}: {raw_ordered_qty!r}.",
+                code="invalid_ordered_qty",
+            )
+
         line_total = (ordered_qty * unit_price) if unit_price is not None else None
 
         ProcurementItem.objects.create(
             procurement=proc,
-            item_id=int(line["item_id"]),
+            item_id=item_id,
             ordered_qty=ordered_qty,
             unit_price=unit_price,
             line_total=line_total,
