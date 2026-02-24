@@ -79,12 +79,16 @@ export class TransferDraftsComponent {
 
   generateDrafts(): void {
     this.generating.set(true);
-    this.replenishmentService.generateTransfers(this.needsListId).subscribe({
+    this.replenishmentService.generateTransfers(this.needsListId).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
       next: (response) => {
-        this.transfers.set(response.transfers || []);
-        this.buildEditableItems(response.transfers || []);
+        const transfers = response.transfers || [];
+        const count = (response.transfers ?? []).length;
+        this.transfers.set(transfers);
+        this.buildEditableItems(transfers);
         this.generating.set(false);
-        this.notifications.showSuccess(`Generated ${response.transfers.length} draft transfer(s).`);
+        this.notifications.showSuccess(`Generated ${count} draft transfer(s).`);
       },
       error: () => {
         this.generating.set(false);
@@ -111,7 +115,9 @@ export class TransferDraftsComponent {
     this.replenishmentService.updateTransferDraft(this.needsListId, transferId, {
       reason,
       items: changed.map(i => ({ item_id: i.item_id, item_qty: i.adjusted_qty }))
-    }).subscribe({
+    }).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
       next: () => {
         this.notifications.showSuccess('Transfer draft updated.');
         this.loadTransfers();
@@ -124,7 +130,9 @@ export class TransferDraftsComponent {
 
   confirmTransfer(transferId: number): void {
     this.confirmingId.set(transferId);
-    this.replenishmentService.confirmTransfer(this.needsListId, transferId).subscribe({
+    this.replenishmentService.confirmTransfer(this.needsListId, transferId).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
       next: () => {
         this.confirmingId.set(null);
         this.notifications.showSuccess('Transfer confirmed and dispatched.');
@@ -159,7 +167,9 @@ export class TransferDraftsComponent {
     this.loading.set(true);
     this.error.set(false);
 
-    this.replenishmentService.getTransfers(this.needsListId).subscribe({
+    this.replenishmentService.getTransfers(this.needsListId).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
       next: (response) => {
         this.transfers.set(response.transfers || []);
         this.buildEditableItems(response.transfers || []);
