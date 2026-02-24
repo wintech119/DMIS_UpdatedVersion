@@ -4210,3 +4210,155 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertIn(line_one.procurement_item_id, remaining_item_ids)
         self.assertNotIn(line_two.procurement_item_id, remaining_item_ids)
         self.assertEqual(proc.total_value, Decimal("10.00"))
+
+
+class ProcurementNumberGenerationTests(TestCase):
+    def _create_needs_list_with_horizon_c(self, needs_list_no: str) -> NeedsList:
+        needs_list = NeedsList.objects.create(
+            needs_list_no=needs_list_no,
+            event_id=1,
+            warehouse_id=1,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=Decimal("1.25"),
+            data_freshness_level="HIGH",
+            status_code="APPROVED",
+            total_gap_qty=Decimal("5.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsListItem.objects.create(
+            needs_list=needs_list,
+            item_id=123,
+            uom_code="EA",
+            burn_rate=Decimal("1.0000"),
+            burn_rate_source="CALCULATED",
+            available_stock=Decimal("0.00"),
+            reserved_qty=Decimal("0.00"),
+            inbound_transfer_qty=Decimal("0.00"),
+            inbound_donation_qty=Decimal("0.00"),
+            inbound_procurement_qty=Decimal("0.00"),
+            required_qty=Decimal("5.00"),
+            coverage_qty=Decimal("0.00"),
+            gap_qty=Decimal("5.00"),
+            time_to_stockout_hours=Decimal("1.00"),
+            severity_level="CRITICAL",
+            horizon_a_qty=Decimal("0.00"),
+            horizon_b_qty=Decimal("0.00"),
+            horizon_c_qty=Decimal("5.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        return needs_list
+
+    def test_generate_procurement_no_uses_numeric_max_sequence(self) -> None:
+        today = timezone.now().strftime("%Y%m%d")
+        prefix = f"PROC-{today}-"
+        Procurement.objects.create(
+            procurement_no=f"{prefix}999",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        Procurement.objects.create(
+            procurement_no=f"{prefix}1000",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        generated = procurement_service.generate_procurement_no()
+        self.assertEqual(generated, f"{prefix}1001")
+
+    @patch("replenishment.services.procurement.time.sleep", return_value=None)
+    def test_create_procurement_standalone_retries_duplicate_procurement_no(self, _mock_sleep) -> None:
+        today = timezone.now().strftime("%Y%m%d")
+        duplicate_no = f"PROC-{today}-001"
+        next_no = f"PROC-{today}-002"
+        Procurement.objects.create(
+            procurement_no=duplicate_no,
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with patch(
+            "replenishment.services.procurement.generate_procurement_no",
+            side_effect=[duplicate_no, next_no],
+        ):
+            created = procurement_service.create_procurement_standalone(
+                event_id=1,
+                target_warehouse_id=1,
+                items=[{"item_id": 100, "ordered_qty": 2, "unit_price": 3}],
+                actor_id="tester",
+            )
+
+        self.assertEqual(created.get("procurement_no"), next_no)
+        self.assertTrue(Procurement.objects.filter(procurement_no=next_no).exists())
+
+    @patch("replenishment.services.procurement.time.sleep", return_value=None)
+    def test_create_procurement_from_needs_list_retries_duplicate_procurement_no(self, _mock_sleep) -> None:
+        needs_list = self._create_needs_list_with_horizon_c("NL-PROC-RETRY-001")
+        today = timezone.now().strftime("%Y%m%d")
+        duplicate_no = f"PROC-{today}-010"
+        next_no = f"PROC-{today}-011"
+        Procurement.objects.create(
+            procurement_no=duplicate_no,
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with patch(
+            "replenishment.services.procurement.generate_procurement_no",
+            side_effect=[duplicate_no, next_no],
+        ):
+            created = procurement_service.create_procurement_from_needs_list(
+                needs_list.needs_list_no,
+                actor_id="tester",
+            )
+
+        self.assertEqual(created.get("procurement_no"), next_no)
+        self.assertTrue(Procurement.objects.filter(procurement_no=next_no).exists())
+
+    @patch("replenishment.services.procurement.time.sleep", return_value=None)
+    def test_create_procurement_standalone_raises_after_retry_exhaustion(self, _mock_sleep) -> None:
+        today = timezone.now().strftime("%Y%m%d")
+        duplicate_no = f"PROC-{today}-050"
+        Procurement.objects.create(
+            procurement_no=duplicate_no,
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with patch(
+            "replenishment.services.procurement.generate_procurement_no",
+            side_effect=[duplicate_no, duplicate_no, duplicate_no],
+        ):
+            with self.assertRaises(procurement_service.ProcurementError) as ctx:
+                procurement_service.create_procurement_standalone(
+                    event_id=1,
+                    target_warehouse_id=1,
+                    items=[{"item_id": 100, "ordered_qty": 2, "unit_price": 3}],
+                    actor_id="tester",
+                )
+
+        self.assertEqual(ctx.exception.code, "duplicate_procurement_no")

@@ -7,12 +7,15 @@ All state transitions are validated and audit-logged.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
-from django.db import transaction
-from django.db.models import Sum
+from django.db import IntegrityError, connection, transaction
+from django.db.models import IntegerField, Max, Sum
+from django.db.models.functions import Cast, Length, Substr
 from django.utils import timezone
 
 from replenishment import rules
@@ -25,6 +28,9 @@ from replenishment.models import (
 )
 
 logger = logging.getLogger("dmis.audit")
+
+_PROCUREMENT_NO_RETRY_ATTEMPTS = 3
+_PROCUREMENT_NO_RETRY_BACKOFF_SECONDS = 0.02
 
 # Valid status transitions
 _VALID_TRANSITIONS = {
@@ -53,20 +59,29 @@ def generate_procurement_no() -> str:
     """Generate a unique procurement number: PROC-{YYYYMMDD}-{SEQ}."""
     today = timezone.now().strftime("%Y%m%d")
     prefix = f"PROC-{today}-"
-    last = (
-        Procurement.objects.filter(procurement_no__startswith=prefix)
-        .order_by("-procurement_no")
-        .values_list("procurement_no", flat=True)
-        .first()
-    )
-    if last:
-        try:
-            seq = int(last.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            seq = 1
+    suffix_start = len(prefix) + 1  # Substr is 1-indexed in SQL backends.
+
+    queryset = Procurement.objects.filter(procurement_no__startswith=prefix)
+    if connection.vendor == "postgresql":
+        # Avoid invalid integer casts by accepting only strictly numeric suffixes.
+        pattern = rf"^{re.escape(prefix)}\d+$"
+        queryset = queryset.filter(procurement_no__regex=pattern)
     else:
-        seq = 1
+        # SQLite does not guarantee regex support; keep prefix + length guard.
+        queryset = queryset.annotate(no_len=Length("procurement_no")).filter(no_len__gt=len(prefix))
+
+    max_seq = queryset.annotate(
+        seq_num=Cast(Substr("procurement_no", suffix_start), IntegerField())
+    ).aggregate(
+        max_seq=Max("seq_num")
+    ).get("max_seq")
+    seq = int(max_seq or 0) + 1
     return f"{prefix}{seq:03d}"
+
+
+def _is_procurement_no_conflict(exc: IntegrityError) -> bool:
+    message = str(exc).lower()
+    return "procurement_no" in message and ("unique" in message or "duplicate" in message)
 
 
 def _validate_transition(current: str, target: str) -> None:
@@ -252,16 +267,37 @@ def create_procurement_from_needs_list(
             code="no_horizon_c_items",
         )
 
-    proc = Procurement.objects.create(
-        procurement_no=generate_procurement_no(),
-        needs_list=nl,
-        event_id=nl.event_id,
-        target_warehouse_id=nl.warehouse_id,
-        procurement_method="SINGLE_SOURCE",
-        status_code="DRAFT",
-        create_by_id=actor_id,
-        update_by_id=actor_id,
-    )
+    proc: Procurement | None = None
+    for attempt in range(_PROCUREMENT_NO_RETRY_ATTEMPTS):
+        try:
+            # Use a savepoint so duplicate-number collisions can retry safely.
+            with transaction.atomic():
+                proc = Procurement.objects.create(
+                    procurement_no=generate_procurement_no(),
+                    needs_list=nl,
+                    event_id=nl.event_id,
+                    target_warehouse_id=nl.warehouse_id,
+                    procurement_method="SINGLE_SOURCE",
+                    status_code="DRAFT",
+                    create_by_id=actor_id,
+                    update_by_id=actor_id,
+                )
+            break
+        except IntegrityError as exc:
+            if not _is_procurement_no_conflict(exc):
+                raise
+            if attempt >= _PROCUREMENT_NO_RETRY_ATTEMPTS - 1:
+                raise ProcurementError(
+                    "Failed to generate a unique procurement number. Please retry.",
+                    code="duplicate_procurement_no",
+                ) from exc
+            time.sleep(_PROCUREMENT_NO_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    if proc is None:
+        raise ProcurementError(
+            "Failed to generate a unique procurement number. Please retry.",
+            code="duplicate_procurement_no",
+        )
 
     for nli in horizon_c_items:
         ProcurementItem.objects.create(
@@ -311,17 +347,38 @@ def create_procurement_standalone(
         except Supplier.DoesNotExist:
             raise ProcurementError("Supplier not found or inactive.", code="invalid_supplier")
 
-    proc = Procurement.objects.create(
-        procurement_no=generate_procurement_no(),
-        event_id=event_id,
-        target_warehouse_id=target_warehouse_id,
-        supplier=supplier,
-        procurement_method=procurement_method or "SINGLE_SOURCE",
-        status_code="DRAFT",
-        notes_text=notes,
-        create_by_id=actor_id,
-        update_by_id=actor_id,
-    )
+    proc: Procurement | None = None
+    for attempt in range(_PROCUREMENT_NO_RETRY_ATTEMPTS):
+        try:
+            # Use a savepoint so duplicate-number collisions can retry safely.
+            with transaction.atomic():
+                proc = Procurement.objects.create(
+                    procurement_no=generate_procurement_no(),
+                    event_id=event_id,
+                    target_warehouse_id=target_warehouse_id,
+                    supplier=supplier,
+                    procurement_method=procurement_method or "SINGLE_SOURCE",
+                    status_code="DRAFT",
+                    notes_text=notes,
+                    create_by_id=actor_id,
+                    update_by_id=actor_id,
+                )
+            break
+        except IntegrityError as exc:
+            if not _is_procurement_no_conflict(exc):
+                raise
+            if attempt >= _PROCUREMENT_NO_RETRY_ATTEMPTS - 1:
+                raise ProcurementError(
+                    "Failed to generate a unique procurement number. Please retry.",
+                    code="duplicate_procurement_no",
+                ) from exc
+            time.sleep(_PROCUREMENT_NO_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    if proc is None:
+        raise ProcurementError(
+            "Failed to generate a unique procurement number. Please retry.",
+            code="duplicate_procurement_no",
+        )
 
     for line in items:
         unit_price = None
