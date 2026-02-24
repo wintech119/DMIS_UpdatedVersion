@@ -97,12 +97,12 @@ def _compute_total_value(procurement: Procurement) -> Decimal:
     """Recalculate total value from line items."""
     total = Decimal("0.00")
     for item in procurement.items.all():
-        if item.unit_price is not None and item.ordered_qty:
+        if item.unit_price is not None and item.ordered_qty is not None:
             line = item.ordered_qty * item.unit_price
             item.line_total = line
             item.save(update_fields=["line_total", "update_dtime"])
             total += line
-        elif item.line_total:
+        elif item.line_total is not None:
             total += item.line_total
     return total
 

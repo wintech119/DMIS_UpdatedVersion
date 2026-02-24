@@ -4211,6 +4211,34 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertNotIn(line_two.procurement_item_id, remaining_item_ids)
         self.assertEqual(proc.total_value, Decimal("10.00"))
 
+    def test_compute_total_value_recalculates_zero_ordered_qty_lines(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-003",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=300,
+            ordered_qty=Decimal("0.00"),
+            unit_price=Decimal("5.00"),
+            # Seed an incorrect persisted value to ensure recomputation happens.
+            line_total=Decimal("99.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        total = procurement_service._compute_total_value(proc)
+        line.refresh_from_db()
+
+        self.assertEqual(total, Decimal("0.00"))
+        self.assertEqual(line.line_total, Decimal("0.00"))
+
 
 class ProcurementNumberGenerationTests(TestCase):
     def _create_needs_list_with_horizon_c(self, needs_list_no: str) -> NeedsList:
