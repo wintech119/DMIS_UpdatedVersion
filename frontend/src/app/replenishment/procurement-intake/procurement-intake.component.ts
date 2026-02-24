@@ -20,8 +20,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { filter } from 'rxjs/operators';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { filter, map, startWith } from 'rxjs/operators';
 
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
@@ -41,6 +41,11 @@ import {
 interface LineItemFormGroup {
   procurement_item_id: FormControl<number>;
   qty_to_receive: FormControl<number>;
+}
+
+interface LineItemFormValue {
+  procurement_item_id: number;
+  qty_to_receive: number;
 }
 
 @Component({
@@ -77,6 +82,18 @@ export class ProcurementIntakeComponent {
   readonly statusColors = PROCUREMENT_STATUS_COLORS;
 
   readonly lineItemsForm = new FormArray<FormGroup<LineItemFormGroup>>([]);
+  private readonly lineItemsFormValues = toSignal<LineItemFormValue[]>(
+    this.lineItemsForm.valueChanges.pipe(
+      startWith(this.lineItemsForm.getRawValue()),
+      map((values) =>
+        values.map((value) => ({
+          procurement_item_id: Number(value?.procurement_item_id ?? 0),
+          qty_to_receive: Number(value?.qty_to_receive ?? 0),
+        }))
+      )
+    ),
+    { initialValue: this.lineItemsForm.getRawValue() }
+  );
 
   private procId = 0;
 
@@ -93,10 +110,11 @@ export class ProcurementIntakeComponent {
   /** Count of line items where qty_to_receive > 0 */
   readonly receivingCount = computed(() => {
     const items = this.lineItems();
+    const formValues = this.lineItemsFormValues();
     let count = 0;
     for (let i = 0; i < items.length; i++) {
-      const group = this.lineItemsForm.at(i);
-      if (group && group.controls.qty_to_receive.value > 0) {
+      const qtyToReceive = formValues[i]?.qty_to_receive ?? 0;
+      if (qtyToReceive > 0) {
         count++;
       }
     }
@@ -107,12 +125,14 @@ export class ProcurementIntakeComponent {
   readonly canSubmit = computed(() => {
     if (this.submitting()) return false;
     const items = this.lineItems();
+    const formValues = this.lineItemsFormValues();
     if (items.length === 0) return false;
     let hasQty = false;
     for (let i = 0; i < items.length; i++) {
       const group = this.lineItemsForm.at(i);
       if (!group || group.invalid) return false;
-      if (group.controls.qty_to_receive.value > 0) {
+      const qtyToReceive = formValues[i]?.qty_to_receive ?? 0;
+      if (qtyToReceive > 0) {
         hasQty = true;
       }
     }
