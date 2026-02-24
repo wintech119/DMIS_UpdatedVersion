@@ -4358,6 +4358,41 @@ class ProcurementPermissionApiTests(TestCase):
         )
         self.assertEqual(post_response.status_code, 403)
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.approve_procurement")
+    @patch("replenishment.views.Procurement.objects.get")
+    def test_procurement_approve_blocks_submitter_self_approval(
+        self,
+        mock_get_procurement,
+        mock_approve_procurement,
+    ) -> None:
+        mock_get_procurement.return_value = MagicMock(
+            create_by_id="submitter-1",
+            status_code="PENDING_APPROVAL",
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/procurement/123/approve",
+            {"notes": "Looks good"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"approval": "Approver must be different from submitter."}},
+        )
+        mock_get_procurement.assert_called_once_with(procurement_id=123)
+        mock_approve_procurement.assert_not_called()
+
 
 class ProcurementDraftUpdateTests(TestCase):
     def test_update_procurement_draft_clears_line_total_when_price_removed(self) -> None:

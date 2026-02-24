@@ -3273,6 +3273,7 @@ from api.rbac import (
     PERM_PROCUREMENT_RECEIVE,
     PERM_PROCUREMENT_CANCEL,
 )
+from replenishment.models import Procurement
 from replenishment.services import procurement as procurement_service
 from replenishment.services.procurement import ProcurementError
 
@@ -3398,11 +3399,17 @@ def procurement_submit(request, procurement_id: int):
 def procurement_approve(request, procurement_id: int):
     """Approve a procurement order."""
     try:
-        current = procurement_service.get_procurement(procurement_id)
+        actor = _actor_id(request)
+        proc = Procurement.objects.get(procurement_id=procurement_id)
+        if proc.create_by_id == actor:
+            return Response(
+                {"errors": {"approval": "Approver must be different from submitter."}},
+                status=409,
+            )
         notes = request.data.get("notes", "")
         result = procurement_service.approve_procurement(
             procurement_id,
-            _actor_id(request),
+            actor,
             notes=notes,
         )
         _log_audit_event(
@@ -3411,11 +3418,13 @@ def procurement_approve(request, procurement_id: int):
             event_type="STATE_CHANGE",
             action="APPROVE_PROCUREMENT",
             procurement_id=procurement_id,
-            from_status=current.get("status_code"),
+            from_status=proc.status_code,
             to_status=result.get("status_code"),
             notes=notes,
         )
         return Response(result)
+    except Procurement.DoesNotExist:
+        return Response({"errors": {"not_found": "Procurement not found."}}, status=404)
     except ProcurementError as exc:
         status_code = 404 if exc.code == "not_found" else 400
         return Response({"errors": {exc.code: exc.message}}, status=status_code)
