@@ -336,13 +336,22 @@ def resolve_submitter_roles(record: Dict[str, object] | None) -> set[str]:
     if not _table_columns("user_role") or not _table_columns("role"):
         return set()
 
+    if connection.vendor == "postgresql":
+        schema = _schema_name()
+        quoted_schema = connection.ops.quote_name(schema)
+        user_role_table = f"{quoted_schema}.{connection.ops.quote_name('user_role')}"
+        role_table = f"{quoted_schema}.{connection.ops.quote_name('role')}"
+    else:
+        user_role_table = connection.ops.quote_name("user_role")
+        role_table = connection.ops.quote_name("role")
+
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT DISTINCT r.code
-                FROM user_role ur
-                JOIN role r ON r.id = ur.role_id
+                FROM {user_role_table} ur
+                JOIN {role_table} r ON r.id = ur.role_id
                 WHERE ur.user_id = %s
                 """,
                 [user_id],
