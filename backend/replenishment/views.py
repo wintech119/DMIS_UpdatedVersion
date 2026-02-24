@@ -156,6 +156,36 @@ def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
 
 
+def _audit_username(request) -> str | None:
+    return getattr(request.user, "username", None)
+
+
+def _log_audit_event(
+    event_name: str,
+    request,
+    *,
+    event_type: str,
+    action: str,
+    procurement_id: int | None = None,
+    supplier_id: int | None = None,
+    from_status: str | None = None,
+    to_status: str | None = None,
+    **context: object,
+) -> None:
+    extra = {
+        "event_type": event_type,
+        "user_id": _actor_id(request),
+        "username": _audit_username(request),
+        "action": action,
+        "procurement_id": procurement_id,
+        "supplier_id": supplier_id,
+        "from_status": from_status,
+        "to_status": to_status,
+    }
+    extra.update(context)
+    logger.info(event_name, extra=extra)
+
+
 def _normalize_actor(value: object) -> str:
     return str(value or "").strip().lower()
 
@@ -3271,6 +3301,17 @@ def procurement_list_create(request):
             result = procurement_service.create_procurement_from_needs_list(
                 needs_list_id, actor
             )
+            _log_audit_event(
+                "procurement_created_from_needs_list",
+                request,
+                event_type="CREATE",
+                action="CREATE_PROCUREMENT_FROM_NEEDS_LIST",
+                procurement_id=result.get("procurement_id"),
+                from_status=None,
+                to_status=result.get("status_code"),
+                needs_list_id=needs_list_id,
+                procurement_method=result.get("procurement_method"),
+            )
         else:
             result = procurement_service.create_procurement_standalone(
                 event_id=int(data["event_id"]),
@@ -3279,6 +3320,20 @@ def procurement_list_create(request):
                 actor_id=actor,
                 procurement_method=data.get("procurement_method", "SINGLE_SOURCE"),
                 supplier_id=data.get("supplier_id"),
+                notes=data.get("notes", ""),
+            )
+            _log_audit_event(
+                "procurement_created_standalone",
+                request,
+                event_type="CREATE",
+                action="CREATE_PROCUREMENT_STANDALONE",
+                procurement_id=result.get("procurement_id"),
+                from_status=None,
+                to_status=result.get("status_code"),
+                event_id=result.get("event_id"),
+                target_warehouse_id=result.get("target_warehouse_id"),
+                supplier_id=(result.get("supplier") or {}).get("supplier_id"),
+                procurement_method=result.get("procurement_method"),
                 notes=data.get("notes", ""),
             )
         return Response(result, status=201)
@@ -3316,8 +3371,20 @@ def procurement_detail(request, procurement_id: int):
 def procurement_submit(request, procurement_id: int):
     """Submit procurement for approval."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
         result = procurement_service.submit_procurement(
             procurement_id, _actor_id(request)
+        )
+        _log_audit_event(
+            "procurement_submitted",
+            request,
+            event_type="STATE_CHANGE",
+            action="SUBMIT_PROCUREMENT",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            item_count=len(result.get("items", [])),
+            total_value=result.get("total_value"),
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3331,10 +3398,22 @@ def procurement_submit(request, procurement_id: int):
 def procurement_approve(request, procurement_id: int):
     """Approve a procurement order."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
+        notes = request.data.get("notes", "")
         result = procurement_service.approve_procurement(
             procurement_id,
             _actor_id(request),
-            notes=request.data.get("notes", ""),
+            notes=notes,
+        )
+        _log_audit_event(
+            "procurement_approved",
+            request,
+            event_type="STATE_CHANGE",
+            action="APPROVE_PROCUREMENT",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            notes=notes,
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3348,9 +3427,20 @@ def procurement_approve(request, procurement_id: int):
 def procurement_reject(request, procurement_id: int):
     """Reject a procurement order."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
         reason = request.data.get("reason", "")
         result = procurement_service.reject_procurement(
             procurement_id, _actor_id(request), reason
+        )
+        _log_audit_event(
+            "procurement_rejected",
+            request,
+            event_type="STATE_CHANGE",
+            action="REJECT_PROCUREMENT",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            reason=reason,
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3364,9 +3454,20 @@ def procurement_reject(request, procurement_id: int):
 def procurement_mark_ordered(request, procurement_id: int):
     """Mark procurement as ordered with a PO number."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
         po_number = request.data.get("po_number", "")
         result = procurement_service.mark_ordered(
             procurement_id, po_number, _actor_id(request)
+        )
+        _log_audit_event(
+            "procurement_marked_ordered",
+            request,
+            event_type="STATE_CHANGE",
+            action="MARK_PROCUREMENT_ORDERED",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            po_number=result.get("po_number") or po_number,
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3380,11 +3481,25 @@ def procurement_mark_ordered(request, procurement_id: int):
 def procurement_mark_shipped(request, procurement_id: int):
     """Mark procurement as shipped."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
+        shipped_at = request.data.get("shipped_at")
+        expected_arrival = request.data.get("expected_arrival")
         result = procurement_service.mark_shipped(
             procurement_id,
-            shipped_at=request.data.get("shipped_at"),
-            expected_arrival=request.data.get("expected_arrival"),
+            shipped_at=shipped_at,
+            expected_arrival=expected_arrival,
             actor_id=_actor_id(request),
+        )
+        _log_audit_event(
+            "procurement_marked_shipped",
+            request,
+            event_type="STATE_CHANGE",
+            action="MARK_PROCUREMENT_SHIPPED",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            shipped_at=result.get("shipped_at") or shipped_at,
+            expected_arrival=result.get("expected_arrival") or expected_arrival,
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3398,9 +3513,27 @@ def procurement_mark_shipped(request, procurement_id: int):
 def procurement_receive(request, procurement_id: int):
     """Record received quantities for procurement items."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
         receipts = request.data.get("receipts", [])
+        received_qty_total = 0.0
+        for receipt in receipts:
+            try:
+                received_qty_total += float(receipt.get("received_qty") or 0)
+            except (TypeError, ValueError):
+                continue
         result = procurement_service.receive_items(
             procurement_id, receipts, _actor_id(request)
+        )
+        _log_audit_event(
+            "procurement_received",
+            request,
+            event_type="STATE_CHANGE",
+            action="RECEIVE_PROCUREMENT_ITEMS",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            receipt_count=len(receipts),
+            received_qty_total=round(received_qty_total, 2),
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3414,9 +3547,20 @@ def procurement_receive(request, procurement_id: int):
 def procurement_cancel(request, procurement_id: int):
     """Cancel a procurement order."""
     try:
+        current = procurement_service.get_procurement(procurement_id)
         reason = request.data.get("reason", "")
         result = procurement_service.cancel_procurement(
             procurement_id, reason, _actor_id(request)
+        )
+        _log_audit_event(
+            "procurement_cancelled",
+            request,
+            event_type="STATE_CHANGE",
+            action="CANCEL_PROCUREMENT",
+            procurement_id=procurement_id,
+            from_status=current.get("status_code"),
+            to_status=result.get("status_code"),
+            reason=reason,
         )
         return Response(result)
     except ProcurementError as exc:
@@ -3438,6 +3582,16 @@ def supplier_list_create(request):
 
     try:
         result = procurement_service.create_supplier(request.data, _actor_id(request))
+        _log_audit_event(
+            "supplier_created",
+            request,
+            event_type="CREATE",
+            action="CREATE_SUPPLIER",
+            supplier_id=result.get("supplier_id"),
+            from_status=None,
+            to_status=result.get("status_code"),
+            supplier_code=result.get("supplier_code"),
+        )
         return Response(result, status=201)
     except ProcurementError as exc:
         return Response({"errors": {exc.code: exc.message}}, status=400)
@@ -3453,8 +3607,19 @@ def supplier_detail(request, supplier_id: int):
             result = procurement_service.get_supplier(supplier_id)
             return Response(result)
         else:
+            current = procurement_service.get_supplier(supplier_id)
             result = procurement_service.update_supplier(
                 supplier_id, request.data, _actor_id(request)
+            )
+            _log_audit_event(
+                "supplier_updated",
+                request,
+                event_type="UPDATE",
+                action="UPDATE_SUPPLIER",
+                supplier_id=supplier_id,
+                from_status=current.get("status_code"),
+                to_status=result.get("status_code"),
+                supplier_code=result.get("supplier_code"),
             )
             return Response(result)
     except ProcurementError as exc:
