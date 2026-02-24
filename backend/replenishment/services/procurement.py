@@ -769,6 +769,7 @@ def receive_items(
         raise ProcurementError("No receipt lines provided.", code="no_receipts")
 
     for receipt in line_receipts:
+        procurement_item_id = receipt.get("procurement_item_id")
         try:
             pi = ProcurementItem.objects.get(
                 procurement_item_id=int(receipt["procurement_item_id"]),
@@ -776,11 +777,17 @@ def receive_items(
             )
         except ProcurementItem.DoesNotExist:
             raise ProcurementError(
-                f"Procurement item {receipt.get('procurement_item_id')} not found.",
+                f"Procurement item {procurement_item_id} not found.",
                 code="item_not_found",
             )
-
-        received_qty = Decimal(str(receipt.get("received_qty", 0)))
+        try:
+            received_qty = Decimal(str(receipt.get("received_qty", 0)))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ProcurementError(
+                f"Invalid received_qty for procurement item {procurement_item_id}: "
+                f"{receipt.get('received_qty')!r}.",
+                code="invalid_quantity",
+            )
         if received_qty <= 0:
             continue
 

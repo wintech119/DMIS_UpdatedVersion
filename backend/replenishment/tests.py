@@ -4575,6 +4575,42 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertEqual(line.line_total, Decimal("0.00"))
 
 
+class ProcurementReceiveItemsTests(TestCase):
+    def test_receive_items_rejects_invalid_received_qty(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-RECV-001",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="SHIPPED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=999,
+            ordered_qty=Decimal("5.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with self.assertRaises(procurement_service.ProcurementError) as raised:
+            procurement_service.receive_items(
+                proc.procurement_id,
+                [
+                    {
+                        "procurement_item_id": line.procurement_item_id,
+                        "received_qty": "abc",
+                    }
+                ],
+                actor_id="receiver",
+            )
+
+        self.assertEqual(raised.exception.code, "invalid_quantity")
+        self.assertIn(str(line.procurement_item_id), raised.exception.message)
+
+
 class ProcurementNumberGenerationTests(TestCase):
     def _create_needs_list_with_horizon_c(self, needs_list_no: str) -> NeedsList:
         needs_list = NeedsList.objects.create(
