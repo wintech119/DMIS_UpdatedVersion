@@ -413,6 +413,9 @@ export class ProcurementFormComponent implements OnInit {
   }
 
   submitForApproval(): void {
+    if (this.headerForm.invalid) {
+      return;
+    }
     if (!this.validateForm()) return;
 
     const proc = this.procurement();

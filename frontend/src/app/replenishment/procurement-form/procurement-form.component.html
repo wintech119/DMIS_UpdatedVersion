@@ -409,7 +409,7 @@
             color="primary"
             type="button"
             (click)="submitForApproval()"
-            [disabled]="saving() || submitting() || !hasLineItems()"
+            [disabled]="saving() || submitting() || !hasLineItems() || !headerForm.valid"
             class="submit-btn">
             @if (submitting()) {
               <mat-icon class="spin-icon">sync</mat-icon>
