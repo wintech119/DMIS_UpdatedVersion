@@ -3436,8 +3436,11 @@ def procurement_approve(request, procurement_id: int):
 def procurement_reject(request, procurement_id: int):
     """Reject a procurement order."""
     try:
+        reason = str(request.data.get("reason") or "")
+        if not reason.strip():
+            return Response({"errors": {"reason": "required"}}, status=400)
+
         current = procurement_service.get_procurement(procurement_id)
-        reason = request.data.get("reason", "")
         result = procurement_service.reject_procurement(
             procurement_id, _actor_id(request), reason
         )
@@ -3556,8 +3559,11 @@ def procurement_receive(request, procurement_id: int):
 def procurement_cancel(request, procurement_id: int):
     """Cancel a procurement order."""
     try:
+        reason = str(request.data.get("reason") or "")
+        if not reason.strip():
+            return Response({"errors": {"reason": "required"}}, status=400)
+
         current = procurement_service.get_procurement(procurement_id)
-        reason = request.data.get("reason", "")
         result = procurement_service.cancel_procurement(
             procurement_id, reason, _actor_id(request)
         )

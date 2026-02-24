@@ -4393,6 +4393,60 @@ class ProcurementPermissionApiTests(TestCase):
         mock_get_procurement.assert_called_once_with(procurement_id=123)
         mock_approve_procurement.assert_not_called()
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="approver-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.reject"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.get_procurement")
+    @patch("replenishment.views.procurement_service.reject_procurement")
+    def test_procurement_reject_requires_non_empty_reason(
+        self,
+        mock_reject_procurement,
+        mock_get_procurement,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/procurement/123/reject",
+            {"reason": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"reason": "required"}})
+        mock_get_procurement.assert_not_called()
+        mock_reject_procurement.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="logistics-1",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.cancel"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.get_procurement")
+    @patch("replenishment.views.procurement_service.cancel_procurement")
+    def test_procurement_cancel_requires_non_empty_reason(
+        self,
+        mock_cancel_procurement,
+        mock_get_procurement,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/procurement/123/cancel",
+            {"reason": "   "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"reason": "required"}})
+        mock_get_procurement.assert_not_called()
+        mock_cancel_procurement.assert_not_called()
+
 
 class ProcurementDraftUpdateTests(TestCase):
     def test_update_procurement_draft_clears_line_total_when_price_removed(self) -> None:
