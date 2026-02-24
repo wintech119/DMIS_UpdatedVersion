@@ -1146,6 +1146,38 @@ class NeedsListWorkflowApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    def test_donations_allocate_returns_not_implemented(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "snapshot": {"items": []},
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/donations/allocate",
+                [{"item_id": 1, "donation_id": 7, "allocated_qty": 2}],
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 501)
+        self.assertEqual(
+            response.json().get("errors", {}).get("donations"),
+            "donation_allocation_not_implemented",
+        )
+        self.assertIsNone(response.json().get("allocated_count"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     def test_procurement_export_reads_items_from_snapshot(self) -> None:
         record = {
             "needs_list_id": "NL-A",

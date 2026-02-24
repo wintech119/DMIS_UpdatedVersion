@@ -2958,7 +2958,6 @@ def needs_list_donations(request, needs_list_id: str):
 
     snapshot = workflow_store.apply_overrides(record)
     items = snapshot.get("items", [])
-    items = record.get("items", [])
 
     horizon_b_lines = []
     for item in items:
@@ -3002,7 +3001,7 @@ def needs_list_donations_allocate(request, needs_list_id: str):
         )
 
     logger.info(
-        "needs_list_donations_allocated",
+        "needs_list_donations_allocate_not_implemented",
         extra={
             "event_type": "EXECUTION",
             "user_id": getattr(request.user, "user_id", None),
@@ -3012,11 +3011,10 @@ def needs_list_donations_allocate(request, needs_list_id: str):
         },
     )
 
-    return Response({
-        "needs_list_id": needs_list_id,
-        "allocated_count": len(allocations),
-        "warnings": ["donation_allocation_not_yet_persisted"],
-    })
+    return Response(
+        {"errors": {"donations": "donation_allocation_not_implemented"}},
+        status=501,
+    )
 
 
 @api_view(["GET"])
