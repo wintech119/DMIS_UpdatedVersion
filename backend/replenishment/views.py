@@ -2317,11 +2317,13 @@ def needs_list_approve(request, needs_list_id: str):
     from api.rbac import resolve_roles_and_permissions
 
     roles, _ = resolve_roles_and_permissions(request, request.user)
-    role_set = {
-        str(role).strip().upper().replace("-", "_").replace(" ", "_")
-        for role in roles
-        if str(role).strip()
-    }
+    role_set: set[str] = set()
+    for role in roles:
+        normalized_role = str(role).strip().upper().replace("-", "_").replace(" ", "_")
+        while "__" in normalized_role:
+            normalized_role = normalized_role.replace("__", "_")
+        if normalized_role:
+            role_set.add(normalized_role)
     if not role_set.intersection(required_roles):
         return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 

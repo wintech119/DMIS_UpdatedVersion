@@ -393,7 +393,7 @@
             mat-flat-button
             type="button"
             (click)="saveDraft()"
-            [disabled]="saving() || submitting() || !hasLineItems()"
+            [disabled]="saving() || submitting() || !hasLineItems() || !headerForm.valid"
             class="save-btn">
             @if (saving()) {
               <mat-icon class="spin-icon">sync</mat-icon>

@@ -385,6 +385,10 @@ export class ProcurementFormComponent implements OnInit {
 
   // ── Save & Submit ──────────────────────────────────────────────────────────
   saveDraft(): void {
+    if (this.headerForm.invalid) {
+      this.headerForm.markAllAsTouched();
+      return;
+    }
     if (!this.validateForm()) return;
 
     const proc = this.procurement();
