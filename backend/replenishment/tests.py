@@ -6,13 +6,19 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from replenishment import rules, workflow_store, workflow_store_db
 from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
-from replenishment.services import approval as approval_service, needs_list, procurement as procurement_service
+from replenishment.services import (
+    approval as approval_service,
+    data_access,
+    needs_list,
+    procurement as procurement_service,
+)
 from replenishment.services.needs_list import (
     allocate_horizons,
     compute_confidence_and_warnings,
@@ -774,6 +780,53 @@ class NeedsListPreviewMultiApiTests(TestCase):
         body = response.json()
         self.assertEqual(len(body["warehouses"]), 1)
         self.assertEqual(body["warehouses"][0]["warehouse_name"], "Kingston Central")
+
+
+class DataAccessAtomicityTests(TestCase):
+    @patch("replenishment.services.data_access.get_transfers_for_needs_list")
+    @patch(
+        "replenishment.services.data_access.create_draft_transfer_with_items",
+        side_effect=DatabaseError("insert failed"),
+    )
+    @patch("replenishment.services.data_access._schema_name", return_value="public")
+    @patch("replenishment.services.data_access._is_sqlite", return_value=False)
+    def test_create_draft_transfers_if_absent_aborts_on_insert_failure(
+        self,
+        _mock_is_sqlite,
+        _mock_schema_name,
+        mock_create_transfer,
+        mock_get_transfers,
+    ) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None  # No pre-existing transfers.
+        cursor_cm = MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+
+        with patch("replenishment.services.data_access.connection.cursor", return_value=cursor_cm):
+            transfers, created_count, already_exists, warnings = (
+                data_access.create_draft_transfers_if_absent(
+                    needs_list_id="NL-A",
+                    transfer_specs=[
+                        {
+                            "from_warehouse_id": 1,
+                            "to_warehouse_id": 2,
+                            "event_id": 3,
+                            "needs_list_id": "NL-A",
+                            "reason": "test",
+                            "actor_id": "tester",
+                            "items": [{"item_id": 10, "item_qty": 1, "uom_code": "EA"}],
+                        }
+                    ],
+                )
+            )
+
+        self.assertEqual(transfers, [])
+        self.assertEqual(created_count, 0)
+        self.assertFalse(already_exists)
+        self.assertIn("db_error_insert_transfer", warnings)
+        mock_create_transfer.assert_called_once()
+        mock_get_transfers.assert_not_called()
 
 
 class NeedsListWorkflowApiTests(TestCase):

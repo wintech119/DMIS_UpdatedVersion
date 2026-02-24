@@ -471,11 +471,9 @@ def create_draft_transfer_with_items(
     except DatabaseError as exc:
         if stage == "transfer":
             logger.warning("Insert draft transfer failed: %s", exc)
-            warnings.append("db_error_insert_transfer")
         else:
             logger.warning("Insert transfer items failed: %s", exc)
-            warnings.append("db_error_insert_transfer_items")
-        return None, warnings
+        raise
 
 
 def create_draft_transfers_if_absent(
