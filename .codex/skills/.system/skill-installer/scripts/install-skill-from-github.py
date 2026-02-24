@@ -143,6 +143,7 @@ def _validate_skill_name(name: str) -> None:
 
 def _git_sparse_checkout(repo_url: str, ref: str, paths: list[str], dest_dir: str) -> str:
     repo_dir = os.path.join(dest_dir, "repo")
+    checkout_target = ref
     clone_cmd = [
         "git",
         "clone",
@@ -172,8 +173,10 @@ def _git_sparse_checkout(repo_url: str, ref: str, paths: list[str], dest_dir: st
                 repo_dir,
             ]
         )
+        _run_git(["git", "-C", repo_dir, "fetch", "origin", ref, "--depth=1"])
+        checkout_target = "FETCH_HEAD"
     _run_git(["git", "-C", repo_dir, "sparse-checkout", "set", *paths])
-    _run_git(["git", "-C", repo_dir, "checkout", ref])
+    _run_git(["git", "-C", repo_dir, "checkout", checkout_target])
     return repo_dir
 
 
