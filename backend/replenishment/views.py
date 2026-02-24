@@ -2774,18 +2774,17 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             all_warnings.append(f"insufficient_source_stock_item_{iid}")
 
     for src_wh, transfer_data in sources_used.items():
-        tid, tw = data_access.insert_draft_transfer(
+        tid, tw = data_access.create_draft_transfer_with_items(
             from_warehouse_id=src_wh,
             to_warehouse_id=warehouse_id,
             event_id=event_id,
             needs_list_id=needs_list_id,
             reason=f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
             actor_id=str(actor),
+            items=transfer_data["items"],
         )
         all_warnings.extend(tw)
         if tid:
-            iw = data_access.insert_transfer_items(tid, transfer_data["items"])
-            all_warnings.extend(iw)
             created_transfers.append({
                 "transfer_id": tid,
                 "from_warehouse_id": src_wh,

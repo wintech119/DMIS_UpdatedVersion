@@ -983,12 +983,9 @@ class NeedsListWorkflowApiTests(TestCase):
                 [],
             ),
         ), patch(
-            "replenishment.views.data_access.insert_draft_transfer",
+            "replenishment.views.data_access.create_draft_transfer_with_items",
             return_value=(99, []),
-        ), patch(
-            "replenishment.views.data_access.insert_transfer_items",
-            return_value=[],
-        ) as mock_insert_items:
+        ) as mock_create_transfer:
             response = self.client.post(
                 "/api/v1/replenishment/needs-list/NL-A/generate-transfers",
                 {},
@@ -996,10 +993,11 @@ class NeedsListWorkflowApiTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 201)
-        mock_insert_items.assert_called_once()
-        args, _ = mock_insert_items.call_args
-        self.assertEqual(args[0], 99)
-        self.assertEqual(args[1][0]["inventory_id"], 2)
+        mock_create_transfer.assert_called_once()
+        _, kwargs = mock_create_transfer.call_args
+        self.assertEqual(kwargs["from_warehouse_id"], 2)
+        self.assertEqual(kwargs["to_warehouse_id"], 10)
+        self.assertEqual(kwargs["items"][0]["inventory_id"], 2)
 
     @override_settings(
         AUTH_ENABLED=False,

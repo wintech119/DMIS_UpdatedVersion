@@ -399,6 +399,85 @@ def insert_transfer_items(
     return warnings
 
 
+def create_draft_transfer_with_items(
+    from_warehouse_id: int,
+    to_warehouse_id: int,
+    event_id: int,
+    needs_list_id: str,
+    reason: str,
+    actor_id: str,
+    items: List[Dict],
+) -> Tuple[int | None, List[str]]:
+    """
+    Atomically create a draft transfer and its transfer_item rows.
+    Returns (transfer_id, warnings). On any DB failure, no rows are persisted.
+    """
+    if _is_sqlite():
+        return None, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    stage = "transfer"
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    INSERT INTO {schema}.transfer
+                        (fr_inventory_id, to_inventory_id, eligible_event_id,
+                         transfer_date, reason_text, status_code,
+                         needs_list_id, create_user, create_dtime)
+                    VALUES (%s, %s, %s, CURRENT_DATE, %s, 'P', %s, %s, NOW())
+                    RETURNING transfer_id
+                    """,
+                    [
+                        from_warehouse_id,
+                        to_warehouse_id,
+                        event_id,
+                        reason,
+                        needs_list_id,
+                        actor_id,
+                    ],
+                )
+                row = cursor.fetchone()
+                transfer_id = int(row[0]) if row and row[0] is not None else None
+                if transfer_id is None:
+                    raise DatabaseError("Insert draft transfer returned no transfer_id")
+
+                stage = "items"
+                default_inventory_id = from_warehouse_id
+                for item in items:
+                    inventory_id = item.get("inventory_id", default_inventory_id)
+                    if inventory_id is None:
+                        warnings.append(
+                            f"transfer_source_inventory_missing_item_{item.get('item_id')}"
+                        )
+                        continue
+                    cursor.execute(
+                        f"""
+                        INSERT INTO {schema}.transfer_item
+                            (transfer_id, item_id, item_qty, uom_code, inventory_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        [
+                            transfer_id,
+                            item["item_id"],
+                            item["item_qty"],
+                            item.get("uom_code", "EA"),
+                            inventory_id,
+                        ],
+                    )
+        return transfer_id, warnings
+    except DatabaseError as exc:
+        if stage == "transfer":
+            logger.warning("Insert draft transfer failed: %s", exc)
+            warnings.append("db_error_insert_transfer")
+        else:
+            logger.warning("Insert transfer items failed: %s", exc)
+            warnings.append("db_error_insert_transfer_items")
+        return None, warnings
+
+
 def get_transfers_for_needs_list(
     needs_list_id: str,
 ) -> Tuple[List[Dict], List[str]]:
