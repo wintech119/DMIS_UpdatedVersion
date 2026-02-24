@@ -172,15 +172,18 @@ export class ProcurementFormComponent implements OnInit {
     return `${supplier.supplier_name} (${supplier.supplier_code})`;
   }
 
-  displaySupplierFn = (supplier: Supplier | null): string => {
-    return supplier ? this.formatSupplierLabel(supplier) : '';
+  displaySupplierFn = (value: Supplier | string | null): string => {
+    if (typeof value === 'string') {
+      return value;
+    }
+    return value ? this.formatSupplierLabel(value) : '';
   };
 
   selectSupplier(supplier: Supplier): void {
     this.headerForm.patchValue(
       {
         supplier_id: supplier.supplier_id,
-        supplier_search: this.formatSupplierLabel(supplier)
+        supplier_search: supplier
       },
       { emitEvent: false }
     );
@@ -263,9 +266,7 @@ export class ProcurementFormComponent implements OnInit {
     this.removedProcurementItemIds.set([]);
     this.headerForm.patchValue({
       supplier_id: order.supplier?.supplier_id ?? null,
-      supplier_search: order.supplier
-        ? `${order.supplier.supplier_name} (${order.supplier.supplier_code})`
-        : '',
+      supplier_search: order.supplier ?? '',
       procurement_method: order.procurement_method,
       notes: order.notes_text || ''
     });
@@ -358,9 +359,6 @@ export class ProcurementFormComponent implements OnInit {
         this.suppliers.update(list => [...list, supplier]);
         this.filteredSuppliers.update(list => [...list, supplier]);
         this.selectSupplier(supplier);
-        this.headerForm.patchValue({
-          supplier_search: `${supplier.supplier_name} (${supplier.supplier_code})`
-        });
         this.showSupplierDialog.set(false);
         this.notifications.showSuccess(`Supplier "${supplier.supplier_name}" created.`);
       },

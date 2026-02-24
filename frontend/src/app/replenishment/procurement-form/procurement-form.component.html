@@ -68,6 +68,7 @@
               placeholder="Search suppliers..." />
             <mat-autocomplete
               #supplierAuto="matAutocomplete"
+              [displayWith]="displaySupplierFn"
               (optionSelected)="selectSupplier($event.option.value)">
               @for (supplier of filteredSuppliers(); track supplier.supplier_id) {
                 <mat-option [value]="supplier">
