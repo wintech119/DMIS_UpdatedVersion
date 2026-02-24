@@ -115,7 +115,13 @@ export class PoNumberDialogComponent {
       this.form.markAllAsTouched();
       return;
     }
-    this.dialogRef.close(this.form.controls.poNumber.value.trim());
+    const po = this.form.controls.poNumber.value?.trim();
+    if (!po) {
+      this.form.controls.poNumber.setErrors({ required: true });
+      this.form.controls.poNumber.markAsTouched();
+      return;
+    }
+    this.dialogRef.close(po);
   }
 }
 
