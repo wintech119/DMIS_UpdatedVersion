@@ -21,6 +21,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisReasonDialogComponent, DmisReasonDialogData, DmisReasonDialogResult } from '../shared/dmis-reason-dialog/dmis-reason-dialog.component';
@@ -52,6 +53,17 @@ const ITEM_STATUS_LABELS: Record<ProcurementItemStatus, string> = {
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled'
 };
+
+const PERM_PROCUREMENT_EDIT = 'replenishment.procurement.edit';
+const PERM_PROCUREMENT_SUBMIT = 'replenishment.procurement.submit';
+const PERM_PROCUREMENT_APPROVE = 'replenishment.procurement.approve';
+const PERM_PROCUREMENT_REJECT = 'replenishment.procurement.reject';
+const PERM_PROCUREMENT_ORDER = 'replenishment.procurement.order';
+const PERM_PROCUREMENT_RECEIVE = 'replenishment.procurement.receive';
+const PERM_PROCUREMENT_CANCEL = 'replenishment.procurement.cancel';
+
+const LOGISTICS_ROLE_LABEL = 'Logistics';
+const EXECUTIVE_ROLE_LABEL = 'Executive';
 
 // ════════════════════════════════════════════════════════════════════
 // Inline Dialog: PO Number Input
@@ -230,6 +242,7 @@ export class ProcurementDetailComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly notifications = inject(DmisNotificationService);
+  private readonly authRbac = inject(AuthRbacService);
 
   // ── State signals ──
 
@@ -246,6 +259,62 @@ export class ProcurementDetailComponent implements OnInit {
   readonly isTerminal = computed(() => TERMINAL_STATUSES.has(this.status()));
 
   readonly items = computed(() => this.procurement()?.items ?? []);
+  readonly permissionsLoaded = computed(() => this.authRbac.loaded());
+
+  readonly canEdit = computed(() =>
+    this.status() === 'DRAFT' && this.authRbac.hasPermission(PERM_PROCUREMENT_EDIT)
+  );
+
+  readonly canCancel = computed(() =>
+    this.status() === 'DRAFT' && this.authRbac.hasPermission(PERM_PROCUREMENT_CANCEL)
+  );
+
+  readonly canSubmit = computed(() =>
+    this.status() === 'DRAFT' && this.authRbac.hasPermission(PERM_PROCUREMENT_SUBMIT)
+  );
+
+  readonly canApprove = computed(() =>
+    this.status() === 'PENDING_APPROVAL' && this.authRbac.hasPermission(PERM_PROCUREMENT_APPROVE)
+  );
+
+  readonly canReject = computed(() =>
+    this.status() === 'PENDING_APPROVAL' && this.authRbac.hasPermission(PERM_PROCUREMENT_REJECT)
+  );
+
+  readonly canOrder = computed(() =>
+    this.status() === 'APPROVED' && this.authRbac.hasPermission(PERM_PROCUREMENT_ORDER)
+  );
+
+  readonly canShip = computed(() =>
+    this.status() === 'ORDERED' && this.authRbac.hasPermission(PERM_PROCUREMENT_ORDER)
+  );
+
+  readonly canReceive = computed(() =>
+    (this.status() === 'SHIPPED' || this.status() === 'PARTIAL_RECEIVED')
+    && this.authRbac.hasPermission(PERM_PROCUREMENT_RECEIVE)
+  );
+
+  readonly hasVisibleActions = computed(() =>
+    this.canEdit()
+    || this.canCancel()
+    || this.canSubmit()
+    || this.canApprove()
+    || this.canReject()
+    || this.canOrder()
+    || this.canShip()
+    || this.canReceive()
+  );
+
+  readonly actionRoleHint = computed(() => {
+    if (!this.permissionsLoaded() || this.hasVisibleActions()) {
+      return null;
+    }
+    const allowedRoles = this.getAllowedRolesForStage();
+    if (!allowedRoles.length) {
+      return null;
+    }
+    return `No actions available for your account at this stage. Allowed role(s): ${allowedRoles.join(', ')}.`;
+  });
 
   readonly displayedColumns = [
     'item_name', 'uom', 'ordered_qty', 'unit_price', 'line_total', 'received_qty', 'status'
@@ -278,6 +347,7 @@ export class ProcurementDetailComponent implements OnInit {
   // ── Lifecycle ──
 
   ngOnInit(): void {
+    this.authRbac.load();
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
       this.procId = Number(params.get('procId') ?? '0');
       if (this.procId) {
@@ -314,17 +384,19 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   navigateToEdit(): void {
+    if (!this.canEdit()) return;
     this.router.navigate(['/replenishment/procurement', this.procId, 'edit']);
   }
 
   navigateToReceive(): void {
+    if (!this.canReceive()) return;
     this.router.navigate(['/replenishment/procurement', this.procId, 'receive']);
   }
 
   // ── Actions ──
 
   submitForApproval(): void {
-    if (this.actionLoading()) return;
+    if (!this.canSubmit() || this.actionLoading()) return;
     const data: ConfirmDialogData = {
       title: 'Submit for Approval',
       message: 'Are you sure you want to submit this procurement order for approval?',
@@ -354,7 +426,7 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   cancelProcurement(): void {
-    if (this.actionLoading()) return;
+    if (!this.canCancel() || this.actionLoading()) return;
     const data: DmisReasonDialogData = {
       title: 'Cancel Procurement',
       actionLabel: 'Cancel Procurement',
@@ -384,7 +456,7 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   approveProcurement(): void {
-    if (this.actionLoading()) return;
+    if (!this.canApprove() || this.actionLoading()) return;
     const data: ConfirmDialogData = {
       title: 'Approve Procurement',
       message: 'Are you sure you want to approve this procurement order?',
@@ -414,7 +486,7 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   rejectProcurement(): void {
-    if (this.actionLoading()) return;
+    if (!this.canReject() || this.actionLoading()) return;
     const data: DmisReasonDialogData = {
       title: 'Reject Procurement',
       actionLabel: 'Reject',
@@ -444,7 +516,7 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   markAsOrdered(): void {
-    if (this.actionLoading()) return;
+    if (!this.canOrder() || this.actionLoading()) return;
     this.dialog.open(PoNumberDialogComponent, {
       width: '440px',
       autoFocus: true
@@ -468,7 +540,7 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   markAsShipped(): void {
-    if (this.actionLoading()) return;
+    if (!this.canShip() || this.actionLoading()) return;
     this.dialog.open(ShippedDatesDialogComponent, {
       width: '440px',
       autoFocus: true
@@ -521,6 +593,23 @@ export class ProcurementDetailComponent implements OnInit {
   }
 
   // ── Private helpers ──
+
+  getAllowedRolesForStage(status: ProcurementStatus = this.status()): string[] {
+    switch (status) {
+      case 'DRAFT':
+      case 'APPROVED':
+      case 'ORDERED':
+      case 'SHIPPED':
+      case 'PARTIAL_RECEIVED':
+        return [LOGISTICS_ROLE_LABEL];
+      case 'PENDING_APPROVAL': {
+        const approverRole = String(this.procurement()?.approval?.approver_role ?? '').trim();
+        return approverRole ? [approverRole] : [EXECUTIVE_ROLE_LABEL];
+      }
+      default:
+        return [];
+    }
+  }
 
   private extractError(error: HttpErrorResponse, fallback: string): string {
     if (error.status === 403) return 'You do not have permission to perform this action.';

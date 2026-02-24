@@ -334,92 +334,117 @@
             Back to List
           </button>
 
-          <div class="primary-actions">
-            @switch (status()) {
-              @case ('DRAFT') {
-                <button mat-stroked-button
-                        (click)="navigateToEdit()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Edit procurement">
-                  <mat-icon aria-hidden="true">edit</mat-icon>
-                  Edit
-                </button>
-                <button mat-stroked-button
-                        color="warn"
-                        (click)="cancelProcurement()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Cancel procurement">
-                  <mat-icon aria-hidden="true">cancel</mat-icon>
-                  {{ actionLoading() === 'cancel' ? 'Cancelling...' : 'Cancel' }}
-                </button>
-                <button mat-flat-button
-                        class="submit-btn"
-                        (click)="submitForApproval()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Submit for approval">
-                  <mat-icon aria-hidden="true">send</mat-icon>
-                  {{ actionLoading() === 'submit' ? 'Submitting...' : 'Submit for Approval' }}
-                </button>
+          <div class="actions-panel">
+            <div class="primary-actions">
+              @switch (status()) {
+                @case ('DRAFT') {
+                  @if (canEdit()) {
+                    <button mat-stroked-button
+                            (click)="navigateToEdit()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Edit procurement">
+                      <mat-icon aria-hidden="true">edit</mat-icon>
+                      Edit
+                    </button>
+                  }
+                  @if (canCancel()) {
+                    <button mat-stroked-button
+                            color="warn"
+                            (click)="cancelProcurement()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Cancel procurement">
+                      <mat-icon aria-hidden="true">cancel</mat-icon>
+                      {{ actionLoading() === 'cancel' ? 'Cancelling...' : 'Cancel' }}
+                    </button>
+                  }
+                  @if (canSubmit()) {
+                    <button mat-flat-button
+                            class="submit-btn"
+                            (click)="submitForApproval()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Submit for approval">
+                      <mat-icon aria-hidden="true">send</mat-icon>
+                      {{ actionLoading() === 'submit' ? 'Submitting...' : 'Submit for Approval' }}
+                    </button>
+                  }
+                }
+                @case ('PENDING_APPROVAL') {
+                  @if (canApprove() || canReject()) {
+                    @if (canReject()) {
+                      <button mat-flat-button
+                              color="warn"
+                              (click)="rejectProcurement()"
+                              [disabled]="actionLoading() !== null"
+                              class="reject-btn"
+                              aria-label="Reject procurement">
+                        <mat-icon aria-hidden="true">cancel</mat-icon>
+                        {{ actionLoading() === 'reject' ? 'Rejecting...' : 'Reject' }}
+                      </button>
+                    }
+                    @if (canApprove()) {
+                      <button mat-flat-button
+                              class="approve-btn"
+                              (click)="approveProcurement()"
+                              [disabled]="actionLoading() !== null"
+                              aria-label="Approve procurement">
+                        <mat-icon aria-hidden="true">check_circle</mat-icon>
+                        {{ actionLoading() === 'approve' ? 'Approving...' : 'Approve' }}
+                      </button>
+                    }
+                  }
+                }
+                @case ('APPROVED') {
+                  @if (canOrder()) {
+                    <button mat-flat-button
+                            class="order-btn"
+                            (click)="markAsOrdered()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Mark as ordered">
+                      <mat-icon aria-hidden="true">shopping_cart</mat-icon>
+                      {{ actionLoading() === 'order' ? 'Processing...' : 'Mark as Ordered' }}
+                    </button>
+                  }
+                }
+                @case ('ORDERED') {
+                  @if (canShip()) {
+                    <button mat-flat-button
+                            class="ship-btn"
+                            (click)="markAsShipped()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Mark as shipped">
+                      <mat-icon aria-hidden="true">local_shipping</mat-icon>
+                      {{ actionLoading() === 'ship' ? 'Processing...' : 'Mark as Shipped' }}
+                    </button>
+                  }
+                }
+                @case ('SHIPPED') {
+                  @if (canReceive()) {
+                    <button mat-flat-button
+                            class="receive-btn"
+                            (click)="navigateToReceive()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Receive items">
+                      <mat-icon aria-hidden="true">inventory</mat-icon>
+                      Receive Items
+                    </button>
+                  }
+                }
+                @case ('PARTIAL_RECEIVED') {
+                  @if (canReceive()) {
+                    <button mat-flat-button
+                            class="receive-btn"
+                            (click)="navigateToReceive()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Receive remaining items">
+                      <mat-icon aria-hidden="true">inventory</mat-icon>
+                      Receive Items
+                    </button>
+                  }
+                }
               }
-              @case ('PENDING_APPROVAL') {
-                <button mat-flat-button
-                        color="warn"
-                        (click)="rejectProcurement()"
-                        [disabled]="actionLoading() !== null"
-                        class="reject-btn"
-                        aria-label="Reject procurement">
-                  <mat-icon aria-hidden="true">cancel</mat-icon>
-                  {{ actionLoading() === 'reject' ? 'Rejecting...' : 'Reject' }}
-                </button>
-                <button mat-flat-button
-                        class="approve-btn"
-                        (click)="approveProcurement()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Approve procurement">
-                  <mat-icon aria-hidden="true">check_circle</mat-icon>
-                  {{ actionLoading() === 'approve' ? 'Approving...' : 'Approve' }}
-                </button>
-              }
-              @case ('APPROVED') {
-                <button mat-flat-button
-                        class="order-btn"
-                        (click)="markAsOrdered()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Mark as ordered">
-                  <mat-icon aria-hidden="true">shopping_cart</mat-icon>
-                  {{ actionLoading() === 'order' ? 'Processing...' : 'Mark as Ordered' }}
-                </button>
-              }
-              @case ('ORDERED') {
-                <button mat-flat-button
-                        class="ship-btn"
-                        (click)="markAsShipped()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Mark as shipped">
-                  <mat-icon aria-hidden="true">local_shipping</mat-icon>
-                  {{ actionLoading() === 'ship' ? 'Processing...' : 'Mark as Shipped' }}
-                </button>
-              }
-              @case ('SHIPPED') {
-                <button mat-flat-button
-                        class="receive-btn"
-                        (click)="navigateToReceive()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Receive items">
-                  <mat-icon aria-hidden="true">inventory</mat-icon>
-                  Receive Items
-                </button>
-              }
-              @case ('PARTIAL_RECEIVED') {
-                <button mat-flat-button
-                        class="receive-btn"
-                        (click)="navigateToReceive()"
-                        [disabled]="actionLoading() !== null"
-                        aria-label="Receive remaining items">
-                  <mat-icon aria-hidden="true">inventory</mat-icon>
-                  Receive Items
-                </button>
-              }
+            </div>
+            @if (actionRoleHint(); as roleHint) {
+              <p class="action-role-hint">{{ roleHint }}</p>
             }
           </div>
         </div>
