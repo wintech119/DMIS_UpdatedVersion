@@ -82,17 +82,20 @@ export class ProcurementIntakeComponent {
   readonly statusColors = PROCUREMENT_STATUS_COLORS;
 
   readonly lineItemsForm = new FormArray<FormGroup<LineItemFormGroup>>([]);
-  private readonly lineItemsFormValues = toSignal<LineItemFormValue[]>(
+
+  private static toLineItemFormValues(raw: unknown[]): LineItemFormValue[] {
+    return raw.map((value: unknown) => ({
+      procurement_item_id: Number((value as { procurement_item_id?: number })?.procurement_item_id ?? 0),
+      qty_to_receive: Number((value as { qty_to_receive?: number })?.qty_to_receive ?? 0),
+    }));
+  }
+
+  private readonly lineItemsFormValues = toSignal(
     this.lineItemsForm.valueChanges.pipe(
       startWith(this.lineItemsForm.getRawValue()),
-      map((values) =>
-        values.map((value) => ({
-          procurement_item_id: Number(value?.procurement_item_id ?? 0),
-          qty_to_receive: Number(value?.qty_to_receive ?? 0),
-        }))
-      )
+      map((values) => ProcurementIntakeComponent.toLineItemFormValues(values))
     ),
-    { initialValue: this.lineItemsForm.getRawValue() }
+    { requireSync: true }
   );
 
   private procId = 0;
@@ -110,7 +113,7 @@ export class ProcurementIntakeComponent {
   /** Count of line items where qty_to_receive > 0 */
   readonly receivingCount = computed(() => {
     const items = this.lineItems();
-    const formValues = this.lineItemsFormValues();
+    const formValues = this.lineItemsFormValues() ?? [];
     let count = 0;
     for (let i = 0; i < items.length; i++) {
       const qtyToReceive = formValues[i]?.qty_to_receive ?? 0;
@@ -125,7 +128,7 @@ export class ProcurementIntakeComponent {
   readonly canSubmit = computed(() => {
     if (this.submitting()) return false;
     const items = this.lineItems();
-    const formValues = this.lineItemsFormValues();
+    const formValues = this.lineItemsFormValues() ?? [];
     if (items.length === 0) return false;
     let hasQty = false;
     for (let i = 0; i < items.length; i++) {

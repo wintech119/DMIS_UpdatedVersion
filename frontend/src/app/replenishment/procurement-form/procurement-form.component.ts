@@ -7,7 +7,7 @@ import {
   signal,
   OnInit
 } from '@angular/core';
-import { CurrencyPipe, DecimalPipe } from '@angular/common';
+import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   FormBuilder,
@@ -44,7 +44,6 @@ import {
   standalone: true,
   imports: [
     CurrencyPipe,
-    DecimalPipe,
     ReactiveFormsModule,
     MatButtonModule,
     MatIconModule,
@@ -183,7 +182,7 @@ export class ProcurementFormComponent implements OnInit {
     this.headerForm.patchValue(
       {
         supplier_id: supplier.supplier_id,
-        supplier_search: supplier
+        supplier_search: this.formatSupplierLabel(supplier)
       },
       { emitEvent: false }
     );
@@ -266,7 +265,7 @@ export class ProcurementFormComponent implements OnInit {
     this.removedProcurementItemIds.set([]);
     this.headerForm.patchValue({
       supplier_id: order.supplier?.supplier_id ?? null,
-      supplier_search: order.supplier ?? '',
+      supplier_search: order.supplier ? this.formatSupplierLabel(order.supplier) : '',
       procurement_method: order.procurement_method,
       notes: order.notes_text || ''
     });
