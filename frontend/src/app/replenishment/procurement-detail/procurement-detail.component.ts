@@ -10,7 +10,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
-import { MatDialog, MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -26,7 +26,6 @@ import { DmisConfirmDialogComponent, ConfirmDialogData } from '../shared/dmis-co
 import { DmisReasonDialogComponent, DmisReasonDialogData, DmisReasonDialogResult } from '../shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import {
   ProcurementOrder,
-  ProcurementOrderItem,
   ProcurementStatus,
   ProcurementItemStatus,
   PROCUREMENT_STATUS_LABELS,

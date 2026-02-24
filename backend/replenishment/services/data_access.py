@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Dict, List, Tuple
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
 from replenishment import rules
@@ -24,19 +24,21 @@ def get_warehouse_name(warehouse_id: int) -> str:
 
     schema = _schema_name()
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT warehouse_name
-                FROM {schema}.warehouse
-                WHERE warehouse_id = %s
-                LIMIT 1
-                """,
-                [warehouse_id],
-            )
-            row = cursor.fetchone()
-            if row and row[0]:
-                return str(row[0])
+        # Isolate legacy-table lookup so query failures don't poison outer transactions.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT warehouse_name
+                    FROM {schema}.warehouse
+                    WHERE warehouse_id = %s
+                    LIMIT 1
+                    """,
+                    [warehouse_id],
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return str(row[0])
     except DatabaseError as exc:
         logger.warning("Warehouse name query failed for warehouse_id=%s: %s", warehouse_id, exc)
 

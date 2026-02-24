@@ -41,6 +41,18 @@
     </span>
   </div>
 
+  <!-- Replenishment Method Tags (quick-scan horizon indicator) -->
+  @if (activeHorizons().length > 0) {
+    <div class="method-tags" role="note" aria-label="Replenishment methods">
+      @for (h of activeHorizons(); track h.key) {
+        <span class="method-tag" [attr.data-horizon]="h.key">
+          <mat-icon aria-hidden="true">{{ h.icon }}</mat-icon>
+          {{ h.label }}
+        </span>
+      }
+    </div>
+  }
+
   <!-- Resolution Progress -->
   <div class="progress-section">
     <div class="progress-header">
@@ -95,7 +107,10 @@
     <span class="horizons-label">Replenishment Sources</span>
     <div class="horizons-grid">
       @for (horizon of horizonDisplays(); track horizon.key) {
-        <div class="horizon-card" [class.horizon-active]="horizon.bucket.count > 0" [class.horizon-empty]="horizon.bucket.count === 0">
+        <div class="horizon-card"
+             [attr.data-horizon]="horizon.key"
+             [class.horizon-active]="horizon.bucket.count > 0"
+             [class.horizon-empty]="horizon.bucket.count === 0">
           <div class="horizon-icon-row">
             <mat-icon aria-hidden="true">{{ horizon.icon }}</mat-icon>
             <span class="horizon-name">{{ horizon.label }}</span>

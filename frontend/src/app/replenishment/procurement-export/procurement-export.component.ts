@@ -5,7 +5,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-import { NeedsListItem } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
@@ -98,18 +97,18 @@ export class ProcurementExportComponent {
       next: (response) => {
         const items = response.items || [];
         const procItems: ProcurementLine[] = items
-          .filter(item => {
-            const cQty = ((item.horizon || {}) as any)?.C?.recommended_qty;
-            return cQty && cQty > 0;
-          })
-          .map(item => ({
+          .map(item => {
+            const recommendedQty = Number(item.horizon?.C?.recommended_qty ?? 0);
+            return {
             item_id: item.item_id,
             item_name: item.item_name || `Item ${item.item_id}`,
-            uom: (item as any).uom_code || 'EA',
-            required_qty: (item.horizon as any)?.C?.recommended_qty || 0,
+            uom: item.uom_code || 'EA',
+            required_qty: recommendedQty > 0 ? recommendedQty : 0,
             est_unit_cost: item.procurement?.est_unit_cost ?? null,
             est_total_cost: item.procurement?.est_total_cost ?? null,
-          }));
+            };
+          })
+          .filter(item => item.required_qty > 0);
         this.lines.set(procItems);
         this.loading.set(false);
       },

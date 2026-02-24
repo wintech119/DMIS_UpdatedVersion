@@ -96,3 +96,30 @@ class RbacResolutionTests(TestCase):
         self.assertIn("ODPEM_DIR_PEOD", roles)
         self.assertIn("replenishment.needs_list.approve", permissions)
         self.assertEqual(mock_permissions_for_roles.call_count, 1)
+
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value={
+            "replenishment.needs_list.preview",
+            "replenishment.needs_list.create_draft",
+            "replenishment.needs_list.edit_lines",
+        },
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_db_rbac_applies_submit_compat_override_for_logistics_officer(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="logistics-officer",
+            roles=["TST_LOGISTICS_OFFICER"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+        self.assertIn("replenishment.needs_list.submit", permissions)

@@ -176,8 +176,15 @@
 
     <!-- Approval Success Overlay -->
     @if (showApprovalSuccess()) {
-      <div class="approval-overlay" (click)="dismissApprovalSuccess()">
-        <div class="approval-dialog" (click)="$event.stopPropagation()">
+      <div
+        class="approval-overlay"
+        tabindex="0"
+        role="button"
+        aria-label="Dismiss approval dialog"
+        (click)="dismissApprovalSuccessOnBackdrop($event)"
+        (keydown.enter)="dismissApprovalSuccess()"
+        (keydown.space)="$event.preventDefault(); dismissApprovalSuccess()">
+        <div class="approval-dialog">
           <div class="approval-check">
             <mat-icon aria-hidden="true">check</mat-icon>
           </div>
@@ -224,7 +231,11 @@
                   class="line-row"
                   [class.row-expanded]="isLineExpanded(line.id)"
                   [class.row-fully-covered]="line.is_fully_covered"
-                  (click)="toggleLineExpanded(line.id)">
+                  [attr.aria-expanded]="isLineExpanded(line.id)"
+                  tabindex="0"
+                  (click)="toggleLineExpanded(line.id)"
+                  (keydown.enter)="toggleLineExpanded(line.id)"
+                  (keydown.space)="$event.preventDefault(); toggleLineExpanded(line.id)">
                   <td class="col-expand">
                     <mat-icon class="expand-icon" [class.rotated]="isLineExpanded(line.id)">expand_more</mat-icon>
                   </td>
@@ -272,14 +283,14 @@
                                 <tr>
                                   <td>
                                     <span class="source-type">
-                                      <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
-                                      {{ getSourceTypeLabel(source.source_type) }}
+                                      <mat-icon aria-hidden="true" class="source-icon">{{ getSourceIcon(source.source_type, line.horizon) }}</mat-icon>
+                                      {{ getSourceDisplayType(source.source_type, line.horizon) }}
                                     </span>
                                   </td>
-                                  <td>{{ formatSourceReference(source.source_type, source.source_reference) }}</td>
-                                  <td class="source-qty">{{ source.quantity | number:'1.0-2' }}</td>
+                                  <td class="source-ref">{{ source.source_reference || 'N/A' }}</td>
+                                  <td class="source-qty">{{ source.quantity | number:'1.0-0' }}</td>
                                   <td>
-                                    <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
+                                    <span class="source-status" [attr.data-status]="source.status">{{ getStatusLabel(source.status, source.source_type) }}</span>
                                   </td>
                                   <td class="source-date">{{ source.date ? (source.date | date:'short') : 'Pending' }}</td>
                                 </tr>
@@ -301,7 +312,14 @@
         <!-- Mobile card list -->
         <div class="lines-mobile mobile-only">
           @for (line of lines(); track line.id) {
-            <div class="mobile-line-card" [class.mobile-fully-covered]="line.is_fully_covered" (click)="toggleLineExpanded(line.id)">
+            <div class="mobile-line-card"
+              [class.mobile-fully-covered]="line.is_fully_covered"
+              [class.mobile-card-expanded]="isLineExpanded(line.id)"
+              [attr.aria-expanded]="isLineExpanded(line.id)"
+              tabindex="0"
+              (click)="onMobileLineCardClick(line.id, $event)"
+              (keydown.enter)="toggleLineExpanded(line.id)"
+              (keydown.space)="$event.preventDefault(); toggleLineExpanded(line.id)">
               <div class="mobile-line-header">
                 <div class="mobile-line-info">
                   <span class="item-name">{{ line.item.name }}</span>
@@ -316,21 +334,21 @@
               <mat-progress-bar mode="determinate" [value]="getCoveragePercent(line)"></mat-progress-bar>
 
               @if (isLineExpanded(line.id)) {
-                <div class="mobile-line-detail" (click)="$event.stopPropagation()">
+                <div class="mobile-line-detail">
                   @if (line.fulfillment_sources.length > 0) {
                     @for (source of line.fulfillment_sources; track source.source_type + '-' + source.source_reference + '-' + source.quantity) {
                       <div class="source-card">
                         <div class="source-card-header">
                           <span class="source-type">
-                            <mat-icon aria-hidden="true" class="source-icon">{{ getHorizonIcon(source.source_type === 'TRANSFER' ? 'A' : source.source_type === 'DONATION' ? 'B' : 'C') }}</mat-icon>
-                            {{ getSourceTypeLabel(source.source_type) }}
+                            <mat-icon aria-hidden="true" class="source-icon">{{ getSourceIcon(source.source_type, line.horizon) }}</mat-icon>
+                            {{ getSourceDisplayType(source.source_type, line.horizon) }}
                           </span>
-                          <span class="source-status" [attr.data-status]="source.status">{{ source.status }}</span>
+                          <span class="source-status" [attr.data-status]="source.status">{{ getStatusLabel(source.status, source.source_type) }}</span>
                         </div>
                         <div class="source-card-body">
                           <div class="source-field">
                             <span class="field-label">Reference</span>
-                            <span>{{ formatSourceReference(source.source_type, source.source_reference) }}</span>
+                            <span>{{ source.source_reference || 'N/A' }}</span>
                           </div>
                           <div class="source-field">
                             <span class="field-label">Quantity</span>

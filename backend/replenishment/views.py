@@ -250,7 +250,16 @@ def _acquire_stock_state_file_lock(file_handle, *, exclusive: bool) -> None:
     if msvcrt is not None:
         lock_type = msvcrt.LK_LOCK if exclusive else getattr(msvcrt, "LK_RLCK", msvcrt.LK_LOCK)
         file_handle.seek(0)
-        msvcrt.locking(file_handle.fileno(), lock_type, 1)
+        try:
+            msvcrt.locking(file_handle.fileno(), lock_type, 1)
+        except OSError as exc:
+            logger.warning(
+                "Failed acquiring stock-state lock for %s (exclusive=%s): %s",
+                getattr(file_handle, "name", "<unknown>"),
+                exclusive,
+                exc,
+            )
+            raise
 
 
 def _release_stock_state_file_lock(file_handle) -> None:
@@ -259,43 +268,80 @@ def _release_stock_state_file_lock(file_handle) -> None:
         return
     if msvcrt is not None:
         file_handle.seek(0)
-        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+        try:
+            msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError as exc:
+            logger.warning(
+                "Stock-state unlock failed for %s; continuing: %s",
+                getattr(file_handle, "name", "<unknown>"),
+                exc,
+            )
+
+
+@contextmanager
+def _fallback_stock_state_file(store_path: Path, *, exclusive: bool):
+    """
+    Best-effort fallback when sidecar lock file acquisition is unavailable.
+    """
+    with store_path.open("a+", encoding="utf-8") as file_handle:
+        _acquire_stock_state_file_lock(file_handle, exclusive=exclusive)
+        try:
+            file_handle.seek(0)
+            yield file_handle
+        finally:
+            _release_stock_state_file_lock(file_handle)
 
 
 @contextmanager
 def _locked_stock_state_file(*, exclusive: bool):
     store_path = _stock_state_store_path()
-    try:
-        store_path.parent.mkdir(parents=True, exist_ok=True)
-        # On POSIX, lock the data file directly with flock.
-        if fcntl is not None:
-            with store_path.open("a+", encoding="utf-8") as file_handle:
-                _acquire_stock_state_file_lock(file_handle, exclusive=exclusive)
-                try:
-                    file_handle.seek(0)
-                    yield file_handle
-                finally:
-                    _release_stock_state_file_lock(file_handle)
-            return
+    store_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # On Windows, use a sidecar lock file for cross-process coordination.
-        lock_path = _stock_state_lock_path(store_path)
+    # On POSIX, lock the data file directly with flock.
+    if fcntl is not None:
+        with store_path.open("a+", encoding="utf-8") as file_handle:
+            _acquire_stock_state_file_lock(file_handle, exclusive=exclusive)
+            try:
+                file_handle.seek(0)
+                yield file_handle
+            finally:
+                _release_stock_state_file_lock(file_handle)
+        return
+
+    # On Windows, prefer a sidecar lock file for cross-process coordination.
+    lock_path = _stock_state_lock_path(store_path)
+    yielded = False
+    attempted_sidecar_lock = False
+    try:
         with lock_path.open("a+b") as lock_handle:
             lock_handle.seek(0, os.SEEK_END)
             if lock_handle.tell() == 0:
                 lock_handle.write(b"0")
                 lock_handle.flush()
-                os.fsync(lock_handle.fileno())
+                try:
+                    os.fsync(lock_handle.fileno())
+                except OSError as exc:
+                    logger.warning(
+                        "Stock-state lock fsync unavailable for %s; continuing: %s",
+                        lock_path,
+                        exc,
+                    )
+            attempted_sidecar_lock = True
             _acquire_stock_state_file_lock(lock_handle, exclusive=exclusive)
             try:
                 with store_path.open("a+", encoding="utf-8") as file_handle:
                     file_handle.seek(0)
+                    yielded = True
                     yield file_handle
             finally:
                 _release_stock_state_file_lock(lock_handle)
+        return
     except OSError as exc:
+        if yielded or attempted_sidecar_lock:
+            raise
         logger.warning("Failed acquiring stock-state file lock for %s: %s", store_path, exc)
-        raise
+        with _fallback_stock_state_file(store_path, exclusive=exclusive) as file_handle:
+            yield file_handle
 
 
 def _load_stock_state_store_from_file(file_handle) -> Dict[str, Any]:
@@ -316,7 +362,14 @@ def _write_stock_state_store_to_file(file_handle, store: Dict[str, Any]) -> None
     file_handle.truncate()
     json.dump(store, file_handle)
     file_handle.flush()
-    os.fsync(file_handle.fileno())
+    try:
+        os.fsync(file_handle.fileno())
+    except OSError as exc:
+        logger.warning(
+            "Stock-state fsync unavailable for %s; continuing: %s",
+            getattr(file_handle, "name", "<unknown>"),
+            exc,
+        )
 
 
 def _read_stock_state_store() -> Dict[str, Any]:
@@ -748,7 +801,7 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "approved_at": record.get("approved_at"),
             "approval_tier": record.get("approval_tier"),
             "approval_rationale": record.get("approval_rationale"),
-            "selected_method": record.get("selected_method"),
+            "selected_method": selected_method,
             "prep_started_by": record.get("prep_started_by"),
             "prep_started_at": record.get("prep_started_at"),
             "dispatched_by": record.get("dispatched_by"),
@@ -861,11 +914,39 @@ def _horizon_item_qty(item: Dict[str, Any], horizon_key: str) -> float:
     return 0.0
 
 
-def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str, float | int]]:
+def _normalize_horizon_key(value: object) -> str | None:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"A", "B", "C"}:
+        return normalized
+    return None
+
+
+def _resolve_item_horizon(item: Dict[str, Any], fallback_horizon: object = None) -> str:
+    forced_horizon = _normalize_horizon_key(fallback_horizon)
+    if forced_horizon is not None:
+        return forced_horizon
+
+    for key in ("C", "B", "A"):
+        if _horizon_item_qty(item, key) > 0:
+            return key
+    return "A"
+
+
+def _compute_horizon_summary(
+    items: list[Dict[str, Any]],
+    *,
+    fallback_horizon: object = None,
+) -> Dict[str, Dict[str, float | int]]:
     summary = {
         "horizon_a": {"count": 0, "estimated_value": 0.0},
         "horizon_b": {"count": 0, "estimated_value": 0.0},
         "horizon_c": {"count": 0, "estimated_value": 0.0},
+    }
+    fallback_key = _normalize_horizon_key(fallback_horizon)
+    horizon_bucket_by_key = {
+        "A": "horizon_a",
+        "B": "horizon_b",
+        "C": "horizon_c",
     }
 
     for item in items:
@@ -873,6 +954,27 @@ def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str,
         procurement_data = procurement if isinstance(procurement, dict) else {}
         unit_cost = max(_to_float_or_none(procurement_data.get("est_unit_cost")) or 0.0, 0.0)
         total_cost = max(_to_float_or_none(procurement_data.get("est_total_cost")) or 0.0, 0.0)
+
+        if fallback_key is not None:
+            forced_bucket = horizon_bucket_by_key[fallback_key]
+            forced_qty = _horizon_item_qty(item, fallback_key)
+            if forced_qty <= 0:
+                forced_qty = _effective_line_target_qty(item)
+            if forced_qty <= 0:
+                continue
+
+            summary[forced_bucket]["count"] = int(summary[forced_bucket]["count"]) + 1
+            if unit_cost > 0:
+                summary[forced_bucket]["estimated_value"] = (
+                    float(summary[forced_bucket]["estimated_value"]) + (forced_qty * unit_cost)
+                )
+            elif fallback_key == "C" and total_cost > 0:
+                summary[forced_bucket]["estimated_value"] = (
+                    float(summary[forced_bucket]["estimated_value"]) + total_cost
+                )
+            continue
+
+        matched_horizon = False
 
         for key, bucket in (
             ("A", "horizon_a"),
@@ -883,6 +985,7 @@ def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str,
             if qty <= 0:
                 continue
 
+            matched_horizon = True
             summary[bucket]["count"] = int(summary[bucket]["count"]) + 1
             if unit_cost > 0:
                 summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + (qty * unit_cost)
@@ -891,6 +994,20 @@ def _compute_horizon_summary(items: list[Dict[str, Any]]) -> Dict[str, Dict[str,
                 # est_total_cost comes from procurement metadata and is used only
                 # when unit cost is unavailable for the C recommendation.
                 summary[bucket]["estimated_value"] = float(summary[bucket]["estimated_value"]) + total_cost
+        if matched_horizon or fallback_key is None:
+            continue
+
+        fallback_bucket = horizon_bucket_by_key[fallback_key]
+        summary[fallback_bucket]["count"] = int(summary[fallback_bucket]["count"]) + 1
+        fallback_qty = _effective_line_target_qty(item)
+        if unit_cost > 0 and fallback_qty > 0:
+            summary[fallback_bucket]["estimated_value"] = (
+                float(summary[fallback_bucket]["estimated_value"]) + (fallback_qty * unit_cost)
+            )
+        elif fallback_key == "C" and total_cost > 0:
+            summary[fallback_bucket]["estimated_value"] = (
+                float(summary[fallback_bucket]["estimated_value"]) + total_cost
+            )
 
     return summary
 
@@ -941,6 +1058,7 @@ def _build_external_update_summary(
 def _serialize_submission_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     items_raw = record.get("items")
     items = [item for item in items_raw if isinstance(item, dict)] if isinstance(items_raw, list) else []
+    snapshot = record.get("snapshot") if isinstance(record.get("snapshot"), dict) else {}
 
     list_status_raw = str(record.get("status") or "").strip().upper()
     list_status = _normalize_status_for_ui(list_status_raw)
@@ -973,6 +1091,7 @@ def _serialize_submission_summary(record: Dict[str, Any]) -> Dict[str, Any]:
     event_name = str(record.get("event_name") or "").strip()
     event_id = _to_int_or_none(record.get("event_id"))
     phase = str(record.get("phase") or "").strip().upper() or "BASELINE"
+    selected_method = _normalize_horizon_key(record.get("selected_method") or snapshot.get("selected_method"))
 
     external_update_summary = _build_external_update_summary(items, updated_at)
 
@@ -989,11 +1108,12 @@ def _serialize_submission_summary(record: Dict[str, Any]) -> Dict[str, Any]:
             "name": event_name or (f"Event {event_id}" if event_id is not None else "Unknown"),
             "phase": phase,
         },
+        "selected_method": selected_method,
         "status": list_status,
         "total_items": total_items,
         "fulfilled_items": fulfilled_items,
         "remaining_items": remaining_items,
-        "horizon_summary": _compute_horizon_summary(items),
+        "horizon_summary": _compute_horizon_summary(items, fallback_horizon=selected_method),
         "submitted_at": record.get("submitted_at"),
         "approved_at": record.get("approved_at"),
         "last_updated_at": updated_at,
@@ -1195,6 +1315,10 @@ def needs_list_my_submissions(request):
     )
     event_id_filter = _to_int_or_none(request.query_params.get("event_id"))
     warehouse_id_filter = _to_int_or_none(request.query_params.get("warehouse_id"))
+    method_filter_raw = str(request.query_params.get("method") or "").strip().upper()
+    method_filter = _normalize_horizon_key(method_filter_raw) if method_filter_raw else None
+    if method_filter_raw and method_filter is None:
+        return Response({"errors": {"method": "Must be one of: A, B, C."}}, status=400)
     date_from_raw = request.query_params.get("date_from")
     date_to_raw = request.query_params.get("date_to")
     date_from = _parse_iso_datetime(date_from_raw)
@@ -1238,6 +1362,10 @@ def needs_list_my_submissions(request):
             continue
         if warehouse_id_filter is not None and summary.get("warehouse", {}).get("id") != warehouse_id_filter:
             continue
+        if method_filter is not None:
+            row_method = _normalize_horizon_key(summary.get("selected_method"))
+            if row_method != method_filter:
+                continue
 
         summary_ts = _parse_iso_datetime(summary.get("last_updated_at"))
         if date_from and (summary_ts is None or summary_ts < date_from):
@@ -1307,6 +1435,7 @@ def needs_list_fulfillment_sources(_request, needs_list_id: str):
 
     serialized = _serialize_workflow_record(record, include_overrides=True)
     list_status = str(serialized.get("status") or "").strip().upper()
+    selected_method = _normalize_horizon_key(serialized.get("selected_method"))
     updated_at = serialized.get("updated_at")
     lines: list[Dict[str, Any]] = []
 
@@ -1383,11 +1512,7 @@ def needs_list_fulfillment_sources(_request, needs_list_id: str):
                 "original_qty": original_qty,
                 "covered_qty": round(fulfilled_qty, 2),
                 "remaining_qty": round(max(remaining_qty, 0.0), 2),
-                "horizon": (
-                    "C"
-                    if _horizon_item_qty(raw_item, "C") > 0
-                    else ("B" if _horizon_item_qty(raw_item, "B") > 0 else "A")
-                ),
+                "horizon": _resolve_item_horizon(raw_item, selected_method),
                 "fulfillment_sources": sources,
                 "total_coverage": total_coverage,
                 "is_fully_covered": remaining_qty <= 0,

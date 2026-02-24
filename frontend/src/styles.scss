@@ -1,7 +1,7 @@
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 
 :root {
-  --dmis-font-sans: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --dmis-font-sans: 'Inter', 'Segoe UI', sans-serif;
   --dmis-font-mono: 'Roboto Mono', 'Courier New', monospace;
   --dmis-text-primary: #1a1a1a;
   --dmis-text-secondary: #495057;
@@ -15,6 +15,24 @@ body {
   background: #f9fafb;
   font-family: var(--dmis-font-sans);
   color: var(--dmis-text-primary);
+
+  // Inter-specific rendering improvements
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+// Force Material components to inherit Inter from body
+.mat-typography,
+.mdc-button,
+.mdc-tab,
+.mat-mdc-form-field,
+.mat-mdc-option,
+.mat-mdc-menu-item,
+.mat-mdc-chip,
+.mat-mdc-tooltip {
+  font-family: var(--dmis-font-sans) !important;
 }
 
 // Angular Material tooltip defaults

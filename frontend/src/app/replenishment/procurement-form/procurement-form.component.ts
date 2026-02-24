@@ -17,8 +17,7 @@ import {
   Validators
 } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { switchMap, startWith, map, debounceTime } from 'rxjs/operators';
-import { of } from 'rxjs';
+import { switchMap, startWith, debounceTime } from 'rxjs/operators';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -432,7 +431,7 @@ export class ProcurementFormComponent implements OnInit {
       ),
       takeUntilDestroyed(this.destroyRef)
     ).subscribe({
-      next: (submitted) => {
+      next: () => {
         this.submitting.set(false);
         this.notifications.showSuccess('Procurement order submitted for approval.');
         this.navigateToProcurementList();

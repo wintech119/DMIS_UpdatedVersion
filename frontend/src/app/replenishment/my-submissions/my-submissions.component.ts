@@ -25,6 +25,8 @@ interface EventOption {
   name: string;
 }
 
+type ReplenishmentMethodFilter = 'ALL' | 'A' | 'B' | 'C';
+
 const VALID_STATUSES: ReadonlySet<NeedsListSummaryStatus> = new Set([
   'DRAFT',
   'MODIFIED',
@@ -70,6 +72,7 @@ export class MySubmissionsComponent {
   readonly recentlyChangedIds = signal<Set<string>>(new Set());
 
   readonly statusFilter = signal<string>('ALL');
+  readonly methodFilter = signal<ReplenishmentMethodFilter>('ALL');
   readonly warehouseFilter = signal<number | null>(null);
   readonly eventFilter = signal<number | null>(null);
   readonly dateFromFilter = signal<string>('');
@@ -87,6 +90,7 @@ export class MySubmissionsComponent {
   readonly hasResults = computed(() => this.submissions().length > 0);
   readonly hasActiveFilters = computed(() =>
     this.statusFilter() !== 'ALL' ||
+    this.methodFilter() !== 'ALL' ||
     this.warehouseFilter() !== null ||
     this.eventFilter() !== null ||
     this.dateFromFilter() !== '' ||
@@ -107,6 +111,10 @@ export class MySubmissionsComponent {
           this.statusFilter.set(parsedStatuses.join(','));
         }
       }
+    }
+    const methodParam = String(this.route.snapshot.queryParamMap.get('method') || '').trim().toUpperCase();
+    if (methodParam === 'A' || methodParam === 'B' || methodParam === 'C') {
+      this.methodFilter.set(methodParam);
     }
     this.loadRequests.pipe(
       tap(() => {
@@ -144,6 +152,7 @@ export class MySubmissionsComponent {
       }
 
       this.totalCount.set(response.count || 0);
+      this.mergeWarehouseOptions(results);
       this.mergeEventOptions(results);
       this.loading.set(false);
 
@@ -200,14 +209,25 @@ export class MySubmissionsComponent {
   onWarehouseFilterChange(event: Event): void {
     const target = event.target as HTMLSelectElement | null;
     const raw = target?.value || '';
-    this.warehouseFilter.set(raw ? Number(raw) : null);
+    this.warehouseFilter.set(this.parsePositiveIntFilter(raw));
     this.resetPageAndReload();
   }
 
   onEventFilterChange(event: Event): void {
     const target = event.target as HTMLSelectElement | null;
     const raw = target?.value || '';
-    this.eventFilter.set(raw ? Number(raw) : null);
+    this.eventFilter.set(this.parsePositiveIntFilter(raw));
+    this.resetPageAndReload();
+  }
+
+  onMethodFilterChange(event: Event): void {
+    const target = event.target as HTMLSelectElement | null;
+    const raw = String(target?.value || 'ALL').trim().toUpperCase();
+    if (raw === 'A' || raw === 'B' || raw === 'C') {
+      this.methodFilter.set(raw);
+    } else {
+      this.methodFilter.set('ALL');
+    }
     this.resetPageAndReload();
   }
 
@@ -245,6 +265,7 @@ export class MySubmissionsComponent {
 
   clearFilters(): void {
     this.statusFilter.set('ALL');
+    this.methodFilter.set('ALL');
     this.warehouseFilter.set(null);
     this.eventFilter.set(null);
     this.dateFromFilter.set('');
@@ -337,8 +358,10 @@ export class MySubmissionsComponent {
   }
 
   private buildQueryParams(): MySubmissionsQueryParams {
+    const method = this.methodFilter();
     return {
       status: this.statusFilter() === 'ALL' ? undefined : this.statusFilter(),
+      method: method === 'ALL' ? undefined : method,
       warehouse_id: this.warehouseFilter() ?? undefined,
       event_id: this.eventFilter() ?? undefined,
       date_from: this.dateFromFilter() || undefined,
@@ -356,16 +379,65 @@ export class MySubmissionsComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (warehouses) => {
-          this.warehouseOptions.set(warehouses || []);
+          const merged = new Map<number, Warehouse>();
+          for (const warehouse of this.warehouseOptions()) {
+            if (this.isValidWarehouse(warehouse)) {
+              merged.set(warehouse.warehouse_id, warehouse);
+            }
+          }
+          for (const warehouse of warehouses || []) {
+            if (this.isValidWarehouse(warehouse)) {
+              merged.set(warehouse.warehouse_id, warehouse);
+            }
+          }
+          this.warehouseOptions.set(
+            [...merged.values()].sort((left, right) =>
+              left.warehouse_name.localeCompare(right.warehouse_name)
+            )
+          );
         },
         error: () => {
-          this.warehouseOptions.set([]);
+          // Keep any already-cached options to avoid collapsing filters on transient failures.
         }
       });
   }
 
+  private mergeWarehouseOptions(rows: NeedsListSummary[]): void {
+    const merged = new Map<number, Warehouse>();
+    for (const warehouse of this.warehouseOptions()) {
+      if (this.isValidWarehouse(warehouse)) {
+        merged.set(warehouse.warehouse_id, warehouse);
+      }
+    }
+
+    for (const row of rows) {
+      const id = row.warehouse?.id;
+      if (id == null || !Number.isInteger(id) || id <= 0) {
+        continue;
+      }
+      const name = String(row.warehouse?.name || `Warehouse ${id}`).trim();
+      merged.set(id, {
+        warehouse_id: id,
+        warehouse_name: name || `Warehouse ${id}`
+      });
+    }
+
+    this.warehouseOptions.set(
+      [...merged.values()].sort((left, right) =>
+        left.warehouse_name.localeCompare(right.warehouse_name)
+      )
+    );
+  }
+
   private mergeEventOptions(rows: NeedsListSummary[]): void {
     const existing = new Map<number, EventOption>();
+
+    for (const option of this.eventOptions()) {
+      const id = option.id;
+      if (typeof id === 'number' && Number.isInteger(id) && id > 0) {
+        existing.set(id, { id, name: option.name || `Event ${id}` });
+      }
+    }
 
     for (const row of rows) {
       const id = row.event.id;
@@ -378,5 +450,27 @@ export class MySubmissionsComponent {
       left.name.localeCompare(right.name)
     );
     this.eventOptions.set(merged);
+  }
+
+  private parsePositiveIntFilter(raw: string): number | null {
+    const normalized = String(raw || '').trim();
+    if (!normalized) {
+      return null;
+    }
+    const parsed = Number(normalized);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  private isValidWarehouse(value: Warehouse | null | undefined): value is Warehouse {
+    if (!value) {
+      return false;
+    }
+    if (!Number.isInteger(value.warehouse_id) || value.warehouse_id <= 0) {
+      return false;
+    }
+    return String(value.warehouse_name || '').trim().length > 0;
   }
 }

@@ -9,7 +9,6 @@ import {
   NeedsListFulfillmentSourcesResponse,
   NeedsListResponse,
   NeedsListSummaryVersionResponse,
-  ProcurementExportResponse,
   TransferDraft,
   TransferDraftsResponse
 } from '../models/needs-list.model';
@@ -80,6 +79,7 @@ export interface NeedsListListOptions {
 
 export interface MySubmissionsQueryParams {
   status?: string;
+  method?: 'A' | 'B' | 'C';
   warehouse_id?: number;
   event_id?: number;
   date_from?: string;
@@ -247,6 +247,9 @@ export class ReplenishmentService {
     const query = new URLSearchParams();
     if (params.status) {
       query.set('status', params.status);
+    }
+    if (params.method) {
+      query.set('method', params.method);
     }
     if (Number.isInteger(params.warehouse_id) && (params.warehouse_id ?? 0) > 0) {
       query.set('warehouse_id', String(params.warehouse_id));

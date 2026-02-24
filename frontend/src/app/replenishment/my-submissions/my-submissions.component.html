@@ -53,8 +53,18 @@
         </label>
 
         <label class="filter-field">
+          <span class="filter-label">Replenishment Method</span>
+          <select class="filter-select" [value]="methodFilter()" (change)="onMethodFilterChange($event)">
+            <option value="ALL">All Methods</option>
+            <option value="A">Transfer (A)</option>
+            <option value="B">Donation (B)</option>
+            <option value="C">Procurement (C)</option>
+          </select>
+        </label>
+
+        <label class="filter-field">
           <span class="filter-label">Warehouse</span>
-          <select class="filter-select" [value]="warehouseFilter() ?? ''" (change)="onWarehouseFilterChange($event)">
+          <select class="filter-select" [value]="warehouseFilter() !== null ? warehouseFilter() + '' : ''" (change)="onWarehouseFilterChange($event)">
             <option value="">All Warehouses</option>
             @for (warehouse of warehouseOptions(); track warehouse.warehouse_id) {
               <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
@@ -64,7 +74,7 @@
 
         <label class="filter-field">
           <span class="filter-label">Event</span>
-          <select class="filter-select" [value]="eventFilter() ?? ''" (change)="onEventFilterChange($event)">
+          <select class="filter-select" [value]="eventFilter() !== null ? eventFilter() + '' : ''" (change)="onEventFilterChange($event)">
             <option value="">All Events</option>
             @for (event of eventOptions(); track event.id) {
               <option [value]="event.id">{{ event.name }}</option>

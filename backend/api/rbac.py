@@ -62,6 +62,13 @@ _DEV_ROLE_PERMISSION_MAP = {
     },
 }
 
+# Compatibility overrides for known DB role-permission gaps.
+# These are merged in addition to DB-resolved permissions.
+_ROLE_PERMISSION_COMPAT_OVERRIDES = {
+    "LOGISTICS_OFFICER": {PERM_NEEDS_LIST_SUBMIT},
+    "TST_LOGISTICS_OFFICER": {PERM_NEEDS_LIST_SUBMIT},
+}
+
 
 def _dedupe_preserve_order(items: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(items))
@@ -98,6 +105,10 @@ def resolve_roles_and_permissions(
         permissions = _dedupe_preserve_order(
             list(permissions) + list(_permissions_for_roles(roles))
         )
+
+    permissions = _dedupe_preserve_order(
+        list(permissions) + list(_compat_permissions_for_roles(roles))
+    )
 
     request._rbac_cache = {"roles": roles, "permissions": permissions}
     return roles, permissions
@@ -183,4 +194,11 @@ def _permissions_for_roles(roles: Iterable[str]) -> set[str]:
     permissions: set[str] = set()
     for role in roles:
         permissions |= _DEV_ROLE_PERMISSION_MAP.get(role.upper(), set())
+    return permissions
+
+
+def _compat_permissions_for_roles(roles: Iterable[str]) -> set[str]:
+    permissions: set[str] = set()
+    for role in roles:
+        permissions |= _ROLE_PERMISSION_COMPAT_OVERRIDES.get(role.upper(), set())
     return permissions

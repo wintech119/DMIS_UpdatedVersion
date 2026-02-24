@@ -76,7 +76,13 @@
       <!-- Mobile cards -->
       <div class="order-cards mobile-only">
         @for (order of procurements(); track order.procurement_id) {
-          <div class="order-card" (click)="navigateToDetail(order.procurement_id)">
+          <div
+            class="order-card"
+            role="button"
+            tabindex="0"
+            (click)="navigateToDetail(order.procurement_id)"
+            (keydown.enter)="navigateToDetail(order.procurement_id)"
+            (keydown.space)="$event.preventDefault(); navigateToDetail(order.procurement_id)">
             <div class="order-card-header">
               <strong>{{ order.procurement_no }}</strong>
               <mat-chip-set>

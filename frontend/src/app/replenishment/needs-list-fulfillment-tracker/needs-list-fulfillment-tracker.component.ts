@@ -10,7 +10,7 @@ import { forkJoin, fromEvent, interval, of, Subscription } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-import { NeedsListFulfillmentLine, NeedsListResponse, NeedsListStatus } from '../models/needs-list.model';
+import { NeedsListFulfillmentLine, NeedsListResponse } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
@@ -164,6 +164,46 @@ export class NeedsListFulfillmentTrackerComponent {
     }
   }
 
+  /** Returns the display type for a source, resolving NEEDS_LIST_LINE to its actual horizon method. */
+  getSourceDisplayType(sourceType: string, horizon: string): string {
+    if (sourceType === 'NEEDS_LIST_LINE') {
+      return this.getHorizonLabel(horizon);
+    }
+    return this.getSourceTypeLabel(sourceType);
+  }
+
+  /** Returns the icon for a source, resolving NEEDS_LIST_LINE via the line's horizon. */
+  getSourceIcon(sourceType: string, horizon: string): string {
+    if (sourceType === 'NEEDS_LIST_LINE') {
+      return this.getHorizonIcon(horizon);
+    }
+    const map: Record<string, string> = { TRANSFER: 'A', DONATION: 'B', PROCUREMENT: 'C' };
+    return this.getHorizonIcon(map[sourceType] ?? '');
+  }
+
+  /** Returns a human-readable label for a fulfillment source status. */
+  getStatusLabel(status: string, sourceType: string): string {
+    const map: Record<string, string> = {
+      DISPATCHED: 'Dispatched',
+      IN_TRANSIT: 'In Transit',
+      RECEIVED: sourceType === 'DONATION' ? 'Received & Verified' : 'Received',
+      VERIFIED: 'Verified',
+      DRAFT: 'Draft',
+      ORDERED: 'Ordered',
+      SHIPPED: 'Shipped',
+      DELIVERED: 'Delivered',
+      APPROVED: 'Approved',
+      IN_PROGRESS: 'In Progress',
+      PENDING_APPROVAL: 'Pending Approval',
+      PENDING: 'Pending',
+      CONFIRMED: 'Confirmed',
+      CANCELLED: 'Cancelled',
+      COMPLETED: 'Completed',
+      FULFILLED: 'Fulfilled',
+    };
+    return map[status] ?? (status?.replace(/_/g, ' ') || 'Unknown');
+  }
+
   getCoveragePercent(line: NeedsListFulfillmentLine): number {
     if (!line.original_qty) return 0;
     return Number(((line.covered_qty / line.original_qty) * 100).toFixed(1));
@@ -175,15 +215,19 @@ export class NeedsListFulfillmentTrackerComponent {
     return 'none';
   }
 
-  formatSourceReference(sourceType: string, reference: string): string {
-    if (sourceType === 'NEEDS_LIST_LINE') {
-      return 'Approved Line Item';
-    }
+  formatSourceReference(_sourceType: string, reference: string): string {
     return reference || 'N/A';
   }
 
   dismissApprovalSuccess(): void {
     this.showApprovalSuccess.set(false);
+  }
+
+  dismissApprovalSuccessOnBackdrop(event: MouseEvent): void {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+    this.dismissApprovalSuccess();
   }
 
   isLineExpanded(lineId: number | null): boolean {
@@ -198,6 +242,14 @@ export class NeedsListFulfillmentTrackerComponent {
       next.add(lineId);
     }
     this.expandedLineIds.set(next);
+  }
+
+  onMobileLineCardClick(lineId: number | null, event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.mobile-line-detail')) {
+      return;
+    }
+    this.toggleLineExpanded(lineId);
   }
 
   constructor() {

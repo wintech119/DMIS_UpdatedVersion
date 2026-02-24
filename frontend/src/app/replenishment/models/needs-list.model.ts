@@ -4,6 +4,7 @@ export interface NeedsListItem {
   item_id: number;
   item_name?: string;
   item_code?: string;
+  uom_code?: string;
   warehouse_id?: number;             // NEW for multi-warehouse
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
@@ -137,6 +138,7 @@ export interface NeedsListSummary {
     name: string;
     phase: EventPhase;
   };
+  selected_method?: 'A' | 'B' | 'C' | null;
   status: NeedsListSummaryStatus;
   total_items: number;
   fulfilled_items: number;

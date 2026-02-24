@@ -102,6 +102,22 @@ def _get_approval_info(
     return approval
 
 
+def _normalize_approval_tier_for_model(raw_tier: object) -> str | None:
+    """Map rules-engine tier labels to Procurement.approval_threshold_tier choices."""
+    normalized = str(raw_tier or "").strip().upper()
+    if not normalized:
+        return None
+    if "EMERGENCY" in normalized:
+        return "EMERGENCY"
+    if "TIER 3" in normalized or "TIER_3" in normalized:
+        return "TIER_3"
+    if "TIER 2" in normalized or "TIER_2" in normalized:
+        return "TIER_2"
+    if "TIER 1" in normalized or "TIER_1" in normalized:
+        return "TIER_1"
+    return None
+
+
 def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
     """Serialize a Procurement instance to a response dict."""
     supplier_data = None
@@ -123,7 +139,8 @@ def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
     warehouse_name = ""
     try:
         from replenishment.services.data_access import get_warehouse_name
-        warehouse_name = get_warehouse_name(proc.target_warehouse_id) or ""
+        with transaction.atomic():
+            warehouse_name = get_warehouse_name(proc.target_warehouse_id) or ""
     except Exception:
         pass
 
@@ -140,7 +157,8 @@ def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
     if item_ids:
         try:
             from replenishment.services.data_access import get_item_names
-            names_data, _ = get_item_names(item_ids)
+            with transaction.atomic():
+                names_data, _ = get_item_names(item_ids)
             item_names_map = {
                 iid: info.get("name", "") for iid, info in names_data.items()
             }
@@ -258,7 +276,7 @@ def create_procurement_from_needs_list(
 
     proc.total_value = _compute_total_value(proc)
     approval = _get_approval_info(proc.total_value, nl.event_phase or "BASELINE")
-    proc.approval_threshold_tier = approval.get("tier")
+    proc.approval_threshold_tier = _normalize_approval_tier_for_model(approval.get("tier"))
     proc.save(update_fields=["total_value", "approval_threshold_tier", "update_dtime"])
 
     logger.info(
@@ -495,7 +513,7 @@ def update_procurement_draft(
     if proc.needs_list:
         phase = proc.needs_list.event_phase or "BASELINE"
     approval = _get_approval_info(proc.total_value, phase)
-    proc.approval_threshold_tier = approval.get("tier")
+    proc.approval_threshold_tier = _normalize_approval_tier_for_model(approval.get("tier"))
     update_fields.append("approval_threshold_tier")
 
     proc.save(update_fields=update_fields)
