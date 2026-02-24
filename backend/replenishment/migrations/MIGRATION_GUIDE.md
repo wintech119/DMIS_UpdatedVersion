@@ -67,13 +67,13 @@ The Supply Replenishment Module (EP-02) requires new database tables and alterat
 
 1. **Create a backup first**
    ```bash
-   cd "C:\Program Files\PostgreSQL\18\bin"
-   pg_dump -U your_username -d your_database_name -F c -f "C:\backup\dmis_backup_before_replenishment.backup"
+   cd "<postgres-bin-dir>"
+   pg_dump -U your_username -d your_database_name -F c -f "./dmis_backup_before_replenishment.backup"
    ```
 
 2. **Run the migration**
    ```bash
-   psql -U your_username -d your_database_name -f "C:\Users\user\Desktop\DMIS_UpgradedVersion\DMIS_UpdatedVersion\backend\EP02_SUPPLY_REPLENISHMENT_SCHEMA.sql"
+   psql -U your_username -d your_database_name -f "./backend/EP02_SUPPLY_REPLENISHMENT_SCHEMA.sql"
    ```
 
 3. **Check for errors** in the output. Successful migration should show:
@@ -204,7 +204,7 @@ If something goes wrong, you can restore from the backup:
 
 ### Using psql:
 ```bash
-pg_restore -U your_username -d your_database_name "C:\backup\dmis_backup_before_replenishment.backup"
+pg_restore -U your_username -d your_database_name "./dmis_backup_before_replenishment.backup"
 ```
 
 ## Next Steps
@@ -219,7 +219,7 @@ After successful migration:
 
 If you encounter issues not covered in this guide:
 1. Check the Django logs: `backend/logs/` or console output
-2. Check PostgreSQL logs: typically in `C:\Program Files\PostgreSQL\18\data\log\`
+2. Check PostgreSQL logs: typically in your PostgreSQL data directory `data/log/`
 3. Review the error messages carefully - they often indicate exactly what's missing
 
 ## Files Involved

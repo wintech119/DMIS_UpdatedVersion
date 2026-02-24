@@ -68,3 +68,6 @@ deploy/*.conf
 backend/.local/
 backend/.tmp/
 backend/runtime/
+
+# Codex local artifacts
+.codex/
