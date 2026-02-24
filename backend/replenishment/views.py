@@ -2716,7 +2716,8 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             status=409,
         )
 
-    items = record.get("items", [])
+    snapshot = workflow_store.apply_overrides(record)
+    items = snapshot.get("items", [])
     warehouse_id = record.get("warehouse_id")
     event_id = record.get("event_id")
     actor = _actor_id(request)
@@ -2955,7 +2956,8 @@ def needs_list_donations(request, needs_list_id: str):
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
-    items = record.get("items", [])
+    snapshot = workflow_store.apply_overrides(record)
+    items = snapshot.get("items", [])
     warehouse_id = record.get("warehouse_id")
     as_of = record.get("as_of_datetime")
 
@@ -3032,7 +3034,8 @@ def needs_list_donations_export(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     fmt = request.query_params.get("format", "csv").lower()
-    items = record.get("items", [])
+    snapshot = workflow_store.apply_overrides(record)
+    items = snapshot.get("items", [])
     horizon_b_items = [
         item for item in items
         if ((item.get("horizon") or {}).get("B") or {}).get("recommended_qty", 0) > 0
@@ -3087,7 +3090,8 @@ def needs_list_procurement_export(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     fmt = request.query_params.get("format", "csv").lower()
-    items = record.get("items", [])
+    snapshot = workflow_store.apply_overrides(record)
+    items = snapshot.get("items", [])
     horizon_c_items = [
         item for item in items
         if ((item.get("horizon") or {}).get("C") or {}).get("recommended_qty", 0) > 0

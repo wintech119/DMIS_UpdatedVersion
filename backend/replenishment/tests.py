@@ -953,14 +953,16 @@ class NeedsListWorkflowApiTests(TestCase):
             "status": "APPROVED",
             "warehouse_id": 10,
             "event_id": 1,
-            "items": [
-                {
-                    "item_id": 101,
-                    "item_name": "Water",
-                    "uom_code": "EA",
-                    "horizon": {"A": {"recommended_qty": 5}},
-                }
-            ],
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "horizon": {"A": {"recommended_qty": 5}},
+                    }
+                ]
+            },
         }
 
         with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
@@ -1014,14 +1016,16 @@ class NeedsListWorkflowApiTests(TestCase):
             "status": "APPROVED",
             "warehouse_id": 10,
             "event_id": 1,
-            "items": [
-                {
-                    "item_id": 101,
-                    "item_name": "Water",
-                    "uom_code": "EA",
-                    "horizon": {"A": {"recommended_qty": 5}},
-                }
-            ],
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 101,
+                        "item_name": "Water",
+                        "uom_code": "EA",
+                        "horizon": {"A": {"recommended_qty": 5}},
+                    }
+                ]
+            },
         }
         existing_transfers = [{"transfer_id": 91}]
 
@@ -1053,6 +1057,125 @@ class NeedsListWorkflowApiTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json().get("transfers"), existing_transfers)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_donations_endpoint_reads_items_from_snapshot(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 201,
+                        "item_name": "Blankets",
+                        "uom_code": "EA",
+                        "horizon": {"B": {"recommended_qty": 7}},
+                    }
+                ]
+            },
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/NL-A/donations",
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        lines = response.json().get("lines", [])
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["item_id"], 201)
+        self.assertEqual(lines[0]["required_qty"], 7)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_donations_export_reads_items_from_snapshot(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 202,
+                        "item_name": "Generator",
+                        "uom_code": "EA",
+                        "horizon": {"B": {"recommended_qty": 2}},
+                    }
+                ]
+            },
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/NL-A/donations/export?format=json",
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json().get("items", [])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["item_id"], 202)
+        self.assertEqual(items[0]["required_qty"], 2)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_procurement_export_reads_items_from_snapshot(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 203,
+                        "item_name": "Water Pump",
+                        "uom_code": "EA",
+                        "horizon": {"C": {"recommended_qty": 4}},
+                        "procurement": {"est_unit_cost": 12.5, "est_total_cost": 50.0},
+                    }
+                ]
+            },
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/NL-A/procurement/export?format=json",
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        items = response.json().get("items", [])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["item_id"], 203)
+        self.assertEqual(items[0]["required_qty"], 4)
 
     @override_settings(
         AUTH_ENABLED=False,
