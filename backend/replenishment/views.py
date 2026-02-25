@@ -2881,6 +2881,16 @@ def needs_list_transfers(request, needs_list_id: str):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     transfers, warnings = data_access.get_transfers_for_needs_list(needs_list_id)
+    logger.info(
+        "needs_list_transfers_get",
+        extra={
+            "event_type": "READ",
+            "user_id": getattr(request.user, "keycloak_id", None),
+            "username": getattr(request.user, "username", None),
+            "needs_list_id": needs_list_id,
+            "transfer_count": len(transfers),
+        },
+    )
     return Response({
         "needs_list_id": needs_list_id,
         "transfers": transfers,
