@@ -79,7 +79,8 @@ def _parse_github_url(url: str, default_ref: str) -> tuple[str, str, str, str | 
 
 
 def _download_repo_zip(owner: str, repo: str, ref: str, dest_dir: str) -> str:
-    zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/{ref}"
+    encoded_ref = urllib.parse.quote(ref, safe="")
+    zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/{encoded_ref}"
     zip_path = os.path.join(dest_dir, "repo.zip")
     try:
         payload = _request(zip_url)
