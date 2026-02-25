@@ -3046,6 +3046,26 @@ def needs_list_donations(request, needs_list_id: str):
                 "available_donations": [],
             })
 
+    auth_payload = getattr(request, "auth", None)
+    auth_sub = auth_payload.get("sub") if isinstance(auth_payload, dict) else None
+    auth_username = auth_payload.get("preferred_username") if isinstance(auth_payload, dict) else None
+    logger.info(
+        "needs_list_donations",
+        extra={
+            "event_type": "READ",
+            "timestamp": timezone.now().isoformat(),
+            "user_id": (
+                getattr(request.user, "keycloak_id", None)
+                or getattr(request.user, "user_id", None)
+                or auth_sub
+            ),
+            "username": getattr(request.user, "username", None) or auth_username,
+            "action": "READ_DONATIONS_LIST",
+            "needs_list_id": needs_list_id,
+            "line_count": len(horizon_b_lines),
+        },
+    )
+
     return Response({
         "needs_list_id": needs_list_id,
         "lines": horizon_b_lines,

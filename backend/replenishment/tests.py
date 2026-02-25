@@ -1206,7 +1206,7 @@ class NeedsListWorkflowApiTests(TestCase):
 
         with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
             "replenishment.views.workflow_store.get_record", return_value=record
-        ):
+        ), patch("replenishment.views.logger.info") as mock_logger_info:
             response = self.client.get(
                 "/api/v1/replenishment/needs-list/NL-A/donations",
                 format="json",
@@ -1217,6 +1217,20 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0]["item_id"], 201)
         self.assertEqual(lines[0]["required_qty"], 7)
+        donation_read_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "needs_list_donations"
+        ]
+        self.assertEqual(len(donation_read_logs), 1)
+        log_data = donation_read_logs[0]
+        self.assertEqual(log_data.get("event_type"), "READ")
+        self.assertEqual(log_data.get("action"), "READ_DONATIONS_LIST")
+        self.assertEqual(log_data.get("needs_list_id"), "NL-A")
+        self.assertEqual(log_data.get("line_count"), 1)
+        self.assertEqual(log_data.get("user_id"), "dev-user")
+        self.assertEqual(log_data.get("username"), "dev-user")
+        self.assertTrue(str(log_data.get("timestamp") or "").strip())
 
     @override_settings(
         AUTH_ENABLED=False,
