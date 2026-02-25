@@ -431,6 +431,7 @@ export class ProcurementFormComponent implements OnInit {
 
   submitForApproval(): void {
     if (this.headerForm.invalid) {
+      this.headerForm.markAllAsTouched();
       return;
     }
     if (!this.validateForm()) return;
