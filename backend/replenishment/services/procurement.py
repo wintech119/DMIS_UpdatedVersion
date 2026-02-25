@@ -546,11 +546,27 @@ def update_procurement_draft(
                 pi.update_by_id = actor_id
 
                 if "ordered_qty" in line:
-                    pi.ordered_qty = Decimal(str(line["ordered_qty"]))
+                    raw_ordered_qty = line["ordered_qty"]
+                    try:
+                        pi.ordered_qty = Decimal(str(raw_ordered_qty))
+                    except (InvalidOperation, ValueError, TypeError):
+                        raise ProcurementError(
+                            f"Invalid ordered_qty for procurement item {procurement_item_id}: "
+                            f"{raw_ordered_qty!r}.",
+                            code="invalid_ordered_qty",
+                        )
                     item_fields.append("ordered_qty")
                 if "unit_price" in line:
-                    if line["unit_price"] is not None:
-                        pi.unit_price = Decimal(str(line["unit_price"]))
+                    raw_unit_price = line["unit_price"]
+                    if raw_unit_price is not None:
+                        try:
+                            pi.unit_price = Decimal(str(raw_unit_price))
+                        except (InvalidOperation, ValueError, TypeError):
+                            raise ProcurementError(
+                                f"Invalid unit_price for procurement item {procurement_item_id}: "
+                                f"{raw_unit_price!r}.",
+                                code="invalid_unit_price",
+                            )
                     else:
                         pi.unit_price = None
                     item_fields.append("unit_price")
@@ -566,15 +582,39 @@ def update_procurement_draft(
                 pi.save(update_fields=item_fields)
             elif line.get("item_id"):
                 # Add new line item
+                raw_item_id = line.get("item_id")
+                try:
+                    item_id = int(raw_item_id)
+                except (TypeError, ValueError):
+                    raise ProcurementError(
+                        f"Invalid item_id for line item: {raw_item_id!r}.",
+                        code="invalid_item_id",
+                    )
+
                 unit_price = None
-                if line.get("unit_price") is not None:
-                    unit_price = Decimal(str(line["unit_price"]))
-                ordered_qty = Decimal(str(line.get("ordered_qty", 0)))
-                line_total = (ordered_qty * unit_price) if unit_price else None
+                raw_unit_price = line.get("unit_price")
+                if raw_unit_price is not None:
+                    try:
+                        unit_price = Decimal(str(raw_unit_price))
+                    except (InvalidOperation, ValueError, TypeError):
+                        raise ProcurementError(
+                            f"Invalid unit_price for item {item_id}: {raw_unit_price!r}.",
+                            code="invalid_unit_price",
+                        )
+
+                raw_ordered_qty = line.get("ordered_qty", 0)
+                try:
+                    ordered_qty = Decimal(str(raw_ordered_qty))
+                except (InvalidOperation, ValueError, TypeError):
+                    raise ProcurementError(
+                        f"Invalid ordered_qty for item {item_id}: {raw_ordered_qty!r}.",
+                        code="invalid_ordered_qty",
+                    )
+                line_total = (ordered_qty * unit_price) if unit_price is not None else None
 
                 ProcurementItem.objects.create(
                     procurement=proc,
-                    item_id=int(line["item_id"]),
+                    item_id=item_id,
                     ordered_qty=ordered_qty,
                     unit_price=unit_price,
                     line_total=line_total,

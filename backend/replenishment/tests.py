@@ -4766,6 +4766,111 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertEqual(total, Decimal("0.00"))
         self.assertEqual(line.line_total, Decimal("0.00"))
 
+    def test_update_procurement_draft_rejects_invalid_ordered_qty_for_existing_line(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-004",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        line = ProcurementItem.objects.create(
+            procurement=proc,
+            item_id=100,
+            ordered_qty=Decimal("5.00"),
+            unit_price=Decimal("2.00"),
+            line_total=Decimal("10.00"),
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with self.assertRaises(procurement_service.ProcurementError) as ctx:
+            procurement_service.update_procurement_draft(
+                proc.procurement_id,
+                {
+                    "items": [
+                        {
+                            "procurement_item_id": line.procurement_item_id,
+                            "ordered_qty": {"qty": "bad"},
+                        }
+                    ]
+                },
+                actor_id="editor",
+            )
+
+        self.assertEqual(ctx.exception.code, "invalid_ordered_qty")
+        self.assertIn(str(line.procurement_item_id), ctx.exception.message)
+
+    def test_update_procurement_draft_rejects_invalid_unit_price_for_new_line(self) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-005",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with self.assertRaises(procurement_service.ProcurementError) as ctx:
+            procurement_service.update_procurement_draft(
+                proc.procurement_id,
+                {
+                    "items": [
+                        {
+                            "item_id": 200,
+                            "ordered_qty": 2,
+                            "unit_price": {"value": "bad"},
+                        }
+                    ]
+                },
+                actor_id="editor",
+            )
+
+        self.assertEqual(ctx.exception.code, "invalid_unit_price")
+        self.assertIn("item 200", ctx.exception.message)
+        self.assertFalse(
+            ProcurementItem.objects.filter(procurement=proc, item_id=200).exists()
+        )
+
+    @patch(
+        "replenishment.services.procurement._compute_total_value",
+        return_value=Decimal("0.00"),
+    )
+    def test_update_procurement_draft_zero_unit_price_sets_line_total_for_new_line(
+        self, _mock_total
+    ) -> None:
+        proc = Procurement.objects.create(
+            procurement_no="PROC-TEST-006",
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        procurement_service.update_procurement_draft(
+            proc.procurement_id,
+            {
+                "items": [
+                    {
+                        "item_id": 300,
+                        "ordered_qty": 5,
+                        "unit_price": 0,
+                    }
+                ]
+            },
+            actor_id="editor",
+        )
+
+        line = ProcurementItem.objects.get(procurement=proc, item_id=300)
+        self.assertEqual(line.unit_price, Decimal("0.00"))
+        self.assertEqual(line.line_total, Decimal("0.00"))
+
 
 class ProcurementReceiveItemsTests(TestCase):
     def test_receive_items_rejects_invalid_received_qty(self) -> None:
