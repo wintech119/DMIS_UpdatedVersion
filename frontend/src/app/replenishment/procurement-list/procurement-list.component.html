@@ -1,0 +1,126 @@
+<div class="procurement-list-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <button mat-icon-button class="back-btn" type="button" aria-label="Back to tracker" (click)="backToTracker()">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h1>Procurement Orders</h1>
+      <p class="subtitle">Orders linked to this needs list</p>
+    </div>
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      class="create-btn"
+      [disabled]="creating()"
+      (click)="createProcurementOrder()">
+      <mat-icon>add</mat-icon>
+      {{ creating() ? 'Creating...' : 'Create Procurement Order' }}
+    </button>
+  </div>
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="3"></dmis-skeleton-loader>
+  }
+
+  <!-- Error state -->
+  @if (!loading() && error()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Unable to load procurement orders"
+      message="There was an error loading procurement data. Please try again."
+      actionLabel="Back to Tracker"
+      actionIcon="arrow_back"
+      (action)="backToTracker()">
+    </dmis-empty-state>
+  }
+
+  @if (!loading() && !error()) {
+    @if (hasProcurements()) {
+      <!-- Desktop table -->
+      <div class="table-container desktop-only">
+        <table class="procurement-table">
+          <thead>
+            <tr>
+              <th>Procurement No</th>
+              <th>Status</th>
+              <th>Supplier</th>
+              <th>Total Value</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (order of procurements(); track order.procurement_id) {
+              <tr class="clickable-row" (click)="navigateToDetail(order.procurement_id)">
+                <td class="procurement-no">{{ order.procurement_no }}</td>
+                <td>
+                  <mat-chip-set>
+                    <mat-chip
+                      [style.--mdc-chip-label-text-color]="'#fff'"
+                      [style.--mdc-chip-elevated-container-color]="getStatusColor(order.status_code)">
+                      {{ getStatusLabel(order.status_code) }}
+                    </mat-chip>
+                  </mat-chip-set>
+                </td>
+                <td>{{ order.supplier?.supplier_name || 'Not assigned' }}</td>
+                <td class="value-cell">{{ order.total_value | currency:'JMD':'symbol-narrow':'1.0-0' }}</td>
+                <td class="date-cell">{{ order.create_dtime | date:'mediumDate' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Mobile cards -->
+      <div class="order-cards mobile-only">
+        @for (order of procurements(); track order.procurement_id) {
+          <div
+            class="order-card"
+            role="button"
+            tabindex="0"
+            (click)="navigateToDetail(order.procurement_id)"
+            (keydown.enter)="navigateToDetail(order.procurement_id)"
+            (keydown.space)="$event.preventDefault(); navigateToDetail(order.procurement_id)">
+            <div class="order-card-header">
+              <strong>{{ order.procurement_no }}</strong>
+              <mat-chip-set>
+                <mat-chip
+                  [style.--mdc-chip-label-text-color]="'#fff'"
+                  [style.--mdc-chip-elevated-container-color]="getStatusColor(order.status_code)">
+                  {{ getStatusLabel(order.status_code) }}
+                </mat-chip>
+              </mat-chip-set>
+            </div>
+            <div class="order-card-body">
+              <div class="order-field">
+                <span class="field-label">Supplier</span>
+                <span>{{ order.supplier?.supplier_name || 'Not assigned' }}</span>
+              </div>
+              <div class="order-field">
+                <span class="field-label">Total Value</span>
+                <span class="value-text">{{ order.total_value | currency:'JMD':'symbol-narrow':'1.0-0' }}</span>
+              </div>
+              <div class="order-field">
+                <span class="field-label">Created</span>
+                <span>{{ order.create_dtime | date:'mediumDate' }}</span>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    @if (!hasProcurements()) {
+      <dmis-empty-state
+        icon="shopping_cart"
+        title="No procurement orders"
+        message="No procurement orders have been created for this needs list yet. Click the button above to create one."
+        actionLabel="Create Procurement Order"
+        actionIcon="add"
+        (action)="createProcurementOrder()">
+      </dmis-empty-state>
+    }
+  }
+</div>

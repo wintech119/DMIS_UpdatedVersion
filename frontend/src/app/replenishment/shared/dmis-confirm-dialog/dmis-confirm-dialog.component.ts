@@ -1,5 +1,5 @@
-import { Component, Inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -14,7 +14,7 @@ export interface ConfirmDialogData {
 @Component({
   selector: 'dmis-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, MatIconModule, MatButtonModule],
+  imports: [MatDialogModule, MatIconModule, MatButtonModule],
   template: `
     <div class="confirm-dialog">
       <div class="confirm-dialog-header">
@@ -25,10 +25,11 @@ export interface ConfirmDialogData {
         <p class="confirm-dialog-message">{{ data.message }}</p>
       </mat-dialog-content>
       <mat-dialog-actions align="end">
-        <button mat-stroked-button [mat-dialog-close]="false">
+        <button matButton="outlined" [mat-dialog-close]="false">
           {{ data.cancelLabel || 'Cancel' }}
         </button>
-        <button mat-flat-button color="warn" [mat-dialog-close]="true" cdkFocusInitial>
+        <button matButton="filled" class="confirm-action-btn" [mat-dialog-close]="true" cdkFocusInitial>
+          <mat-icon aria-hidden="true">check_circle</mat-icon>
           {{ data.confirmLabel || 'Confirm' }}
         </button>
       </mat-dialog-actions>
@@ -42,19 +43,27 @@ export interface ConfirmDialogData {
       margin-bottom: 8px;
     }
     .confirm-dialog-icon {
-      color: #f57f17;
+      color: var(--mat-sys-tertiary);
       font-size: 28px;
       width: 28px;
       height: 28px;
     }
     .confirm-dialog-message {
-      color: #475569;
+      color: var(--mat-sys-on-surface-variant);
       font-size: 14px;
       line-height: 1.5;
+    }
+    .confirm-action-btn {
+      --mdc-filled-button-container-color: var(--mat-sys-primary);
+      --mdc-filled-button-label-text-color: var(--mat-sys-on-primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class DmisConfirmDialogComponent {
-  constructor(@Inject(MAT_DIALOG_DATA) public data: ConfirmDialogData) {}
+export class DmisConfirmDialogComponent {  data = inject<ConfirmDialogData>(MAT_DIALOG_DATA);
+
 }
+

@@ -1,0 +1,13 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "angular",
+    "snyk",
+    "django-ai-boost"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=\"$PGPASSWORD\" \"C:/Program Files/PostgreSQL/18/bin/psql.exe\":*)"
+    ]
+  }
+}

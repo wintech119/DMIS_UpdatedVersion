@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Dict, List, Tuple
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
 from replenishment import rules
@@ -24,24 +24,72 @@ def get_warehouse_name(warehouse_id: int) -> str:
 
     schema = _schema_name()
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT warehouse_name
-                FROM {schema}.warehouse
-                WHERE warehouse_id = %s
-                LIMIT 1
-                """,
-                [warehouse_id],
-            )
-            row = cursor.fetchone()
-            if row and row[0]:
-                return str(row[0])
+        # Isolate legacy-table lookup so query failures don't poison outer transactions.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT warehouse_name
+                    FROM {schema}.warehouse
+                    WHERE warehouse_id = %s
+                    LIMIT 1
+                    """,
+                    [warehouse_id],
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return str(row[0])
     except DatabaseError as exc:
         logger.warning("Warehouse name query failed for warehouse_id=%s: %s", warehouse_id, exc)
 
     # Fallback to ID if name not found
     return f"Warehouse {warehouse_id}"
+
+
+def get_warehouse_names(warehouse_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch warehouse names for many warehouse IDs in one query.
+    Returns a dict mapping warehouse_id -> warehouse_name and any warnings.
+    """
+    if not warehouse_ids:
+        return {}, []
+
+    unique_ids = sorted({int(warehouse_id) for warehouse_id in warehouse_ids if warehouse_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {warehouse_id: f"Warehouse {warehouse_id}" for warehouse_id in unique_ids}, []
+
+    schema = _schema_name()
+    warehouse_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id, warehouse_name
+                FROM {schema}.warehouse
+                WHERE warehouse_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for warehouse_id, warehouse_name in cursor.fetchall():
+                warehouse_names[int(warehouse_id)] = (
+                    str(warehouse_name) if warehouse_name else f"Warehouse {warehouse_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Warehouse names query failed for warehouse_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after warehouse names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_warehouse_names")
+
+    for warehouse_id in unique_ids:
+        warehouse_names.setdefault(warehouse_id, f"Warehouse {warehouse_id}")
+    return warehouse_names, warnings
 
 
 def _is_sqlite() -> bool:
@@ -192,6 +240,515 @@ def get_inbound_transfers_by_item(
         return {}, warnings
 
     return inbound, warnings
+
+
+def get_warehouses_with_stock(
+    item_ids: List[int], exclude_warehouse_id: int
+) -> Tuple[Dict[int, List[Dict]], List[str]]:
+    """
+    Find source warehouses with available stock per item.
+    Returns {item_id: [{warehouse_id, warehouse_name, available_qty}, ...]} and warnings.
+    """
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"]
+    if not item_ids:
+        return {}, []
+
+    schema = _schema_name()
+    result: Dict[int, List[Dict]] = {}
+    warnings: List[str] = []
+    status = getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")
+
+    try:
+        placeholders = ",".join(["%s"] * len(item_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT ib.item_id,
+                       w.warehouse_id,
+                       w.warehouse_name,
+                       SUM(ib.usable_qty - ib.reserved_qty) AS available_qty
+                FROM {schema}.itembatch ib
+                JOIN {schema}.inventory i
+                    ON i.inventory_id = ib.inventory_id AND i.item_id = ib.item_id
+                JOIN {schema}.warehouse w
+                    ON w.warehouse_id = ib.inventory_id
+                WHERE ib.item_id IN ({placeholders})
+                  AND ib.inventory_id != %s
+                  AND ib.status_code = %s
+                  AND i.status_code = %s
+                  AND w.status_code = 'A'
+                GROUP BY ib.item_id, w.warehouse_id, w.warehouse_name
+                HAVING SUM(ib.usable_qty - ib.reserved_qty) > 0
+                ORDER BY ib.item_id, available_qty DESC
+                """,
+                [*item_ids, exclude_warehouse_id, status, status],
+            )
+            for item_id, wh_id, wh_name, qty in cursor.fetchall():
+                item_id = int(item_id)
+                result.setdefault(item_id, []).append({
+                    "warehouse_id": int(wh_id),
+                    "warehouse_name": str(wh_name) if wh_name else f"Warehouse {wh_id}",
+                    "available_qty": _to_float(qty),
+                })
+    except DatabaseError as exc:
+        logger.warning("Warehouses with stock query failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed: %s", rollback_exc)
+        warnings.append("db_unavailable_preview_stub")
+        return {}, warnings
+
+    return result, warnings
+
+
+def insert_draft_transfer(
+    from_warehouse_id: int,
+    to_warehouse_id: int,
+    event_id: int,
+    needs_list_id: str,
+    reason: str,
+    actor_id: str,
+) -> Tuple[int | None, List[str]]:
+    """
+    Insert a draft transfer row into the legacy transfer table.
+    Returns (transfer_id, warnings).
+    """
+    if _is_sqlite():
+        return None, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {schema}.transfer
+                    (fr_inventory_id, to_inventory_id, eligible_event_id,
+                     transfer_date, reason_text, status_code,
+                     needs_list_id, create_user, create_dtime)
+                VALUES (%s, %s, %s, CURRENT_DATE, %s, 'P', %s, %s, NOW())
+                RETURNING transfer_id
+                """,
+                [from_warehouse_id, to_warehouse_id, event_id,
+                 reason, needs_list_id, actor_id],
+            )
+            row = cursor.fetchone()
+            return int(row[0]) if row else None, warnings
+    except DatabaseError as exc:
+        logger.warning("Insert draft transfer failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed: %s", rollback_exc)
+        warnings.append("db_error_insert_transfer")
+        return None, warnings
+
+
+def insert_transfer_items(
+    transfer_id: int, items: List[Dict]
+) -> List[str]:
+    """
+    Insert items into transfer_item table for a given transfer.
+    Each item dict must have: item_id, item_qty, uom_code.
+    inventory_id defaults to the transfer's source inventory when omitted.
+    """
+    if _is_sqlite():
+        return ["db_unavailable_preview_stub"]
+    if not items:
+        return []
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    try:
+        with connection.cursor() as cursor:
+            default_inventory_id = None
+            if any(item.get("inventory_id") is None for item in items):
+                cursor.execute(
+                    f"SELECT fr_inventory_id FROM {schema}.transfer WHERE transfer_id = %s",
+                    [transfer_id],
+                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found")
+                    return warnings
+                default_inventory_id = int(row[0]) if row[0] is not None else None
+
+            for item in items:
+                inventory_id = item.get("inventory_id", default_inventory_id)
+                if inventory_id is None:
+                    warnings.append(f"transfer_source_inventory_missing_item_{item['item_id']}")
+                    continue
+                cursor.execute(
+                    f"""
+                    INSERT INTO {schema}.transfer_item
+                        (transfer_id, item_id, item_qty, uom_code, inventory_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    [transfer_id, item["item_id"], item["item_qty"],
+                     item.get("uom_code", "EA"), inventory_id],
+                )
+    except DatabaseError as exc:
+        logger.warning("Insert transfer items failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed: %s", rollback_exc)
+        warnings.append("db_error_insert_transfer_items")
+    return warnings
+
+
+def create_draft_transfer_with_items(
+    from_warehouse_id: int,
+    to_warehouse_id: int,
+    event_id: int,
+    needs_list_id: str,
+    reason: str,
+    actor_id: str,
+    items: List[Dict],
+) -> Tuple[int | None, List[str]]:
+    """
+    Atomically create a draft transfer and its transfer_item rows.
+    Returns (transfer_id, warnings). On any DB failure, no rows are persisted.
+    """
+    if _is_sqlite():
+        return None, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    stage = "transfer"
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    INSERT INTO {schema}.transfer
+                        (fr_inventory_id, to_inventory_id, eligible_event_id,
+                         transfer_date, reason_text, status_code,
+                         needs_list_id, create_user, create_dtime)
+                    VALUES (%s, %s, %s, CURRENT_DATE, %s, 'P', %s, %s, NOW())
+                    RETURNING transfer_id
+                    """,
+                    [
+                        from_warehouse_id,
+                        to_warehouse_id,
+                        event_id,
+                        reason,
+                        needs_list_id,
+                        actor_id,
+                    ],
+                )
+                row = cursor.fetchone()
+                transfer_id = int(row[0]) if row and row[0] is not None else None
+                if transfer_id is None:
+                    raise DatabaseError("Insert draft transfer returned no transfer_id")
+
+                stage = "items"
+                default_inventory_id = from_warehouse_id
+                for item in items:
+                    inventory_id = item.get("inventory_id", default_inventory_id)
+                    if inventory_id is None:
+                        warnings.append(
+                            f"transfer_source_inventory_missing_item_{item.get('item_id')}"
+                        )
+                        continue
+                    cursor.execute(
+                        f"""
+                        INSERT INTO {schema}.transfer_item
+                            (transfer_id, item_id, item_qty, uom_code, inventory_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        [
+                            transfer_id,
+                            item["item_id"],
+                            item["item_qty"],
+                            item.get("uom_code", "EA"),
+                            inventory_id,
+                        ],
+                    )
+        return transfer_id, warnings
+    except DatabaseError as exc:
+        if stage == "transfer":
+            logger.warning("Insert draft transfer failed: %s", exc)
+        else:
+            logger.warning("Insert transfer items failed: %s", exc)
+        raise
+
+
+def create_draft_transfers_if_absent(
+    needs_list_id: str,
+    transfer_specs: List[Dict[str, object]],
+) -> Tuple[List[Dict], int, bool, List[str]]:
+    """
+    Atomically create draft transfers if none exist for the given needs list.
+
+    Uses a transaction-scoped advisory lock (PostgreSQL) to prevent concurrent
+    check-then-insert races for the same needs_list_id.
+
+    Returns (transfers, created_count, already_exists, warnings).
+    """
+    if _is_sqlite():
+        return [], 0, False, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    created_count = 0
+    already_exists = False
+
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                if connection.vendor == "postgresql":
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        [f"needs_list_transfer_generation:{needs_list_id}"],
+                    )
+
+                cursor.execute(
+                    f"""
+                    SELECT 1
+                    FROM {schema}.transfer
+                    WHERE needs_list_id = %s
+                    LIMIT 1
+                    """,
+                    [needs_list_id],
+                )
+                already_exists = cursor.fetchone() is not None
+
+            if not already_exists:
+                for spec in transfer_specs:
+                    transfer_id, transfer_warnings = create_draft_transfer_with_items(
+                        from_warehouse_id=int(spec["from_warehouse_id"]),
+                        to_warehouse_id=int(spec["to_warehouse_id"]),
+                        event_id=int(spec["event_id"]),
+                        needs_list_id=needs_list_id,
+                        reason=str(spec["reason"]),
+                        actor_id=str(spec["actor_id"]),
+                        items=list(spec["items"]) if isinstance(spec["items"], list) else [],
+                    )
+                    warnings.extend(transfer_warnings)
+                    if transfer_id:
+                        created_count += 1
+    except DatabaseError as exc:
+        logger.warning(
+            "Atomic transfer generation failed for needs_list_id=%s: %s",
+            needs_list_id,
+            exc,
+        )
+        warnings.append("db_error_insert_transfer")
+        return [], 0, False, warnings
+
+    transfers, fetch_warnings = get_transfers_for_needs_list(needs_list_id)
+    warnings.extend(fetch_warnings)
+    return transfers, created_count, already_exists, warnings
+
+
+def get_transfers_for_needs_list(
+    needs_list_id: str,
+) -> Tuple[List[Dict], List[str]]:
+    """
+    Return transfers + items linked to this needs list.
+    """
+    if _is_sqlite():
+        return [], ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    transfers: Dict[int, Dict] = {}
+    warnings: List[str] = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT t.transfer_id, t.fr_inventory_id, t.to_inventory_id,
+                       t.status_code, t.transfer_date, t.reason_text,
+                       fw.warehouse_name AS from_name,
+                       tw.warehouse_name AS to_name,
+                       t.create_user, t.create_dtime
+                FROM {schema}.transfer t
+                LEFT JOIN {schema}.warehouse fw ON fw.warehouse_id = t.fr_inventory_id
+                LEFT JOIN {schema}.warehouse tw ON tw.warehouse_id = t.to_inventory_id
+                WHERE t.needs_list_id = %s
+                ORDER BY t.transfer_id
+                """,
+                [needs_list_id],
+            )
+            for row in cursor.fetchall():
+                tid = int(row[0])
+                transfers[tid] = {
+                    "transfer_id": tid,
+                    "from_warehouse": {
+                        "id": int(row[1]),
+                        "name": str(row[6]) if row[6] else f"Warehouse {row[1]}",
+                    },
+                    "to_warehouse": {
+                        "id": int(row[2]),
+                        "name": str(row[7]) if row[7] else f"Warehouse {row[2]}",
+                    },
+                    "status": str(row[3]),
+                    "transfer_date": row[4].isoformat() if row[4] else None,
+                    "reason": str(row[5]) if row[5] else None,
+                    "created_by": str(row[8]) if row[8] else None,
+                    "created_at": row[9].isoformat() if row[9] else None,
+                    "items": [],
+                }
+
+        if transfers:
+            tids = list(transfers.keys())
+            placeholders = ",".join(["%s"] * len(tids))
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT ti.transfer_id, ti.item_id, ti.item_qty, ti.uom_code,
+                           it.item_name
+                    FROM {schema}.transfer_item ti
+                    LEFT JOIN {schema}.item it ON it.item_id = ti.item_id
+                    WHERE ti.transfer_id IN ({placeholders})
+                    ORDER BY ti.transfer_id, ti.item_id
+                    """,
+                    tids,
+                )
+                for row in cursor.fetchall():
+                    tid = int(row[0])
+                    if tid in transfers:
+                        transfers[tid]["items"].append({
+                            "item_id": int(row[1]),
+                            "item_qty": _to_float(row[2]),
+                            "uom_code": str(row[3]) if row[3] else "EA",
+                            "item_name": str(row[4]) if row[4] else f"Item {row[1]}",
+                        })
+    except DatabaseError as exc:
+        logger.warning("Get transfers for needs list failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed: %s", rollback_exc)
+        warnings.append("db_unavailable_preview_stub")
+        return [], warnings
+
+    return list(transfers.values()), warnings
+
+
+def update_transfer_draft(
+    transfer_id: int, needs_list_id: str, updates: Dict
+) -> List[str]:
+    """
+    Update a draft transfer's items (qty, source warehouse).
+    updates should contain: items: [{item_id, item_qty}], reason: str
+    """
+    if _is_sqlite():
+        return ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT status_code
+                    FROM {schema}.transfer
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                    """,
+                    [transfer_id, needs_list_id],
+                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found_for_needs_list")
+                    return warnings
+                if str(row[0]) != "P":
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return warnings
+
+                if updates.get("reason"):
+                    cursor.execute(
+                        f"""
+                        UPDATE {schema}.transfer
+                        SET reason_text = %s
+                        WHERE transfer_id = %s
+                          AND needs_list_id = %s
+                          AND status_code = 'P'
+                        """,
+                        [updates["reason"], transfer_id, needs_list_id],
+                    )
+                for item in updates.get("items", []):
+                    cursor.execute(
+                        f"""
+                        UPDATE {schema}.transfer_item ti
+                        SET item_qty = %s
+                        FROM {schema}.transfer t
+                        WHERE ti.transfer_id = %s
+                          AND ti.item_id = %s
+                          AND t.transfer_id = ti.transfer_id
+                          AND t.needs_list_id = %s
+                          AND t.status_code = 'P'
+                        """,
+                        [item["item_qty"], transfer_id, item["item_id"], needs_list_id],
+                    )
+    except DatabaseError as exc:
+        logger.warning("Update transfer draft failed: %s", exc)
+        warnings.append("db_error_update_transfer")
+    return warnings
+
+
+def confirm_transfer_draft(
+    transfer_id: int, needs_list_id: str, actor_id: str
+) -> Tuple[bool, List[str]]:
+    """
+    Confirm draft transfer → dispatched (status P → D).
+    Returns (success, warnings).
+    """
+    if _is_sqlite():
+        return False, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    warnings: List[str] = []
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT status_code
+                    FROM {schema}.transfer
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                    FOR UPDATE
+                    """,
+                    [transfer_id, needs_list_id],
+                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found_for_needs_list")
+                    return False, warnings
+                if str(row[0]) != "P":
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return False, warnings
+
+                cursor.execute(
+                    f"""
+                    UPDATE {schema}.transfer
+                    SET status_code = 'D',
+                        update_user = %s,
+                        update_dtime = NOW()
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                      AND status_code = 'P'
+                    """,
+                    [actor_id, transfer_id, needs_list_id],
+                )
+                if cursor.rowcount == 0:
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return False, warnings
+                return True, warnings
+    except DatabaseError as exc:
+        logger.warning("Confirm transfer draft failed: %s", exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed: %s", rollback_exc)
+        warnings.append("db_error_confirm_transfer")
+        return False, warnings
 
 
 def get_item_categories(item_ids: List[int]) -> Tuple[Dict[int, int], List[str]]:
@@ -382,9 +939,20 @@ def get_burn_by_item(
 
 def get_active_event() -> Dict[str, object] | None:
     """
-    Fetch the most recent active event.
-    Returns event dict with keys: event_id, event_name, status, phase, declaration_date
-    or None if no active event found.
+    Fetch the active event context for replenishment workflows.
+
+    Selection priority:
+    1) Most recently worked active event from needs_list activity.
+    2) Fallback to the most recent active event by start date.
+
+    Returns a dict with keys:
+    - event_id
+    - event_name
+    - status
+    - phase
+    - declaration_date
+
+    Returns None when no active event is available.
     """
     if _is_sqlite():
         # Return mock data for SQLite development - Event ID 1 is always the default active event
@@ -400,27 +968,77 @@ def get_active_event() -> Dict[str, object] | None:
 
     try:
         with connection.cursor() as cursor:
-            # Query for active event (status_code 'A' or 'ACTIVE' = Active)
+            # Query for all active events (status_code 'A' or 'ACTIVE' = Active)
             cursor.execute(
                 f"""
                 SELECT event_id, event_name, status_code, current_phase, start_date
                 FROM {schema}.event
                 WHERE UPPER(status_code) IN (%s, %s)
                 ORDER BY start_date DESC
-                LIMIT 1
                 """,
                 ["A", "ACTIVE"],
             )
-            row = cursor.fetchone()
+            rows = cursor.fetchall()
+            if not rows:
+                return None
 
-            if row:
-                return {
+            events = [
+                {
                     "event_id": int(row[0]),
                     "event_name": str(row[1]) if row[1] else f"Event {row[0]}",
                     "status": str(row[2]) if row[2] else "A",
                     "phase": str(row[3]).upper() if row[3] else "BASELINE",
                     "declaration_date": row[4].isoformat() if row[4] else None,
                 }
+                for row in rows
+            ]
+
+            # Prefer the most recently worked active event from needs-list workflow activity.
+            selected = events[0]
+            active_event_ids = [event["event_id"] for event in events]
+
+            try:
+                cursor.execute(
+                    f"""
+                    SELECT event_id, event_phase
+                    FROM {schema}.needs_list
+                    WHERE event_id = ANY(%s)
+                    ORDER BY COALESCE(
+                        approved_at,
+                        reviewed_at,
+                        submitted_at,
+                        update_dtime,
+                        create_dtime
+                    ) DESC
+                    LIMIT 1
+                    """,
+                    [active_event_ids],
+                )
+                latest_activity = cursor.fetchone()
+            except DatabaseError as exc:
+                logger.warning("Active event workflow preference query failed: %s", exc)
+                try:
+                    connection.rollback()
+                except Exception as rb_exc:
+                    logger.exception(
+                        "Rollback failed after DatabaseError in active event workflow preference query: "
+                        "rollback_error=%s, original_error=%s",
+                        rb_exc,
+                        exc,
+                    )
+                latest_activity = None
+
+            if latest_activity:
+                latest_event_id = int(latest_activity[0])
+                latest_phase = str(latest_activity[1]).upper() if latest_activity[1] else None
+                for event in events:
+                    if event["event_id"] == latest_event_id:
+                        selected = dict(event)
+                        if latest_phase:
+                            selected["phase"] = latest_phase
+                        break
+
+            return selected
     except DatabaseError as exc:
         logger.warning("Active event query failed: %s", exc)
         try:
@@ -429,6 +1047,90 @@ def get_active_event() -> Dict[str, object] | None:
             logger.warning("DB rollback failed after active event query error: %s", rollback_exc)
 
     return None
+
+
+def get_event_name(event_id: int) -> str:
+    """
+    Fetch event name by event ID.
+    Returns a fallback format "Event {id}" when not found.
+    """
+    if _is_sqlite():
+        if int(event_id) == 1:
+            return "Development Test Event"
+        return f"Event {event_id}"
+
+    schema = _schema_name()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT event_name
+                FROM {schema}.event
+                WHERE event_id = %s
+                LIMIT 1
+                """,
+                [event_id],
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return str(row[0])
+    except DatabaseError as exc:
+        logger.warning("Event name query failed for event_id=%s: %s", event_id, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after event query error: %s", rollback_exc)
+
+    return f"Event {event_id}"
+
+
+def get_event_names(event_ids: List[int]) -> Tuple[Dict[int, str], List[str]]:
+    """
+    Fetch event names for many event IDs in one query.
+    Returns a dict mapping event_id -> event_name and any warnings.
+    """
+    if not event_ids:
+        return {}, []
+
+    unique_ids = sorted({int(event_id) for event_id in event_ids if event_id is not None})
+    if not unique_ids:
+        return {}, []
+
+    if _is_sqlite():
+        return {
+            event_id: "Development Test Event" if event_id == 1 else f"Event {event_id}"
+            for event_id in unique_ids
+        }, []
+
+    schema = _schema_name()
+    event_names: Dict[int, str] = {}
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT event_id, event_name
+                FROM {schema}.event
+                WHERE event_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            for event_id, event_name in cursor.fetchall():
+                event_names[int(event_id)] = (
+                    str(event_name) if event_name else f"Event {event_id}"
+                )
+    except DatabaseError as exc:
+        logger.warning("Event names query failed for event_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after event names query error: %s", rollback_exc)
+        warnings.append("db_unavailable_event_names")
+
+    for event_id in unique_ids:
+        event_names.setdefault(event_id, f"Event {event_id}")
+    return event_names, warnings
 
 
 def get_all_warehouses() -> List[Dict[str, object]]:

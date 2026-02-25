@@ -9,6 +9,14 @@ from typing import Dict, Iterable, Tuple
 from uuid import uuid4
 
 STORE_LOCK = threading.Lock()
+_SUPERSEDE_CANDIDATE_STATUSES = {
+    "DRAFT",
+    "RETURNED",
+    "MODIFIED",
+    "SUBMITTED",
+    "PENDING_APPROVAL",
+    "PENDING",
+}
 
 
 def _utc_now() -> str:
@@ -22,6 +30,44 @@ def _store_enabled() -> bool:
 def _store_path() -> Path:
     base_dir = Path(__file__).resolve().parent.parent
     return base_dir / ".local" / "needs_list_store.json"
+
+
+def _normalize_actor(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_warehouse_ids(value: object) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set)):
+        candidates = value
+    else:
+        candidates = [value]
+
+    return sorted(
+        {
+            normalized
+            for candidate in candidates
+            if (normalized := str(candidate).strip())
+        }
+    )
+
+
+def _record_owned_by_actor(record: Dict[str, object], actor: str | None) -> bool:
+    normalized_actor = _normalize_actor(actor)
+    if not normalized_actor:
+        return False
+
+    return any(
+        _normalize_actor(candidate) == normalized_actor
+        for candidate in (
+            record.get("created_by"),
+            record.get("submitted_by"),
+            record.get("updated_by"),
+        )
+        if candidate
+    )
 
 
 def _ensure_store_dir() -> None:
@@ -57,16 +103,25 @@ def create_draft(
         item_copy = dict(item)
         if "computed_required_qty" not in item_copy and "required_qty" in item_copy:
             item_copy["computed_required_qty"] = item_copy.get("required_qty")
+        if "fulfilled_qty" not in item_copy:
+            item_copy["fulfilled_qty"] = 0
+        if "fulfillment_status" not in item_copy:
+            item_copy["fulfillment_status"] = "PENDING"
         stored_items.append(item_copy)
 
     record = {
         "needs_list_id": needs_list_id,
         "event_id": payload.get("event_id"),
+        "event_name": payload.get("event_name"),
         "warehouse_id": payload.get("warehouse_id"),
+        "warehouse_ids": payload.get("warehouse_ids"),
+        "warehouses": payload.get("warehouses"),
         "phase": payload.get("phase"),
         "as_of_datetime": payload.get("as_of_datetime"),
         "planning_window_days": payload.get("planning_window_days"),
         "filters": payload.get("filters"),
+        "selected_method": payload.get("selected_method"),
+        "selected_item_keys": payload.get("selected_item_keys"),
         "status": "DRAFT",
         "created_by": actor,
         "created_at": now,
@@ -82,6 +137,7 @@ def create_draft(
         "approved_at": None,
         "approval_tier": None,
         "approval_rationale": None,
+        "submitted_approval_summary": None,
         "prep_started_by": None,
         "prep_started_at": None,
         "dispatched_by": None,
@@ -96,9 +152,16 @@ def create_draft(
         "escalated_by": None,
         "escalated_at": None,
         "escalation_reason": None,
+        "superseded_by": None,
+        "superseded_at": None,
+        "superseded_by_actor": None,
+        "superseded_by_needs_list_id": None,
+        "supersedes_needs_list_ids": [],
+        "supersede_reason": None,
         "returned_by": None,
         "returned_at": None,
         "return_reason": None,
+        "return_reason_code": None,
         "rejected_by": None,
         "rejected_at": None,
         "reject_reason": None,
@@ -109,12 +172,52 @@ def create_draft(
             "warnings": list(warnings),
             "planning_window_days": payload.get("planning_window_days"),
             "as_of_datetime": payload.get("as_of_datetime"),
+            "event_name": payload.get("event_name"),
+            "warehouse_ids": payload.get("warehouse_ids"),
+            "warehouses": payload.get("warehouses"),
+            "selected_method": payload.get("selected_method"),
         },
     }
 
     with STORE_LOCK:
         store = _load_store()
         needs_lists = store.setdefault("needs_lists", {})
+        requested_warehouse_ids = _normalize_warehouse_ids(payload.get("warehouse_ids"))
+
+        superseded_ids: list[str] = []
+        for existing_id, existing_record in needs_lists.items():
+            status = str(existing_record.get("status") or "").upper()
+            if status not in _SUPERSEDE_CANDIDATE_STATUSES:
+                continue
+            if not _record_owned_by_actor(existing_record, actor):
+                continue
+            if existing_record.get("event_id") != payload.get("event_id"):
+                continue
+            if existing_record.get("warehouse_id") != payload.get("warehouse_id"):
+                continue
+            if _normalize_warehouse_ids(existing_record.get("warehouse_ids")) != requested_warehouse_ids:
+                continue
+            existing_phase = str(existing_record.get("phase") or "").strip().upper()
+            requested_phase = str(payload.get("phase") or "").strip().upper()
+            if existing_phase != requested_phase:
+                continue
+
+            existing_record["status"] = "SUPERSEDED"
+            existing_record["updated_by"] = actor
+            existing_record["updated_at"] = now
+            existing_record["superseded_by"] = needs_list_id
+            existing_record["superseded_at"] = now
+            existing_record["superseded_by_actor"] = actor
+            existing_record["superseded_by_needs_list_id"] = needs_list_id
+            existing_record["supersede_reason"] = "Replaced by newer draft calculation."
+            superseded_ids.append(str(existing_id))
+
+        if superseded_ids:
+            record["supersedes_needs_list_ids"] = superseded_ids
+            record["supersede_reason"] = (
+                "Superseded previous draft/submitted needs list records for this scope."
+            )
+
         needs_lists[needs_list_id] = record
         _save_store(store)
 
@@ -233,7 +336,9 @@ def transition_status(
     to_status: str,
     actor: str | None,
     reason: str | None = None,
+    stage: str | None = None,
 ) -> Dict[str, object]:
+    _ = stage  # Signature is shared with DB-backed store; stage is ignored here.
     now = _utc_now()
     record["status"] = to_status
     record["updated_by"] = actor
@@ -282,6 +387,19 @@ def transition_status(
         record["cancelled_at"] = now
         record["cancel_reason"] = reason
     return record
+
+
+def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
+    """Return all needs list records, optionally filtered by status."""
+    if not _store_enabled():
+        raise RuntimeError("workflow_dev_store_disabled")
+    with STORE_LOCK:
+        store = _load_store()
+        records = list((store.get("needs_lists") or {}).values())
+    if statuses:
+        upper = {s.upper() for s in statuses}
+        records = [r for r in records if str(r.get("status", "")).upper() in upper]
+    return records
 
 
 def store_enabled_or_raise() -> None:

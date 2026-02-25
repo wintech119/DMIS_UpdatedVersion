@@ -6,16 +6,21 @@
       [formControl]="phaseControl"
       aria-label="Event phase selection"
       required>
-      <mat-option *ngFor="let phase of phaseOptions" [value]="phase">
-        {{ phase }}
-      </mat-option>
+      @for (phase of phaseOptions; track phase) {
+        <mat-option [value]="phase">
+          {{ phase }}
+        </mat-option>
+      }
     </mat-select>
-    <mat-error *ngIf="phaseControl.hasError('required')">Phase is required.</mat-error>
+    @if (phaseControl.hasError('required')) {
+      <mat-error>Phase is required.</mat-error>
+    }
   </mat-form-field>
 </div>
 <div mat-dialog-actions align="end">
   <button mat-button type="button" (click)="cancel()">Cancel</button>
-  <button mat-flat-button color="primary" type="button" (click)="submit()" [disabled]="phaseControl.invalid">
+  <button matButton="filled" color="primary" type="button" (click)="submit()" [disabled]="phaseControl.invalid">
     Apply
   </button>
 </div>
+

@@ -1,0 +1,439 @@
+<!-- Loading skeleton -->
+@if (loading()) {
+  <div class="procurement-form-page">
+    <div class="page-header">
+      <dmis-skeleton-loader variant="text-line" [count]="1" />
+    </div>
+    <dmis-skeleton-loader variant="form-field" [count]="4" />
+    <dmis-skeleton-loader variant="table-row" [count]="3" />
+  </div>
+}
+
+<!-- Error state -->
+@if (error() && !loading()) {
+  <div class="procurement-form-page">
+    <div class="error-banner">
+      <mat-icon>error_outline</mat-icon>
+      <span>Failed to load procurement order. Please try again.</span>
+      <button mat-stroked-button (click)="cancel()">Go Back</button>
+    </div>
+  </div>
+}
+
+<!-- Main form -->
+@if (!loading() && !error()) {
+  <div class="procurement-form-page">
+    <!-- Page Header -->
+    <div class="page-header">
+      <button mat-icon-button class="back-btn" (click)="cancel()" aria-label="Go back">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
+        <h1>{{ pageTitle() }}</h1>
+        @if (procurement(); as proc) {
+          <p class="subtitle">{{ proc.procurement_no }} &mdash; {{ proc.warehouse_name }}</p>
+        }
+      </div>
+    </div>
+
+    <!-- Header Section -->
+    <section class="form-section">
+      <h2 class="section-title">
+        <mat-icon>description</mat-icon>
+        Order Details
+      </h2>
+
+      <div class="form-grid" [formGroup]="headerForm">
+        <!-- Event ID (read-only) -->
+        @if (procurement(); as proc) {
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Event ID</mat-label>
+            <input matInput [value]="proc.event_id" disabled />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Target Warehouse</mat-label>
+            <input matInput [value]="proc.warehouse_name" disabled />
+          </mat-form-field>
+        }
+
+        <!-- Supplier Autocomplete -->
+        <div class="supplier-field-row">
+          <mat-form-field appearance="outline" class="form-field form-field-grow">
+            <mat-label>Supplier</mat-label>
+            <input
+              matInput
+              formControlName="supplier_search"
+              [matAutocomplete]="supplierAuto"
+              placeholder="Search suppliers..." />
+            <mat-autocomplete
+              #supplierAuto="matAutocomplete"
+              [displayWith]="displaySupplierFn"
+              (optionSelected)="selectSupplier($event.option.value)">
+              @for (supplier of filteredSuppliers(); track supplier.supplier_id) {
+                <mat-option [value]="supplier">
+                  {{ supplier.supplier_name }}
+                  <span class="supplier-code">({{ supplier.supplier_code }})</span>
+                </mat-option>
+              }
+              @if (filteredSuppliers().length === 0) {
+                <mat-option disabled>No suppliers found</mat-option>
+              }
+            </mat-autocomplete>
+          </mat-form-field>
+
+          <button
+            mat-stroked-button
+            type="button"
+            class="add-supplier-btn"
+            (click)="toggleSupplierDialog()"
+            aria-label="Add new supplier">
+            <mat-icon>add_business</mat-icon>
+            <span class="btn-label">Add Supplier</span>
+          </button>
+        </div>
+
+        <!-- Procurement Method -->
+        <mat-form-field appearance="outline" class="form-field">
+          <mat-label>Procurement Method</mat-label>
+          <mat-select formControlName="procurement_method">
+            @for (method of procurementMethods; track method.value) {
+              <mat-option [value]="method.value">{{ method.label }}</mat-option>
+            }
+          </mat-select>
+          @if (headerForm.get('procurement_method')?.hasError('required')) {
+            <mat-error>Procurement method is required</mat-error>
+          }
+        </mat-form-field>
+
+        <!-- Notes -->
+        <mat-form-field appearance="outline" class="form-field form-field-full">
+          <mat-label>Notes</mat-label>
+          <textarea
+            matInput
+            formControlName="notes"
+            rows="3"
+            placeholder="Optional notes for this order..."></textarea>
+        </mat-form-field>
+      </div>
+    </section>
+
+    <!-- Add New Supplier Inline Dialog -->
+    @if (showSupplierDialog()) {
+      <section class="form-section supplier-dialog-section">
+        <h2 class="section-title">
+          <mat-icon>person_add</mat-icon>
+          New Supplier
+        </h2>
+
+        <div class="form-grid" [formGroup]="supplierForm">
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Supplier Code</mat-label>
+            <input matInput formControlName="supplier_code" placeholder="e.g. SUP-001" />
+            @if (supplierForm.get('supplier_code')?.hasError('required')) {
+              <mat-error>Supplier code is required</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Supplier Name</mat-label>
+            <input matInput formControlName="supplier_name" placeholder="Company name" />
+            @if (supplierForm.get('supplier_name')?.hasError('required')) {
+              <mat-error>Supplier name is required</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Contact Name</mat-label>
+            <input matInput formControlName="contact_name" placeholder="Contact person" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Phone</mat-label>
+            <input matInput formControlName="phone_no" placeholder="Phone number" />
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Email</mat-label>
+            <input matInput formControlName="email_text" type="email" placeholder="Email address" />
+            @if (supplierForm.get('email_text')?.hasError('email')) {
+              <mat-error>Invalid email address</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="form-field">
+            <mat-label>Default Lead Time (days)</mat-label>
+            <input matInput formControlName="default_lead_time_days" type="number" min="1" />
+            @if (supplierForm.get('default_lead_time_days')?.hasError('required')) {
+              <mat-error>Lead time is required</mat-error>
+            }
+            @if (supplierForm.get('default_lead_time_days')?.hasError('min')) {
+              <mat-error>Must be at least 1 day</mat-error>
+            }
+          </mat-form-field>
+        </div>
+
+        <div class="supplier-dialog-actions">
+          <button mat-stroked-button type="button" (click)="toggleSupplierDialog()">
+            Cancel
+          </button>
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            [disabled]="supplierForm.invalid || creatingSupplier()"
+            (click)="createSupplier()">
+            @if (creatingSupplier()) {
+              Creating...
+            } @else {
+              Create Supplier
+            }
+          </button>
+        </div>
+      </section>
+    }
+
+    <!-- Line Items Section -->
+    <section class="form-section">
+      <h2 class="section-title">
+        <mat-icon>list_alt</mat-icon>
+        Line Items
+      </h2>
+
+      @if (lineItemsArray.length === 0) {
+        <div class="empty-lines">
+          <mat-icon>inbox</mat-icon>
+          <p>No line items. Create a procurement from a needs list to auto-populate items.</p>
+        </div>
+      } @else {
+        <!-- Desktop table -->
+        <div class="items-table-container desktop-only">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>UOM</th>
+                <th class="col-number">Ordered Qty</th>
+                <th class="col-number">Unit Price</th>
+                <th class="col-number">Line Total</th>
+                <th class="col-action"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (lineCtrl of lineItemsArray.controls; track lineCtrl; let i = $index) {
+                <tr [formGroup]="lineCtrl">
+                  <td class="item-name-cell">{{ lineCtrl.get('item_name')?.value }}</td>
+                  <td>{{ lineCtrl.get('uom_code')?.value }}</td>
+                  <td class="col-number">
+                    <mat-form-field appearance="outline" class="inline-field">
+                      <input
+                        matInput
+                        formControlName="ordered_qty"
+                        type="number"
+                        min="1"
+                        class="number-input" />
+                      @if (lineCtrl.get('ordered_qty')?.hasError('required')) {
+                        <mat-error>Required</mat-error>
+                      }
+                      @if (lineCtrl.get('ordered_qty')?.hasError('min')) {
+                        <mat-error>Min 1</mat-error>
+                      }
+                    </mat-form-field>
+                  </td>
+                  <td class="col-number">
+                    <mat-form-field appearance="outline" class="inline-field">
+                      <input
+                        matInput
+                        formControlName="unit_price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="number-input" />
+                      @if (lineCtrl.get('unit_price')?.hasError('required')) {
+                        <mat-error>Required</mat-error>
+                      }
+                      @if (lineCtrl.get('unit_price')?.hasError('min')) {
+                        <mat-error>Min 0</mat-error>
+                      }
+                    </mat-form-field>
+                  </td>
+                  <td class="col-number line-total-cell">
+                    {{ getLineTotal(i) | currency:'JMD':'symbol-narrow':'1.2-2' }}
+                  </td>
+                  <td class="col-action">
+                    <button
+                      mat-icon-button
+                      color="warn"
+                      type="button"
+                      (click)="removeLine(i)"
+                      aria-label="Remove line item">
+                      <mat-icon>delete_outline</mat-icon>
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+            <tfoot>
+              <tr class="summary-row">
+                <td colspan="4" class="total-label">Total Value</td>
+                <td class="col-number total-value">
+                  {{ getGrandTotal() | currency:'JMD':'symbol-narrow':'1.2-2' }}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Mobile cards -->
+        <div class="item-cards mobile-only">
+          @for (lineCtrl of lineItemsArray.controls; track lineCtrl; let i = $index) {
+            <div class="item-card" [formGroup]="lineCtrl">
+              <div class="item-card-header">
+                <strong>{{ lineCtrl.get('item_name')?.value }}</strong>
+                <button
+                  mat-icon-button
+                  color="warn"
+                  type="button"
+                  (click)="removeLine(i)"
+                  aria-label="Remove line item">
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </div>
+              <div class="item-card-body">
+                <div class="item-field">
+                  <span class="field-label">UOM</span>
+                  <span>{{ lineCtrl.get('uom_code')?.value }}</span>
+                </div>
+                <div class="item-field">
+                  <span class="field-label">Ordered Qty</span>
+                  <mat-form-field appearance="outline" class="inline-field-mobile">
+                    <input
+                      matInput
+                      formControlName="ordered_qty"
+                      type="number"
+                      min="1"
+                      class="number-input" />
+                    @if (lineCtrl.get('ordered_qty')?.touched && lineCtrl.get('ordered_qty')?.hasError('required')) {
+                      <mat-error>Required</mat-error>
+                    }
+                    @if (lineCtrl.get('ordered_qty')?.touched && lineCtrl.get('ordered_qty')?.hasError('min')) {
+                      <mat-error>Min 1</mat-error>
+                    }
+                  </mat-form-field>
+                </div>
+                <div class="item-field">
+                  <span class="field-label">Unit Price</span>
+                  <mat-form-field appearance="outline" class="inline-field-mobile">
+                    <input
+                      matInput
+                      formControlName="unit_price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      class="number-input" />
+                    @if (lineCtrl.get('unit_price')?.touched && lineCtrl.get('unit_price')?.hasError('required')) {
+                      <mat-error>Required</mat-error>
+                    }
+                    @if (lineCtrl.get('unit_price')?.touched && lineCtrl.get('unit_price')?.hasError('min')) {
+                      <mat-error>Min 0</mat-error>
+                    }
+                  </mat-form-field>
+                </div>
+                <div class="item-field total-field">
+                  <span class="field-label">Line Total</span>
+                  <span class="line-total-value">
+                    {{ getLineTotal(i) | currency:'JMD':'symbol-narrow':'1.2-2' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          }
+
+          <div class="mobile-grand-total">
+            <span class="total-label">Total Value</span>
+            <span class="total-value">
+              {{ getGrandTotal() | currency:'JMD':'symbol-narrow':'1.2-2' }}
+            </span>
+          </div>
+        </div>
+      }
+    </section>
+
+    <!-- Summary Section -->
+    @if (procurement(); as proc) {
+      <section class="form-section summary-section">
+        <h2 class="section-title">
+          <mat-icon>summarize</mat-icon>
+          Summary
+        </h2>
+
+        <div class="summary-grid">
+          <div class="summary-item">
+            <span class="summary-label">Total Value</span>
+            <span class="summary-value">
+              {{ getGrandTotal() | currency:'JMD':'symbol-narrow':'1.2-2' }}
+            </span>
+          </div>
+
+          @if (proc.approval) {
+            <div class="summary-item">
+              <span class="summary-label">Approval Tier</span>
+              <span class="summary-value">{{ proc.approval.tier }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Approver Role</span>
+              <span class="summary-value">{{ proc.approval.approver_role }}</span>
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- Action Buttons -->
+    <div class="form-actions">
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="cancel()"
+        [disabled]="saving() || submitting()">
+        Cancel
+      </button>
+
+      <div class="action-group">
+        @if (isDraft()) {
+          <button
+            mat-flat-button
+            type="button"
+            (click)="saveDraft()"
+            [disabled]="saving() || submitting() || !hasLineItems() || !headerForm.valid"
+            class="save-btn">
+            @if (saving()) {
+              <mat-icon class="spin-icon">sync</mat-icon>
+              Saving...
+            } @else {
+              <mat-icon>save</mat-icon>
+              Save Draft
+            }
+          </button>
+
+          <button
+            mat-flat-button
+            color="primary"
+            type="button"
+            (click)="submitForApproval()"
+            [disabled]="saving() || submitting() || !hasLineItems() || !headerForm.valid"
+            class="submit-btn">
+            @if (submitting()) {
+              <mat-icon class="spin-icon">sync</mat-icon>
+              Submitting...
+            } @else {
+              <mat-icon>send</mat-icon>
+              Submit for Approval
+            }
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}

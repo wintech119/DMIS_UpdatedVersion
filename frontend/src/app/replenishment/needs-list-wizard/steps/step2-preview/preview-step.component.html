@@ -16,13 +16,15 @@
           <span class="value">${{ getTotalCost().toFixed(2) }}</span>
         </div>
       </div>
-      <div class="summary-item warning" *ngIf="hasUncoveredItems">
-        <mat-icon>warning</mat-icon>
-        <div class="summary-text">
-          <span class="label">Uncovered Items</span>
-          <span class="value">{{ uncoveredItemCount }}</span>
+      @if (hasUncoveredItems) {
+        <div class="summary-item warning">
+          <mat-icon>warning</mat-icon>
+          <div class="summary-text">
+            <span class="label">Uncovered Items</span>
+            <span class="value">{{ uncoveredItemCount }}</span>
+          </div>
         </div>
-      </div>
+      }
     </div>
   </mat-card>
 
@@ -35,44 +37,49 @@
 
     <mat-card-content>
       <!-- Bulk Actions -->
-      <div class="bulk-actions" *ngIf="items.length > 0">
-        <button mat-stroked-button (click)="selectAll()" class="bulk-action-btn">
-          <mat-icon>done_all</mat-icon>
-          Select All
-        </button>
-        <button mat-stroked-button (click)="selectNone()" class="bulk-action-btn">
-          <mat-icon>remove_done</mat-icon>
-          Select None
-        </button>
-        <button mat-stroked-button (click)="selectItemsWithGap()" class="bulk-action-btn">
-          <mat-icon>filter_list</mat-icon>
-          Select Items with Gap &gt; 0
-        </button>
-        <mat-form-field appearance="outline" class="filter-field">
-          <mat-label>Filter by item name</mat-label>
-          <mat-icon matPrefix>search</mat-icon>
-          <input
-            matInput
-            type="text"
-            placeholder="Filter by item name"
-            [(ngModel)]="itemFilter"
-          />
-        </mat-form-field>
-      </div>
+      @if (items.length > 0) {
+        <div class="bulk-actions">
+          <button matButton="outlined" (click)="selectAll()" class="bulk-action-btn">
+            <mat-icon>done_all</mat-icon>
+            Select All
+          </button>
+          <button matButton="outlined" (click)="selectNone()" class="bulk-action-btn">
+            <mat-icon>remove_done</mat-icon>
+            Select None
+          </button>
+          <button matButton="outlined" (click)="selectItemsWithGap()" class="bulk-action-btn">
+            <mat-icon>filter_list</mat-icon>
+            Select Items with Gap &gt; 0
+          </button>
+          <mat-form-field appearance="outline" class="filter-field">
+            <mat-label>Search items by name</mat-label>
+            <mat-icon matPrefix>search</mat-icon>
+            <input
+              matInput
+              type="text"
+              placeholder="Search items by name"
+              [(ngModel)]="itemFilter"
+              />
+          </mat-form-field>
+        </div>
+      }
 
       <!-- Loading indicator -->
-      <mat-progress-bar *ngIf="loading" mode="indeterminate" class="loading-bar"></mat-progress-bar>
+      @if (loading) {
+        <mat-progress-bar mode="indeterminate" class="loading-bar"></mat-progress-bar>
+      }
 
       <!-- Empty State -->
-      <dmis-empty-state
-        *ngIf="!loading && items.length === 0"
-        icon="inventory_2"
-        title="No Items to Review"
-        message="No items were found that need replenishment. Go back to adjust your scope parameters."
-        actionLabel="Go Back"
-        actionIcon="arrow_back"
-        (action)="goBack()"
-      ></dmis-empty-state>
+      @if (!loading && items.length === 0) {
+        <dmis-empty-state
+          icon="inventory_2"
+          title="No Items to Review"
+          message="No items were found that need replenishment. Go back to adjust your scope parameters."
+          actionLabel="Go Back"
+          actionIcon="arrow_back"
+          (action)="goBack()"
+        ></dmis-empty-state>
+      }
 
       <!-- Table (Desktop) -->
       <div class="table-container desktop-only">
@@ -107,7 +114,9 @@
             <td mat-cell *matCellDef="let item">
               <div class="item-cell">
                 <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
-                <span class="item-code" *ngIf="item.item_code">{{ item.item_code }}</span>
+                @if (item.item_code) {
+                  <span class="item-code">{{ item.item_code }}</span>
+                }
               </div>
             </td>
           </ng-container>
@@ -145,7 +154,7 @@
                   min="0"
                   [class.qty-adjusted]="isQuantityAdjusted(item)"
                   [attr.aria-label]="'Adjusted quantity for ' + (item.item_name || 'Item ' + item.item_id)"
-                />
+                  />
               </mat-form-field>
             </td>
           </ng-container>
@@ -154,19 +163,25 @@
           <ng-container matColumnDef="reason">
             <th mat-header-cell *matHeaderCellDef>Reason</th>
             <td mat-cell *matCellDef="let item" class="reason-cell">
-              <mat-form-field appearance="outline" class="inline-reason-field" *ngIf="showReasonField(item)">
-                <mat-select
-                  [(ngModel)]="item.tempReason"
-                  (ngModelChange)="onReasonChange(item)"
-                  placeholder="Select reason"
-                  [attr.aria-label]="'Adjustment reason for ' + (item.item_name || 'Item ' + item.item_id)"
-                >
-                  <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
-                    {{ option.label }}
-                  </mat-option>
-                </mat-select>
-              </mat-form-field>
-              <span *ngIf="!showReasonField(item)" class="no-adjustment">—</span>
+              @if (showReasonField(item)) {
+                <mat-form-field appearance="outline" class="inline-reason-field">
+                  <mat-select
+                    [(ngModel)]="item.tempReason"
+                    (ngModelChange)="onReasonChange(item)"
+                    placeholder="Select reason"
+                    [attr.aria-label]="'Adjustment reason for ' + (item.item_name || 'Item ' + item.item_id)"
+                    >
+                    @for (option of adjustmentReasonOptions; track option) {
+                      <mat-option [value]="option.key">
+                        {{ option.label }}
+                      </mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
+              @if (!showReasonField(item)) {
+                <span class="no-adjustment">—</span>
+              }
             </td>
           </ng-container>
 
@@ -208,76 +223,86 @@
 
       <!-- Mobile Card List -->
       <div class="mobile-card-list mobile-only">
-        <div class="mobile-preview-card" *ngFor="let item of filteredItems"
-             [ngClass]="getRowClass(item)">
-          <div class="mobile-preview-header">
-            <mat-checkbox [(ngModel)]="item.included" class="mobile-checkbox" [attr.aria-label]="'Select ' + (item.item_name || 'Item ' + item.item_id)"></mat-checkbox>
-            <mat-icon [ngClass]="getSeverityClass(item)" class="mobile-severity-icon" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">{{ getSeverityIcon(item) }}</mat-icon>
-            <div class="mobile-preview-title">
-              <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
-              <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
+        @for (item of filteredItems; track getItemKey(item)) {
+          <div class="mobile-preview-card"
+            [ngClass]="getRowClass(item)">
+            <div class="mobile-preview-header">
+              <mat-checkbox [(ngModel)]="item.included" class="mobile-checkbox" [attr.aria-label]="'Select ' + (item.item_name || 'Item ' + item.item_id)"></mat-checkbox>
+              <mat-icon [ngClass]="getSeverityClass(item)" class="mobile-severity-icon" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">{{ getSeverityIcon(item) }}</mat-icon>
+              <div class="mobile-preview-title">
+                <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+                <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
+              </div>
+            </div>
+            <div class="mobile-preview-metrics">
+              <div class="metric">
+                <span class="metric-label">Gap</span>
+                <span class="metric-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
+                  {{ item.gap_qty | number: '1.0-0' }}
+                </span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Source</span>
+                <span class="metric-value">
+                  <mat-icon class="source-icon-sm">{{ getSourceIcon(getRecommendedSource(item)) }}</mat-icon>
+                  {{ getSourceLabel(getRecommendedSource(item)) }}
+                </span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Lead Time</span>
+                <span class="metric-value">{{ getLeadTime(item) }}</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Cost</span>
+                <span class="metric-value cost-value">{{ getEstimatedCost(item) }}</span>
+              </div>
+            </div>
+            <div class="mobile-preview-edit">
+              <mat-form-field appearance="outline" class="mobile-qty-field">
+                <mat-label>Adjusted Qty</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  [(ngModel)]="item.tempAdjustedQty"
+                  (ngModelChange)="onQuantityChange(item)"
+                  min="0"
+                  [class.qty-adjusted]="isQuantityAdjusted(item)"
+                  />
+              </mat-form-field>
+              @if (showReasonField(item)) {
+                <mat-form-field appearance="outline" class="mobile-reason-field">
+                  <mat-label>Reason</mat-label>
+                  <mat-select
+                    [(ngModel)]="item.tempReason"
+                    (ngModelChange)="onReasonChange(item)"
+                    placeholder="Select reason"
+                    >
+                    @for (option of adjustmentReasonOptions; track option) {
+                      <mat-option [value]="option.key">
+                        {{ option.label }}
+                      </mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
             </div>
           </div>
-          <div class="mobile-preview-metrics">
-            <div class="metric">
-              <span class="metric-label">Gap</span>
-              <span class="metric-value" [ngClass]="item.gap_qty > 0 ? 'gap-positive' : 'gap-zero'">
-                {{ item.gap_qty | number: '1.0-0' }}
-              </span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Source</span>
-              <span class="metric-value">
-                <mat-icon class="source-icon-sm">{{ getSourceIcon(getRecommendedSource(item)) }}</mat-icon>
-                {{ getSourceLabel(getRecommendedSource(item)) }}
-              </span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Lead Time</span>
-              <span class="metric-value">{{ getLeadTime(item) }}</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Cost</span>
-              <span class="metric-value cost-value">{{ getEstimatedCost(item) }}</span>
-            </div>
-          </div>
-          <div class="mobile-preview-edit">
-            <mat-form-field appearance="outline" class="mobile-qty-field">
-              <mat-label>Adjusted Qty</mat-label>
-              <input
-                matInput
-                type="number"
-                [(ngModel)]="item.tempAdjustedQty"
-                (ngModelChange)="onQuantityChange(item)"
-                min="0"
-                [class.qty-adjusted]="isQuantityAdjusted(item)"
-              />
-            </mat-form-field>
-            <mat-form-field appearance="outline" class="mobile-reason-field" *ngIf="showReasonField(item)">
-              <mat-label>Reason</mat-label>
-              <mat-select
-                [(ngModel)]="item.tempReason"
-                (ngModelChange)="onReasonChange(item)"
-                placeholder="Select reason"
-              >
-                <mat-option *ngFor="let option of adjustmentReasonOptions" [value]="option.key">
-                  {{ option.label }}
-                </mat-option>
-              </mat-select>
-            </mat-form-field>
-          </div>
-        </div>
+        }
       </div>
 
       <!-- Errors -->
-      <div class="errors-container" role="alert" aria-live="assertive" tabindex="-1" *ngIf="errors.length">
-        <mat-card class="error-card">
-          <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
-          <div class="error-list">
-            <div *ngFor="let err of errors" class="error-item">{{ err }}</div>
-          </div>
-        </mat-card>
-      </div>
+      @if (errors.length) {
+        <div class="errors-container" role="alert" aria-live="assertive" tabindex="-1">
+          <mat-card class="error-card">
+            <mat-icon class="error-icon" aria-hidden="true">error</mat-icon>
+            <div class="error-list">
+              @for (err of errors; track err) {
+                <div class="error-item">{{ err }}</div>
+              }
+            </div>
+          </mat-card>
+        </div>
+      }
     </mat-card-content>
 
     <mat-card-actions class="step-actions">
@@ -292,3 +317,4 @@
     </mat-card-actions>
   </mat-card>
 </div>
+

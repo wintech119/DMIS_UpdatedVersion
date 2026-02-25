@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { WizardStateService } from './wizard-state.service';
-import { ItemAdjustment } from '../models/wizard-state.model';
+import { ItemAdjustment, WizardState } from '../models/wizard-state.model';
 import { take } from 'rxjs/operators';
 
 describe('WizardStateService', () => {
@@ -221,7 +221,7 @@ describe('WizardStateService', () => {
 
   describe('Observable State', () => {
     it('should emit state changes', (done) => {
-      const emissions: any[] = [];
+      const emissions: WizardState[] = [];
 
       service.getState$().pipe(
         take(3)

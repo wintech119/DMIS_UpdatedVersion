@@ -1,11 +1,38 @@
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 
+:root {
+  --dmis-font-sans: 'Inter', 'Segoe UI', sans-serif;
+  --dmis-font-mono: 'Roboto Mono', 'Courier New', monospace;
+  --dmis-text-primary: #1a1a1a;
+  --dmis-text-secondary: #495057;
+  --dmis-focus-ring: #1565c0;
+}
+
 html,
 body {
   margin: 0;
   min-height: 100%;
   background: #f9fafb;
-  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-family: var(--dmis-font-sans);
+  color: var(--dmis-text-primary);
+
+  // Inter-specific rendering improvements
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+// Force Material components to inherit Inter from body
+.mat-typography,
+.mdc-button,
+.mdc-tab,
+.mat-mdc-form-field,
+.mat-mdc-option,
+.mat-mdc-menu-item,
+.mat-mdc-chip,
+.mat-mdc-tooltip {
+  font-family: var(--dmis-font-sans) !important;
 }
 
 // Angular Material tooltip defaults
@@ -65,7 +92,7 @@ mat-select:focus-visible,
 .mat-mdc-checkbox.cdk-keyboard-focused .mdc-checkbox__background,
 .mat-mdc-radio-button.cdk-keyboard-focused .mdc-radio__background,
 .mat-mdc-select.cdk-keyboard-focused .mat-mdc-select-trigger {
-  outline: 2px solid #1565c0;
+  outline: 2px solid var(--dmis-focus-ring);
   outline-offset: 2px;
 }
 

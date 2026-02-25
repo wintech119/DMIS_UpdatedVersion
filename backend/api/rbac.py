@@ -14,7 +14,6 @@ REQUIRED_PERMISSION = "replenishment.needs_list.preview"
 PERM_NEEDS_LIST_CREATE_DRAFT = "replenishment.needs_list.create_draft"
 PERM_NEEDS_LIST_EDIT_LINES = "replenishment.needs_list.edit_lines"
 PERM_NEEDS_LIST_SUBMIT = "replenishment.needs_list.submit"
-PERM_NEEDS_LIST_REVIEW_START = "replenishment.needs_list.review_start"
 PERM_NEEDS_LIST_RETURN = "replenishment.needs_list.return"
 PERM_NEEDS_LIST_REJECT = "replenishment.needs_list.reject"
 PERM_NEEDS_LIST_APPROVE = "replenishment.needs_list.approve"
@@ -22,6 +21,17 @@ PERM_NEEDS_LIST_ESCALATE = "replenishment.needs_list.escalate"
 PERM_NEEDS_LIST_EXECUTE = "replenishment.needs_list.execute"
 PERM_NEEDS_LIST_CANCEL = "replenishment.needs_list.cancel"
 PERM_NEEDS_LIST_REVIEW_COMMENTS = "replenishment.needs_list.review_comments"
+
+# Procurement permissions
+PERM_PROCUREMENT_CREATE = "replenishment.procurement.create"
+PERM_PROCUREMENT_VIEW = "replenishment.procurement.view"
+PERM_PROCUREMENT_EDIT = "replenishment.procurement.edit"
+PERM_PROCUREMENT_SUBMIT = "replenishment.procurement.submit"
+PERM_PROCUREMENT_APPROVE = "replenishment.procurement.approve"
+PERM_PROCUREMENT_REJECT = "replenishment.procurement.reject"
+PERM_PROCUREMENT_ORDER = "replenishment.procurement.order"
+PERM_PROCUREMENT_RECEIVE = "replenishment.procurement.receive"
+PERM_PROCUREMENT_CANCEL = "replenishment.procurement.cancel"
 
 _DEV_ROLE_PERMISSION_MAP = {
     "LOGISTICS": {
@@ -31,16 +41,32 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_SUBMIT,
         PERM_NEEDS_LIST_EXECUTE,
         PERM_NEEDS_LIST_CANCEL,
+        PERM_PROCUREMENT_CREATE,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_EDIT,
+        PERM_PROCUREMENT_SUBMIT,
+        PERM_PROCUREMENT_ORDER,
+        PERM_PROCUREMENT_RECEIVE,
+        PERM_PROCUREMENT_CANCEL,
     },
     "EXECUTIVE": {
         REQUIRED_PERMISSION,
-        PERM_NEEDS_LIST_REVIEW_START,
         PERM_NEEDS_LIST_RETURN,
         PERM_NEEDS_LIST_REJECT,
         PERM_NEEDS_LIST_APPROVE,
         PERM_NEEDS_LIST_ESCALATE,
         PERM_NEEDS_LIST_REVIEW_COMMENTS,
+        PERM_PROCUREMENT_VIEW,
+        PERM_PROCUREMENT_APPROVE,
+        PERM_PROCUREMENT_REJECT,
     },
+}
+
+# Compatibility overrides for known DB role-permission gaps.
+# These are merged in addition to DB-resolved permissions.
+_ROLE_PERMISSION_COMPAT_OVERRIDES = {
+    "LOGISTICS_OFFICER": {PERM_NEEDS_LIST_SUBMIT},
+    "TST_LOGISTICS_OFFICER": {PERM_NEEDS_LIST_SUBMIT},
 }
 
 
@@ -67,6 +93,10 @@ def resolve_roles_and_permissions(
                 permissions = _dedupe_preserve_order(
                     list(permissions) + list(_fetch_permissions(user_id))
                 )
+            if roles:
+                permissions = _dedupe_preserve_order(
+                    list(permissions) + list(_fetch_permissions_for_role_codes(roles))
+                )
         except DatabaseError as exc:
             db_error = True
             logger.warning("RBAC DB lookup failed: %s", exc)
@@ -75,6 +105,10 @@ def resolve_roles_and_permissions(
         permissions = _dedupe_preserve_order(
             list(permissions) + list(_permissions_for_roles(roles))
         )
+
+    permissions = _dedupe_preserve_order(
+        list(permissions) + list(_compat_permissions_for_roles(roles))
+    )
 
     request._rbac_cache = {"roles": roles, "permissions": permissions}
     return roles, permissions
@@ -134,8 +168,37 @@ def _fetch_permissions(user_id: int) -> set[str]:
         return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
 
 
+def _fetch_permissions_for_role_codes(role_codes: Iterable[str]) -> set[str]:
+    normalized_codes = sorted(
+        {str(code).strip().upper() for code in role_codes if str(code).strip()}
+    )
+    if not normalized_codes:
+        return set()
+
+    placeholders = ", ".join(["%s"] * len(normalized_codes))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT DISTINCT p.resource, p.action
+            FROM role r
+            JOIN role_permission rp ON rp.role_id = r.id
+            JOIN permission p ON p.perm_id = rp.perm_id
+            WHERE UPPER(r.code) IN ({placeholders})
+            """,
+            normalized_codes,
+        )
+        return {f"{row[0]}.{row[1]}" for row in cursor.fetchall()}
+
+
 def _permissions_for_roles(roles: Iterable[str]) -> set[str]:
     permissions: set[str] = set()
     for role in roles:
         permissions |= _DEV_ROLE_PERMISSION_MAP.get(role.upper(), set())
+    return permissions
+
+
+def _compat_permissions_for_roles(roles: Iterable[str]) -> set[str]:
+    permissions: set[str] = set()
+    for role in roles:
+        permissions |= _ROLE_PERMISSION_COMPAT_OVERRIDES.get(role.upper(), set())
     return permissions

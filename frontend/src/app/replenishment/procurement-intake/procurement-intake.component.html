@@ -1,0 +1,175 @@
+@if (loading()) {
+  <div class="intake-container">
+    <dmis-skeleton-loader variant="summary-card" [count]="1" />
+    <dmis-skeleton-loader variant="table-row" [count]="4" />
+  </div>
+} @else if (error(); as errorMsg) {
+  <div class="intake-container">
+    <div class="intake-error">
+      <mat-icon class="error-icon" aria-hidden="true">error_outline</mat-icon>
+      <p class="error-message">{{ errorMsg }}</p>
+      <button mat-flat-button (click)="navigateBack()">
+        <mat-icon aria-hidden="true">arrow_back</mat-icon>
+        Back to Procurement
+      </button>
+    </div>
+  </div>
+} @else if (procurement(); as proc) {
+  <div class="intake-container">
+    <!-- Header -->
+    <div class="intake-header">
+      <button mat-icon-button aria-label="Back to procurement detail" (click)="navigateBack()">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-info">
+        <h1 class="procurement-number">{{ proc.procurement_no }}</h1>
+        <div class="header-meta">
+          <span
+            class="status-chip"
+            [style.background-color]="getStatusColor(proc.status_code)"
+            [attr.aria-label]="'Status: ' + getStatusLabel(proc.status_code)"
+          >
+            {{ getStatusLabel(proc.status_code) }}
+          </span>
+          <span class="meta-separator" aria-hidden="true">|</span>
+          <span class="meta-label">
+            <mat-icon class="meta-icon" aria-hidden="true">warehouse</mat-icon>
+            {{ proc.warehouse_name }}
+          </span>
+          @if (proc.supplier) {
+            <span class="meta-separator" aria-hidden="true">|</span>
+            <span class="meta-label">
+              <mat-icon class="meta-icon" aria-hidden="true">local_shipping</mat-icon>
+              {{ proc.supplier.supplier_name }}
+            </span>
+          }
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section-title">Receive Items</h2>
+
+    <!-- Desktop table layout -->
+    <div class="intake-table-wrapper">
+      <table class="intake-table" aria-label="Procurement line items for receiving">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col">UOM</th>
+            <th scope="col" class="col-number">Ordered</th>
+            <th scope="col" class="col-number">Prev. Received</th>
+            <th scope="col" class="col-number">Remaining</th>
+            <th scope="col" class="col-input">Qty to Receive</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of lineItems(); track item.procurement_item_id; let i = $index) {
+            <tr>
+              <td class="cell-name">{{ item.item_name }}</td>
+              <td>{{ item.uom_code }}</td>
+              <td class="col-number">{{ item.ordered_qty | number }}</td>
+              <td class="col-number">{{ item.received_qty | number }}</td>
+              <td class="col-number">
+                <span [class.remaining-zero]="item.remaining_qty === 0">
+                  {{ item.remaining_qty | number }}
+                </span>
+              </td>
+              <td class="col-input">
+                @if (item.remaining_qty > 0) {
+                  <mat-form-field appearance="outline" class="qty-field">
+                    <input
+                      matInput
+                      type="number"
+                      [formControl]="lineItemsForm.at(i).controls.qty_to_receive"
+                      [attr.aria-label]="'Quantity to receive for ' + item.item_name"
+                      min="0"
+                      [max]="item.remaining_qty"
+                    />
+                    @if (lineItemsForm.at(i).controls.qty_to_receive.hasError('max')) {
+                      <mat-error>Max {{ item.remaining_qty }}</mat-error>
+                    }
+                    @if (lineItemsForm.at(i).controls.qty_to_receive.hasError('min')) {
+                      <mat-error>Min 0</mat-error>
+                    }
+                  </mat-form-field>
+                } @else {
+                  <span class="fully-received-label">Fully received</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile card layout -->
+    <div class="intake-cards">
+      @for (item of lineItems(); track item.procurement_item_id; let i = $index) {
+        <div class="intake-card">
+          <div class="card-header">
+            <span class="card-item-name">{{ item.item_name }}</span>
+            <span class="card-uom">{{ item.uom_code }}</span>
+          </div>
+          <div class="card-stats">
+            <div class="card-stat">
+              <span class="stat-label">Ordered</span>
+              <span class="stat-value">{{ item.ordered_qty | number }}</span>
+            </div>
+            <div class="card-stat">
+              <span class="stat-label">Received</span>
+              <span class="stat-value">{{ item.received_qty | number }}</span>
+            </div>
+            <div class="card-stat">
+              <span class="stat-label">Remaining</span>
+              <span class="stat-value" [class.remaining-zero]="item.remaining_qty === 0">
+                {{ item.remaining_qty | number }}
+              </span>
+            </div>
+          </div>
+          @if (item.remaining_qty > 0) {
+            <mat-form-field appearance="outline" class="card-qty-field">
+              <mat-label>Qty to Receive</mat-label>
+              <input
+                matInput
+                type="number"
+                [formControl]="lineItemsForm.at(i).controls.qty_to_receive"
+                [attr.aria-label]="'Quantity to receive for ' + item.item_name"
+                min="0"
+                [max]="item.remaining_qty"
+              />
+              @if (lineItemsForm.at(i).controls.qty_to_receive.hasError('max')) {
+                <mat-error>Max {{ item.remaining_qty }}</mat-error>
+              }
+              @if (lineItemsForm.at(i).controls.qty_to_receive.hasError('min')) {
+                <mat-error>Min 0</mat-error>
+              }
+            </mat-form-field>
+          } @else {
+            <span class="fully-received-label">Fully received</span>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Actions -->
+    <div class="intake-actions">
+      <button mat-stroked-button (click)="navigateBack()">
+        <mat-icon aria-hidden="true">arrow_back</mat-icon>
+        Back
+      </button>
+      <button
+        mat-flat-button
+        color="primary"
+        [disabled]="!canSubmit()"
+        (click)="recordReceipt()"
+      >
+        @if (submitting()) {
+          Recording...
+        } @else {
+          <mat-icon aria-hidden="true">inventory</mat-icon>
+          Record Receipt
+        }
+      </button>
+    </div>
+  </div>
+}

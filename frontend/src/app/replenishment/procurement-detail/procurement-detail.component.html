@@ -1,0 +1,454 @@
+<div class="procurement-detail-page">
+
+  <!-- Header -->
+  <mat-card class="wizard-header">
+    <div class="header-content">
+      <button mat-icon-button (click)="goBack()" class="back-btn"
+              matTooltip="Back to Procurements" aria-label="Back to procurements list">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
+        <h1>Procurement Detail</h1>
+        <p>View procurement order and take actions</p>
+      </div>
+      @if (procurement(); as proc) {
+        <div class="header-badges">
+          <span class="proc-number">{{ proc.procurement_no }}</span>
+          <span class="status-chip"
+                [style.background-color]="statusColor() + '22'"
+                [style.color]="statusColor()">
+            {{ statusLabel() }}
+          </span>
+        </div>
+      }
+    </div>
+  </mat-card>
+
+  <!-- Loading -->
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="2"></dmis-skeleton-loader>
+    <dmis-skeleton-loader variant="table-row" [count]="5"></dmis-skeleton-loader>
+  }
+
+  <!-- Error -->
+  @if (error() && !loading()) {
+    <mat-card class="error-card">
+      <div class="error-content">
+        <mat-icon>error_outline</mat-icon>
+        <div>
+          <h3>Failed to load procurement order</h3>
+          <p>There was an error loading this procurement. Please try again.</p>
+          <button mat-stroked-button (click)="loadProcurement()">
+            <mat-icon>refresh</mat-icon>
+            Retry
+          </button>
+        </div>
+      </div>
+    </mat-card>
+  }
+
+  @if (!loading() && !error() && procurement(); as proc) {
+
+    <!-- Status Stepper -->
+    <div class="status-stepper-container" role="list" aria-label="Procurement lifecycle">
+      @if (isTerminal()) {
+        <div class="terminal-status" role="listitem">
+          <mat-icon class="terminal-icon">cancel</mat-icon>
+          <span class="terminal-label">{{ statusLabel() }}</span>
+        </div>
+      } @else {
+        @for (step of lifecycleSteps; track step; let i = $index; let last = $last) {
+          <div class="stepper-step"
+               [class.completed]="stepState(i) === 'completed'"
+               [class.active]="stepState(i) === 'active'"
+               [class.future]="stepState(i) === 'future'"
+               role="listitem"
+               [attr.aria-current]="stepState(i) === 'active' ? 'step' : null">
+            <div class="step-circle">
+              @if (stepState(i) === 'completed') {
+                <mat-icon class="step-check">check</mat-icon>
+              } @else {
+                <span class="step-number">{{ i + 1 }}</span>
+              }
+            </div>
+            <span class="step-label">{{ stepLabel(step) }}</span>
+          </div>
+          @if (!last) {
+            <div class="stepper-connector"
+                 [class.completed]="stepState(i) === 'completed'">
+            </div>
+          }
+        }
+      }
+    </div>
+
+    <!-- Procurement Info Cards -->
+    <div class="content-grid">
+
+      <!-- Left: Order Info -->
+      <mat-card class="info-card">
+        <mat-card-header>
+          <mat-icon class="card-icon" aria-hidden="true">receipt_long</mat-icon>
+          <mat-card-title>Order Information</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="info-row">
+            <span class="info-label">Procurement #</span>
+            <span class="info-value">{{ proc.procurement_no }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Warehouse</span>
+            <span class="info-value">{{ proc.warehouse_name }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Supplier</span>
+            <span class="info-value">{{ proc.supplier?.supplier_name ?? 'Not assigned' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Method</span>
+            <span class="info-value">{{ methodLabel() }}</span>
+          </div>
+          @if (proc.po_number) {
+            <div class="info-row">
+              <span class="info-label">PO Number</span>
+              <span class="info-value po-number">{{ proc.po_number }}</span>
+            </div>
+          }
+          @if (proc.needs_list_id) {
+            <div class="info-row">
+              <span class="info-label">Needs List</span>
+              <span class="info-value mono-text">{{ proc.needs_list_id }}</span>
+            </div>
+          }
+          <div class="info-row">
+            <span class="info-label">Created</span>
+            <span class="info-value">{{ proc.create_dtime | date:'medium' }}</span>
+          </div>
+          @if (proc.shipped_at) {
+            <div class="info-row">
+              <span class="info-label">Shipped</span>
+              <span class="info-value">{{ proc.shipped_at | date:'mediumDate' }}</span>
+            </div>
+          }
+          @if (proc.expected_arrival) {
+            <div class="info-row">
+              <span class="info-label">Expected Arrival</span>
+              <span class="info-value">{{ proc.expected_arrival | date:'mediumDate' }}</span>
+            </div>
+          }
+          @if (proc.received_at) {
+            <div class="info-row">
+              <span class="info-label">Received</span>
+              <span class="info-value">{{ proc.received_at | date:'medium' }}</span>
+            </div>
+          }
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Right: Summary Card -->
+      <mat-card class="summary-detail-card">
+        <mat-card-header>
+          <mat-icon class="card-icon" aria-hidden="true">summarize</mat-icon>
+          <mat-card-title>Summary</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <div class="summary-grid">
+            <div class="summary-stat">
+              <span class="stat-label">Total Value</span>
+              <span class="stat-value primary">{{ totalValue() | currency:proc.currency_code:'symbol':'1.2-2' }}</span>
+            </div>
+            @if (proc.approval; as approval) {
+              <div class="summary-stat">
+                <span class="stat-label">Approval Tier</span>
+                <span class="stat-value">{{ approval.tier }}</span>
+              </div>
+              <div class="summary-stat">
+                <span class="stat-label">Approver Role</span>
+                <span class="stat-value">{{ approval.approver_role }}</span>
+              </div>
+              <div class="summary-stat">
+                <span class="stat-label">Methods Allowed</span>
+                <span class="stat-value">{{ approval.methods_allowed.join(', ') }}</span>
+              </div>
+            }
+            <div class="summary-stat">
+              <span class="stat-label">Line Items</span>
+              <span class="stat-value">{{ items().length }}</span>
+            </div>
+            <div class="summary-stat">
+              <span class="stat-label">Currency</span>
+              <span class="stat-value">{{ proc.currency_code }}</span>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+
+    <!-- Line Items Table -->
+    <mat-card class="table-card">
+      <mat-card-header>
+        <mat-icon class="card-icon" aria-hidden="true">list_alt</mat-icon>
+        <mat-card-title>Line Items ({{ items().length }})</mat-card-title>
+      </mat-card-header>
+
+      <mat-card-content>
+        <!-- Desktop table -->
+        <div class="table-container desktop-only" role="region" aria-label="Line items table" tabindex="0">
+          <table mat-table [dataSource]="items()" class="preview-table">
+
+            <ng-container matColumnDef="item_name">
+              <th mat-header-cell *matHeaderCellDef>Item Name</th>
+              <td mat-cell *matCellDef="let item">
+                <span class="item-name-text">{{ item.item_name }}</span>
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="uom">
+              <th mat-header-cell *matHeaderCellDef>UOM</th>
+              <td mat-cell *matCellDef="let item">{{ item.uom_code }}</td>
+            </ng-container>
+
+            <ng-container matColumnDef="ordered_qty">
+              <th mat-header-cell *matHeaderCellDef>Ordered Qty</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell">
+                {{ item.ordered_qty | number:'1.0-1' }}
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="unit_price">
+              <th mat-header-cell *matHeaderCellDef>Unit Price</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell">
+                @if (item.unit_price !== null && item.unit_price !== undefined) {
+                  {{ item.unit_price | number:'1.2-2' }}
+                } @else {
+                  <span class="muted">--</span>
+                }
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="line_total">
+              <th mat-header-cell *matHeaderCellDef>Line Total</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell">
+                @if (item.line_total !== null && item.line_total !== undefined) {
+                  {{ item.line_total | number:'1.2-2' }}
+                } @else {
+                  <span class="muted">--</span>
+                }
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="received_qty">
+              <th mat-header-cell *matHeaderCellDef>Received Qty</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell">
+                {{ item.received_qty | number:'1.0-1' }}
+              </td>
+            </ng-container>
+
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>Status</th>
+              <td mat-cell *matCellDef="let item">
+                <span class="item-status-chip"
+                      [style.color]="itemStatusColor(item.status_code)"
+                      [style.background-color]="itemStatusColor(item.status_code) + '22'">
+                  {{ itemStatusLabel(item.status_code) }}
+                </span>
+              </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+          </table>
+        </div>
+
+        <!-- Mobile card list -->
+        <div class="mobile-card-list mobile-only" role="list" aria-label="Line items">
+          @for (item of items(); track item.procurement_item_id) {
+            <div class="mobile-item-card" role="listitem">
+              <div class="mobile-item-header">
+                <span class="item-name-text">{{ item.item_name }}</span>
+                <span class="item-status-chip"
+                      [style.color]="itemStatusColor(item.status_code)"
+                      [style.background-color]="itemStatusColor(item.status_code) + '22'">
+                  {{ itemStatusLabel(item.status_code) }}
+                </span>
+              </div>
+              <div class="mobile-item-metrics">
+                <div class="metric">
+                  <span class="metric-label">UOM</span>
+                  <span class="metric-value">{{ item.uom_code }}</span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">Ordered</span>
+                  <span class="metric-value">{{ item.ordered_qty | number:'1.0-1' }}</span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">Unit Price</span>
+                  <span class="metric-value">
+                    @if (item.unit_price !== null && item.unit_price !== undefined) {
+                      {{ item.unit_price | number:'1.2-2' }}
+                    } @else {
+                      --
+                    }
+                  </span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">Line Total</span>
+                  <span class="metric-value">
+                    @if (item.line_total !== null && item.line_total !== undefined) {
+                      {{ item.line_total | number:'1.2-2' }}
+                    } @else {
+                      --
+                    }
+                  </span>
+                </div>
+                <div class="metric">
+                  <span class="metric-label">Received</span>
+                  <span class="metric-value">{{ item.received_qty | number:'1.0-1' }}</span>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Notes Section -->
+    @if (proc.notes_text) {
+      <mat-card class="notes-card">
+        <mat-card-header>
+          <mat-icon class="card-icon" aria-hidden="true">notes</mat-icon>
+          <mat-card-title>Notes</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <p class="notes-text">{{ proc.notes_text }}</p>
+        </mat-card-content>
+      </mat-card>
+    }
+
+    <!-- Action Buttons -->
+    <mat-card class="actions-card" role="toolbar" aria-label="Procurement actions">
+      <mat-card-content>
+        <div class="step-actions">
+          <button mat-button (click)="goBack()" class="back-btn">
+            <mat-icon aria-hidden="true">arrow_back</mat-icon>
+            Back to List
+          </button>
+
+          <div class="actions-panel">
+            <div class="primary-actions">
+              @switch (status()) {
+                @case ('DRAFT') {
+                  @if (canEdit()) {
+                    <button mat-stroked-button
+                            (click)="navigateToEdit()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Edit procurement">
+                      <mat-icon aria-hidden="true">edit</mat-icon>
+                      Edit
+                    </button>
+                  }
+                  @if (canCancel()) {
+                    <button mat-stroked-button
+                            color="warn"
+                            (click)="cancelProcurement()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Cancel procurement">
+                      <mat-icon aria-hidden="true">cancel</mat-icon>
+                      {{ actionLoading() === 'cancel' ? 'Cancelling...' : 'Cancel' }}
+                    </button>
+                  }
+                  @if (canSubmit()) {
+                    <button mat-flat-button
+                            class="submit-btn"
+                            (click)="submitForApproval()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Submit for approval">
+                      <mat-icon aria-hidden="true">send</mat-icon>
+                      {{ actionLoading() === 'submit' ? 'Submitting...' : 'Submit for Approval' }}
+                    </button>
+                  }
+                }
+                @case ('PENDING_APPROVAL') {
+                  @if (canApprove() || canReject()) {
+                    @if (canReject()) {
+                      <button mat-flat-button
+                              color="warn"
+                              (click)="rejectProcurement()"
+                              [disabled]="actionLoading() !== null"
+                              class="reject-btn"
+                              aria-label="Reject procurement">
+                        <mat-icon aria-hidden="true">cancel</mat-icon>
+                        {{ actionLoading() === 'reject' ? 'Rejecting...' : 'Reject' }}
+                      </button>
+                    }
+                    @if (canApprove()) {
+                      <button mat-flat-button
+                              class="approve-btn"
+                              (click)="approveProcurement()"
+                              [disabled]="actionLoading() !== null"
+                              aria-label="Approve procurement">
+                        <mat-icon aria-hidden="true">check_circle</mat-icon>
+                        {{ actionLoading() === 'approve' ? 'Approving...' : 'Approve' }}
+                      </button>
+                    }
+                  }
+                }
+                @case ('APPROVED') {
+                  @if (canOrder()) {
+                    <button mat-flat-button
+                            class="order-btn"
+                            (click)="markAsOrdered()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Mark as ordered">
+                      <mat-icon aria-hidden="true">shopping_cart</mat-icon>
+                      {{ actionLoading() === 'order' ? 'Processing...' : 'Mark as Ordered' }}
+                    </button>
+                  }
+                }
+                @case ('ORDERED') {
+                  @if (canShip()) {
+                    <button mat-flat-button
+                            class="ship-btn"
+                            (click)="markAsShipped()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Mark as shipped">
+                      <mat-icon aria-hidden="true">local_shipping</mat-icon>
+                      {{ actionLoading() === 'ship' ? 'Processing...' : 'Mark as Shipped' }}
+                    </button>
+                  }
+                }
+                @case ('SHIPPED') {
+                  @if (canReceive()) {
+                    <button mat-flat-button
+                            class="receive-btn"
+                            (click)="navigateToReceive()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Receive items">
+                      <mat-icon aria-hidden="true">inventory</mat-icon>
+                      Receive Items
+                    </button>
+                  }
+                }
+                @case ('PARTIAL_RECEIVED') {
+                  @if (canReceive()) {
+                    <button mat-flat-button
+                            class="receive-btn"
+                            (click)="navigateToReceive()"
+                            [disabled]="actionLoading() !== null"
+                            aria-label="Receive remaining items">
+                      <mat-icon aria-hidden="true">inventory</mat-icon>
+                      Receive Items
+                    </button>
+                  }
+                }
+              }
+            </div>
+            @if (actionRoleHint(); as roleHint) {
+              <p class="action-role-hint">{{ roleHint }}</p>
+            }
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  }
+</div>

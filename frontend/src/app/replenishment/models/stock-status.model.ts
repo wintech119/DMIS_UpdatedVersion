@@ -107,6 +107,22 @@ export interface DataFreshnessBannerState {
   maxAgeHours: number | null;
 }
 
+export type ActionUrgency = 'immediate' | 'soon' | 'planned' | 'none';
+
+export interface RecommendedAction {
+  action: string;
+  urgency: ActionUrgency;
+}
+
+export function getRecommendedAction(severity: SeverityLevel): RecommendedAction {
+  switch (severity) {
+    case 'CRITICAL': return { action: 'Initiate emergency transfer (Horizon A)', urgency: 'immediate' };
+    case 'WARNING':  return { action: 'Request transfer or donation (Horizon A/B)', urgency: 'soon' };
+    case 'WATCH':    return { action: 'Plan donation or procurement (Horizon B/C)', urgency: 'planned' };
+    default:         return { action: 'No action needed', urgency: 'none' };
+  }
+}
+
 export function formatTimeToStockout(hours: number | null | string): string {
   if (hours === null || hours === undefined || hours === 'N/A') {
     return 'N/A';

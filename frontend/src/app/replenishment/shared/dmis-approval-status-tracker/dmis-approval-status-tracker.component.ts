@@ -31,15 +31,23 @@ type TerminalStepId = 'CANCELLED' | 'SUPERSEDED';
 function mapStatusToStep(status: NeedsListStatus): TrackerStepId | TerminalStepId {
   switch (status) {
     case 'DRAFT':
+    case 'MODIFIED':
     case 'RETURNED':
       return 'DRAFT';
     case 'SUBMITTED':
+    case 'PENDING_APPROVAL':
+    case 'PENDING':
     case 'UNDER_REVIEW':
+    case 'ESCALATED':
       return 'PENDING_APPROVAL';
     case 'APPROVED':
       return 'APPROVED';
+    case 'IN_PREPARATION':
+    case 'DISPATCHED':
+    case 'RECEIVED':
     case 'IN_PROGRESS':
       return 'IN_PROGRESS';
+    case 'COMPLETED':
     case 'FULFILLED':
       return 'FULFILLED';
     case 'REJECTED':
@@ -76,6 +84,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
   steps: TrackerStep[] = [];
   branch: TrackerBranch | null = null;
   detailsExpanded = false;
+  readonly panelId = `detailsPanel-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 
   get completedSteps(): TrackerStep[] {
     return this.steps.filter(s => s.state === 'completed' || s.state === 'active');
@@ -83,14 +92,23 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
 
   get isPendingApproval(): boolean {
     if (!this.needsList?.status) return false;
-    return this.needsList.status === 'SUBMITTED' || this.needsList.status === 'UNDER_REVIEW';
+    return this.needsList.status === 'SUBMITTED'
+      || this.needsList.status === 'PENDING_APPROVAL'
+      || this.needsList.status === 'PENDING'
+      || this.needsList.status === 'UNDER_REVIEW';
   }
 
   get pendingApproverRole(): string {
+    const explicitRole = this.needsList?.approval_summary?.approval?.approver_role;
+    if (explicitRole) {
+      return explicitRole;
+    }
+
     const workflow = APPROVAL_WORKFLOWS[this.horizon];
     if (!workflow?.steps?.length) return 'Unknown';
-    const tierValue = this.approvalTier ? Number(this.approvalTier) : NaN;
-    if (!Number.isFinite(tierValue)) return 'Unknown';
+    const tierMatch = this.approvalTier?.match(/(\d+)/);
+    const tierValue = tierMatch ? Number(tierMatch[1]) : NaN;
+    if (!Number.isFinite(tierValue)) return workflow.steps[0]?.role ?? 'Unknown';
     const index = Math.min(Math.max(tierValue - 1, 0), workflow.steps.length - 1);
     return workflow.steps[index]?.role ?? 'Unknown';
   }
@@ -130,6 +148,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
     switch (this.branch.type) {
       case 'REJECTED': return 'cancel';
       case 'RETURNED': return 'undo';
+      case 'ESCALATED': return 'north_east';
       case 'CANCELLED': return 'block';
       case 'SUPERSEDED': return 'swap_horiz';
     }
@@ -139,7 +158,8 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
     if (!this.branch) return '';
     switch (this.branch.type) {
       case 'REJECTED': return 'Rejected';
-      case 'RETURNED': return 'Returned for Revision';
+      case 'RETURNED': return 'Changes Requested';
+      case 'ESCALATED': return 'Escalated';
       case 'CANCELLED': return 'Cancelled';
       case 'SUPERSEDED': return 'Superseded';
     }
@@ -176,12 +196,20 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
         timestamp: null,
         fromStep: 'PENDING_APPROVAL'
       };
-    } else if (status === 'RETURNED') {
+    } else if (status === 'RETURNED' || status === 'MODIFIED') {
       this.branch = {
         type: 'RETURNED',
         reason: nl.return_reason ?? null,
         actor: null,
         timestamp: null,
+        fromStep: 'PENDING_APPROVAL'
+      };
+    } else if (status === 'ESCALATED') {
+      this.branch = {
+        type: 'ESCALATED',
+        reason: nl.escalation_reason ?? null,
+        actor: nl.escalated_by ?? null,
+        timestamp: nl.escalated_at ?? null,
         fromStep: 'PENDING_APPROVAL'
       };
     } else if (status === 'CANCELLED') {
@@ -209,7 +237,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
       } else if (i === activeIndex) {
         if (status === 'REJECTED') {
           state = 'rejected';
-        } else if (status === 'RETURNED') {
+        } else if (status === 'RETURNED' || status === 'MODIFIED') {
           // RETURNED goes back to DRAFT, so DRAFT is active again
           state = i === 0 ? 'active' : 'pending';
         } else if (isTerminated) {
@@ -220,7 +248,7 @@ export class DmisApprovalStatusTrackerComponent implements OnChanges {
       }
 
       // For RETURNED, mark DRAFT as active and PENDING_APPROVAL as returned
-      if (status === 'RETURNED' && id === 'PENDING_APPROVAL') {
+      if ((status === 'RETURNED' || status === 'MODIFIED') && id === 'PENDING_APPROVAL') {
         state = 'returned';
       }
 

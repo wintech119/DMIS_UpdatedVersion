@@ -369,7 +369,7 @@ const BatchAllocation = (function() {
         });
         
         // Update warehouse allocated summary when allocations change
-        container.dataset.updateAllocationSummary = function() {
+        container.updateAllocationSummary = function() {
             updateWarehouseAllocationSummary(container, warehouseData);
         };
         
@@ -819,12 +819,9 @@ const BatchAllocation = (function() {
         // Update warehouse allocation summaries
         const warehouseSections = elements.batchList.querySelectorAll('.batch-warehouse-section');
         warehouseSections.forEach(section => {
-            const updateFunction = section.dataset.updateAllocationSummary;
-            if (updateFunction && typeof window[updateFunction] === 'function') {
-                window[updateFunction]();
-            } else if (updateFunction) {
-                // Call the stored function directly
-                eval(updateFunction);
+            const updateAllocationSummary = section.updateAllocationSummary;
+            if (typeof updateAllocationSummary === 'function') {
+                updateAllocationSummary();
             }
             
             // Manual update as fallback

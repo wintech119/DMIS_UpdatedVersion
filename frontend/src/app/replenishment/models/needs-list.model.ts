@@ -1,12 +1,17 @@
-import { EventPhase, SeverityLevel, FreshnessLevel } from '../models/stock-status.model';
+import { EventPhase, SeverityLevel } from '../models/stock-status.model';
 
 export interface NeedsListItem {
   item_id: number;
   item_name?: string;
+  item_code?: string;
+  uom_code?: string;
   warehouse_id?: number;             // NEW for multi-warehouse
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
   inbound_strict_qty: number;
+  inbound_transfer_qty?: number;
+  inbound_donation_qty?: number;
+  inbound_procurement_qty?: number;
   burn_rate_per_hour: number;
   required_qty?: number;
   computed_required_qty?: number;
@@ -24,6 +29,8 @@ export interface NeedsListItem {
   review_comment?: string;
   review_updated_by?: string;
   review_updated_at?: string;
+  fulfilled_qty?: number;
+  fulfillment_status?: string | null;
   procurement?: ProcurementInfo;
   triggers?: {
     activate_B: boolean;
@@ -85,9 +92,126 @@ export interface ApprovalSummary {
   escalation_required?: boolean;
 }
 
+export interface ReviewReminderInfo {
+  pending_hours: number;
+  reminder_sent_at: string;
+  escalation_recommended: boolean;
+}
+
+export type NeedsListSummaryStatus =
+  | 'DRAFT'
+  | 'MODIFIED'
+  | 'RETURNED'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'IN_PROGRESS'
+  | 'FULFILLED'
+  | 'SUPERSEDED'
+  | 'CANCELLED';
+
+export interface HorizonSummaryBucket {
+  count: number;
+  estimated_value: number;
+}
+
+export interface ExternalUpdateSummary {
+  item_name: string;
+  original_qty: number;
+  covered_qty: number;
+  remaining_qty: number;
+  source_type: 'DONATION' | 'TRANSFER' | 'PROCUREMENT';
+  source_reference: string;
+  updated_at: string | null;
+}
+
+export interface NeedsListSummary {
+  id: string;
+  reference_number: string;
+  warehouse: {
+    id: number | null;
+    name: string;
+    code: string;
+  };
+  event: {
+    id: number | null;
+    name: string;
+    phase: EventPhase;
+  };
+  selected_method?: 'A' | 'B' | 'C' | null;
+  status: NeedsListSummaryStatus;
+  total_items: number;
+  fulfilled_items: number;
+  remaining_items: number;
+  horizon_summary: {
+    horizon_a: HorizonSummaryBucket;
+    horizon_b: HorizonSummaryBucket;
+    horizon_c: HorizonSummaryBucket;
+  };
+  submitted_at: string | null;
+  approved_at: string | null;
+  last_updated_at: string | null;
+  superseded_by_id: string | null;
+  supersedes_id: string | null;
+  has_external_updates: boolean;
+  external_update_summary: ExternalUpdateSummary[];
+  data_version?: string;
+  created_by: {
+    id: number | null;
+    name: string;
+  };
+}
+
+export interface MySubmissionsResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: NeedsListSummary[];
+}
+
+export interface NeedsListFulfillmentSource {
+  source_type: 'DONATION' | 'TRANSFER' | 'PROCUREMENT' | 'NEEDS_LIST_LINE';
+  source_id: number | null;
+  source_reference: string;
+  quantity: number;
+  status: string;
+  date: string | null;
+  eta?: string | null;
+}
+
+export interface NeedsListFulfillmentLine {
+  id: number | null;
+  item: {
+    id: number | null;
+    name: string;
+    uom: string;
+  };
+  original_qty: number;
+  covered_qty: number;
+  remaining_qty: number;
+  horizon: 'A' | 'B' | 'C';
+  fulfillment_sources: NeedsListFulfillmentSource[];
+  total_coverage: number;
+  is_fully_covered: boolean;
+}
+
+export interface NeedsListFulfillmentSourcesResponse {
+  needs_list_id: string;
+  lines: NeedsListFulfillmentLine[];
+}
+
+export interface NeedsListSummaryVersionResponse {
+  needs_list_id: string;
+  status: NeedsListSummaryStatus;
+  last_updated_at: string | null;
+  data_version: string;
+}
+
 export interface NeedsListResponse {
   event_id: number;
+  event_name?: string;
   phase: EventPhase;
+  warehouse_id?: number;             // Legacy single-warehouse workflow response
   warehouse_ids?: number[];          // NEW (array for multi-warehouse)
   warehouses?: WarehouseInfo[];      // NEW (warehouse metadata)
   items: NeedsListItem[];
@@ -95,6 +219,7 @@ export interface NeedsListResponse {
   planning_window_days?: number;
   warnings?: string[];
   needs_list_id?: string;
+  needs_list_no?: string;
   status?: NeedsListStatus;
   approval_summary?: ApprovalSummary;
   created_by?: string | null;
@@ -111,17 +236,35 @@ export interface NeedsListResponse {
   escalated_by?: string | null;
   escalated_at?: string | null;
   escalation_reason?: string | null;
+  return_reason_code?: string | null;
   return_reason?: string | null;
   reject_reason?: string | null;
+  review_reminder?: ReviewReminderInfo;
+  selected_method?: 'A' | 'B' | 'C';
+  selected_item_keys?: string[];
+  superseded_by?: string | null;
+  superseded_at?: string | null;
+  superseded_by_actor?: string | null;
+  superseded_by_needs_list_id?: string | null;
+  supersedes_needs_list_ids?: string[];
+  supersede_reason?: string | null;
 }
 
 export type NeedsListStatus =
   | 'DRAFT'
+  | 'MODIFIED'
   | 'SUBMITTED'
+  | 'PENDING_APPROVAL'
+  | 'PENDING'
   | 'UNDER_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
   | 'RETURNED'
+  | 'ESCALATED'
+  | 'IN_PREPARATION'
+  | 'DISPATCHED'
+  | 'RECEIVED'
+  | 'COMPLETED'
   | 'IN_PROGRESS'
   | 'FULFILLED'
   | 'CANCELLED'
@@ -143,9 +286,70 @@ export interface TrackerStep {
 }
 
 export interface TrackerBranch {
-  type: 'REJECTED' | 'RETURNED' | 'CANCELLED' | 'SUPERSEDED';
+  type: 'REJECTED' | 'RETURNED' | 'ESCALATED' | 'CANCELLED' | 'SUPERSEDED';
   reason: string | null;
   actor: string | null;
   timestamp: string | null;
   fromStep: TrackerStepId;
+}
+
+// ── Transfer Draft Models (Horizon A) ─────────────────────────────────────
+
+export interface TransferDraftItem {
+  item_id: number;
+  item_name: string;
+  uom_code: string;
+  item_qty: number;
+}
+
+export interface TransferDraft {
+  transfer_id: number;
+  from_warehouse: { id: number; name: string };
+  to_warehouse: { id: number; name: string };
+  status: string;
+  transfer_date: string | null;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  items: TransferDraftItem[];
+}
+
+export interface TransferDraftsResponse {
+  needs_list_id: string;
+  transfers: TransferDraft[];
+  warnings?: string[];
+}
+
+// ── Donation Models (Horizon B) ───────────────────────────────────────────
+
+export interface DonationLineItem {
+  item_id: number;
+  item_name: string;
+  uom: string;
+  required_qty: number;
+  allocated_qty: number;
+  available_donations: { donation_id: number; donor_name: string; available_qty: number }[];
+}
+
+export interface DonationsResponse {
+  needs_list_id: string;
+  lines: DonationLineItem[];
+  warnings?: string[];
+}
+
+// ── Procurement Models (Horizon C) ────────────────────────────────────────
+
+export interface ProcurementLineItem {
+  item_id: number;
+  item_name: string;
+  uom: string;
+  required_qty: number;
+  est_unit_cost: number | null;
+  est_total_cost: number | null;
+}
+
+export interface ProcurementExportResponse {
+  needs_list_id: string;
+  format: string;
+  items: ProcurementLineItem[];
 }
