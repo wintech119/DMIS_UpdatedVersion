@@ -1,0 +1,61 @@
+<div class="duplicate-warning-header">
+  <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
+  <h2 mat-dialog-title>Active Needs List Already Exists</h2>
+</div>
+
+<mat-dialog-content>
+  <p class="dialog-message">
+    A needs list for this warehouse is already active. Creating a new one will replace any drafts.
+  </p>
+
+  <div class="conflicts-list">
+    @for (item of data.existingLists; track item.needs_list_id) {
+      <div class="conflict-row">
+        <div class="conflict-info">
+          <div class="conflict-ref">
+            <span class="ref-label">Reference:</span>
+            <button class="ref-link" type="button" (click)="viewItem(item.needs_list_id)">
+              {{ item.needs_list_no }}
+            </button>
+          </div>
+          <div class="conflict-meta">
+            <span [class]="statusClass(item.status)">{{ formatStatus(item.status) }}</span>
+            <span class="meta-item">
+              <mat-icon class="meta-icon" aria-hidden="true">person</mat-icon>
+              {{ item.created_by || 'Unknown' }}
+            </span>
+            <span class="meta-item">
+              <mat-icon class="meta-icon" aria-hidden="true">schedule</mat-icon>
+              {{ item.created_at | date:'dd MMM yyyy, HH:mm' }}
+            </span>
+            @if (item.warehouse_name) {
+              <span class="meta-item">
+                <mat-icon class="meta-icon" aria-hidden="true">warehouse</mat-icon>
+                {{ item.warehouse_name }}
+              </span>
+            }
+          </div>
+        </div>
+        <button mat-stroked-button class="row-view-btn" (click)="viewItem(item.needs_list_id)">
+          <mat-icon>open_in_new</mat-icon>
+          View
+        </button>
+      </div>
+    }
+  </div>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button matButton="outlined" (click)="cancel()">
+    Cancel
+  </button>
+  <button mat-raised-button color="warn" (click)="continue()">
+    Continue Anyway
+  </button>
+  @if (data.existingLists.length === 1) {
+    <button mat-raised-button color="primary" (click)="viewItem(data.existingLists[0].needs_list_id)" cdkFocusInitial>
+      <mat-icon>visibility</mat-icon>
+      View Existing
+    </button>
+  }
+</mat-dialog-actions>

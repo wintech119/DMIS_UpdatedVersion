@@ -77,6 +77,15 @@ export interface NeedsListListOptions {
   includeClosed?: boolean;
 }
 
+export interface NeedsListDuplicateSummary {
+  needs_list_id: string;
+  needs_list_no: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  warehouse_name?: string;
+}
+
 export interface MySubmissionsQueryParams {
   status?: string;
   method?: 'A' | 'B' | 'C';
@@ -550,6 +559,34 @@ export class ReplenishmentService {
 
   updateSupplier(id: number, updates: Partial<CreateSupplierPayload>): Observable<Supplier> {
     return this.http.patch<Supplier>(`${this.apiUrl}/suppliers/${id}`, updates);
+  }
+
+  checkActiveNeedsLists(
+    eventId: number,
+    warehouseId: number,
+    phase: string,
+    excludeNeedsListId?: string
+  ): Observable<NeedsListDuplicateSummary[]> {
+    return this.listNeedsLists(undefined, {
+      eventId,
+      warehouseId,
+      phase,
+      includeClosed: false
+    }).pipe(
+      map(({ needs_lists }) =>
+        needs_lists
+          .filter(nl => !excludeNeedsListId || nl.needs_list_id !== excludeNeedsListId)
+          .filter(nl => !!nl.needs_list_id && !!nl.needs_list_no)
+          .map(nl => ({
+            needs_list_id: nl.needs_list_id!,
+            needs_list_no: nl.needs_list_no!,
+            status: nl.status ?? '',
+            created_by: nl.created_by ?? '',
+            created_at: nl.created_at ?? '',
+            warehouse_name: nl.warehouses?.[0]?.warehouse_name
+          }))
+      )
+    );
   }
 
   private enrichStockStatusResponse(response: StockStatusResponse): StockStatusResponse {

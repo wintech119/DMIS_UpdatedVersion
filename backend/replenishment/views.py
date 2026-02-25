@@ -79,6 +79,7 @@ REQUEST_CHANGE_REASON_CODES = {
     "OTHER",
 }
 _CLOSED_NEEDS_LIST_STATUSES = {"FULFILLED", "COMPLETED", "CANCELLED", "SUPERSEDED", "REJECTED"}
+_OWNER_ONLY_SUBMISSION_STATUSES = {"DRAFT", "MODIFIED"}
 
 def _use_db_workflow_store() -> bool:
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
@@ -907,6 +908,24 @@ def _normalize_status_for_ui(status: object) -> str:
     return normalized
 
 
+def _record_owned_by_actor(record: Dict[str, Any], actor: str) -> bool:
+    if not actor:
+        return False
+    return any(
+        _normalize_actor(candidate) == actor
+        for candidate in (
+            record.get("created_by"),
+            record.get("submitted_by"),
+            record.get("updated_by"),
+        )
+        if candidate
+    )
+
+
+def _submission_status_requires_actor_scope(status: object) -> bool:
+    return _normalize_status_for_ui(status) in _OWNER_ONLY_SUBMISSION_STATUSES
+
+
 def _expand_submission_status_filters(
     statuses: list[str] | None,
 ) -> tuple[list[str] | None, set[str] | None]:
@@ -1362,7 +1381,12 @@ def needs_list_list(request):
 @permission_classes([NeedsListPreviewPermission])
 def needs_list_my_submissions(request):
     """
-    Paginated, filterable summaries for the current actor's submissions.
+    Paginated, filterable summaries of needs list submissions.
+
+    Visibility rules:
+    - DRAFT/MODIFIED records remain owner-only.
+    - Submitted-and-beyond records are visible to all authorized users.
+    - mine=true forces owner-only filtering for all statuses.
     """
     try:
         workflow_store.store_enabled_or_raise()
@@ -1370,7 +1394,8 @@ def needs_list_my_submissions(request):
         return _workflow_disabled_response()
 
     actor = _normalize_actor(_actor_id(request))
-    if not actor:
+    mine_only = _query_param_truthy(request.query_params.get("mine"), default=False)
+    if mine_only and not actor:
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
     status_param = request.query_params.get("status")
@@ -1406,20 +1431,13 @@ def needs_list_my_submissions(request):
     records = workflow_store.list_records(store_status_filters)
     summaries: list[Dict[str, Any]] = []
     for record in records:
-        if not any(
-            _normalize_actor(candidate) == actor
-            for candidate in (
-                record.get("created_by"),
-                record.get("submitted_by"),
-                record.get("updated_by"),
-            )
-            if candidate
-        ):
-            continue
-
         serialized = _serialize_workflow_record(record, include_overrides=True)
         summary = _serialize_submission_summary(serialized)
         summary_status = str(summary.get("status") or "").strip().upper()
+        if (
+            mine_only or _submission_status_requires_actor_scope(summary_status)
+        ) and not _record_owned_by_actor(record, actor):
+            continue
         if ui_status_filters and summary_status not in ui_status_filters:
             continue
 

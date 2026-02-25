@@ -129,7 +129,7 @@ export class MySubmissionsComponent {
             this.submissions.set([]);
             this.totalCount.set(0);
             this.selectedDraftIds.set(new Set<string>());
-            this.notifications.showError('Failed to load your submissions.');
+            this.notifications.showError('Failed to load needs list submissions.');
             return EMPTY;
           })
         )

@@ -1956,6 +1956,150 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_shows_submitted_from_others_but_hides_their_drafts(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with override_settings(
+                AUTH_ENABLED=False,
+                DEV_AUTH_ENABLED=True,
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=["LOGISTICS"],
+                DEV_AUTH_PERMISSIONS=[],
+                DEBUG=True,
+                AUTH_USE_DB_RBAC=False,
+            ):
+                submitted = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                submit_response = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{submitted['needs_list_id']}/submit",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(submit_response.status_code, 200)
+
+                other_draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=20"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        ids = [row.get("id") for row in response.json().get("results", [])]
+        self.assertIn(submitted.get("needs_list_id"), ids)
+        self.assertNotIn(other_draft.get("needs_list_id"), ids)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_mine_true_forces_actor_only_filtering(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with override_settings(
+                AUTH_ENABLED=False,
+                DEV_AUTH_ENABLED=True,
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=["LOGISTICS"],
+                DEV_AUTH_PERMISSIONS=[],
+                DEBUG=True,
+                AUTH_USE_DB_RBAC=False,
+            ):
+                submitted = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                submit_response = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{submitted['needs_list_id']}/submit",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(submit_response.status_code, 200)
+
+            own_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            global_response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=20"
+            )
+            mine_response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?mine=true&page=1&page_size=20"
+            )
+
+        self.assertEqual(global_response.status_code, 200)
+        global_ids = [row.get("id") for row in global_response.json().get("results", [])]
+        self.assertIn(submitted.get("needs_list_id"), global_ids)
+        self.assertIn(own_draft.get("needs_list_id"), global_ids)
+
+        self.assertEqual(mine_response.status_code, 200)
+        mine_ids = [row.get("id") for row in mine_response.json().get("results", [])]
+        self.assertIn(own_draft.get("needs_list_id"), mine_ids)
+        self.assertNotIn(submitted.get("needs_list_id"), mine_ids)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],

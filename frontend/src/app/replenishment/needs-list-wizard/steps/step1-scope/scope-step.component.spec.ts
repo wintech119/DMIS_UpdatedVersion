@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { MatDialog } from '@angular/material/dialog';
 import { of, throwError } from 'rxjs';
 
 import { ScopeStepComponent } from './scope-step.component';
@@ -27,14 +28,19 @@ describe('ScopeStepComponent', () => {
       warehouse_ids: undefined,
       phase: undefined
     }));
+    mockWizardService.getState.and.returnValue({
+      adjustments: {}
+    });
 
     mockReplenishmentService = jasmine.createSpyObj('ReplenishmentService', [
       'getActiveEvent',
       'getAllWarehouses',
+      'checkActiveNeedsLists',
       'getStockStatusMulti'
     ]);
     mockReplenishmentService.getActiveEvent.and.returnValue(of(null));
     mockReplenishmentService.getAllWarehouses.and.returnValue(of([]));
+    mockReplenishmentService.checkActiveNeedsLists.and.returnValue(of([]));
 
     mockNotificationService = jasmine.createSpyObj('DmisNotificationService', [
       'showNetworkError'
@@ -111,6 +117,85 @@ describe('ScopeStepComponent', () => {
       previewResponse: mockResponse
     });
     expect(component.next.emit).toHaveBeenCalled();
+  });
+
+  it('should pass current needs list id to duplicate checks when recalculating', () => {
+    const mockResponse = {
+      event_id: 1,
+      phase: 'BASELINE' as const,
+      warehouse_ids: [1],
+      warehouses: [{ warehouse_id: 1, warehouse_name: 'Test Warehouse' }],
+      items: [],
+      as_of_datetime: new Date().toISOString()
+    };
+    mockWizardService.getState.and.returnValue({
+      adjustments: {},
+      draft_ids: ['NL-EXISTING-1']
+    });
+    mockReplenishmentService.getStockStatusMulti.and.returnValue(of(mockResponse));
+
+    component.form.patchValue({
+      event_id: 1,
+      warehouse_ids: [1, 2],
+      phase: 'BASELINE'
+    });
+
+    component.calculateGaps();
+
+    expect(mockReplenishmentService.checkActiveNeedsLists).toHaveBeenCalledWith(
+      1,
+      1,
+      'BASELINE',
+      'NL-EXISTING-1'
+    );
+    expect(mockReplenishmentService.checkActiveNeedsLists).toHaveBeenCalledWith(
+      1,
+      2,
+      'BASELINE',
+      'NL-EXISTING-1'
+    );
+  });
+
+  it('should deduplicate duplicate conflicts before opening warning dialog', () => {
+    const mockResponse = {
+      event_id: 1,
+      phase: 'BASELINE' as const,
+      warehouse_ids: [1],
+      warehouses: [{ warehouse_id: 1, warehouse_name: 'Test Warehouse' }],
+      items: [],
+      as_of_datetime: new Date().toISOString()
+    };
+    mockReplenishmentService.checkActiveNeedsLists.and.callFake((_eventId, warehouseId: number) =>
+      of([
+        {
+          needs_list_id: 'NL-DUP-1',
+          needs_list_no: 'NL-2026-001',
+          status: 'SUBMITTED',
+          created_by: 'submitter',
+          created_at: new Date().toISOString(),
+          warehouse_name: `Warehouse ${warehouseId}`
+        }
+      ])
+    );
+    mockReplenishmentService.getStockStatusMulti.and.returnValue(of(mockResponse));
+
+    const openSpy = spyOn((component as unknown as { dialog: MatDialog }).dialog, 'open').and.returnValue({
+      afterClosed: () => of('cancel')
+    } as never);
+
+    component.form.patchValue({
+      event_id: 1,
+      warehouse_ids: [1, 2],
+      phase: 'BASELINE'
+    });
+
+    component.calculateGaps();
+
+    expect(openSpy).toHaveBeenCalled();
+    const dialogConfig = openSpy.calls.mostRecent().args[1] as { data: { existingLists: { needs_list_id: string }[] } };
+    expect(dialogConfig.data.existingLists.length).toBe(1);
+    expect(dialogConfig.data.existingLists[0].needs_list_id).toBe('NL-DUP-1');
+    expect(mockReplenishmentService.getStockStatusMulti).not.toHaveBeenCalled();
   });
 
   it('should show network error on API failure', () => {

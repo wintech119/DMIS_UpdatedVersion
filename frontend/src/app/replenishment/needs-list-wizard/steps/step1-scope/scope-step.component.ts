@@ -18,10 +18,15 @@ import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../shared/d
 import { DmisNotificationService } from '../../../services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../../../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { WizardState } from '../../models/wizard-state.model';
-import { ReplenishmentService, ActiveEvent, Warehouse } from '../../../services/replenishment.service';
+import { ReplenishmentService, ActiveEvent, NeedsListDuplicateSummary, Warehouse } from '../../../services/replenishment.service';
+import {
+  DuplicateWarningResult,
+  NeedsListDuplicateWarningData,
+  NeedsListDuplicateWarningDialogComponent
+} from '../../../shared/needs-list-duplicate-warning-dialog/needs-list-duplicate-warning-dialog.component';
 import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
-import { distinctUntilChanged, map } from 'rxjs/operators';
-import { forkJoin } from 'rxjs';
+import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
+import { forkJoin, Observable, of } from 'rxjs';
 
 interface ScopeFormValue {
   event_id: number | null;
@@ -201,25 +206,70 @@ export class ScopeStepComponent implements OnInit {
     }
 
     const { event_id, warehouse_ids, phase, as_of_datetime } = this.form.value;
+    const excludeNeedsListId = this.resolveNeedsListIdToExclude();
 
     this.loading = true;
-    this.startCalculationProgress();
 
-    // Call preview-multi API
-    this.replenishmentService.getStockStatusMulti(
-      event_id,
-      warehouse_ids,
-      phase,
-      as_of_datetime || undefined
+    forkJoin(
+      (warehouse_ids as number[]).map((wid) =>
+        this.replenishmentService.checkActiveNeedsLists(
+          event_id,
+          wid,
+          phase,
+          excludeNeedsListId
+        )
+      )
+    ).pipe(
+      catchError((err) => {
+        console.warn('[DuplicateCheck] Failed, proceeding without warning:', err);
+        return of([] as NeedsListDuplicateSummary[][]);
+      }),
+      switchMap((resultsPerWarehouse) => {
+        const allConflicts = (resultsPerWarehouse as NeedsListDuplicateSummary[][]).flat();
+        const uniqueConflicts: NeedsListDuplicateSummary[] = [];
+        const seenNeedsListIds = new Set<string>();
+        for (const conflict of allConflicts) {
+          const needsListId = String(conflict?.needs_list_id || '').trim();
+          if (!needsListId || seenNeedsListIds.has(needsListId)) {
+            continue;
+          }
+          seenNeedsListIds.add(needsListId);
+          uniqueConflicts.push(conflict);
+        }
+
+        if (uniqueConflicts.length === 0) {
+          return of('continue' as DuplicateWarningResult);
+        }
+
+        return this.dialog.open(NeedsListDuplicateWarningDialogComponent, {
+          data: {
+            existingLists: uniqueConflicts,
+            warehouseCount: (warehouse_ids as number[]).length
+          } as NeedsListDuplicateWarningData,
+          width: '560px',
+          ariaLabel: 'Active needs list warning'
+        }).afterClosed() as Observable<DuplicateWarningResult | undefined>;
+      }),
+      switchMap((result: DuplicateWarningResult | undefined) => {
+        if (!result || result === 'cancel' || result === 'view') {
+          return of(null);
+        }
+        this.startCalculationProgress();
+        return this.replenishmentService.getStockStatusMulti(
+          event_id,
+          warehouse_ids,
+          phase,
+          as_of_datetime || undefined
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef)
     ).subscribe({
       next: (response) => {
         this.stopCalculationProgress();
-        // Store preview response in wizard state
-        this.wizardService.updateState({
-          previewResponse: response
-        });
         this.loading = false;
-        this.next.emit();  // Move to next step
+        if (response === null) return;
+        this.wizardService.updateState({ previewResponse: response });
+        this.next.emit();
       },
       error: (error) => {
         this.stopCalculationProgress();
@@ -230,6 +280,19 @@ export class ScopeStepComponent implements OnInit {
         this.notificationService.showNetworkError(errorMessage, () => this.calculateGaps());
       }
     });
+  }
+
+  private resolveNeedsListIdToExclude(): string | undefined {
+    const state = this.wizardService.getState();
+    const fromDrafts = (state.draft_ids || [])
+      .map((id) => String(id || '').trim())
+      .find((id) => id.length > 0);
+    if (fromDrafts) {
+      return fromDrafts;
+    }
+
+    const fromPreview = String(state.previewResponse?.needs_list_id || '').trim();
+    return fromPreview || undefined;
   }
 
   private startCalculationProgress(): void {

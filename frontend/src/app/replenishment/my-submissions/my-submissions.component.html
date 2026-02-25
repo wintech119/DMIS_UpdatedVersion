@@ -5,7 +5,7 @@
       <mat-icon>arrow_back</mat-icon>
     </button>
     <div class="header-text">
-      <h1>My Needs List Submissions</h1>
+      <h1>Needs List Submissions</h1>
       <p class="subtitle">Track drafts, approvals, and fulfillment activity</p>
     </div>
     <button mat-flat-button color="primary" type="button" class="refresh-btn" (click)="loadSubmissions()">
@@ -24,7 +24,7 @@
     <dmis-empty-state
       icon="error_outline"
       title="Failed to load submissions"
-      message="There was an error loading your needs list submissions. Please try again."
+      message="There was an error loading needs list submissions. Please try again."
       actionLabel="Retry"
       actionIcon="refresh"
       (action)="loadSubmissions()">
@@ -182,7 +182,7 @@
         <dmis-empty-state
           icon="inbox"
           title="No submissions found"
-          message="You haven't created any needs lists yet. Start from the dashboard to generate one."
+          message="No needs list submissions are available yet. Start from the dashboard to generate one."
           actionLabel="Back to Dashboard"
           actionIcon="dashboard"
           (action)="backToDashboard()">
