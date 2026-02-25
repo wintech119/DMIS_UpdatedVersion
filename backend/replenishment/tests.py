@@ -2562,6 +2562,19 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertTrue(lines)
         self.assertEqual(lines[0].get("horizon"), "C")
 
+    def test_resolve_item_horizon_prefers_a_over_slower_horizons_without_fallback(self) -> None:
+        from replenishment.views import _resolve_item_horizon
+
+        item = {
+            "horizon": {
+                "A": {"recommended_qty": 10},
+                "B": {"recommended_qty": 20},
+                "C": {"recommended_qty": 30},
+            }
+        }
+
+        self.assertEqual(_resolve_item_horizon(item), "A")
+
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,

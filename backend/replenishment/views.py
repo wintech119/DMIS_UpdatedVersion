@@ -991,7 +991,7 @@ def _resolve_item_horizon(item: Dict[str, Any], fallback_horizon: object = None)
     if forced_horizon is not None:
         return forced_horizon
 
-    for key in ("C", "B", "A"):
+    for key in ("A", "B", "C"):
         if _horizon_item_qty(item, key) > 0:
             return key
     return "A"
