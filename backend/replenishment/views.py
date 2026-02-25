@@ -172,7 +172,9 @@ def _log_audit_event(
     to_status: str | None = None,
     **context: object,
 ) -> None:
+    # Merge caller context first so core audit fields cannot be overwritten.
     extra = {
+        **context,
         "event_type": event_type,
         "user_id": _actor_id(request),
         "username": _audit_username(request),
@@ -182,7 +184,6 @@ def _log_audit_event(
         "from_status": from_status,
         "to_status": to_status,
     }
-    extra.update(context)
     logger.info(event_name, extra=extra)
 
 
