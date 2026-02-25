@@ -928,6 +928,39 @@ class NeedsListWorkflowApiTests(TestCase):
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
     @patch("replenishment.views.data_access.update_transfer_draft")
+    def test_transfer_update_handles_null_reason(
+        self,
+        mock_update_transfer,
+        _mock_store_enabled,
+        mock_get_record,
+    ) -> None:
+        mock_get_record.return_value = {"needs_list_id": "NL-A"}
+
+        response = self.client.patch(
+            "/api/v1/replenishment/needs-list/NL-A/transfers/77",
+            {"reason": None, "items": [{"item_id": 1, "item_qty": 2}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("errors", {}).get("reason"),
+            "Reason is required when modifying quantities.",
+        )
+        mock_update_transfer.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views.data_access.update_transfer_draft")
     def test_transfer_update_rejects_non_draft_transfer(
         self,
         mock_update_transfer,
@@ -4483,6 +4516,78 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter-2",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.approve_procurement")
+    @patch("replenishment.views.Procurement.objects.get")
+    def test_procurement_approve_blocks_actual_submitter_when_creator_differs(
+        self,
+        mock_get_procurement,
+        mock_approve_procurement,
+    ) -> None:
+        mock_get_procurement.return_value = MagicMock(
+            create_by_id="creator-1",
+            update_by_id="submitter-2",
+            status_code="PENDING_APPROVAL",
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/procurement/123/approve",
+            {"notes": "Looks good"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"approval": "Approver must be different from submitter."}},
+        )
+        mock_get_procurement.assert_called_once_with(procurement_id=123)
+        mock_approve_procurement.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="approver-2",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.approve_procurement")
+    @patch("replenishment.views.Procurement.objects.get")
+    def test_procurement_approve_blocks_when_submitter_is_missing(
+        self,
+        mock_get_procurement,
+        mock_approve_procurement,
+    ) -> None:
+        mock_get_procurement.return_value = MagicMock(
+            create_by_id=None,
+            update_by_id=None,
+            status_code="PENDING_APPROVAL",
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/procurement/123/approve",
+            {"notes": "Looks good"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"approval": "Approver must be different from submitter."}},
+        )
+        mock_get_procurement.assert_called_once_with(procurement_id=123)
+        mock_approve_procurement.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="approver-1",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.reject"],
@@ -4503,7 +4608,7 @@ class ProcurementPermissionApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"errors": {"reason": "required"}})
+        self.assertEqual(response.json(), {"errors": {"reason": "Reason is required."}})
         mock_get_procurement.assert_not_called()
         mock_reject_procurement.assert_not_called()
 
@@ -4530,7 +4635,7 @@ class ProcurementPermissionApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"errors": {"reason": "required"}})
+        self.assertEqual(response.json(), {"errors": {"reason": "Reason is required."}})
         mock_get_procurement.assert_not_called()
         mock_cancel_procurement.assert_not_called()
 

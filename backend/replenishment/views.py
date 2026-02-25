@@ -2923,7 +2923,7 @@ def needs_list_transfer_update(request, needs_list_id: str, transfer_id: int):
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
 
     body = request.data or {}
-    reason = body.get("reason", "").strip()
+    reason = str(body.get("reason") or "").strip()
     items = body.get("items", [])
 
     if items and not reason:
@@ -3405,7 +3405,12 @@ def procurement_approve(request, procurement_id: int):
     try:
         actor = _actor_id(request)
         proc = Procurement.objects.get(procurement_id=procurement_id)
-        if proc.create_by_id == actor:
+        submitter_id = (
+            proc.update_by_id if proc.status_code == "PENDING_APPROVAL" else None
+        ) or proc.create_by_id
+        normalized_submitter = _normalize_actor(submitter_id)
+        normalized_actor = _normalize_actor(actor)
+        if not normalized_submitter or normalized_submitter == normalized_actor:
             return Response(
                 {"errors": {"approval": "Approver must be different from submitter."}},
                 status=409,
@@ -3440,9 +3445,9 @@ def procurement_approve(request, procurement_id: int):
 def procurement_reject(request, procurement_id: int):
     """Reject a procurement order."""
     try:
-        reason = str(request.data.get("reason") or "")
-        if not reason.strip():
-            return Response({"errors": {"reason": "required"}}, status=400)
+        reason = str((request.data or {}).get("reason") or "").strip()
+        if not reason:
+            return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
         current = procurement_service.get_procurement(procurement_id)
         result = procurement_service.reject_procurement(
@@ -3563,9 +3568,9 @@ def procurement_receive(request, procurement_id: int):
 def procurement_cancel(request, procurement_id: int):
     """Cancel a procurement order."""
     try:
-        reason = str(request.data.get("reason") or "")
-        if not reason.strip():
-            return Response({"errors": {"reason": "required"}}, status=400)
+        reason = str((request.data or {}).get("reason") or "").strip()
+        if not reason:
+            return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
         current = procurement_service.get_procurement(procurement_id)
         result = procurement_service.cancel_procurement(
