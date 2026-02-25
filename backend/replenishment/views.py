@@ -2824,7 +2824,7 @@ def needs_list_generate_transfers(request, needs_list_id: str):
             "to_warehouse_id": warehouse_id,
             "event_id": event_id,
             "reason": f"Auto-generated from needs list {record.get('needs_list_no', needs_list_id)}",
-            "actor_id": str(actor),
+            "actor_id": str(actor) if actor is not None else None,
             "items": transfer_data["items"],
         }
         for src_wh, transfer_data in sources_used.items()
