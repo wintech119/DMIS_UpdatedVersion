@@ -18,7 +18,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from api.permissions import NeedsListPermission, NeedsListPreviewPermission
+from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
     PERM_NEEDS_LIST_CREATE_DRAFT,
     PERM_NEEDS_LIST_EDIT_LINES,
@@ -30,10 +30,23 @@ from api.rbac import (
     PERM_NEEDS_LIST_REJECT,
     PERM_NEEDS_LIST_RETURN,
     PERM_NEEDS_LIST_SUBMIT,
+    PERM_PROCUREMENT_CREATE,
+    PERM_PROCUREMENT_VIEW,
+    PERM_PROCUREMENT_EDIT,
+    PERM_PROCUREMENT_SUBMIT,
+    PERM_PROCUREMENT_APPROVE,
+    PERM_PROCUREMENT_REJECT,
+    PERM_PROCUREMENT_ORDER,
+    PERM_PROCUREMENT_RECEIVE,
+    PERM_PROCUREMENT_CANCEL,
+    resolve_roles_and_permissions,
 )
 from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
+from replenishment.models import Procurement
 from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list
+from replenishment.services import procurement as procurement_service
+from replenishment.services.procurement import ProcurementError
 
 logger = logging.getLogger("dmis.audit")
 
@@ -2366,8 +2379,6 @@ def needs_list_approve(request, needs_list_id: str):
         submitter_roles=submitter_roles,
     )
 
-    from api.rbac import resolve_roles_and_permissions
-
     roles, _ = resolve_roles_and_permissions(request, request.user)
     role_set: set[str] = set()
     for role in roles:
@@ -3271,24 +3282,6 @@ for view_func in (
 # =============================================================================
 # Procurement Views (Horizon C)
 # =============================================================================
-
-from api.permissions import ProcurementPermission
-from api.rbac import (
-    PERM_PROCUREMENT_CREATE,
-    PERM_PROCUREMENT_VIEW,
-    PERM_PROCUREMENT_EDIT,
-    PERM_PROCUREMENT_SUBMIT,
-    PERM_PROCUREMENT_APPROVE,
-    PERM_PROCUREMENT_REJECT,
-    PERM_PROCUREMENT_ORDER,
-    PERM_PROCUREMENT_RECEIVE,
-    PERM_PROCUREMENT_CANCEL,
-)
-from replenishment.models import Procurement
-from replenishment.services import procurement as procurement_service
-from replenishment.services.procurement import ProcurementError
-
-
 
 @api_view(["POST", "GET"])
 @authentication_classes([LegacyCompatAuthentication])
