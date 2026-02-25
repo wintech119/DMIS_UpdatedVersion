@@ -705,40 +705,42 @@ def confirm_transfer_draft(
     schema = _schema_name()
     warnings: List[str] = []
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT status_code
-                FROM {schema}.transfer
-                WHERE transfer_id = %s
-                  AND needs_list_id = %s
-                """,
-                [transfer_id, needs_list_id],
-            )
-            row = cursor.fetchone()
-            if not row:
-                warnings.append("transfer_not_found_for_needs_list")
-                return False, warnings
-            if str(row[0]) != "P":
-                warnings.append("transfer_not_found_or_not_draft")
-                return False, warnings
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT status_code
+                    FROM {schema}.transfer
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                    FOR UPDATE
+                    """,
+                    [transfer_id, needs_list_id],
+                )
+                row = cursor.fetchone()
+                if not row:
+                    warnings.append("transfer_not_found_for_needs_list")
+                    return False, warnings
+                if str(row[0]) != "P":
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return False, warnings
 
-            cursor.execute(
-                f"""
-                UPDATE {schema}.transfer
-                SET status_code = 'D',
-                    update_user = %s,
-                    update_dtime = NOW()
-                WHERE transfer_id = %s
-                  AND needs_list_id = %s
-                  AND status_code = 'P'
-                """,
-                [actor_id, transfer_id, needs_list_id],
-            )
-            if cursor.rowcount == 0:
-                warnings.append("transfer_not_found_or_not_draft")
-                return False, warnings
-            return True, warnings
+                cursor.execute(
+                    f"""
+                    UPDATE {schema}.transfer
+                    SET status_code = 'D',
+                        update_user = %s,
+                        update_dtime = NOW()
+                    WHERE transfer_id = %s
+                      AND needs_list_id = %s
+                      AND status_code = 'P'
+                    """,
+                    [actor_id, transfer_id, needs_list_id],
+                )
+                if cursor.rowcount == 0:
+                    warnings.append("transfer_not_found_or_not_draft")
+                    return False, warnings
+                return True, warnings
     except DatabaseError as exc:
         logger.warning("Confirm transfer draft failed: %s", exc)
         try:

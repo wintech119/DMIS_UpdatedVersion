@@ -828,6 +828,40 @@ class DataAccessAtomicityTests(TestCase):
         mock_create_transfer.assert_called_once()
         mock_get_transfers.assert_not_called()
 
+    @patch("replenishment.services.data_access._schema_name", return_value="public")
+    @patch("replenishment.services.data_access._is_sqlite", return_value=False)
+    def test_confirm_transfer_draft_uses_select_for_update(
+        self,
+        _mock_is_sqlite,
+        _mock_schema_name,
+    ) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ("P",)
+        cursor.rowcount = 1
+        cursor_cm = MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+
+        with patch("replenishment.services.data_access.connection.cursor", return_value=cursor_cm):
+            success, warnings = data_access.confirm_transfer_draft(
+                transfer_id=77,
+                needs_list_id="NL-A",
+                actor_id="tester",
+            )
+
+        self.assertTrue(success)
+        self.assertEqual(warnings, [])
+        self.assertGreaterEqual(cursor.execute.call_count, 2)
+        executed_queries = [
+            str(call.args[0]) for call in cursor.execute.call_args_list if call.args
+        ]
+        self.assertTrue(
+            any(
+                "SELECT STATUS_CODE" in query.upper() and "FOR UPDATE" in query.upper()
+                for query in executed_queries
+            )
+        )
+
 
 class NeedsListWorkflowApiTests(TestCase):
     def setUp(self) -> None:
