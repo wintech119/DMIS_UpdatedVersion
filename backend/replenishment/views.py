@@ -1006,6 +1006,39 @@ def _line_item_ids_with_positive_target(items: object) -> set[int]:
     return item_ids
 
 
+def _line_item_warehouse_pairs_with_positive_target(
+    record: Dict[str, Any],
+    items: object,
+) -> set[tuple[int, int]]:
+    if not isinstance(items, list):
+        return set()
+
+    record_warehouse_ids = _warehouse_ids_for_record(record)
+    if not record_warehouse_ids:
+        return set()
+
+    pairs: set[tuple[int, int]] = set()
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_id = _to_int_or_none(raw_item.get("item_id"))
+        if item_id is None or item_id <= 0:
+            continue
+        if _effective_line_target_qty(raw_item) <= 0:
+            continue
+
+        item_warehouse_id = _to_int_or_none(raw_item.get("warehouse_id"))
+        if item_warehouse_id is not None and item_warehouse_id > 0:
+            candidate_warehouse_ids = {item_warehouse_id}
+        else:
+            candidate_warehouse_ids = record_warehouse_ids
+
+        for warehouse_id in candidate_warehouse_ids:
+            pairs.add((warehouse_id, item_id))
+
+    return pairs
+
+
 def _warehouse_ids_for_record(record: Dict[str, Any]) -> set[int]:
     warehouse_ids: set[int] = set()
     primary_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
@@ -1026,12 +1059,11 @@ def _find_submitted_or_approved_overlap_conflicts(
     exclude_needs_list_id: str | None = None,
 ) -> list[Dict[str, Any]]:
     current_snapshot = workflow_store.apply_overrides(record)
-    current_item_ids = _line_item_ids_with_positive_target(current_snapshot.get("items"))
-    if not current_item_ids:
-        return []
-
-    current_warehouse_ids = _warehouse_ids_for_record(record)
-    if not current_warehouse_ids:
+    current_pairs = _line_item_warehouse_pairs_with_positive_target(
+        record,
+        current_snapshot.get("items"),
+    )
+    if not current_pairs:
         return []
 
     existing_records = workflow_store.list_records(sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES))
@@ -1048,14 +1080,15 @@ def _find_submitted_or_approved_overlap_conflicts(
         if existing_status not in _DUPLICATE_GUARD_ACTIVE_STATUSES:
             continue
 
-        if not _warehouse_ids_for_record(existing).intersection(current_warehouse_ids):
-            continue
-
         existing_snapshot = workflow_store.apply_overrides(existing)
-        existing_item_ids = _line_item_ids_with_positive_target(existing_snapshot.get("items"))
-        overlap_item_ids = sorted(current_item_ids.intersection(existing_item_ids))
-        if not overlap_item_ids:
+        existing_pairs = _line_item_warehouse_pairs_with_positive_target(
+            existing,
+            existing_snapshot.get("items"),
+        )
+        overlap_pairs = current_pairs.intersection(existing_pairs)
+        if not overlap_pairs:
             continue
+        overlap_item_ids = sorted({item_id for _, item_id in overlap_pairs})
 
         conflicts.append(
             {
