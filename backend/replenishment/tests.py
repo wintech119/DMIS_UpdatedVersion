@@ -1857,6 +1857,168 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_submit_returns_retry_error_for_duplicate_validation_error(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            with patch(
+                "replenishment.views._find_submitted_or_approved_overlap_conflicts",
+                side_effect=views.DuplicateConflictValidationError("invalid duplicate scope"),
+            ):
+                submit = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(submit.status_code, 503)
+        self.assertEqual(
+            submit.json().get("errors", {}).get("duplicate"),
+            "Failed to validate duplicate needs lists. Please retry.",
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_submit_propagates_unexpected_duplicate_validation_exception(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            with patch(
+                "replenishment.views._find_submitted_or_approved_overlap_conflicts",
+                side_effect=RuntimeError("unexpected duplicate validator failure"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    self.client.post(
+                        f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                        {},
+                        format="json",
+                    )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_bulk_submit_returns_retry_error_for_duplicate_validation_error(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            with patch(
+                "replenishment.views._find_submitted_or_approved_overlap_conflicts",
+                side_effect=views.DuplicateConflictValidationError("invalid duplicate scope"),
+            ):
+                submit = self.client.post(
+                    "/api/v1/replenishment/needs-list/bulk-submit/",
+                    {"ids": [needs_list_id]},
+                    format="json",
+                )
+
+        self.assertEqual(submit.status_code, 200)
+        body = submit.json()
+        self.assertEqual(body.get("count"), 0)
+        self.assertEqual(body.get("submitted_ids"), [])
+        self.assertEqual(len(body.get("errors", [])), 1)
+        self.assertEqual(body["errors"][0].get("id"), needs_list_id)
+        self.assertEqual(
+            body["errors"][0].get("error"),
+            "Failed to validate duplicate needs lists. Please retry.",
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=[],
         DEV_AUTH_PERMISSIONS=[
             "replenishment.needs_list.preview",

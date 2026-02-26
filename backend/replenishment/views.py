@@ -92,6 +92,11 @@ _DUPLICATE_GUARD_ACTIVE_STATUSES = {
     "RECEIVED",
 }
 
+
+class DuplicateConflictValidationError(ValueError):
+    """Raised when duplicate-conflict validation input is malformed."""
+
+
 def _use_db_workflow_store() -> bool:
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
         return False
@@ -1066,7 +1071,12 @@ def _find_submitted_or_approved_overlap_conflicts(
     *,
     exclude_needs_list_id: str | None = None,
 ) -> list[Dict[str, Any]]:
+    if not isinstance(record, dict):
+        raise DuplicateConflictValidationError("Invalid needs list record payload.")
+
     current_snapshot = workflow_store.apply_overrides(record)
+    if not isinstance(current_snapshot, dict):
+        raise DuplicateConflictValidationError("Invalid current needs list snapshot payload.")
     current_pairs = _line_item_warehouse_pairs_with_positive_target(
         record,
         current_snapshot.get("items"),
@@ -1075,9 +1085,13 @@ def _find_submitted_or_approved_overlap_conflicts(
         return []
 
     existing_records = workflow_store.list_records(sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES))
+    if not isinstance(existing_records, list):
+        raise DuplicateConflictValidationError("Invalid existing needs list payload.")
     normalized_excluded_id = str(exclude_needs_list_id or "").strip()
     conflicts: list[Dict[str, Any]] = []
     for existing in existing_records:
+        if not isinstance(existing, dict):
+            raise DuplicateConflictValidationError("Invalid existing needs list record payload.")
         existing_id = str(existing.get("needs_list_id") or "").strip()
         if not existing_id:
             continue
@@ -1089,6 +1103,8 @@ def _find_submitted_or_approved_overlap_conflicts(
             continue
 
         existing_snapshot = workflow_store.apply_overrides(existing)
+        if not isinstance(existing_snapshot, dict):
+            raise DuplicateConflictValidationError("Invalid existing needs list snapshot payload.")
         existing_pairs = _line_item_warehouse_pairs_with_positive_target(
             existing,
             existing_snapshot.get("items"),
@@ -1794,7 +1810,7 @@ def needs_list_bulk_submit(request):
                 record,
                 exclude_needs_list_id=needs_list_id,
             )
-        except Exception:
+        except DuplicateConflictValidationError:
             errors.append(
                 {
                     "id": needs_list_id,
@@ -2377,7 +2393,7 @@ def needs_list_submit(request, needs_list_id: str):
             record,
             exclude_needs_list_id=needs_list_id,
         )
-    except Exception:
+    except DuplicateConflictValidationError:
         return Response(
             {
                 "errors": {
