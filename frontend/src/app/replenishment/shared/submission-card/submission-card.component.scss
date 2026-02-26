@@ -264,7 +264,7 @@
 }
 
 .horizon-empty .horizon-icon-row {
-  mat-icon { color: #9ca3af; }                                                      // non-text: 2.6:1 (3:1 with adjacent text label)
+  mat-icon { color: #6b7280; }                                                      // non-text: >=3:1 on white
   .horizon-name { color: #6b7280; }                                                 // 4.6:1
 }
 
