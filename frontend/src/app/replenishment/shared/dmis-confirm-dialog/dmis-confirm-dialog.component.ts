@@ -54,7 +54,15 @@ export interface ConfirmDialogData {
         <button matButton="outlined" [mat-dialog-close]="false">
           {{ data.cancelLabel || 'Cancel' }}
         </button>
-        <button matButton="filled" class="confirm-action-btn" [color]="data.confirmColor || 'primary'" [mat-dialog-close]="true" cdkFocusInitial>
+        <button
+          matButton="filled"
+          class="confirm-action-btn"
+          [color]="data.confirmColor || 'primary'"
+          [class.mat-primary]="(data.confirmColor || 'primary') === 'primary'"
+          [class.mat-accent]="data.confirmColor === 'accent'"
+          [class.mat-warn]="data.confirmColor === 'warn'"
+          [mat-dialog-close]="true"
+          cdkFocusInitial>
           <mat-icon aria-hidden="true">check_circle</mat-icon>
           {{ data.confirmLabel || 'Confirm' }}
         </button>
@@ -114,8 +122,6 @@ export interface ConfirmDialogData {
       margin-left: auto;
     }
     .confirm-action-btn {
-      --mdc-filled-button-container-color: var(--mat-sys-primary);
-      --mdc-filled-button-label-text-color: var(--mat-sys-on-primary);
       display: inline-flex;
       align-items: center;
       gap: 8px;
