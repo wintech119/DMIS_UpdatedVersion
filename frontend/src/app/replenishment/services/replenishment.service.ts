@@ -569,15 +569,15 @@ export class ReplenishmentService {
     warehouseId: number,
     phase: string
   ): Observable<NeedsListDuplicateSummary[]> {
-    void eventId;
-    void phase;
     // Only check statuses that represent active/in-flight needs lists.
     const activeStatuses = [
       'PENDING_APPROVAL', 'SUBMITTED', 'PENDING', 'UNDER_REVIEW',
       'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION', 'DISPATCHED', 'RECEIVED'
     ];
     return this.listNeedsLists(activeStatuses, {
+      eventId,
       warehouseId,
+      phase,
       includeClosed: false
     }).pipe(
       map(({ needs_lists }) =>
