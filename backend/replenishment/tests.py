@@ -545,6 +545,59 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(conflicts[0].get("needs_list_id"), "EX-SAME")
         self.assertEqual(conflicts[0].get("overlap_item_ids"), [10])
 
+    def test_duplicate_conflicts_fall_back_to_item_warehouse_scope(self) -> None:
+        current_record = {
+            "needs_list_id": "CUR-NO-WAREHOUSE",
+            "warehouse_id": None,
+            "warehouse_ids": [],
+            "snapshot": {
+                "items": [
+                    {"item_id": 10, "warehouse_id": 1, "required_qty": 5},
+                ]
+            },
+        }
+        existing_diff_warehouse = {
+            "needs_list_id": "EX-NO-WAREHOUSE-DIFF",
+            "needs_list_no": "NL-EX-NO-WAREHOUSE-DIFF",
+            "status": "APPROVED",
+            "warehouse_id": None,
+            "warehouse_ids": [],
+            "warehouses": [{"warehouse_name": "Warehouse 2"}],
+            "snapshot": {
+                "items": [
+                    {"item_id": 10, "warehouse_id": 2, "required_qty": 5},
+                ]
+            },
+        }
+        existing_same_warehouse = {
+            "needs_list_id": "EX-NO-WAREHOUSE-SAME",
+            "needs_list_no": "NL-EX-NO-WAREHOUSE-SAME",
+            "status": "APPROVED",
+            "warehouse_id": None,
+            "warehouse_ids": [],
+            "warehouses": [{"warehouse_name": "Warehouse 1"}],
+            "snapshot": {
+                "items": [
+                    {"item_id": 10, "warehouse_id": 1, "required_qty": 5},
+                ]
+            },
+        }
+
+        with patch.object(
+            views.workflow_store,
+            "list_records",
+            return_value=[existing_diff_warehouse, existing_same_warehouse],
+        ), patch.object(
+            views.workflow_store,
+            "apply_overrides",
+            side_effect=lambda rec: rec.get("snapshot") or {},
+        ):
+            conflicts = views._find_submitted_or_approved_overlap_conflicts(current_record)
+
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].get("needs_list_id"), "EX-NO-WAREHOUSE-SAME")
+        self.assertEqual(conflicts[0].get("overlap_item_ids"), [10])
+
 
 class ApprovalRoleResolutionTests(SimpleTestCase):
     def setUp(self) -> None:

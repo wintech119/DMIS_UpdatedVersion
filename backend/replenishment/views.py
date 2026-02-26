@@ -1014,8 +1014,16 @@ def _line_item_warehouse_pairs_with_positive_target(
         return set()
 
     record_warehouse_ids = _warehouse_ids_for_record(record)
-    if not record_warehouse_ids:
-        return set()
+    item_warehouse_ids: set[int] = set()
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_warehouse_id = _to_int_or_none(raw_item.get("warehouse_id"))
+        if item_warehouse_id is not None and item_warehouse_id > 0:
+            item_warehouse_ids.add(item_warehouse_id)
+
+    warehouse_scope_ids = set(record_warehouse_ids)
+    warehouse_scope_ids.update(item_warehouse_ids)
 
     pairs: set[tuple[int, int]] = set()
     for raw_item in items:
@@ -1031,7 +1039,7 @@ def _line_item_warehouse_pairs_with_positive_target(
         if item_warehouse_id is not None and item_warehouse_id > 0:
             candidate_warehouse_ids = {item_warehouse_id}
         else:
-            candidate_warehouse_ids = record_warehouse_ids
+            candidate_warehouse_ids = warehouse_scope_ids
 
         for warehouse_id in candidate_warehouse_ids:
             pairs.add((warehouse_id, item_id))
