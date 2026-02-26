@@ -4,7 +4,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -73,7 +73,6 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
   imports: [
     DatePipe,
     DecimalPipe,
-    SlicePipe,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,

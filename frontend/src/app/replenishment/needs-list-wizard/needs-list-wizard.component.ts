@@ -8,6 +8,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { combineLatest } from 'rxjs';
 
 import { WizardStateService } from './services/wizard-state.service';
 import { ItemAdjustment, AdjustmentReason } from './models/wizard-state.model';
@@ -68,8 +69,6 @@ export class NeedsListWizardComponent implements OnInit {
 
   ngOnInit(): void {
     // Load query params from dashboard navigation
-import { combineLatest } from 'rxjs';
-
     combineLatest([this.route.paramMap, this.route.queryParams]).pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(([paramMap, params]) => {

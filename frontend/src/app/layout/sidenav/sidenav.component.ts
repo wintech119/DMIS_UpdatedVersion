@@ -48,7 +48,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.routerSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe((e) => this.currentUrl.set(e.urlAfterRedirects));
+      .subscribe((e) => this.currentUrl.set(this.normalizePath(e.urlAfterRedirects)));
   }
 
   ngOnDestroy(): void {
@@ -81,5 +81,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   onClearUser(): void {
     this.clearUser.emit();
+  }
+
+  private normalizePath(url: string): string {
+    const base = String(url ?? '').split('?')[0].split('#')[0].trim();
+    if (!base) {
+      return '/';
+    }
+    return base.startsWith('/') ? base : `/${base}`;
   }
 }
