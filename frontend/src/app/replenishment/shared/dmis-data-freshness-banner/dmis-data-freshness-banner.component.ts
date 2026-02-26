@@ -82,7 +82,35 @@ export class DmisDataFreshnessBannerComponent implements OnInit {
     return 'check_circle';
   }
 
+  get staleCount(): number {
+    return this.bannerState?.staleWarehouseNames?.length ?? 0;
+  }
+
+  get totalCount(): number {
+    return this.bannerState?.warehouses?.length ?? 0;
+  }
+
   getBannerMessage(): string {
+    if (!this.bannerState) return '';
+
+    if (this.isCritical) {
+      const count = this.staleCount;
+      const age = this.bannerState.maxAgeHours !== null
+        ? this.formatAgeHours(this.bannerState.maxAgeHours)
+        : 'unknown';
+      return `${count} of ${this.totalCount} warehouse${this.totalCount !== 1 ? 's' : ''} have stale data (oldest: ${age})`;
+    }
+
+    if (this.isWarning) {
+      const count = this.staleCount;
+      return `${count} warehouse${count !== 1 ? 's' : ''} with aging data — review recommended`;
+    }
+
+    return 'All warehouse data is fresh';
+  }
+
+  /** Full message for screen readers — includes warehouse names */
+  getAriaMessage(): string {
     if (!this.bannerState) return '';
     const lastSync = this.formatLastSync();
 

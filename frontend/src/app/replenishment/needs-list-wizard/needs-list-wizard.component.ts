@@ -8,6 +8,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { combineLatest } from 'rxjs';
 
 import { WizardStateService } from './services/wizard-state.service';
 import { ItemAdjustment, AdjustmentReason } from './models/wizard-state.model';
@@ -18,6 +19,7 @@ import { NeedsListItem, NeedsListResponse } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { EventPhase } from '../models/stock-status.model';
 import { DmisNotificationService } from '../services/notification.service';
+import { WizardState } from './models/wizard-state.model';
 
 interface SubmitStepCompleteEvent {
   action: 'draft_saved' | 'submitted_for_approval';
@@ -67,9 +69,16 @@ export class NeedsListWizardComponent implements OnInit {
 
   ngOnInit(): void {
     // Load query params from dashboard navigation
-    this.route.queryParams.pipe(
+    combineLatest([this.route.paramMap, this.route.queryParams]).pipe(
       takeUntilDestroyed(this.destroyRef)
-    ).subscribe(params => {
+    ).subscribe(([paramMap, params]) => {
+      const routeNeedsListId = String(paramMap.get('id') ?? '').trim();
+      const needsListId = String(params['needs_list_id'] ?? routeNeedsListId).trim();
+      if (!needsListId) {
+        this.hydratedNeedsListId = null;
+        this.resetStaleStateForNewWizardSession();
+      }
+
       if (params['event_id']) {
         // Convert single warehouse_id to array for multi-warehouse support
         const warehouseId = params['warehouse_id'];
@@ -82,12 +91,48 @@ export class NeedsListWizardComponent implements OnInit {
         });
       }
 
-      const routeNeedsListId = String(this.route.snapshot.paramMap.get('id') ?? '').trim();
-      const needsListId = String(params['needs_list_id'] ?? routeNeedsListId).trim();
+      if (!needsListId) {
+        this.wizardService.updateState({ editing_draft_id: undefined });
+        return;
+      }
       if (needsListId && needsListId !== this.hydratedNeedsListId) {
         this.loadExistingNeedsList(needsListId);
       }
     });
+  }
+
+  private resetStaleStateForNewWizardSession(): void {
+    const state = this.wizardService.getState();
+    if (!this.shouldResetStateForNewWizardSession(state)) {
+      return;
+    }
+    this.wizardService.reset();
+  }
+
+  private shouldResetStateForNewWizardSession(state: WizardState): boolean {
+    const editingDraftId = String(state.editing_draft_id || '').trim();
+    const hasDraftIds = (state.draft_ids || []).some(
+      (id) => String(id || '').trim().length > 0
+    );
+    const previewNeedsListId = String(state.previewResponse?.needs_list_id || '').trim();
+    const previewStatus = String(state.previewResponse?.status || '').trim();
+    const hasPreviewItems = (state.previewResponse?.items || []).length > 0;
+    const hasSelectedItemKeys = (state.selectedItemKeys || []).some(
+      (value) => String(value || '').trim().length > 0
+    );
+    const hasAdjustments = Object.keys(state.adjustments || {}).length > 0;
+    const hasNotes = String(state.notes || '').trim().length > 0;
+
+    return (
+      editingDraftId.length > 0 ||
+      hasDraftIds ||
+      previewNeedsListId.length > 0 ||
+      previewStatus.length > 0 ||
+      hasPreviewItems ||
+      hasSelectedItemKeys ||
+      hasAdjustments ||
+      hasNotes
+    );
   }
 
   backToDashboard(): void {
@@ -172,6 +217,7 @@ export class NeedsListWizardComponent implements OnInit {
       next: (record) => {
         if (record.status === 'SUPERSEDED' || record.superseded_by_needs_list_id) {
           this.hydratedNeedsListId = null;
+          this.wizardService.updateState({ editing_draft_id: undefined });
           const replacementId = String(record.superseded_by_needs_list_id ?? '').trim();
           this.notificationService.showWarning('This draft has been superseded.');
           if (replacementId) {
@@ -186,6 +232,7 @@ export class NeedsListWizardComponent implements OnInit {
       },
       error: (error: unknown) => {
         this.hydratedNeedsListId = null;
+        this.wizardService.updateState({ editing_draft_id: undefined });
         this.notificationService.showError(this.extractNeedsListLoadErrorMessage(error));
       }
     });
@@ -252,6 +299,7 @@ export class NeedsListWizardComponent implements OnInit {
       },
       selectedItemKeys,
       draft_ids: [needsListId],
+      editing_draft_id: needsListId,
       adjustments
     });
 

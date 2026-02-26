@@ -1,42 +1,40 @@
-<!-- Loading skeleton -->
-@if (loading()) {
-  <div class="procurement-form-page">
-    <div class="page-header">
-      <dmis-skeleton-loader variant="text-line" [count]="1" />
+<div class="procurement-form-page">
+  <!-- Page Header (always visible) -->
+  <div class="page-header">
+    <button mat-icon-button class="back-btn" type="button" (click)="cancel()" aria-label="Go back">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h1>{{ pageTitle() }}</h1>
+      @if (procurement(); as proc) {
+        <p class="subtitle">{{ proc.procurement_no }} &mdash; {{ proc.warehouse_name }}</p>
+      } @else {
+        <p class="subtitle">Create and manage procurement orders for supply replenishment</p>
+      }
     </div>
+  </div>
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
     <dmis-skeleton-loader variant="form-field" [count]="4" />
     <dmis-skeleton-loader variant="table-row" [count]="3" />
-  </div>
-}
+  }
 
-<!-- Error state -->
-@if (error() && !loading()) {
-  <div class="procurement-form-page">
-    <div class="error-banner">
-      <mat-icon>error_outline</mat-icon>
-      <span>Failed to load procurement order. Please try again.</span>
-      <button mat-stroked-button (click)="cancel()">Go Back</button>
-    </div>
-  </div>
-}
+  <!-- Error state -->
+  @if (error() && !loading()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Failed to load procurement order"
+      message="There was an error loading the procurement order. Please try again."
+      actionLabel="Go Back"
+      actionIcon="arrow_back"
+      (action)="cancel()">
+    </dmis-empty-state>
+  }
 
-<!-- Main form -->
-@if (!loading() && !error()) {
-  <div class="procurement-form-page">
-    <!-- Page Header -->
-    <div class="page-header">
-      <button mat-icon-button class="back-btn" (click)="cancel()" aria-label="Go back">
-        <mat-icon>arrow_back</mat-icon>
-      </button>
-      <div class="header-text">
-        <h1>{{ pageTitle() }}</h1>
-        @if (procurement(); as proc) {
-          <p class="subtitle">{{ proc.procurement_no }} &mdash; {{ proc.warehouse_name }}</p>
-        }
-      </div>
-    </div>
-
-    <!-- Header Section -->
+  <!-- Main form -->
+  @if (!loading() && !error()) {
+    <!-- Order Details Section -->
     <section class="form-section">
       <h2 class="section-title">
         <mat-icon>description</mat-icon>
@@ -201,10 +199,11 @@
       </h2>
 
       @if (lineItemsArray.length === 0) {
-        <div class="empty-lines">
-          <mat-icon>inbox</mat-icon>
-          <p>No line items. Create a procurement from a needs list to auto-populate items.</p>
-        </div>
+        <dmis-empty-state
+          icon="inbox"
+          title="No line items"
+          message="Create a procurement from a needs list to auto-populate items.">
+        </dmis-empty-state>
       } @else {
         <!-- Desktop table -->
         <div class="items-table-container desktop-only">
@@ -435,5 +434,5 @@
         }
       </div>
     </div>
-  </div>
-}
+  }
+</div>

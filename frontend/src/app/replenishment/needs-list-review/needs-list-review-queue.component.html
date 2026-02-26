@@ -45,55 +45,82 @@
 
   @if (!loading() && !error() && needsLists().length > 0) {
     <div class="filters-panel" role="region" aria-label="Needs list submission filters">
-      <div class="filters-grid">
-        <label class="filter-field filter-search">
-          <span class="filter-label">Search Submissions</span>
-          <input
-            type="text"
-            class="filter-input"
-            [value]="searchQuery()"
-            (input)="onSearchInput($event)"
-            placeholder="Needs list, event, warehouse, submitter">
-        </label>
+      <!-- Collapsed bar -->
+      <div class="filters-bar">
+        <button
+          class="filters-toggle"
+          type="button"
+          (click)="toggleFilters()"
+          [attr.aria-expanded]="filtersExpanded()"
+          aria-controls="filtersContent">
+          <mat-icon class="filter-icon">filter_list</mat-icon>
+          <span class="filters-title">Filters</span>
+          @if (activeFilterCount() > 0) {
+            <span class="filter-count-badge">{{ activeFilterCount() }}</span>
+          }
+          <mat-icon class="chevron-icon" [class.expanded]="filtersExpanded()">expand_more</mat-icon>
+        </button>
 
-        <label class="filter-field">
-          <span class="filter-label">Status</span>
-          <select class="filter-select" [value]="selectedStatus()" (change)="onStatusFilterChange($event)">
-            <option value="ALL">All statuses</option>
-            @for (option of statusFilterOptions(); track option.value) {
-              <option [value]="option.value">{{ option.label }}</option>
-            }
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Phase</span>
-          <select class="filter-select" [value]="selectedPhase()" (change)="onPhaseFilterChange($event)">
-            <option value="ALL">All phases</option>
-            @for (phase of phaseFilterOptions(); track phase) {
-              <option [value]="phase">{{ phase }}</option>
-            }
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Submitted By</span>
-          <select class="filter-select" [value]="selectedSubmitter()" (change)="onSubmitterFilterChange($event)">
-            <option value="ALL">All submitters</option>
-            @for (submitter of submitterFilterOptions(); track submitter) {
-              <option [value]="submitter">{{ submitter }}</option>
-            }
-          </select>
-        </label>
-
-        <div class="filter-actions">
-          <button mat-stroked-button type="button" (click)="clearFilters()" [disabled]="!hasActiveFilters()">
-            Clear Filters
-          </button>
+        <div class="filters-bar-right">
+          <span class="filter-summary" aria-live="polite">
+            {{ filteredNeedsLists().length }} of {{ needsLists().length }} submissions
+          </span>
+          @if (hasActiveFilters()) {
+            <button mat-stroked-button class="clear-btn" type="button" (click)="clearFilters()">
+              <mat-icon>close</mat-icon>
+              Clear
+            </button>
+          }
         </div>
       </div>
-      <p class="filter-summary" aria-live="polite">Showing {{ filteredNeedsLists().length }} of {{ needsLists().length }} submissions</p>
-      <p class="queue-hint">Select a submission to open full review details.</p>
+
+      <!-- Expanded filter grid -->
+      @if (filtersExpanded()) {
+        <div class="filters-content" id="filtersContent">
+          <div class="filters-grid">
+            <label class="filter-field filter-search">
+              <span class="filter-label">Search Submissions</span>
+              <input
+                type="text"
+                class="filter-input"
+                [value]="searchQuery()"
+                (input)="onSearchInput($event)"
+                placeholder="Needs list, event, warehouse, submitter">
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Status</span>
+              <select class="filter-select" [value]="selectedStatus()" (change)="onStatusFilterChange($event)">
+                <option value="ALL">All statuses</option>
+                @for (option of statusFilterOptions(); track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Phase</span>
+              <select class="filter-select" [value]="selectedPhase()" (change)="onPhaseFilterChange($event)">
+                <option value="ALL">All phases</option>
+                @for (phase of phaseFilterOptions(); track phase) {
+                  <option [value]="phase">{{ phase }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Submitted By</span>
+              <select class="filter-select" [value]="selectedSubmitter()" (change)="onSubmitterFilterChange($event)">
+                <option value="ALL">All submitters</option>
+                @for (submitter of submitterFilterOptions(); track submitter) {
+                  <option [value]="submitter">{{ submitter }}</option>
+                }
+              </select>
+            </label>
+          </div>
+          <p class="queue-hint">Select a submission to open full review details.</p>
+        </div>
+      }
     </div>
 
     @if (filteredNeedsLists().length === 0) {

@@ -77,6 +77,18 @@ export interface NeedsListListOptions {
   includeClosed?: boolean;
 }
 
+export interface NeedsListDuplicateSummary {
+  needs_list_id: string;
+  needs_list_no: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  warehouse_id?: number;
+  warehouse_name?: string;
+  items_count: number;
+  item_ids: number[];
+}
+
 export interface MySubmissionsQueryParams {
   status?: string;
   method?: 'A' | 'B' | 'C';
@@ -550,6 +562,43 @@ export class ReplenishmentService {
 
   updateSupplier(id: number, updates: Partial<CreateSupplierPayload>): Observable<Supplier> {
     return this.http.patch<Supplier>(`${this.apiUrl}/suppliers/${id}`, updates);
+  }
+
+  checkActiveNeedsLists(
+    eventId: number,
+    warehouseId: number,
+    phase: string
+  ): Observable<NeedsListDuplicateSummary[]> {
+    // Only check statuses that represent active/in-flight needs lists.
+    const activeStatuses = [
+      'PENDING_APPROVAL', 'SUBMITTED', 'PENDING', 'UNDER_REVIEW',
+      'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION', 'DISPATCHED', 'RECEIVED'
+    ];
+    return this.listNeedsLists(activeStatuses, {
+      eventId,
+      warehouseId,
+      phase,
+      includeClosed: false
+    }).pipe(
+      map(({ needs_lists }) =>
+        needs_lists
+          .filter(nl => !!nl.needs_list_id && !!nl.needs_list_no)
+          .map(nl => {
+            const items = nl.items || [];
+            return {
+              needs_list_id: nl.needs_list_id!,
+              needs_list_no: nl.needs_list_no!,
+              status: nl.status ?? '',
+              created_by: nl.created_by ?? '',
+              created_at: nl.created_at ?? '',
+              warehouse_id: nl.warehouse_id ?? nl.warehouse_ids?.[0],
+              warehouse_name: nl.warehouses?.[0]?.warehouse_name,
+              items_count: items.length,
+              item_ids: items.map(item => item.item_id)
+            };
+          })
+      )
+    );
   }
 
   private enrichStockStatusResponse(response: StockStatusResponse): StockStatusResponse {

@@ -1,11 +1,10 @@
 .preview-step-container {
   padding: 16px 0;
-  font-family: var(--dmis-font-sans);
   color: var(--dmis-text-primary);
 
   .summary-card {
     margin-bottom: 16px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #0f766e;
     color: white;
 
     .summary-content {
@@ -78,9 +77,9 @@
         align-items: center;
         margin-bottom: 16px;
         padding: 16px;
-        background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+        background: #f0fdfa;
         border-radius: 8px;
-        border: 1px solid #90caf9;
+        border: 1px solid #e5e7eb;
 
         .bulk-action-btn {
           display: flex;
@@ -96,8 +95,7 @@
           }
 
           &:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            background: #e5e7eb;
           }
         }
 
@@ -166,9 +164,9 @@
           table-layout: fixed;
 
           th {
-            background: #f5f5f5;
+            background: #f9fafb;
             font-weight: 600;
-            color: #333;
+            color: #1f2937;
             padding: 10px 8px;
             font-size: 13px;
             white-space: nowrap;
@@ -213,7 +211,7 @@
 
           .severity-watch {
             mat-icon {
-              color: #ffc107;
+              color: #b45309; // Darkened from #ffc107 (1.9:1) for WCAG non-text (3.3:1)
               font-size: 24px;
               width: 24px;
               height: 24px;
@@ -290,7 +288,7 @@
           .cost-cell {
             font-size: 12px;
             font-weight: 500;
-            color: #1976d2;
+            color: #0f766e;
             font-variant-numeric: tabular-nums;
           }
 
@@ -334,20 +332,20 @@
               }
 
               ::ng-deep .mat-mdc-notched-outline {
-                border-color: #ddd;
+                border-color: #e5e7eb;
               }
 
               input {
                 text-align: right;
                 font-variant-numeric: tabular-nums;
                 font-weight: 500;
-                color: #333;
+                color: #1f2937;
                 font-size: 13px;
 
                 &.qty-adjusted {
                   font-weight: 600;
-                  color: #1976d2;
-                  background: #e3f2fd;
+                  color: #0f766e;
+                  background: #f0fdfa;
                 }
 
                 &:focus {
@@ -384,7 +382,7 @@
             }
 
             .no-adjustment {
-              color: #bbb;
+              color: #9ca3af;
               font-size: 14px;
             }
           }
@@ -397,11 +395,11 @@
 
             // Selected items - subtle blue tint
             &.selected-item {
-              background-color: #e3f2fd !important;
-              border-left: 3px solid #2196f3 !important;
+              background-color: #f0fdfa !important;
+              border-left: 3px solid #0f766e !important;
 
               &:hover {
-                background-color: #bbdefb !important;
+                background-color: #ccfbf1 !important;
               }
             }
 
@@ -481,10 +479,16 @@
 
     .step-actions {
       padding: 16px;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid #e5e7eb;
       display: flex;
       justify-content: space-between;
       align-items: center;
+
+      .actions-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
 
       button {
         display: flex;
@@ -518,8 +522,8 @@
   padding: 12px;
 
   &.selected-item {
-    border-left: 4px solid #2196f3;
-    background: #f5faff;
+    border-left: 4px solid #0f766e;
+    background: #f0fdfa;
   }
 
   &.uncovered-item {
@@ -529,7 +533,6 @@
 
   &.zero-gap-item {
     background: #fafafa;
-    opacity: 0.85;
 
     &.selected-item {
       opacity: 1;
@@ -556,7 +559,7 @@
 
       &.severity-critical { color: #dc3545; }
       &.severity-warning { color: #fd7e14; }
-      &.severity-watch { color: #ffc107; }
+      &.severity-watch { color: #b45309; }
       &.severity-ok { color: #28a745; }
     }
 
@@ -577,7 +580,7 @@
       .item-warehouse {
         display: block;
         font-size: 11px;
-        color: #6c757d;
+        color: #6b7280;
         margin-top: 1px;
       }
     }
@@ -599,14 +602,14 @@
       .metric-label {
         font-size: 10px;
         font-weight: 600;
-        color: #6c757d;
+        color: #6b7280;
         text-transform: uppercase;
       }
 
       .metric-value {
         font-size: 13px;
         font-weight: 600;
-        color: #333;
+        color: #1f2937;
         display: flex;
         align-items: center;
         gap: 4px;
@@ -619,7 +622,7 @@
         }
 
         &.cost-value {
-          color: #1976d2;
+          color: #0f766e;
         }
       }
     }
@@ -651,8 +654,8 @@
 
         &.qty-adjusted {
           font-weight: 600;
-          color: #1976d2;
-          background: #e3f2fd;
+          color: #0f766e;
+          background: #f0fdfa;
         }
       }
     }

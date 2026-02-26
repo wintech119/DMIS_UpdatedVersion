@@ -79,6 +79,23 @@ REQUEST_CHANGE_REASON_CODES = {
     "OTHER",
 }
 _CLOSED_NEEDS_LIST_STATUSES = {"FULFILLED", "COMPLETED", "CANCELLED", "SUPERSEDED", "REJECTED"}
+_OWNER_ONLY_SUBMISSION_STATUSES = {"DRAFT", "MODIFIED", "RETURNED"}
+_DUPLICATE_GUARD_ACTIVE_STATUSES = {
+    "SUBMITTED",
+    "PENDING_APPROVAL",
+    "PENDING",
+    "UNDER_REVIEW",
+    "APPROVED",
+    "IN_PROGRESS",
+    "IN_PREPARATION",
+    "DISPATCHED",
+    "RECEIVED",
+}
+
+
+class DuplicateConflictValidationError(ValueError):
+    """Raised when duplicate-conflict validation input is malformed."""
+
 
 def _use_db_workflow_store() -> bool:
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
@@ -581,16 +598,14 @@ def _compute_approval_summary(
     record: Dict[str, Any],
     snapshot: Dict[str, Any],
 ) -> Dict[str, Any]:
-    selected_method = (
-        str(record.get("selected_method") or snapshot.get("selected_method") or "")
-        .strip()
-        .upper()
-        or None
+    selected_method = _normalize_horizon_key(
+        record.get("selected_method") or snapshot.get("selected_method")
     )
     total_required_qty, total_estimated_cost, approval_warnings = (
         approval_service.compute_needs_list_totals(snapshot.get("items") or [])
     )
-    if selected_method == "A":
+    if selected_method in {"A", "B"}:
+        # Transfer and donation approvals are not procurement-cost driven.
         approval_warnings = []
     approval, approval_warnings_extra, approval_rationale = (
         approval_service.determine_approval_tier(
@@ -835,16 +850,14 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
         else dict(record.get("snapshot") or {})
     )
     approval_summary = _approval_summary_for_record(record, snapshot)
-    selected_method = (
-        str(record.get("selected_method") or snapshot.get("selected_method") or "")
-        .strip()
-        .upper()
-        or None
+    selected_method = _normalize_horizon_key(
+        record.get("selected_method") or snapshot.get("selected_method")
     )
     response = dict(snapshot)
     response.update(
         {
             "needs_list_id": record.get("needs_list_id"),
+            "needs_list_no": record.get("needs_list_no") or snapshot.get("needs_list_no"),
             "status": record.get("status"),
             "event_id": record.get("event_id"),
             "event_name": record.get("event_name"),
@@ -905,6 +918,17 @@ def _normalize_status_for_ui(status: object) -> str:
     if normalized == "COMPLETED":
         return "FULFILLED"
     return normalized
+
+
+def _record_owned_by_actor(record: Dict[str, Any], actor: str) -> bool:
+    if not actor:
+        return False
+    owner = _normalize_actor(record.get("created_by"))
+    return bool(owner) and owner == actor
+
+
+def _submission_status_requires_actor_scope(status: object) -> bool:
+    return _normalize_status_for_ui(status) in _OWNER_ONLY_SUBMISSION_STATUSES
 
 
 def _expand_submission_status_filters(
@@ -970,6 +994,147 @@ def _effective_line_target_qty(item: Dict[str, Any]) -> float:
     return max(gap_qty + fulfilled_qty, 0.0)
 
 
+def _line_item_ids_with_positive_target(items: object) -> set[int]:
+    if not isinstance(items, list):
+        return set()
+
+    item_ids: set[int] = set()
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_id = _to_int_or_none(raw_item.get("item_id"))
+        if item_id is None or item_id <= 0:
+            continue
+        if _effective_line_target_qty(raw_item) <= 0:
+            continue
+        item_ids.add(item_id)
+    return item_ids
+
+
+def _line_item_warehouse_pairs_with_positive_target(
+    record: Dict[str, Any],
+    items: object,
+) -> set[tuple[int, int]]:
+    if not isinstance(items, list):
+        return set()
+
+    record_warehouse_ids = _warehouse_ids_for_record(record)
+    item_warehouse_ids: set[int] = set()
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_warehouse_id = _to_int_or_none(raw_item.get("warehouse_id"))
+        if item_warehouse_id is not None and item_warehouse_id > 0:
+            item_warehouse_ids.add(item_warehouse_id)
+
+    warehouse_scope_ids = set(record_warehouse_ids)
+    warehouse_scope_ids.update(item_warehouse_ids)
+
+    pairs: set[tuple[int, int]] = set()
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_id = _to_int_or_none(raw_item.get("item_id"))
+        if item_id is None or item_id <= 0:
+            continue
+        if _effective_line_target_qty(raw_item) <= 0:
+            continue
+
+        item_warehouse_id = _to_int_or_none(raw_item.get("warehouse_id"))
+        if item_warehouse_id is not None and item_warehouse_id > 0:
+            candidate_warehouse_ids = {item_warehouse_id}
+        else:
+            candidate_warehouse_ids = warehouse_scope_ids
+
+        for warehouse_id in candidate_warehouse_ids:
+            pairs.add((warehouse_id, item_id))
+
+    return pairs
+
+
+def _warehouse_ids_for_record(record: Dict[str, Any]) -> set[int]:
+    warehouse_ids: set[int] = set()
+    primary_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+    if primary_warehouse_id is not None and primary_warehouse_id > 0:
+        warehouse_ids.add(primary_warehouse_id)
+
+    for raw_id in record.get("warehouse_ids") or []:
+        parsed = _to_int_or_none(raw_id)
+        if parsed is not None and parsed > 0:
+            warehouse_ids.add(parsed)
+
+    return warehouse_ids
+
+
+def _find_submitted_or_approved_overlap_conflicts(
+    record: Dict[str, Any],
+    *,
+    exclude_needs_list_id: str | None = None,
+) -> list[Dict[str, Any]]:
+    if not isinstance(record, dict):
+        raise DuplicateConflictValidationError("Invalid needs list record payload.")
+
+    current_snapshot = workflow_store.apply_overrides(record)
+    if not isinstance(current_snapshot, dict):
+        raise DuplicateConflictValidationError("Invalid current needs list snapshot payload.")
+    current_pairs = _line_item_warehouse_pairs_with_positive_target(
+        record,
+        current_snapshot.get("items"),
+    )
+    if not current_pairs:
+        return []
+
+    existing_records = workflow_store.list_records(sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES))
+    if not isinstance(existing_records, list):
+        raise DuplicateConflictValidationError("Invalid existing needs list payload.")
+    normalized_excluded_id = str(exclude_needs_list_id or "").strip()
+    conflicts: list[Dict[str, Any]] = []
+    for existing in existing_records:
+        if not isinstance(existing, dict):
+            raise DuplicateConflictValidationError("Invalid existing needs list record payload.")
+        existing_id = str(existing.get("needs_list_id") or "").strip()
+        if not existing_id:
+            continue
+        if normalized_excluded_id and existing_id == normalized_excluded_id:
+            continue
+
+        existing_status = str(existing.get("status") or "").strip().upper()
+        if existing_status not in _DUPLICATE_GUARD_ACTIVE_STATUSES:
+            continue
+
+        existing_snapshot = workflow_store.apply_overrides(existing)
+        if not isinstance(existing_snapshot, dict):
+            raise DuplicateConflictValidationError("Invalid existing needs list snapshot payload.")
+        existing_pairs = _line_item_warehouse_pairs_with_positive_target(
+            existing,
+            existing_snapshot.get("items"),
+        )
+        overlap_pairs = current_pairs.intersection(existing_pairs)
+        if not overlap_pairs:
+            continue
+        overlap_item_ids = sorted({item_id for _, item_id in overlap_pairs})
+
+        conflicts.append(
+            {
+                "needs_list_id": existing_id,
+                "needs_list_no": existing.get("needs_list_no"),
+                "status": existing_status,
+                "warehouse_id": _to_int_or_none(existing.get("warehouse_id")),
+                "warehouse_name": (
+                    (existing.get("warehouses") or [{}])[0].get("warehouse_name")
+                    if isinstance(existing.get("warehouses"), list)
+                    and existing.get("warehouses")
+                    and isinstance((existing.get("warehouses") or [{}])[0], dict)
+                    else None
+                ),
+                "overlap_item_ids": overlap_item_ids,
+                "overlap_count": len(overlap_item_ids),
+            }
+        )
+
+    return conflicts
+
+
 def _horizon_item_qty(item: Dict[str, Any], horizon_key: str) -> float:
     horizon = item.get("horizon")
     if isinstance(horizon, dict):
@@ -980,9 +1145,13 @@ def _horizon_item_qty(item: Dict[str, Any], horizon_key: str) -> float:
 
 
 def _normalize_horizon_key(value: object) -> str | None:
-    normalized = str(value or "").strip().upper()
-    if normalized in {"A", "B", "C"}:
-        return normalized
+    normalized = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"A", "TRANSFER", "INTER_WAREHOUSE", "HORIZON_A"}:
+        return "A"
+    if normalized in {"B", "DONATION", "DONATIONS", "HORIZON_B"}:
+        return "B"
+    if normalized in {"C", "PROCUREMENT", "PURCHASE", "HORIZON_C"}:
+        return "C"
     return None
 
 
@@ -1162,7 +1331,7 @@ def _serialize_submission_summary(record: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "id": str(record.get("needs_list_id") or ""),
-        "reference_number": str(record.get("needs_list_no") or record.get("needs_list_id") or ""),
+        "reference_number": str(record.get("needs_list_no") or "N/A"),
         "warehouse": {
             "id": warehouse_id,
             "name": warehouse_name or (f"Warehouse {warehouse_id}" if warehouse_id is not None else "Unknown"),
@@ -1271,7 +1440,7 @@ def needs_list_list(request):
     List needs lists, optionally filtered by query params.
     Query params:
         status - comma-separated list of statuses (e.g. SUBMITTED,PENDING_APPROVAL,UNDER_REVIEW)
-        mine - when true, only records authored/submitted/updated by current actor
+        mine - when true, only records created by current actor
         include_closed - when false, excludes terminal statuses
         event_id - optional positive integer event scope
         warehouse_id - optional positive integer warehouse scope
@@ -1314,15 +1483,7 @@ def needs_list_list(request):
         if mine_only:
             if not actor:
                 continue
-            if not any(
-                _normalize_actor(candidate) == actor
-                for candidate in (
-                    record.get("created_by"),
-                    record.get("submitted_by"),
-                    record.get("updated_by"),
-                )
-                if candidate
-            ):
+            if not _record_owned_by_actor(record, actor):
                 continue
 
         if event_id_filter is not None:
@@ -1362,7 +1523,12 @@ def needs_list_list(request):
 @permission_classes([NeedsListPreviewPermission])
 def needs_list_my_submissions(request):
     """
-    Paginated, filterable summaries for the current actor's submissions.
+    Paginated, filterable summaries of needs list submissions.
+
+    Visibility rules:
+    - DRAFT/MODIFIED/RETURNED records remain owner-only.
+    - Submitted-and-beyond records are visible to all authorized users.
+    - mine=true forces owner-only filtering for all statuses.
     """
     try:
         workflow_store.store_enabled_or_raise()
@@ -1370,7 +1536,8 @@ def needs_list_my_submissions(request):
         return _workflow_disabled_response()
 
     actor = _normalize_actor(_actor_id(request))
-    if not actor:
+    mine_only = _query_param_truthy(request.query_params.get("mine"), default=False)
+    if mine_only and not actor:
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
     status_param = request.query_params.get("status")
@@ -1403,24 +1570,23 @@ def needs_list_my_submissions(request):
     if sort_order not in {"asc", "desc"}:
         return Response({"errors": {"sort_order": "Must be asc or desc."}}, status=400)
 
+    # Terminal statuses hidden by default unless explicitly requested via filter.
+    _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
+
     records = workflow_store.list_records(store_status_filters)
     summaries: list[Dict[str, Any]] = []
     for record in records:
-        if not any(
-            _normalize_actor(candidate) == actor
-            for candidate in (
-                record.get("created_by"),
-                record.get("submitted_by"),
-                record.get("updated_by"),
-            )
-            if candidate
-        ):
-            continue
-
         serialized = _serialize_workflow_record(record, include_overrides=True)
         summary = _serialize_submission_summary(serialized)
         summary_status = str(summary.get("status") or "").strip().upper()
+        if (
+            mine_only or _submission_status_requires_actor_scope(summary_status)
+        ) and not _record_owned_by_actor(record, actor):
+            continue
         if ui_status_filters and summary_status not in ui_status_filters:
+            continue
+        # When no explicit status filter is applied, hide terminal statuses.
+        if not ui_status_filters and summary_status in _DEFAULT_EXCLUDED_STATUSES:
             continue
 
         if event_id_filter is not None and summary.get("event", {}).get("id") != event_id_filter:
@@ -1558,7 +1724,7 @@ def needs_list_fulfillment_sources(_request, needs_list_id: str):
                 {
                     "source_type": "NEEDS_LIST_LINE",
                     "source_id": item_id,
-                    "source_reference": f"{serialized.get('needs_list_no') or serialized.get('needs_list_id')} (This needs list)",
+                    "source_reference": f"{serialized.get('needs_list_no') or 'N/A'} (This needs list)",
                     "quantity": round(remaining_qty, 2),
                     "status": _normalize_status_for_ui(serialized.get("status")),
                     "date": None,
@@ -1637,6 +1803,43 @@ def needs_list_bulk_submit(request):
         item_count = len(record.get("snapshot", {}).get("items") or [])
         if item_count == 0:
             errors.append({"id": needs_list_id, "error": "Cannot submit an empty needs list."})
+            continue
+
+        try:
+            duplicate_conflicts = _find_submitted_or_approved_overlap_conflicts(
+                record,
+                exclude_needs_list_id=needs_list_id,
+            )
+        except DuplicateConflictValidationError:
+            logger.exception(
+                "needs_list_duplicate_validation_failed",
+                extra={
+                    "event_type": "VALIDATION_ERROR",
+                    "needs_list_id": needs_list_id,
+                    "actor": actor,
+                    "status": record.get("status") if isinstance(record, dict) else None,
+                    "event_id": record.get("event_id") if isinstance(record, dict) else None,
+                    "phase": record.get("phase") if isinstance(record, dict) else None,
+                    "warehouse_id": record.get("warehouse_id") if isinstance(record, dict) else None,
+                },
+            )
+            errors.append(
+                {
+                    "id": needs_list_id,
+                    "error": "Failed to validate duplicate needs lists. Please retry.",
+                }
+            )
+            continue
+        if duplicate_conflicts:
+            errors.append(
+                {
+                    "id": needs_list_id,
+                    "error": (
+                        "A submitted or approved needs list already exists for one or more "
+                        "of these items in the same warehouse."
+                    ),
+                }
+            )
             continue
 
         updated_record = workflow_store.transition_status(
@@ -2197,6 +2400,46 @@ def needs_list_submit(request, needs_list_id: str):
     if item_count == 0 and not submit_empty_allowed:
         return Response({"errors": {"items": "Cannot submit an empty needs list."}}, status=409)
 
+    try:
+        duplicate_conflicts = _find_submitted_or_approved_overlap_conflicts(
+            record,
+            exclude_needs_list_id=needs_list_id,
+        )
+    except DuplicateConflictValidationError:
+        logger.exception(
+            "needs_list_duplicate_validation_failed",
+            extra={
+                "event_type": "VALIDATION_ERROR",
+                "needs_list_id": needs_list_id,
+                "actor": _actor_id(request),
+                "status": record.get("status") if isinstance(record, dict) else None,
+                "event_id": record.get("event_id") if isinstance(record, dict) else None,
+                "phase": record.get("phase") if isinstance(record, dict) else None,
+                "warehouse_id": record.get("warehouse_id") if isinstance(record, dict) else None,
+            },
+        )
+        return Response(
+            {
+                "errors": {
+                    "duplicate": "Failed to validate duplicate needs lists. Please retry."
+                }
+            },
+            status=503,
+        )
+    if duplicate_conflicts:
+        return Response(
+            {
+                "errors": {
+                    "duplicate": (
+                        "A submitted or approved needs list already exists for one or more "
+                        "of these items in the same warehouse."
+                    )
+                },
+                "conflicts": duplicate_conflicts,
+            },
+            status=409,
+        )
+
     target_status = _workflow_target_status("SUBMITTED")
     record = workflow_store.transition_status(record, target_status, _actor_id(request))
     record["submitted_approval_summary"] = _compute_approval_summary(
@@ -2307,6 +2550,26 @@ def needs_list_reject(request, needs_list_id: str):
     reviewer_error = _reviewer_must_differ_from_submitter(record, actor)
     if reviewer_error:
         return reviewer_error
+
+    snapshot = workflow_store.apply_overrides(record)
+    approval_summary = _approval_summary_for_record(record, snapshot)
+    approval = approval_summary.get("approval") or {}
+    submitter_roles = approval_service.resolve_submitter_roles(record)
+    required_roles = approval_service.required_roles_for_approval(
+        approval,
+        record=record,
+        submitter_roles=submitter_roles,
+    )
+    roles, _ = resolve_roles_and_permissions(request, request.user)
+    role_set: set[str] = set()
+    for role in roles:
+        normalized_role = str(role).strip().upper().replace("-", "_").replace(" ", "_")
+        while "__" in normalized_role:
+            normalized_role = normalized_role.replace("__", "_")
+        if normalized_role:
+            role_set.add(normalized_role)
+    if not role_set.intersection(required_roles):
+        return Response({"errors": {"approval": "Approver role not authorized."}}, status=403)
 
     reason = (request.data or {}).get("reason")
     if not reason:

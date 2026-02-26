@@ -16,14 +16,23 @@ describe('NeedsListWizardComponent', () => {
   let component: NeedsListWizardComponent;
   let fixture: ComponentFixture<NeedsListWizardComponent>;
   let mockRouter: jasmine.SpyObj<Router>;
-  let mockActivatedRoute: Pick<ActivatedRoute, 'queryParams'>;
+  let mockActivatedRoute: Partial<ActivatedRoute>;
   let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let wizardService: WizardStateService;
 
   beforeEach(async () => {
+    localStorage.removeItem('dmis_needs_wizard_state');
     mockRouter = jasmine.createSpyObj('Router', ['navigate']);
     mockActivatedRoute = {
+      snapshot: {
+        paramMap: {
+          has: () => false,
+          get: () => null,
+          getAll: () => [],
+          keys: []
+        }
+      } as never,
       queryParams: of({
         event_id: '1',
         warehouse_id: '2',
@@ -63,7 +72,7 @@ describe('NeedsListWizardComponent', () => {
       imports: [NeedsListWizardComponent, NoopAnimationsModule],
       providers: [
         { provide: Router, useValue: mockRouter },
-        { provide: ActivatedRoute, useValue: mockActivatedRoute },
+        { provide: ActivatedRoute, useValue: mockActivatedRoute as ActivatedRoute },
         { provide: ReplenishmentService, useValue: replenishmentService },
         { provide: DmisNotificationService, useValue: notificationService },
         WizardStateService
@@ -85,6 +94,31 @@ describe('NeedsListWizardComponent', () => {
     expect(state.event_id).toBe(1);
     expect(state.warehouse_ids).toEqual([2]);
     expect(state.phase).toBe('BASELINE');
+  });
+
+  it('should clear stale draft/edit state when opening wizard without needs_list_id', () => {
+    wizardService.updateState({
+      editing_draft_id: '44',
+      draft_ids: ['44'],
+      previewResponse: {
+        event_id: 1,
+        phase: 'BASELINE',
+        as_of_datetime: new Date().toISOString(),
+        items: [],
+        needs_list_id: '44',
+        status: 'DRAFT'
+      } as NeedsListResponse
+    });
+
+    component.ngOnInit();
+
+    const state = wizardService.getState();
+    expect(state.event_id).toBe(1);
+    expect(state.warehouse_ids).toEqual([2]);
+    expect(state.phase).toBe('BASELINE');
+    expect(state.editing_draft_id).toBeUndefined();
+    expect(state.draft_ids).toBeUndefined();
+    expect(state.previewResponse).toBeUndefined();
   });
 
   it('should navigate back to dashboard', () => {

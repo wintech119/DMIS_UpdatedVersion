@@ -10,15 +10,12 @@
   margin: 0 auto;
   padding: 1.25rem;
   padding-bottom: 7.5rem;
-  font-family: var(--dmis-font-sans);
   color: var(--dmis-text-primary);
 }
 
 // ── Header (wizard-header) ──
 .wizard-header {
   margin-bottom: 1.5rem;
-  background: white;
-  border-radius: 0.5rem;
 
   .header-content {
     display: flex;

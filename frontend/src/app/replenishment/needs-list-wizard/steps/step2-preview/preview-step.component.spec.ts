@@ -1,11 +1,14 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, of } from 'rxjs';
+import { MatDialog } from '@angular/material/dialog';
+import { Router } from '@angular/router';
 
 import { PreviewStepComponent } from './preview-step.component';
 import { WizardStateService } from '../../services/wizard-state.service';
 import { WizardState } from '../../models/wizard-state.model';
 import { NeedsListItem, NeedsListResponse } from '../../../models/needs-list.model';
+import { ReplenishmentService } from '../../../services/replenishment.service';
 
 describe('PreviewStepComponent', () => {
   let fixture: ComponentFixture<PreviewStepComponent>;
@@ -13,11 +16,23 @@ describe('PreviewStepComponent', () => {
   let state$: BehaviorSubject<WizardState>;
 
   const wizardServiceStub = {
+    getState: () => state$.value,
     getState$: () => state$.asObservable(),
     getAdjustment: jasmine.createSpy('getAdjustment').and.returnValue(null),
     setAdjustment: jasmine.createSpy('setAdjustment'),
     removeAdjustment: jasmine.createSpy('removeAdjustment'),
-    updateState: jasmine.createSpy('updateState')
+    updateState: jasmine.createSpy('updateState'),
+    reset: jasmine.createSpy('reset')
+  };
+
+  const replenishmentServiceStub = {
+    bulkDeleteDrafts: jasmine.createSpy('bulkDeleteDrafts').and.returnValue(
+      of({ cancelled_ids: [], errors: [], count: 0 })
+    )
+  };
+
+  const routerStub = {
+    navigate: jasmine.createSpy('navigate')
   };
 
   const toPreviewResponse = (items: NeedsListItem[]): NeedsListResponse => ({
@@ -58,7 +73,11 @@ describe('PreviewStepComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [PreviewStepComponent, NoopAnimationsModule],
-      providers: [{ provide: WizardStateService, useValue: wizardServiceStub }]
+      providers: [
+        { provide: WizardStateService, useValue: wizardServiceStub },
+        { provide: ReplenishmentService, useValue: replenishmentServiceStub },
+        { provide: Router, useValue: routerStub }
+      ]
     }).compileComponents();
 
     fixture = TestBed.createComponent(PreviewStepComponent);
@@ -84,5 +103,29 @@ describe('PreviewStepComponent', () => {
     expect(includedByName.get('Watch Item')).toBeTrue();
     expect(includedByName.get('OK Positive Gap')).toBeFalse();
     expect(includedByName.get('OK Zero Gap')).toBeFalse();
+  });
+
+  it('does not delete an existing edited draft when cancel is confirmed', () => {
+    state$.next({
+      ...state$.value,
+      editing_draft_id: 'NL-40',
+      draft_ids: ['NL-40'],
+      previewResponse: {
+        ...state$.value.previewResponse!,
+        needs_list_id: 'NL-40',
+        status: 'DRAFT'
+      }
+    });
+
+    const dialog = (component as unknown as { dialog: MatDialog }).dialog;
+    spyOn(dialog, 'open').and.returnValue({
+      afterClosed: () => of(true)
+    } as never);
+
+    component.cancel();
+
+    expect(replenishmentServiceStub.bulkDeleteDrafts).not.toHaveBeenCalled();
+    expect(wizardServiceStub.reset).toHaveBeenCalled();
+    expect(routerStub.navigate).toHaveBeenCalledWith(['/replenishment/dashboard']);
   });
 });

@@ -26,7 +26,7 @@
           </div>
           <div class="context-row">
             <span class="context-label">Phase:</span>
-            <span class="context-value phase-badge">{{ getPhaseLabel() }}</span>
+            <span class="context-value phase-badge" [attr.data-phase]="getPhaseLabel()">{{ getPhaseLabel() }}</span>
           </div>
           <div class="context-row">
             <span class="context-label">Viewing:</span>
@@ -102,27 +102,9 @@
               Back to All Warehouses
             </button>
           }
-          @if (canAccessReviewQueue) {
-            <button
-              matButton="outlined"
-              (click)="openReviewQueue()"
-              matTooltip="Review and approve submitted needs lists"
-              matTooltipPosition="above"
-              matTooltipShowDelay="300"
-              >
-              <mat-icon>rate_review</mat-icon>
-              Review Queue
-            </button>
-          }
         </div>
       </div>
     </div>
-  }
-
-  @if (myNeedsListSummaries.length > 0) {
-    <app-my-drafts-submissions-panel
-      [submissions]="myNeedsListSummaries">
-    </app-my-drafts-submissions-panel>
   }
 
   <!-- Summary Stats -->

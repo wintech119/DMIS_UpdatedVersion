@@ -1,20 +1,20 @@
 <div class="tracker-page">
   <!-- Page Header -->
   <div class="page-header">
-    <button mat-icon-button class="back-btn" type="button" aria-label="Back to my submissions" (click)="backToSubmissions()">
+    <button mat-icon-button class="back-btn" type="button" aria-label="Back to submissions" (click)="backToSubmissions()">
       <mat-icon>arrow_back</mat-icon>
     </button>
     <div class="header-text">
       <h1>{{ pageTitle() }}</h1>
       <p class="subtitle">
         @if (needsList(); as list) {
-          {{ list.needs_list_no ?? list.needs_list_id }}
+          {{ list.needs_list_no ?? 'N/A' }}
           <span class="separator">-</span>
         }
         {{ pageSubtitle() }}
       </p>
     </div>
-    <button mat-flat-button color="primary" type="button" class="refresh-btn" (click)="refreshData()">
+    <button mat-stroked-button type="button" class="refresh-btn" (click)="refreshData()">
       <mat-icon>refresh</mat-icon>
       Refresh
     </button>

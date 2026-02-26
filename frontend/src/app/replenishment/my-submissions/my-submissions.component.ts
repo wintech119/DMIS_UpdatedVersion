@@ -85,6 +85,7 @@ export class MySubmissionsComponent {
   readonly selectedDraftIds = signal<Set<string>>(new Set<string>());
   readonly warehouseOptions = signal<Warehouse[]>([]);
   readonly eventOptions = signal<EventOption[]>([]);
+  readonly filtersExpanded = signal(false);
 
   readonly selectedCount = computed(() => this.selectedDraftIds().size);
   readonly hasResults = computed(() => this.submissions().length > 0);
@@ -96,6 +97,20 @@ export class MySubmissionsComponent {
     this.dateFromFilter() !== '' ||
     this.dateToFilter() !== ''
   );
+  readonly activeFilterCount = computed(() => {
+    let count = 0;
+    if (this.statusFilter() !== 'ALL') count++;
+    if (this.methodFilter() !== 'ALL') count++;
+    if (this.warehouseFilter() !== null) count++;
+    if (this.eventFilter() !== null) count++;
+    if (this.dateFromFilter() !== '') count++;
+    if (this.dateToFilter() !== '') count++;
+    return count;
+  });
+
+  toggleFilters(): void {
+    this.filtersExpanded.set(!this.filtersExpanded());
+  }
 
   constructor() {
     const statusParam = this.route.snapshot.queryParamMap.get('status');
@@ -129,7 +144,7 @@ export class MySubmissionsComponent {
             this.submissions.set([]);
             this.totalCount.set(0);
             this.selectedDraftIds.set(new Set<string>());
-            this.notifications.showError('Failed to load your submissions.');
+            this.notifications.showError('Failed to load needs list submissions.');
             return EMPTY;
           })
         )

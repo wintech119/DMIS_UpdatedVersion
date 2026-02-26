@@ -109,6 +109,8 @@
       @for (horizon of horizonDisplays(); track horizon.key) {
         <div class="horizon-card"
              [attr.data-horizon]="horizon.key"
+             role="group"
+             [attr.aria-label]="horizon.label + ' source, ' + horizon.bucket.count + ' ' + (horizon.bucket.count === 1 ? 'item' : 'items')"
              [class.horizon-active]="horizon.bucket.count > 0"
              [class.horizon-empty]="horizon.bucket.count === 0">
           <div class="horizon-icon-row">

@@ -1,39 +1,58 @@
-<mat-toolbar class="app-toolbar">
-  <div class="toolbar-left">
-    <span class="app-title">DMIS</span>
-    <span class="app-subtitle">Supply Replenishment</span>
-  </div>
-  <div class="toolbar-right">
-    <span class="toolbar-user">User: {{ currentUser() }}</span>
-    @if (canSwitchDevUser()) {
-      <label for="dev-user-select" class="dev-user-label">Login as</label>
-      <select
-        id="dev-user-select"
-        class="dev-user-select"
-        [value]="selectedDevUser()"
-        (change)="switchDevUser($any($event.target).value)">
-        <option value="">Default</option>
-        @for (user of devUsers(); track user.username) {
-          <option [value]="user.username">
-            {{ formatDevUserLabel(user) }}
-          </option>
+<div class="app-layout">
+  <app-sidenav
+    [currentUser]="currentUser()"
+    [userRole]="userRole()"
+    [devUsers]="devUsers()"
+    [selectedDevUser]="selectedDevUser()"
+    [canSwitchDevUser]="canSwitchDevUser()"
+    (navItemClicked)="onNavItemClicked()"
+    (switchUser)="switchDevUser($event)"
+    (clearUser)="clearDevUser()">
+  </app-sidenav>
+
+  <div class="app-main">
+    <header class="app-topbar">
+      <div class="topbar-breadcrumb">
+        <span class="breadcrumb-segment breadcrumb-root">DMIS</span>
+        @for (crumb of breadcrumbs(); track crumb.label; let last = $last) {
+          <span class="breadcrumb-sep">/</span>
+          @if (crumb.route && !last) {
+            <a class="breadcrumb-segment breadcrumb-link" [routerLink]="crumb.route">{{ crumb.label }}</a>
+          } @else {
+            <span class="breadcrumb-segment" [class.breadcrumb-current]="last">{{ crumb.label }}</span>
+          }
         }
-      </select>
-      <button
-        type="button"
-        class="dev-user-clear"
-        [disabled]="!selectedDevUser()"
-        (click)="clearDevUser()">
-        Reset
-      </button>
-    } @else {
-      <span class="toolbar-mode">Replenishment</span>
-    }
+      </div>
+      <div class="topbar-actions">
+        @if (canSwitchDevUser()) {
+          <label for="dev-user-select" class="dev-user-label">Login as</label>
+          <select
+            id="dev-user-select"
+            class="dev-user-select"
+            [value]="selectedDevUser()"
+            (change)="switchDevUser($any($event.target).value)">
+            <option value="">Default</option>
+            @for (user of devUsers(); track user.username) {
+              <option [value]="user.username">
+                {{ formatDevUserLabel(user) }}
+              </option>
+            }
+          </select>
+          <button
+            type="button"
+            class="dev-user-clear"
+            [disabled]="!selectedDevUser()"
+            (click)="clearDevUser()">
+            Reset
+          </button>
+        }
+      </div>
+    </header>
+
+    <dmis-data-freshness-banner></dmis-data-freshness-banner>
+
+    <main class="app-shell">
+      <router-outlet />
+    </main>
   </div>
-</mat-toolbar>
-
-<dmis-data-freshness-banner></dmis-data-freshness-banner>
-
-<main class="app-shell">
-  <router-outlet />
-</main>
+</div>

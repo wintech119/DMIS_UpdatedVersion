@@ -71,3 +71,62 @@ backend/runtime/
 
 # Codex local artifacts
 .codex/
+
+# ---------------------------------------------------------------------------
+# Database files and test data (do not commit; may contain PII or env-specific data)
+# ---------------------------------------------------------------------------
+*.sqlite3
+*.sqlite
+*.db
+db.sqlite3
+**/db.sqlite3
+**/*_test_data*.sql
+**/*test_data*.sql
+**/*operational*test*.sql
+**/*dump*.sql
+**/*_dump*.sql
+**/database_dump*.sql
+**/database_dump_*.sql
+**/*backup*.sql
+**/DMIS_DATABASE_SCHEMA*.sql
+**/attached_assets/*test*.sql
+**/attached_assets/*operational*.sql
+**/attached_assets/*dump*.sql
+# Fixtures and seed data that may contain real or PII (keep schema/migrations, ignore data dumps)
+**/fixtures/*.json
+!**/fixtures/example*.json
+**/seed_data/
+**/test_fixtures/
+
+# ---------------------------------------------------------------------------
+# Confidential / PII / local machine paths
+# ---------------------------------------------------------------------------
+*.local.json
+*.personal
+*.private
+*credentials*.json
+*secrets*.json
+**/local_data/
+**/personal_data/
+**/exports/
+**/backups/
+**/user_data/
+**/logs/
+# Claude/Cursor local settings (may contain paths or tokens)
+.claude/
+
+# ---------------------------------------------------------------------------
+# Non-application / generated or downloaded data
+# ---------------------------------------------------------------------------
+**/downloads/
+**/temp/
+**/tmp/
+**/.tmp/
+**/cache/
+**/*.cache
+**/output/
+**/outputs/
+**/generated/
+*.csv
+!**/docs/**/*.csv
+!**/fixtures/example*.csv

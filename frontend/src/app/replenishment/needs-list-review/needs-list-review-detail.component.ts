@@ -4,7 +4,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -33,6 +33,13 @@ import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-s
 import { formatStatusLabel } from './status-label.util';
 
 const PENDING_APPROVAL_STATUSES = new Set(['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW']);
+const PROCUREMENT_APPROVER_ROLE_CODES = new Set([
+  'EXECUTIVE',
+  'ODPEM_DIR_PEOD',
+  'DIRECTOR_PEOD',
+  'SYSTEM_ADMINISTRATOR',
+  'TST_DIR_PEOD'
+]);
 const REQUEST_CHANGE_REASON_OPTIONS = [
   { value: 'QTY_ADJUSTMENT', label: 'Quantity Adjustment' },
   { value: 'DATA_QUALITY', label: 'Data Quality' },
@@ -66,7 +73,6 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
   imports: [
     DatePipe,
     DecimalPipe,
-    SlicePipe,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
@@ -104,6 +110,11 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly status = computed(() => this.needsList()?.status ?? 'DRAFT');
 
   readonly approvalHorizon = computed<HorizonType>(() => {
+    const selectedMethod = this.normalizeHorizon(this.needsList()?.selected_method);
+    if (selectedMethod) {
+      return selectedMethod;
+    }
+
     const itemList = this.items();
     let hasB = false;
     let hasA = false;
@@ -126,11 +137,15 @@ export class NeedsListReviewDetailComponent implements OnInit {
   );
 
   readonly canApprove = computed(() =>
-    this.isPendingApproval() && this.can('replenishment.needs_list.approve')
+    this.isPendingApproval()
+    && this.can('replenishment.needs_list.approve')
+    && this.isApprovalRoleAuthorized()
   );
 
   readonly canReject = computed(() =>
-    this.isPendingApproval() && this.can('replenishment.needs_list.reject')
+    this.isPendingApproval()
+    && this.can('replenishment.needs_list.reject')
+    && this.isApprovalRoleAuthorized()
   );
 
   readonly canReturn = computed(() =>
@@ -168,6 +183,55 @@ export class NeedsListReviewDetailComponent implements OnInit {
   ];
 
   private needsListId = '';
+
+  private normalizeHorizon(value: unknown): HorizonType | null {
+    const normalized = String(value ?? '').trim().toUpperCase().replace(/[-\s]+/g, '_');
+    if (
+      normalized === 'A' ||
+      normalized === 'TRANSFER' ||
+      normalized === 'INTER_WAREHOUSE' ||
+      normalized === 'HORIZON_A'
+    ) {
+      return 'A';
+    }
+    if (
+      normalized === 'B' ||
+      normalized === 'DONATION' ||
+      normalized === 'DONATIONS' ||
+      normalized === 'HORIZON_B'
+    ) {
+      return 'B';
+    }
+    if (
+      normalized === 'C' ||
+      normalized === 'PROCUREMENT' ||
+      normalized === 'PURCHASE' ||
+      normalized === 'HORIZON_C'
+    ) {
+      return 'C';
+    }
+    return null;
+  }
+
+  private isApprovalRoleAuthorized(): boolean {
+    const selectedMethod = this.normalizeHorizon(this.needsList()?.selected_method);
+    const method = selectedMethod ?? this.approvalHorizon();
+    if (method !== 'C') {
+      return true;
+    }
+
+    const roleSet = new Set(
+      this.roles()
+        .map((role) => String(role ?? '').trim().toUpperCase().replace(/[-\s]+/g, '_'))
+        .filter(Boolean)
+    );
+    for (const role of roleSet) {
+      if (PROCUREMENT_APPROVER_ROLE_CODES.has(role)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   ngOnInit(): void {
     this.loadPermissions();

@@ -79,6 +79,7 @@ function mapStatusToStep(status: NeedsListStatus): TrackerStepId | TerminalStepI
 export class DmisApprovalStatusTrackerComponent implements OnChanges {
   @Input() needsList: NeedsListResponse | null = null;
   @Input() horizon: HorizonType = 'A';
+  @Input() showReminder = true;
   @Output() sendReminder = new EventEmitter<void>();
 
   steps: TrackerStep[] = [];

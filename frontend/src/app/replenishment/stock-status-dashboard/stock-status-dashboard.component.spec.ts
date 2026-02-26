@@ -410,6 +410,26 @@ describe('StockStatusDashboardComponent', () => {
     expect(component['toSummaryStatus']('RETURNED')).toBe('RETURNED');
   });
 
+  it('loads my drafts panel collapsed preference from localStorage', () => {
+    localStorage.setItem('dmis_stock_dashboard_my_needs_lists_collapsed', 'true');
+
+    component['loadMyNeedsListsCollapsedState']();
+
+    expect(component.myNeedsListsCollapsed).toBeTrue();
+  });
+
+  it('persists my drafts panel collapsed preference when toggled', () => {
+    component.myNeedsListsCollapsed = false;
+
+    component.toggleMyNeedsListsCollapsed();
+    expect(component.myNeedsListsCollapsed).toBeTrue();
+    expect(localStorage.getItem('dmis_stock_dashboard_my_needs_lists_collapsed')).toBe('true');
+
+    component.toggleMyNeedsListsCollapsed();
+    expect(component.myNeedsListsCollapsed).toBeFalse();
+    expect(localStorage.getItem('dmis_stock_dashboard_my_needs_lists_collapsed')).toBe('false');
+  });
+
   it('migrates legacy seen-state and reloads when current user changes', () => {
     localStorage.setItem('dmis_needs_list_submitter_updates_seen', JSON.stringify(['legacy-key']));
 

@@ -18,10 +18,16 @@ import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../shared/d
 import { DmisNotificationService } from '../../../services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../../../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { WizardState } from '../../models/wizard-state.model';
-import { ReplenishmentService, ActiveEvent, Warehouse } from '../../../services/replenishment.service';
+import { ReplenishmentService, ActiveEvent, NeedsListDuplicateSummary, Warehouse } from '../../../services/replenishment.service';
+import { NeedsListItem, NeedsListResponse } from '../../../models/needs-list.model';
+import {
+  DuplicateWarningResult,
+  NeedsListDuplicateWarningData,
+  NeedsListDuplicateWarningDialogComponent
+} from '../../../shared/needs-list-duplicate-warning-dialog/needs-list-duplicate-warning-dialog.component';
 import { EventPhase, PhaseWindows, PHASE_WINDOWS } from '../../../models/stock-status.model';
-import { distinctUntilChanged, map } from 'rxjs/operators';
-import { forkJoin } from 'rxjs';
+import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
+import { forkJoin, Observable, of } from 'rxjs';
 
 interface ScopeFormValue {
   event_id: number | null;
@@ -201,25 +207,65 @@ export class ScopeStepComponent implements OnInit {
     }
 
     const { event_id, warehouse_ids, phase, as_of_datetime } = this.form.value;
-
+    const excludedNeedsListIds = this.resolveNeedsListIdsToExclude();
     this.loading = true;
     this.startCalculationProgress();
 
-    // Call preview-multi API
-    this.replenishmentService.getStockStatusMulti(
-      event_id,
-      warehouse_ids,
-      phase,
-      as_of_datetime || undefined
+    const duplicateCheck$ = forkJoin(
+      (warehouse_ids as number[]).map((wid) =>
+        this.replenishmentService.checkActiveNeedsLists(
+          event_id,
+          wid,
+          phase
+        )
+      )
+    );
+
+    forkJoin({
+      previewResponse: this.replenishmentService.getStockStatusMulti(
+        event_id,
+        warehouse_ids,
+        phase,
+        as_of_datetime || undefined
+      ),
+      duplicateResults: duplicateCheck$
+    }).pipe(
+      switchMap(({ previewResponse, duplicateResults }) => {
+        const conflicts = this.resolveDuplicateConflicts(
+          previewResponse,
+          duplicateResults,
+          excludedNeedsListIds
+        );
+
+        if (conflicts.length === 0) {
+          return of(previewResponse);
+        }
+
+        this.stopCalculationProgress();
+        return this.dialog.open(NeedsListDuplicateWarningDialogComponent, {
+          data: {
+            existingLists: conflicts,
+            warehouseCount: (warehouse_ids as number[]).length
+          } as NeedsListDuplicateWarningData,
+          width: '560px',
+          ariaLabel: 'Active needs list warning'
+        }).afterClosed().pipe(
+          map((result: DuplicateWarningResult | undefined) => {
+            if (!result || result === 'cancel' || result === 'view') {
+              return null;
+            }
+            return previewResponse;
+          })
+        ) as Observable<NeedsListResponse | null>;
+      }),
+      takeUntilDestroyed(this.destroyRef)
     ).subscribe({
       next: (response) => {
         this.stopCalculationProgress();
-        // Store preview response in wizard state
-        this.wizardService.updateState({
-          previewResponse: response
-        });
         this.loading = false;
-        this.next.emit();  // Move to next step
+        if (response === null) return;
+        this.wizardService.updateState({ previewResponse: response });
+        this.next.emit();
       },
       error: (error) => {
         this.stopCalculationProgress();
@@ -230,6 +276,122 @@ export class ScopeStepComponent implements OnInit {
         this.notificationService.showNetworkError(errorMessage, () => this.calculateGaps());
       }
     });
+  }
+
+  private resolveDuplicateConflicts(
+    previewResponse: NeedsListResponse,
+    resultsPerWarehouse: NeedsListDuplicateSummary[][],
+    excludedNeedsListIds: Set<string>
+  ): NeedsListDuplicateSummary[] {
+    const requestedItemIdsByWarehouse = this.collectRequestedItemIdsByWarehouse(
+      previewResponse.items || []
+    );
+    const allConflicts = resultsPerWarehouse.flat();
+    const uniqueConflicts: NeedsListDuplicateSummary[] = [];
+    const seenNeedsListIds = new Set<string>();
+
+    for (const conflict of allConflicts) {
+      const needsListId = String(conflict?.needs_list_id || '').trim();
+      if (
+        !needsListId ||
+        excludedNeedsListIds.has(needsListId) ||
+        seenNeedsListIds.has(needsListId)
+      ) {
+        continue;
+      }
+
+      if (!this.conflictOverlapsRequestedItems(conflict, requestedItemIdsByWarehouse)) {
+        continue;
+      }
+
+      seenNeedsListIds.add(needsListId);
+      uniqueConflicts.push(conflict);
+    }
+
+    return uniqueConflicts;
+  }
+
+  private collectRequestedItemIdsByWarehouse(
+    items: NeedsListItem[]
+  ): Map<number, Set<number>> {
+    const itemIdsByWarehouse = new Map<number, Set<number>>();
+    for (const item of items) {
+      const warehouseId = Number(item.warehouse_id || 0);
+      const itemId = Number(item.item_id || 0);
+      const requiredQty = Number(item.required_qty ?? item.gap_qty ?? 0);
+      if (!Number.isInteger(warehouseId) || warehouseId <= 0) {
+        continue;
+      }
+      if (!Number.isInteger(itemId) || itemId <= 0 || requiredQty <= 0) {
+        continue;
+      }
+      if (!itemIdsByWarehouse.has(warehouseId)) {
+        itemIdsByWarehouse.set(warehouseId, new Set<number>());
+      }
+      itemIdsByWarehouse.get(warehouseId)?.add(itemId);
+    }
+    return itemIdsByWarehouse;
+  }
+
+  private conflictOverlapsRequestedItems(
+    conflict: NeedsListDuplicateSummary,
+    requestedItemIdsByWarehouse: Map<number, Set<number>>
+  ): boolean {
+    const warehouseId = Number(conflict.warehouse_id || 0);
+    const requestedItemIds = requestedItemIdsByWarehouse.get(warehouseId);
+    if (!requestedItemIds || requestedItemIds.size === 0) {
+      return true;
+    }
+
+    const conflictItemIds = new Set<number>();
+    for (const itemIdRaw of conflict.item_ids || []) {
+      const itemId = Number(itemIdRaw);
+      if (Number.isInteger(itemId) && itemId > 0) {
+        conflictItemIds.add(itemId);
+      }
+    }
+
+    if (conflictItemIds.size === 0) {
+      return true;
+    }
+
+    for (const itemId of requestedItemIds) {
+      if (conflictItemIds.has(itemId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private resolveNeedsListIdsToExclude(): Set<string> {
+    const state = this.wizardService.getState();
+    const editableStatuses = new Set(['DRAFT', 'MODIFIED', 'RETURNED']);
+    const ids = new Set<string>();
+
+    const editingDraftId = String(state.editing_draft_id || '').trim();
+    if (editingDraftId.length > 0) {
+      ids.add(editingDraftId);
+    }
+
+    const previewStatus = String(state.previewResponse?.status || '').trim().toUpperCase();
+    const isEditableContext = ids.size > 0 || editableStatuses.has(previewStatus);
+    if (!isEditableContext) {
+      return ids;
+    }
+
+    for (const id of state.draft_ids || []) {
+      const normalizedId = String(id || '').trim();
+      if (normalizedId.length > 0) {
+        ids.add(normalizedId);
+      }
+    }
+
+    const fromPreview = String(state.previewResponse?.needs_list_id || '').trim();
+    if (fromPreview.length > 0 && editableStatuses.has(previewStatus)) {
+      ids.add(fromPreview);
+    }
+
+    return ids;
   }
 
   private startCalculationProgress(): void {
@@ -266,11 +428,55 @@ export class ScopeStepComponent implements OnInit {
       data,
       width: '400px',
       ariaLabel: 'Confirm cancel wizard'
-    }).afterClosed().subscribe((confirmed: boolean) => {
-      if (confirmed) {
+    }).afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      switchMap((confirmed: boolean) => {
+        if (!confirmed) {
+          return of(false);
+        }
+        return this.discardEditedDraftIfNeeded().pipe(map(() => true));
+      })
+    ).subscribe((shouldExit: boolean) => {
+      if (shouldExit) {
         this.wizardService.reset();
         this.router.navigate(['/replenishment/dashboard']);
       }
     });
+  }
+
+  private discardEditedDraftIfNeeded(): Observable<void> {
+    const state = this.wizardService.getState();
+    const editingDraftId = String(state.editing_draft_id || '').trim();
+    // Never delete a persisted draft opened for editing when user cancels.
+    if (editingDraftId) {
+      return of(void 0);
+    }
+
+    const previewNeedsListId = String(state.previewResponse?.needs_list_id || '').trim();
+    if (!previewNeedsListId) {
+      return of(void 0);
+    }
+
+    const normalizedStatus = String(state.previewResponse?.status || '').trim().toUpperCase();
+    if (normalizedStatus && normalizedStatus !== 'DRAFT' && normalizedStatus !== 'MODIFIED') {
+      return of(void 0);
+    }
+
+    const draftIds = Array.from(new Set(
+      (state.draft_ids || [])
+        .map((id: unknown) => String(id || '').trim())
+        .filter((id: string) => id.length > 0)
+    ));
+    if (draftIds.length === 0) {
+      return of(void 0);
+    }
+
+    return this.replenishmentService.bulkDeleteDrafts(
+      draftIds,
+      'Cancelled while editing draft from wizard.'
+    ).pipe(
+      map(() => void 0),
+      catchError(() => of(void 0))
+    );
   }
 }

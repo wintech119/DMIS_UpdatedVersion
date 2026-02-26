@@ -1,5 +1,6 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -20,6 +21,7 @@ import { catchError, concatMap, finalize, map, switchMap, toArray } from 'rxjs/o
 import { WizardStateService } from '../../services/wizard-state.service';
 import { DmisNotificationService } from '../../../services/notification.service';
 import {
+  NeedsListDuplicateSummary,
   NeedsListLineOverridePayload,
   ReplenishmentService
 } from '../../../services/replenishment.service';
@@ -28,6 +30,14 @@ import {
   ConfirmDialogData,
   DmisConfirmDialogComponent
 } from '../../../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import {
+  SuccessDialogData,
+  DmisSuccessDialogComponent
+} from '../../../shared/dmis-success-dialog/dmis-success-dialog.component';
+import {
+  NeedsListDuplicateWarningData,
+  NeedsListDuplicateWarningDialogComponent
+} from '../../../shared/needs-list-duplicate-warning-dialog/needs-list-duplicate-warning-dialog.component';
 import { NeedsListItem, NeedsListResponse } from '../../../models/needs-list.model';
 import {
   APPROVAL_WORKFLOWS,
@@ -49,6 +59,16 @@ export interface SubmitStepCompleteEvent {
   totalItems: number;
   completedAt: string;
   approver?: string;
+}
+
+interface DuplicateSubmitConflictPayload {
+  needs_list_id?: string;
+  needs_list_no?: string;
+  status?: string;
+  warehouse_id?: number;
+  warehouse_name?: string;
+  overlap_item_ids?: number[];
+  overlap_count?: number;
 }
 
 
@@ -123,6 +143,7 @@ export class SubmitStepComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private notificationService = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
+  private router = inject(Router);
 
   constructor() {
     this.notesForm = this.fb.group({
@@ -890,6 +911,98 @@ export class SubmitStepComponent implements OnInit {
     return fallbackMessage;
   }
 
+  private normalizeDuplicateSubmitConflict(raw: unknown): NeedsListDuplicateSummary | null {
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+
+    const value = raw as DuplicateSubmitConflictPayload;
+    const needsListId = String(value.needs_list_id || '').trim();
+    if (!needsListId) {
+      return null;
+    }
+
+    const overlapItemIds = Array.isArray(value.overlap_item_ids)
+      ? value.overlap_item_ids
+        .map((itemId) => Number(itemId))
+        .filter((itemId) => Number.isInteger(itemId) && itemId > 0)
+      : [];
+
+    const overlapCount = Number(value.overlap_count);
+    const itemsCount = Number.isFinite(overlapCount) && overlapCount > 0
+      ? overlapCount
+      : overlapItemIds.length;
+
+    const warehouseId = Number(value.warehouse_id);
+    const normalizedWarehouseId =
+      Number.isInteger(warehouseId) && warehouseId > 0 ? warehouseId : undefined;
+
+    return {
+      needs_list_id: needsListId,
+      needs_list_no: String(value.needs_list_no || '').trim() || 'N/A',
+      status: String(value.status || '').trim().toUpperCase() || 'APPROVED',
+      created_by: '',
+      created_at: '',
+      warehouse_id: normalizedWarehouseId,
+      warehouse_name: String(value.warehouse_name || '').trim() || undefined,
+      items_count: itemsCount,
+      item_ids: overlapItemIds
+    };
+  }
+
+  private handleDuplicateSubmitConflict(error: unknown): boolean {
+    const maybeHttpError = error as {
+      status?: number;
+      error?: {
+        errors?: Record<string, unknown>;
+        conflicts?: unknown[];
+      };
+    };
+
+    const duplicateError = maybeHttpError?.error?.errors?.['duplicate'];
+    const rawConflicts = maybeHttpError?.error?.conflicts;
+    if (
+      maybeHttpError?.status !== 409 ||
+      typeof duplicateError !== 'string' ||
+      !Array.isArray(rawConflicts) ||
+      rawConflicts.length === 0
+    ) {
+      return false;
+    }
+
+    const conflicts = rawConflicts
+      .map((entry) => this.normalizeDuplicateSubmitConflict(entry))
+      .filter((entry): entry is NeedsListDuplicateSummary => entry !== null);
+    if (conflicts.length === 0) {
+      return false;
+    }
+
+    const references = conflicts.map((item) => item.needs_list_no || 'N/A').join(', ');
+    this.errors = [
+      `Submission blocked. Existing needs list(s): ${references}.`
+    ];
+
+    const uniqueWarehouses = new Set<number>();
+    for (const conflict of conflicts) {
+      const warehouseId = Number(conflict.warehouse_id || 0);
+      if (Number.isInteger(warehouseId) && warehouseId > 0) {
+        uniqueWarehouses.add(warehouseId);
+      }
+    }
+
+    this.dialog.open(NeedsListDuplicateWarningDialogComponent, {
+      width: '560px',
+      ariaLabel: 'Duplicate needs list conflict',
+      data: {
+        existingLists: conflicts,
+        warehouseCount: uniqueWarehouses.size || 1,
+        enforced: true
+      } as NeedsListDuplicateWarningData
+    });
+
+    return true;
+  }
+
   private performSubmitForApproval(): void {
     this.submitting = true;
 
@@ -910,15 +1023,55 @@ export class SubmitStepComponent implements OnInit {
     ).subscribe({
       next: () => {
         const approver = this.getApprovalInfo();
-        this.notificationService.showSuccess(`Needs list with ${this.totalItems} items submitted for approval.`);
-        this.complete.emit({
-          action: 'submitted_for_approval',
-          totalItems: this.totalItems,
-          completedAt: new Date().toISOString(),
-          approver
+        const methodLabel = this.methodMeta[this.selectedMethod]?.label || this.selectedMethod;
+        const completedAt = new Date().toISOString();
+
+        const successData: SuccessDialogData = {
+          title: 'Needs List Submitted',
+          message: 'Your needs list has been submitted for approval. The approver will be notified.',
+          details: [
+            { label: 'Items Submitted', value: `${this.totalItems} items (${this.totalUnits} units)`, icon: 'inventory_2' },
+            { label: 'Method', value: methodLabel, icon: 'local_shipping' },
+            { label: 'Estimated Cost', value: `$${this.totalCost.toFixed(2)}`, icon: 'attach_money' },
+            { label: 'Approver', value: approver, icon: 'person' }
+          ],
+          actions: [
+            { label: 'View Submissions', value: 'submissions', icon: 'list_alt' },
+            { label: 'Return to Dashboard', value: 'dashboard', icon: 'dashboard', primary: true }
+          ]
+        };
+
+        this.dialog.open(DmisSuccessDialogComponent, {
+          width: '480px',
+          disableClose: true,
+          data: successData
+        }).afterClosed().pipe(
+          takeUntilDestroyed(this.destroyRef)
+        ).subscribe((result: string) => {
+          if (result === 'submissions') {
+            this.wizardService.reset();
+            this.router.navigate(['/replenishment/my-submissions']);
+            return;
+          }
+
+          if (result === 'dashboard') {
+            this.wizardService.reset();
+            this.router.navigate(['/replenishment/dashboard']);
+            return;
+          }
+
+          this.complete.emit({
+            action: 'submitted_for_approval',
+            totalItems: this.totalItems,
+            completedAt,
+            approver
+          });
         });
       },
       error: (error: unknown) => {
+        if (this.handleDuplicateSubmitConflict(error)) {
+          return;
+        }
         const message = this.extractErrorMessage(error, 'Failed to submit needs list for approval.');
         this.errors = [message];
         this.notificationService.showError(message);
@@ -934,16 +1087,28 @@ export class SubmitStepComponent implements OnInit {
       return;
     }
 
+    const methodLabel = this.methodMeta[this.selectedMethod]?.label || this.selectedMethod;
+    const approver = this.getApprovalInfo();
+
     const confirmData: ConfirmDialogData = {
       title: 'Submit Needs List for Approval?',
-      message:
-        'Are you sure you want to submit this needs list for approval? You can still track it in the wizard confirmation screen.',
-      confirmLabel: 'Submit',
-      cancelLabel: 'Cancel'
+      message: 'Please review the summary below before submitting. This action cannot be undone.',
+      icon: 'send',
+      iconColor: '#0f766e',
+      confirmLabel: 'Submit for Approval',
+      cancelLabel: 'Go Back',
+      details: [
+        { label: 'Event', value: this.getEventName(), icon: 'event' },
+        { label: 'Phase', value: this.getPhaseLabel(), icon: 'timeline' },
+        { label: 'Items', value: `${this.totalItems} items (${this.totalUnits} units)`, icon: 'inventory_2' },
+        { label: 'Method', value: methodLabel, icon: 'local_shipping' },
+        { label: 'Estimated Cost', value: `$${this.totalCost.toFixed(2)}`, icon: 'attach_money' },
+        { label: 'Approver', value: approver, icon: 'person' }
+      ]
     };
 
     this.dialog.open(DmisConfirmDialogComponent, {
-      width: '460px',
+      width: '480px',
       autoFocus: false,
       data: confirmData
     }).afterClosed().pipe(
@@ -959,6 +1124,61 @@ export class SubmitStepComponent implements OnInit {
 
   goBack(): void {
     this.back.emit();
+  }
+
+  cancel(): void {
+    const data: ConfirmDialogData = {
+      title: 'Cancel Wizard',
+      message: 'Are you sure you want to cancel? Any unsaved changes will be lost.',
+      confirmLabel: 'Yes, Cancel',
+      cancelLabel: 'Keep Working'
+    };
+
+    this.dialog.open(DmisConfirmDialogComponent, {
+      data,
+      width: '400px',
+      ariaLabel: 'Confirm cancel wizard'
+    }).afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      switchMap((confirmed: boolean) => {
+        if (!confirmed) {
+          return of(false);
+        }
+        return this.discardEditedDraftIfNeeded().pipe(map(() => true));
+      })
+    ).subscribe((shouldExit: boolean) => {
+      if (shouldExit) {
+        this.wizardService.reset();
+        this.router.navigate(['/replenishment/dashboard']);
+      }
+    });
+  }
+
+  private discardEditedDraftIfNeeded(): Observable<void> {
+    const state = this.wizardService.getState();
+    const editingDraftId = String(state.editing_draft_id || '').trim();
+    // Never delete a persisted draft opened for editing when user cancels.
+    if (editingDraftId) {
+      return of(void 0);
+    }
+
+    const previewNeedsListId = String(state.previewResponse?.needs_list_id || '').trim();
+    if (!previewNeedsListId) {
+      return of(void 0);
+    }
+
+    const normalizedStatus = String(state.previewResponse?.status || '').trim().toUpperCase();
+    if (normalizedStatus && normalizedStatus !== 'DRAFT' && normalizedStatus !== 'MODIFIED') {
+      return of(void 0);
+    }
+
+    return this.replenishmentService.bulkDeleteDrafts(
+      [previewNeedsListId],
+      'Cancelled while editing draft from wizard.'
+    ).pipe(
+      map(() => void 0),
+      catchError(() => of(void 0))
+    );
   }
 
   private normalizeSelectedMethod(method: string | undefined): HorizonType | null {

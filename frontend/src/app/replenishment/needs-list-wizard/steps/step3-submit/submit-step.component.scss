@@ -7,7 +7,7 @@
 // Summary Card
 .summary-card {
   margin-bottom: 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #0f766e;
   color: white;
 
   ::ng-deep .mat-mdc-card-header {
@@ -92,7 +92,7 @@
     gap: 0.5rem;
 
     .card-icon {
-      color: #667eea;
+      color: #4b5563;
       font-size: 1.5rem;
       width: 1.5rem;
       height: 1.5rem;
@@ -108,14 +108,13 @@
 
   .warehouse-item {
     padding: 1rem;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #e5e7eb;
     border-radius: 8px;
     transition: all 0.2s;
 
     &:hover,
     &:focus-within {
-      border-color: #667eea;
-      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+      border-color: #9ca3af;
     }
 
     .wh-header {
@@ -125,7 +124,7 @@
       margin-bottom: 0.75rem;
 
       .wh-icon {
-        color: #667eea;
+        color: #4b5563;
         font-size: 1.25rem;
         width: 1.25rem;
         height: 1.25rem;
@@ -151,18 +150,18 @@
     border-radius: 4px;
 
     &.horizon-A {
-      border-color: #4caf50;
-      background: rgba(76, 175, 80, 0.05);
+      border-color: #16a34a;
+      background: #f0fdf4;
     }
 
     &.horizon-B {
-      border-color: #ff9800;
-      background: rgba(255, 152, 0, 0.05);
+      border-color: #d97706;
+      background: #fffbeb;
     }
 
     &.horizon-C {
-      border-color: #2196f3;
-      background: rgba(33, 150, 243, 0.05);
+      border-color: #2563eb;
+      background: #eff6ff;
     }
 
     .horizon-header {
@@ -200,13 +199,13 @@
             padding: 0.1rem 0.4rem;
             border-radius: 999px;
             background: rgba(0, 0, 0, 0.08);
-            color: rgba(0, 0, 0, 0.7);
+            color: #4b5563;
           }
         }
 
         .horizon-lead-time {
           font-size: 0.875rem;
-          color: rgba(0, 0, 0, 0.6);
+          color: #6b7280;
         }
       }
     }
@@ -220,7 +219,7 @@
     .empty-notice {
       padding-left: 2.25rem;
       font-size: 0.875rem;
-      color: rgba(0, 0, 0, 0.5);
+      color: #9ca3af;
       font-style: italic;
 
       .empty-text {
@@ -235,7 +234,7 @@
 
     .stat-label {
       font-size: 0.875rem;
-      color: rgba(0, 0, 0, 0.6);
+      color: #6b7280;
     }
 
     .stat-value {
@@ -250,14 +249,13 @@
     align-items: center;
     justify-content: center;
     padding: 2rem;
-    color: rgba(0, 0, 0, 0.5);
+    color: #9ca3af;
 
     mat-icon {
       font-size: 3rem;
       width: 3rem;
       height: 3rem;
       margin-bottom: 0.5rem;
-      opacity: 0.5;
     }
 
     p {
@@ -282,7 +280,7 @@
         gap: 0.5rem;
 
         .card-icon {
-          color: #667eea;
+          color: #4b5563;
           font-size: 1.5rem;
           width: 1.5rem;
           height: 1.5rem;
@@ -306,7 +304,7 @@
 
     .item-row {
       padding: 0.75rem;
-      border: 1px solid #e0e0e0;
+      border: 1px solid #e5e7eb;
       border-radius: 6px;
       display: flex;
       justify-content: space-between;
@@ -314,9 +312,8 @@
       transition: all 0.2s;
 
       &:hover {
-        border-color: #667eea;
-        background: rgba(102, 126, 234, 0.02);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        border-color: #9ca3af;
+        background: #f9fafb;
       }
 
       .item-info {
@@ -336,7 +333,7 @@
 
         .item-id {
           font-size: 0.8125rem;
-          color: #666;
+          color: #6b7280;
           font-family: 'Roboto Mono', 'Courier New', monospace;
           margin-top: 0.125rem;
           letter-spacing: 0.02em;
@@ -357,12 +354,12 @@
         }
 
         .item-warehouse {
-          color: rgba(0, 0, 0, 0.7);
+          color: #4b5563;
         }
 
         .item-qty {
           font-weight: 500;
-          color: #1976d2;
+          color: #1f2937;
         }
 
         .item-cost {
@@ -382,7 +379,7 @@
     gap: 0.5rem;
 
     .card-icon {
-      color: #667eea;
+      color: #4b5563;
       font-size: 1.5rem;
       width: 1.5rem;
       height: 1.5rem;
@@ -396,12 +393,12 @@
     padding: 0.75rem 0;
 
     &:not(:last-child) {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #f3f4f6;
     }
 
     .info-label {
       font-size: 0.875rem;
-      color: rgba(0, 0, 0, 0.6);
+      color: #6b7280;
     }
 
     .info-value {
@@ -409,21 +406,29 @@
     }
 
     .phase-chip {
-      font-weight: 500;
-      background: #667eea;
-      color: white;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      // Default fallback
+      background: #f3f4f6;
+      color: #1f2937;
+
+      &[data-phase='SURGE']      { background: #fce4ec; color: #b71c1c; } // 6.2:1
+      &[data-phase='STABILIZED'] { background: #fff8e1; color: #b45309; } // 4.9:1
+      &[data-phase='BASELINE']   { background: #e8f5e9; color: #1b5e20; } // 7.1:1
     }
   }
 }
 
 // Replenishment Method Card
 .replenishment-method-card {
-  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-  border: 1px solid #a5d6a7;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
 
   .method-intro {
     font-size: 0.9375rem;
-    color: #333;
+    color: #1f2937;
     margin: 0 0 1rem 0;
   }
 
@@ -435,21 +440,19 @@
   .method-option {
     padding: 0.75rem;
     background: white;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #e5e7eb;
     border-radius: 8px;
     margin-bottom: 0.5rem;
     cursor: pointer;
     transition: all 0.15s ease;
 
     &:hover {
-      border-color: #81c784;
-      box-shadow: 0 2px 6px rgba(76, 175, 80, 0.1);
+      border-color: #9ca3af;
     }
 
     &.selected {
-      border-color: #4caf50;
-      background: rgba(76, 175, 80, 0.06);
-      box-shadow: 0 2px 8px rgba(76, 175, 80, 0.15);
+      border-color: #16a34a;
+      background: #f0fdf4;
     }
 
     &:last-child {
@@ -480,17 +483,17 @@
     .method-name {
       font-weight: 600;
       font-size: 0.9375rem;
-      color: #333;
+      color: #1f2937;
     }
 
     .method-sublabel {
-      color: #666;
+      color: #6b7280;
       font-size: 0.875rem;
     }
 
     .method-details {
       font-size: 0.8125rem;
-      color: #666;
+      color: #6b7280;
       margin-top: 0.25rem;
       padding-left: 2rem;
     }
@@ -523,7 +526,7 @@
 
 .approval-card {
   background: white;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e5e7eb;
 
   mat-card-header {
     .approval-header {
@@ -541,13 +544,13 @@
       }
 
       .expand-icon {
-        color: #667eea;
+        color: #6b7280;
         transition: transform 0.2s ease;
       }
 
       &:hover {
         .expand-icon {
-          color: #5a6fd6;
+          color: #374151;
         }
       }
     }
@@ -563,14 +566,14 @@
     p {
       margin: 0;
       font-size: 0.9375rem;
-      color: #333;
+      color: #1f2937;
     }
   }
 
   // Intro text for multiple workflows
   .intro-text {
     font-size: 0.9375rem;
-    color: #666;
+    color: #6b7280;
     margin: 0 0 1rem 0;
   }
 
@@ -580,7 +583,7 @@
     padding: 1rem;
     background: #f8f9fa;
     border-radius: 8px;
-    border-left: 4px solid #1976d2;
+    border-left: 4px solid #0f766e;
     animation: fadeIn 0.3s ease-in;
 
     &.external {
@@ -588,26 +591,26 @@
     }
 
     &.horizon-A {
-      border-left-color: #4caf50;
+      border-left-color: #16a34a;
 
       .workflow-header .horizon-icon-A {
-        color: #4caf50;
+        color: #16a34a;
       }
     }
 
     &.horizon-B {
-      border-left-color: #ff9800;
+      border-left-color: #d97706;
 
       .workflow-header .horizon-icon-B {
-        color: #ff9800;
+        color: #d97706;
       }
     }
 
     &.horizon-C {
-      border-left-color: #2196f3;
+      border-left-color: #2563eb;
 
       .workflow-header .horizon-icon-C {
-        color: #2196f3;
+        color: #2563eb;
       }
     }
 
@@ -628,11 +631,11 @@
         font-weight: 600;
         font-size: 0.875rem;
         letter-spacing: 0.5px;
-        color: #333;
+        color: #1f2937;
       }
 
       .workflow-stats {
-        color: #666;
+        color: #6b7280;
         font-size: 0.8125rem;
       }
 
@@ -693,7 +696,7 @@
         .step-label {
           font-size: 0.75rem;
           font-weight: 600;
-          color: #1976d2;
+          color: #0f766e;
           text-transform: uppercase;
           letter-spacing: 0.02em;
         }
@@ -701,7 +704,7 @@
 
       &.escalation .step-indicator .step-label,
       &.conditional .step-indicator .step-label {
-        color: #666;
+        color: #6b7280;
       }
 
       &.final .step-indicator .step-label {
@@ -716,24 +719,24 @@
           align-items: center;
           gap: 0.5rem;
           font-weight: 500;
-          color: #333;
+          color: #1f2937;
 
           mat-icon {
             font-size: 1.125rem;
             width: 1.125rem;
             height: 1.125rem;
-            color: #666;
+            color: #6b7280;
           }
 
           .alternate {
             font-weight: 400;
-            color: #666;
+            color: #6b7280;
           }
         }
 
         .step-description {
           font-size: 0.8125rem;
-          color: #666;
+          color: #6b7280;
           margin-top: 0.25rem;
           padding-left: 1.625rem;
         }
@@ -785,13 +788,13 @@
     align-items: center;
     gap: 0.75rem;
     padding: 1.5rem;
-    background: #f5f5f5;
+    background: #f9fafb;
     border-radius: 8px;
-    color: #666;
+    color: #6b7280;
     font-size: 0.9375rem;
 
     mat-icon {
-      color: #999;
+      color: #6b7280;
     }
   }
 
@@ -802,16 +805,16 @@
     gap: 0.5rem;
     padding: 0.875rem 1rem;
     margin-top: 0.5rem;
-    background: #f5f5f5;
+    background: #f9fafb;
     border-radius: 6px;
     font-size: 0.8125rem;
-    color: #666;
+    color: #6b7280;
 
     mat-icon {
       font-size: 1.125rem;
       width: 1.125rem;
       height: 1.125rem;
-      color: #888;
+      color: #6b7280;
     }
   }
 }
@@ -884,6 +887,12 @@
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
+
+    .actions-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
 
     .back-btn {
       display: flex;
