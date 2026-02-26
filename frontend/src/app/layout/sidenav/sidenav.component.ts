@@ -35,8 +35,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   readonly navItemClicked = output<void>();
   readonly switchUser = output<string>();
   readonly clearUser = output<void>();
-  readonly currentUrl = signal(this.router.url);
-
+  readonly currentUrl = signal(this.normalizePath(this.router.url));
   // Inputs from parent
   readonly currentUser = input('Unknown');
   readonly userRole = input('');
