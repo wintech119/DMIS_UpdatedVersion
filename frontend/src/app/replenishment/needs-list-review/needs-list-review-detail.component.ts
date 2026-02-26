@@ -222,7 +222,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
 
     const roleSet = new Set(
       this.roles()
-        .map((role) => String(role ?? '').trim().toUpperCase().replace('-', '_').replace(' ', '_'))
+        .map((role) => String(role ?? '').trim().toUpperCase().replace(/[-\s]+/g, '_'))
         .filter(Boolean)
     );
     for (const role of roleSet) {
