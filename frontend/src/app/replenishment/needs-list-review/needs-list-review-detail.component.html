@@ -12,8 +12,8 @@
       </div>
       @if (needsList(); as nl) {
         <div class="header-badges">
-          <span class="nl-id" [matTooltip]="nl.needs_list_id ?? ''">
-            {{ nl.needs_list_id | slice:0:8 }}...
+          <span class="nl-id" [matTooltip]="nl.needs_list_no ?? 'N/A'">
+            {{ nl.needs_list_no ?? 'N/A' }}
           </span>
           <span class="status-chip" [attr.data-status]="nl.status">
             {{ statusLabel(nl.status ?? 'DRAFT') }}
@@ -176,6 +176,7 @@
             <dmis-approval-status-tracker
               [needsList]="nl"
               [horizon]="approvalHorizon()"
+              [showReminder]="false"
               (sendReminder)="onSendReminder()">
             </dmis-approval-status-tracker>
           </mat-card-content>

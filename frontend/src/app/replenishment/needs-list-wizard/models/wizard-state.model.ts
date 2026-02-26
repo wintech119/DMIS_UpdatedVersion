@@ -13,6 +13,7 @@ export interface WizardState {
   previewResponse?: NeedsListResponse;
   adjustments: Record<string, ItemAdjustment>;  // key: "{item_id}_{warehouse_id}"
   selectedItemKeys?: string[];       // Array of "{item_id}_{warehouse_id}" for selected items
+  editing_draft_id?: string;         // Existing draft being edited via /needs-list/:id/wizard
 
   // Step 3 data
   draft_ids?: string[];              // Array if creating multiple drafts (one per warehouse)

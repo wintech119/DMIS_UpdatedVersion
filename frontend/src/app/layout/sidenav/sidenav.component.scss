@@ -1,0 +1,369 @@
+$nav-font: 0.875rem;
+$icon-size: 20px;
+$expanded-width: 260px;
+$collapsed-width: 56px;
+$text-primary: #0d0d0d;
+$text-secondary: #353740;
+$text-muted: #8e8ea0;
+$icon-color: #555;
+$bg-hover: #ececec;
+$bg-active: #f0fdf4;
+$accent: #0f766e;
+$border-color: #e5e5e5;
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.sidenav {
+  display: flex;
+  flex-direction: column;
+  width: $expanded-width;
+  height: 100%;
+  background: #f9f9f9;
+  border-right: 1px solid $border-color;
+  overflow: hidden;
+  transition: width 0.2s ease;
+
+  &.collapsed {
+    width: $collapsed-width;
+
+    .nav-section-header { display: none; }
+    .nav-label { display: none; }
+    .nav-panel { display: none; }
+
+    .nav-item {
+      justify-content: center;
+      padding: 0;
+      height: 40px;
+      width: 100%;
+      margin: 1px 0;
+      border-radius: 0;
+    }
+  }
+}
+
+// Header
+.sidenav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.625rem 0.5rem 1rem;
+  min-height: 48px;
+
+  .collapsed & {
+    justify-content: center;
+    padding: 0.75rem 0 0.5rem;
+  }
+}
+
+.sidenav-brand {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: $text-primary;
+  letter-spacing: 0.04em;
+}
+
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: $text-muted;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  flex-shrink: 0;
+
+  &:hover {
+    background: $bg-hover;
+    color: $text-primary;
+  }
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+// Navigation — scrollable middle section
+.sidenav-nav {
+  flex: 1;
+  padding: 0.25rem 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  // Thin, subtle scrollbar
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+.nav-section {
+  margin-bottom: 0.125rem;
+}
+
+.nav-section-header {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: $text-muted;
+  padding: 0.875rem 1rem 0.25rem;
+}
+
+.nav-section-divider {
+  height: 1px;
+  background: $border-color;
+  margin: 0.5rem 0.75rem;
+}
+
+// Direct nav items
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 0.875rem;
+  height: 36px;
+  color: $text-secondary;
+  font-size: $nav-font;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  border-radius: 6px;
+  margin: 1px 0.5rem;
+
+  &:hover:not(.disabled) {
+    background: $bg-hover;
+    color: $text-primary;
+  }
+
+  &.active {
+    background: $bg-active;
+    color: $accent;
+    font-weight: 600;
+
+    .nav-icon { color: $accent; }
+  }
+
+  &.disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: auto;
+  }
+}
+
+// Expansion panels
+.nav-panel {
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+
+  &::before { display: none !important; }
+
+  &::ng-deep .mat-expansion-panel-body {
+    padding: 0 0 0.25rem;
+  }
+
+  &::ng-deep .mat-expansion-panel-header {
+    padding: 0 0.875rem;
+    height: 36px !important;
+    font-size: $nav-font !important;
+    background: transparent !important;
+    border-radius: 6px;
+    margin: 1px 0.5rem;
+
+    &:hover {
+      background: $bg-hover !important;
+    }
+  }
+
+  &::ng-deep .mat-expansion-panel-header.mat-expanded {
+    height: 36px !important;
+    font-size: $nav-font !important;
+  }
+
+  &::ng-deep .mat-expansion-indicator::after {
+    color: $text-muted;
+    transform: rotate(0deg) !important;
+    border-width: 0 1.5px 1.5px 0;
+    padding: 2.5px;
+  }
+
+  &::ng-deep .mat-expanded .mat-expansion-indicator::after {
+    transform: rotate(45deg) !important;
+  }
+
+  &::ng-deep .mat-content {
+    font-size: $nav-font !important;
+    flex: unset;
+  }
+
+  &.active-group::ng-deep .mat-expansion-panel-header {
+    background: rgba(15, 118, 110, 0.04) !important;
+  }
+}
+
+.nav-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: $text-secondary;
+  font-size: $nav-font !important;
+  font-weight: 500;
+
+  &.disabled-title { opacity: 0.35; }
+
+  .active-group & {
+    color: $accent;
+    font-weight: 600;
+  }
+}
+
+// Child items
+.nav-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.875rem 0 2.75rem;
+  height: 32px;
+  color: $text-secondary;
+  font-size: $nav-font;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  border-radius: 6px;
+  margin: 1px 0.5rem;
+
+  &:hover:not(.disabled) {
+    background: $bg-hover;
+    color: $text-primary;
+  }
+
+  &.active {
+    background: $bg-active;
+    color: $accent;
+    font-weight: 600;
+
+    .nav-icon-sm { color: $accent; }
+  }
+
+  &.disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: auto;
+  }
+}
+
+// Icons
+.nav-icon {
+  color: $icon-color;
+  font-size: $icon-size;
+  width: $icon-size;
+  height: $icon-size;
+  flex-shrink: 0;
+
+  .active & { color: $accent; }
+}
+
+.nav-icon-sm {
+  color: $icon-color;
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+
+  .active & { color: $accent; }
+}
+
+.nav-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: inherit;
+}
+
+// Footer: user card + collapse toggle
+.sidenav-footer {
+  border-top: 1px solid $border-color;
+  flex-shrink: 0;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 1rem;
+
+  .user-avatar {
+    flex-shrink: 0;
+
+    mat-icon {
+      font-size: 32px;
+      width: 32px;
+      height: 32px;
+      color: $icon-color;
+    }
+  }
+
+  .user-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .user-name {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: $text-primary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .user-role {
+    font-size: 0.6875rem;
+    color: $text-muted;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.user-card-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem 0;
+  cursor: default;
+
+  mat-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: $icon-color;
+  }
+}
+

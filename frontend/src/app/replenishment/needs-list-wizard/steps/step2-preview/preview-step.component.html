@@ -306,10 +306,16 @@
     </mat-card-content>
 
     <mat-card-actions class="step-actions">
-      <button mat-button (click)="goBack()">
-        <mat-icon>arrow_back</mat-icon>
-        Back
-      </button>
+      <div class="actions-left">
+        <button mat-button (click)="goBack()">
+          <mat-icon>arrow_back</mat-icon>
+          Back
+        </button>
+        <button mat-button color="warn" (click)="cancel()">
+          <mat-icon>close</mat-icon>
+          Cancel
+        </button>
+      </div>
       <button mat-raised-button color="primary" (click)="proceedToNext()" [disabled]="loading">
         Continue to Summary
         <mat-icon>arrow_forward</mat-icon>

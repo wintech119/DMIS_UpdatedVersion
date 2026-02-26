@@ -111,6 +111,21 @@ export class NeedsListReviewQueueComponent implements OnInit {
       this.selectedSubmitter() !== 'ALL'
   );
 
+  readonly activeFilterCount = computed(() => {
+    let count = 0;
+    if (this.searchQuery().trim().length > 0) count++;
+    if (this.selectedStatus() !== 'ALL') count++;
+    if (this.selectedPhase() !== 'ALL') count++;
+    if (this.selectedSubmitter() !== 'ALL') count++;
+    return count;
+  });
+
+  readonly filtersExpanded = signal(false);
+
+  toggleFilters(): void {
+    this.filtersExpanded.set(!this.filtersExpanded());
+  }
+
   ngOnInit(): void {
     this.loadQueue();
   }
@@ -241,14 +256,13 @@ export class NeedsListReviewQueueComponent implements OnInit {
   }
 
   private needsListReferenceValue(row: NeedsListResponse): string {
-    const value = this.normalizedText(row.needs_list_no) || this.normalizedText(row.needs_list_id);
+    const value = this.normalizedText(row.needs_list_no);
     return value || 'N/A';
   }
 
   private buildSearchableText(row: NeedsListResponse): string {
     return [
       this.needsListReferenceValue(row),
-      row.needs_list_id,
       row.needs_list_no,
       row.event_name,
       row.event_id?.toString(),

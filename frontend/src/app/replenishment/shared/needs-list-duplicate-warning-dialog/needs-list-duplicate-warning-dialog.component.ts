@@ -6,10 +6,12 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
 import { NeedsListDuplicateSummary } from '../../services/replenishment.service';
+import { getNeedsListActionTarget, NeedsListActionStatus } from '../needs-list-action.util';
 
 export interface NeedsListDuplicateWarningData {
   existingLists: NeedsListDuplicateSummary[];
   warehouseCount: number;
+  enforced?: boolean;
 }
 
 export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
@@ -20,20 +22,36 @@ export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
   imports: [MatDialogModule, MatButtonModule, MatIconModule, DatePipe],
   templateUrl: './needs-list-duplicate-warning-dialog.component.html',
   styles: [`
-    .duplicate-warning-header {
+    .duplicate-dialog-header {
       display: flex;
       align-items: center;
       gap: 12px;
       margin-bottom: 8px;
     }
-    .warning-icon {
-      color: var(--mat-sys-error);
-      font-size: 28px;
-      width: 28px;
-      height: 28px;
+    .warning-icon-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #fff7ed;
+      flex-shrink: 0;
     }
-    .dialog-message {
-      color: var(--mat-sys-on-surface-variant);
+    .duplicate-dialog-icon {
+      color: #ea580c;
+      font-size: 24px;
+      width: 24px;
+      height: 24px;
+    }
+    h2[mat-dialog-title] {
+      margin: 0;
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .duplicate-dialog-message {
+      color: #6b7280;
       font-size: 14px;
       line-height: 1.5;
       margin: 0 0 16px;
@@ -43,29 +61,18 @@ export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
       flex-direction: column;
       gap: 8px;
     }
-    .conflict-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
+    .conflict-card {
       padding: 12px;
-      border: 1px solid var(--mat-sys-outline-variant);
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
       border-radius: 8px;
-      background: var(--mat-sys-surface-container-low);
     }
-    .conflict-info {
-      flex: 1;
-      min-width: 0;
-    }
-    .conflict-ref {
+    .conflict-card-header {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 6px;
-    }
-    .ref-label {
-      font-size: 12px;
-      color: var(--mat-sys-on-surface-variant);
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
     }
     .ref-link {
       font-size: 14px;
@@ -80,12 +87,6 @@ export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
     .ref-link:hover {
       opacity: 0.8;
     }
-    .conflict-meta {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-    }
     .status-badge {
       font-size: 11px;
       font-weight: 600;
@@ -93,6 +94,7 @@ export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
       border-radius: 12px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      white-space: nowrap;
     }
     .status-draft, .status-modified {
       background: var(--mat-sys-secondary-container);
@@ -107,20 +109,65 @@ export type DuplicateWarningResult = 'view' | 'continue' | 'cancel';
       background: var(--mat-sys-primary-container);
       color: var(--mat-sys-on-primary-container);
     }
-    .meta-item {
-      display: inline-flex;
+    .conflict-card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .detail-row {
+      display: flex;
       align-items: center;
-      gap: 4px;
-      font-size: 12px;
-      color: var(--mat-sys-on-surface-variant);
+      gap: 8px;
+      font-size: 13px;
     }
-    .meta-icon {
-      font-size: 14px;
-      width: 14px;
-      height: 14px;
-    }
-    .row-view-btn {
+    .detail-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      color: #6b7280;
       flex-shrink: 0;
+    }
+    .detail-label {
+      color: #6b7280;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .detail-value {
+      color: #1f2937;
+      font-weight: 600;
+      margin-left: auto;
+    }
+    .conflict-card-action {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .warning-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 16px;
+      padding: 10px 12px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #92400e;
+      line-height: 1.5;
+    }
+    .warning-note--blocked {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }
+    .note-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -130,8 +177,9 @@ export class NeedsListDuplicateWarningDialogComponent {
   private dialogRef = inject(MatDialogRef<NeedsListDuplicateWarningDialogComponent>);
   private router = inject(Router);
 
-  viewItem(id: string): void {
-    this.router.navigate(['/replenishment/needs-list', id, 'track']);
+  viewItem(id: string, status?: string): void {
+    const target = getNeedsListActionTarget(id, (status || 'DRAFT') as NeedsListActionStatus);
+    this.router.navigate(target.commands, { queryParams: target.queryParams });
     this.dialogRef.close('view' as DuplicateWarningResult);
   }
 
@@ -141,6 +189,24 @@ export class NeedsListDuplicateWarningDialogComponent {
 
   cancel(): void {
     this.dialogRef.close('cancel' as DuplicateWarningResult);
+  }
+
+  actionLabel(status?: string): string {
+    if (this.data.enforced) {
+      const normalized = String(status || '').trim().toUpperCase();
+      if (
+        normalized === 'APPROVED' ||
+        normalized === 'IN_PROGRESS' ||
+        normalized === 'IN_PREPARATION' ||
+        normalized === 'DISPATCHED' ||
+        normalized === 'RECEIVED'
+      ) {
+        return 'Track Fulfillment';
+      }
+    }
+
+    const target = getNeedsListActionTarget('placeholder', (status || 'DRAFT') as NeedsListActionStatus);
+    return target.label || 'View';
   }
 
   formatStatus(status: string): string {

@@ -1,61 +1,109 @@
-<div class="duplicate-warning-header">
-  <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
-  <h2 mat-dialog-title>Active Needs List Already Exists</h2>
-</div>
+<div class="duplicate-dialog">
+  <div class="duplicate-dialog-header">
+    <div class="warning-icon-wrapper">
+      <mat-icon class="duplicate-dialog-icon" aria-hidden="true">warning</mat-icon>
+    </div>
+    <h2 mat-dialog-title>Duplicate Needs List Detected</h2>
+  </div>
 
-<mat-dialog-content>
-  <p class="dialog-message">
-    A needs list for this warehouse is already active. Creating a new one will replace any drafts.
-  </p>
+  <mat-dialog-content>
+    @if (data.enforced) {
+      <p class="duplicate-dialog-message">
+        Submission is blocked because matching items already exist in a submitted or approved needs list for this warehouse.
+        Open the existing needs list below to continue from that workflow.
+      </p>
+    } @else {
+      <p class="duplicate-dialog-message">
+        An active needs list already exists for this warehouse and event.
+        Creating a duplicate may cause conflicting allocations. Review the
+        existing list(s) below before proceeding.
+      </p>
+    }
 
-  <div class="conflicts-list">
-    @for (item of data.existingLists; track item.needs_list_id) {
-      <div class="conflict-row">
-        <div class="conflict-info">
-          <div class="conflict-ref">
-            <span class="ref-label">Reference:</span>
-            <button class="ref-link" type="button" (click)="viewItem(item.needs_list_id)">
+    <div class="conflicts-list">
+      @for (item of data.existingLists; track item.needs_list_id) {
+        <div class="conflict-card">
+          <div class="conflict-card-header">
+            <button class="ref-link" type="button" (click)="viewItem(item.needs_list_id, item.status)">
               {{ item.needs_list_no }}
             </button>
-          </div>
-          <div class="conflict-meta">
             <span [class]="statusClass(item.status)">{{ formatStatus(item.status) }}</span>
-            <span class="meta-item">
-              <mat-icon class="meta-icon" aria-hidden="true">person</mat-icon>
-              {{ item.created_by || 'Unknown' }}
-            </span>
-            <span class="meta-item">
-              <mat-icon class="meta-icon" aria-hidden="true">schedule</mat-icon>
-              {{ item.created_at | date:'dd MMM yyyy, HH:mm' }}
-            </span>
+          </div>
+          <div class="conflict-card-body">
+            @if (item.items_count > 0) {
+              <div class="detail-row">
+                <mat-icon class="detail-icon" aria-hidden="true">inventory_2</mat-icon>
+                <span class="detail-label">Items</span>
+                <span class="detail-value">{{ item.items_count }}</span>
+              </div>
+            }
+            <div class="detail-row">
+              <mat-icon class="detail-icon" aria-hidden="true">person</mat-icon>
+              <span class="detail-label">Created by</span>
+              <span class="detail-value">{{ item.created_by || 'Unknown' }}</span>
+            </div>
+            @if (item.created_at) {
+              <div class="detail-row">
+                <mat-icon class="detail-icon" aria-hidden="true">schedule</mat-icon>
+                <span class="detail-label">Created</span>
+                <span class="detail-value">{{ item.created_at | date:'dd MMM yyyy, HH:mm' }}</span>
+              </div>
+            }
             @if (item.warehouse_name) {
-              <span class="meta-item">
-                <mat-icon class="meta-icon" aria-hidden="true">warehouse</mat-icon>
-                {{ item.warehouse_name }}
-              </span>
+              <div class="detail-row">
+                <mat-icon class="detail-icon" aria-hidden="true">warehouse</mat-icon>
+                <span class="detail-label">Warehouse</span>
+                <span class="detail-value">{{ item.warehouse_name }}</span>
+              </div>
             }
           </div>
+          <div class="conflict-card-action">
+            <button matButton="outlined" class="row-view-btn" (click)="viewItem(item.needs_list_id, item.status)">
+              <mat-icon aria-hidden="true">open_in_new</mat-icon>
+              {{ actionLabel(item.status) }}
+            </button>
+          </div>
         </div>
-        <button mat-stroked-button class="row-view-btn" (click)="viewItem(item.needs_list_id)">
-          <mat-icon>open_in_new</mat-icon>
-          View
-        </button>
+      }
+    </div>
+
+    @if (data.enforced) {
+      <div class="warning-note warning-note--blocked">
+        <mat-icon class="note-icon" aria-hidden="true">block</mat-icon>
+        <span>Create and submit a new list only after the existing list is fulfilled, cancelled, rejected, or superseded.</span>
+      </div>
+    } @else {
+      <div class="warning-note">
+        <mat-icon class="note-icon" aria-hidden="true">info</mat-icon>
+        <span>Proceeding will create a separate needs list. Consider reviewing or updating the existing one instead.</span>
       </div>
     }
-  </div>
-</mat-dialog-content>
+  </mat-dialog-content>
 
-<mat-dialog-actions align="end">
-  <button matButton="outlined" (click)="cancel()">
-    Cancel
-  </button>
-  <button mat-raised-button color="warn" (click)="continue()">
-    Continue Anyway
-  </button>
-  @if (data.existingLists.length === 1) {
-    <button mat-raised-button color="primary" (click)="viewItem(data.existingLists[0].needs_list_id)" cdkFocusInitial>
-      <mat-icon>visibility</mat-icon>
-      View Existing
-    </button>
-  }
-</mat-dialog-actions>
+  <mat-dialog-actions align="end">
+    @if (data.enforced) {
+      <button matButton="outlined" (click)="cancel()">
+        Close
+      </button>
+      @if (data.existingLists.length === 1) {
+        <button matButton="filled" color="primary" (click)="viewItem(data.existingLists[0].needs_list_id, data.existingLists[0].status)" cdkFocusInitial>
+          <mat-icon aria-hidden="true">visibility</mat-icon>
+          {{ actionLabel(data.existingLists[0].status) }}
+        </button>
+      }
+    } @else {
+      <button matButton="outlined" (click)="cancel()">
+        Cancel
+      </button>
+      <button matButton="filled" color="warn" (click)="continue()">
+        Continue Anyway
+      </button>
+      @if (data.existingLists.length === 1) {
+        <button matButton="filled" color="primary" (click)="viewItem(data.existingLists[0].needs_list_id, data.existingLists[0].status)" cdkFocusInitial>
+          <mat-icon aria-hidden="true">visibility</mat-icon>
+          View Existing
+        </button>
+      }
+    }
+  </mat-dialog-actions>
+</div>

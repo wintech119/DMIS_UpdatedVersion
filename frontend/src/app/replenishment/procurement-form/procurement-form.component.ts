@@ -30,6 +30,7 @@ import { MatDialogModule } from '@angular/material/dialog';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import {
   ProcurementOrder,
   ProcurementMethod,
@@ -52,7 +53,8 @@ import {
     MatSelectModule,
     MatAutocompleteModule,
     MatDialogModule,
-    DmisSkeletonLoaderComponent
+    DmisSkeletonLoaderComponent,
+    DmisEmptyStateComponent
   ],
   templateUrl: './procurement-form.component.html',
   styleUrl: './procurement-form.component.scss',

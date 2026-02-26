@@ -16,7 +16,7 @@
 
       mat-card-subtitle {
         font-size: 14px;
-        color: #666;
+        color: #6b7280;
         margin-top: 4px;
       }
     }
@@ -80,14 +80,19 @@
         }
 
         mat-icon[matSuffix] {
-          color: #666;
+          color: #6b7280;
         }
       }
 
       .phase-info {
-        background: #f8f9fa;
-        border-left: 4px solid #1976d2;
+        background: #f9fafb;
+        border-left: 4px solid #6b7280;
         margin-bottom: 24px;
+
+        // Phase-specific border and background tints
+        &[data-phase='SURGE']      { border-left-color: #b71c1c; background: #fef2f2; }
+        &[data-phase='STABILIZED'] { border-left-color: #b45309; background: #fffbeb; }
+        &[data-phase='BASELINE']   { border-left-color: #1b5e20; background: #f0fdf4; }
 
         h3 {
           display: flex;
@@ -96,12 +101,30 @@
           margin: 0 0 16px 0;
           font-size: 16px;
           font-weight: 600;
-          color: #1976d2;
+          color: #1f2937;
 
           mat-icon {
             font-size: 20px;
             width: 20px;
             height: 20px;
+          }
+
+          .phase-label-chip {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            vertical-align: middle;
+            // Default fallback
+            background: #f3f4f6;
+            color: #1f2937;
+
+            &[data-phase='SURGE']      { background: #fce4ec; color: #b71c1c; }
+            &[data-phase='STABILIZED'] { background: #fff8e1; color: #b45309; }
+            &[data-phase='BASELINE']   { background: #e8f5e9; color: #1b5e20; }
           }
         }
 
@@ -118,7 +141,7 @@
             border-radius: 4px;
 
             .detail-icon {
-              color: #1976d2;
+              color: #4b5563;
               font-size: 24px;
               width: 24px;
               height: 24px;
@@ -133,12 +156,12 @@
 
               .label {
                 font-weight: 500;
-                color: #333;
+                color: #1f2937;
               }
 
               .value {
                 font-weight: 600;
-                color: #1976d2;
+                color: #1f2937;
               }
             }
           }
@@ -152,10 +175,10 @@
           padding: 12px;
           background: white;
           border-radius: 4px;
-          border: 1px solid #e0e0e0;
+          border: 1px solid #e5e7eb;
 
           .note-icon {
-            color: #666;
+            color: #6b7280;
             font-size: 20px;
             width: 20px;
             height: 20px;
@@ -166,7 +189,7 @@
           p {
             margin: 0;
             font-size: 13px;
-            color: #666;
+            color: #6b7280;
             line-height: 1.5;
           }
         }
@@ -210,7 +233,7 @@
 
     mat-card-actions {
       padding: 16px;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid #e5e7eb;
 
       &.action-buttons {
         display: flex;

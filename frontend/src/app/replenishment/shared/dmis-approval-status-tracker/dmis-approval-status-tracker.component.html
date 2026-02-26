@@ -55,7 +55,7 @@
             </span>
           }
         </div>
-        @if (pendingHours > 4) {
+        @if (showReminder && pendingHours > 4) {
           <button matButton="outlined" color="warn" class="reminder-btn"
             (click)="onSendReminder(); $event.stopPropagation()"
             matTooltip="Send a notification to the approver">

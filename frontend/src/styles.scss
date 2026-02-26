@@ -1,7 +1,7 @@
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 
 :root {
-  --dmis-font-sans: 'Inter', 'Segoe UI', sans-serif;
+  --dmis-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --dmis-font-mono: 'Roboto Mono', 'Courier New', monospace;
   --dmis-text-primary: #1a1a1a;
   --dmis-text-secondary: #495057;
@@ -11,7 +11,8 @@
 html,
 body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
   background: #f9fafb;
   font-family: var(--dmis-font-sans);
   color: var(--dmis-text-primary);
@@ -23,6 +24,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+// Force all elements to use Inter
+*,
+*::before,
+*::after {
+  font-family: inherit;
+}
+
 // Force Material components to inherit Inter from body
 .mat-typography,
 .mdc-button,
@@ -31,7 +39,21 @@ body {
 .mat-mdc-option,
 .mat-mdc-menu-item,
 .mat-mdc-chip,
-.mat-mdc-tooltip {
+.mat-mdc-tooltip,
+.mat-mdc-card,
+.mat-mdc-table,
+.mat-mdc-header-cell,
+.mat-mdc-cell,
+.mat-mdc-dialog-container,
+.mat-mdc-snack-bar-container,
+.mat-mdc-tab,
+.mat-mdc-slide-toggle,
+.mat-mdc-paginator,
+.mat-mdc-select,
+.mdc-data-table__cell,
+.mdc-data-table__header-cell,
+h1, h2, h3, h4, h5, h6,
+p, span, a, label, td, th, li {
   font-family: var(--dmis-font-sans) !important;
 }
 
@@ -72,6 +94,53 @@ body {
   --mdc-snackbar-container-color: #e65100;
   --mdc-snackbar-supporting-text-color: #fff;
   --mat-snack-bar-button-color: #ffe0b2;
+}
+
+// ===== GLOBAL PAGE HEADER STYLE =====
+// Clean page title + separator line (OpenAI/LangSmith style)
+.page-header,
+.wizard-header {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 0 12px !important;
+  margin-bottom: 20px !important;
+  border-bottom: 1px solid #e5e5e5;
+
+  .header-content {
+    padding: 0 !important;
+  }
+
+  // Pattern: .header-text > h1 (review queue, my-submissions, wizard, etc.)
+  .header-text {
+    h1 {
+      font-size: 1.25rem !important;
+      font-weight: 600 !important;
+      color: #0d0d0d !important;
+      margin: 0 0 2px !important;
+    }
+
+    .subtitle,
+    p {
+      font-size: 0.8125rem !important;
+      color: #6b7280 !important;
+      margin: 0 !important;
+    }
+  }
+
+  // Pattern: .page-title / .page-subtitle (stock dashboard)
+  .page-title {
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    color: #0d0d0d !important;
+    margin: 0 0 2px !important;
+  }
+
+  .page-subtitle {
+    font-size: 0.8125rem !important;
+    color: #6b7280 !important;
+    margin: 0 !important;
+  }
 }
 
 // ===== GLOBAL ACCESSIBILITY =====

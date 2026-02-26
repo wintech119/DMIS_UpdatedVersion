@@ -1,5 +1,6 @@
 import { Component, OnInit, Output, EventEmitter, DestroyRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -13,12 +14,19 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 
 import { WizardStateService } from '../../services/wizard-state.service';
+import {
+  ConfirmDialogData,
+  DmisConfirmDialogComponent
+} from '../../../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisEmptyStateComponent } from '../../../shared/dmis-empty-state/dmis-empty-state.component';
 import { NeedsListItem } from '../../../models/needs-list.model';
 import { ItemAdjustment, ADJUSTMENT_REASON_LABELS, AdjustmentReason } from '../../models/wizard-state.model';
-import { distinctUntilChanged, map } from 'rxjs/operators';
+import { ReplenishmentService } from '../../../services/replenishment.service';
+import { of, Observable } from 'rxjs';
+import { catchError, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
 // Extended interface to track selection and editing state
 interface PreviewItem extends NeedsListItem {
@@ -47,6 +55,7 @@ type PreviewSeverity = 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK';
     MatTooltipModule,
     MatProgressBarModule,
     MatCheckboxModule,
+    MatDialogModule,
     DmisEmptyStateComponent
   ],
   templateUrl: './preview-step.component.html',
@@ -54,6 +63,9 @@ type PreviewSeverity = 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK';
 })
 export class PreviewStepComponent implements OnInit {
   private wizardService = inject(WizardStateService);
+  private replenishmentService = inject(ReplenishmentService);
+  private dialog = inject(MatDialog);
+  private router = inject(Router);
 
   @Output() back = new EventEmitter<void>();
   @Output() next = new EventEmitter<void>();
@@ -436,6 +448,61 @@ export class PreviewStepComponent implements OnInit {
 
   goBack(): void {
     this.back.emit();
+  }
+
+  cancel(): void {
+    const data: ConfirmDialogData = {
+      title: 'Cancel Wizard',
+      message: 'Are you sure you want to cancel? Any unsaved changes will be lost.',
+      confirmLabel: 'Yes, Cancel',
+      cancelLabel: 'Keep Working'
+    };
+
+    this.dialog.open(DmisConfirmDialogComponent, {
+      data,
+      width: '400px',
+      ariaLabel: 'Confirm cancel wizard'
+    }).afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+      switchMap((confirmed: boolean) => {
+        if (!confirmed) {
+          return of(false);
+        }
+        return this.discardEditedDraftIfNeeded().pipe(map(() => true));
+      })
+    ).subscribe((shouldExit: boolean) => {
+      if (shouldExit) {
+        this.wizardService.reset();
+        this.router.navigate(['/replenishment/dashboard']);
+      }
+    });
+  }
+
+  private discardEditedDraftIfNeeded(): Observable<void> {
+    const state = this.wizardService.getState();
+    const editingDraftId = String(state.editing_draft_id || '').trim();
+    // Never delete a persisted draft opened for editing when user cancels.
+    if (editingDraftId) {
+      return of(void 0);
+    }
+
+    const previewNeedsListId = String(state.previewResponse?.needs_list_id || '').trim();
+    if (!previewNeedsListId) {
+      return of(void 0);
+    }
+
+    const normalizedStatus = String(state.previewResponse?.status || '').trim().toUpperCase();
+    if (normalizedStatus && normalizedStatus !== 'DRAFT' && normalizedStatus !== 'MODIFIED') {
+      return of(void 0);
+    }
+
+    return this.replenishmentService.bulkDeleteDrafts(
+      [previewNeedsListId],
+      'Cancelled while editing draft from wizard.'
+    ).pipe(
+      map(() => void 0),
+      catchError(() => of(void 0))
+    );
   }
 
   private scrollToErrors(): void {

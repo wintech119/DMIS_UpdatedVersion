@@ -107,6 +107,17 @@ APPROVAL_ROLE_MAP = {
 }
 
 
+def _normalize_selected_method(value: object) -> str | None:
+    normalized = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if normalized in {"A", "TRANSFER", "INTER_WAREHOUSE", "HORIZON_A"}:
+        return "A"
+    if normalized in {"B", "DONATION", "DONATIONS", "HORIZON_B"}:
+        return "B"
+    if normalized in {"C", "PROCUREMENT", "PURCHASE", "HORIZON_C"}:
+        return "C"
+    return None
+
+
 def _normalize_role_code(value: object) -> str | None:
     text = str(value or "").strip()
     if not text:
@@ -212,7 +223,7 @@ def _selected_method(record: Dict[str, object] | None) -> str:
         snapshot = record.get("snapshot")
         if isinstance(snapshot, dict):
             raw_method = snapshot.get("selected_method")
-    return str(raw_method or "").strip().upper()
+    return _normalize_selected_method(raw_method) or ""
 
 
 def compute_needs_list_totals(
@@ -257,7 +268,7 @@ def determine_approval_tier(
     cost_missing: bool,
     selected_method: str | None = None,
 ) -> Tuple[Dict[str, object], List[str], str]:
-    method = str(selected_method or "").upper()
+    method = _normalize_selected_method(selected_method) or ""
     if method == "A":
         # Transfer approvals are not procurement-cost driven.
         return (
@@ -268,6 +279,17 @@ def determine_approval_tier(
             },
             [],
             "Transfer workflow selected; transfer approval path applied.",
+        )
+    if method == "B":
+        # Donation approvals are not procurement-cost driven.
+        return (
+            {
+                "tier": "Below Tier 1",
+                "approver_role": "Senior Director (Andrea)",
+                "methods_allowed": ["Donation"],
+            },
+            [],
+            "Donation workflow selected; donation approval path applied.",
         )
 
     warnings: List[str] = []
@@ -381,12 +403,14 @@ def required_roles_for_approval(
         return _expand_role_aliases(roles)
 
     if method == "B":
-        # Donation: Senior Director (donations) with PEOD-capable fallback.
-        return _expand_role_aliases(set(SENIOR_DIRECTOR_APPROVER_ROLES))
+        # Donation: Senior Director path plus Logistics Manager approval support.
+        roles = set(SENIOR_DIRECTOR_APPROVER_ROLES)
+        roles.update(LOGISTICS_MANAGER_APPROVER_ROLES)
+        return _expand_role_aliases(roles)
 
     if method == "C":
         # Procurement: in-system approval handled by Director PEOD.
-        # DG confirmation is a manual step outside the system.
+        # DG confirmation remains a manual step outside the system.
         return _expand_role_aliases(set(DIRECTOR_PEOD_APPROVER_ROLES))
 
     approver_role = str(approval.get("approver_role") or "")

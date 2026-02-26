@@ -5,8 +5,6 @@
 
   .wizard-header {
     margin-bottom: 24px;
-    background: white;
-    border-radius: 8px;
 
     .header-content {
       display: flex;
@@ -15,10 +13,10 @@
       padding: 16px;
 
       .back-btn {
-        color: #666;
+        color: #6b7280;
 
         &:hover {
-          color: #333;
+          color: #1f2937;
         }
       }
 
@@ -32,7 +30,7 @@
 
         p {
           margin: 0;
-          color: #666;
+          color: #6b7280;
           font-size: 14px;
         }
       }
@@ -43,7 +41,7 @@
     background: white;
     border-radius: 8px;
     padding: 24px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
 
     .step-content {
       padding: 32px 16px;
@@ -58,7 +56,7 @@
 
       p {
         margin: 0 0 24px 0;
-        color: #666;
+        color: #6b7280;
         font-size: 14px;
       }
 
@@ -96,11 +94,11 @@
       }
 
       .mat-step-icon {
-        background-color: #6c757d;
+        background-color: #6b7280;
         color: white;
 
         &.mat-step-icon-selected {
-          background-color: #1976d2;
+          background-color: #0f766e;
         }
 
         &.mat-step-icon-state-done {
@@ -117,7 +115,7 @@
         font-weight: 500;
 
         &.mat-step-label-active {
-          color: #1976d2;
+          color: #0f766e;
         }
 
         &.mat-step-label-selected {

@@ -96,10 +96,10 @@
 
       <!-- Phase Information -->
       @if (selectedPhaseInfo) {
-        <mat-card class="phase-info">
+        <mat-card class="phase-info" [attr.data-phase]="form.value.phase">
           <h3>
             <mat-icon>info</mat-icon>
-            Current Event Phase: {{ form.value.phase }}
+            Current Event Phase: <span class="phase-label-chip" [attr.data-phase]="form.value.phase">{{ form.value.phase }}</span>
           </h3>
           <div class="phase-details">
             <div class="detail-item">

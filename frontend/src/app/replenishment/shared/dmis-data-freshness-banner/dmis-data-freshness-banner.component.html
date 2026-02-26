@@ -1,13 +1,14 @@
 @if (shouldRender) {
   <div
     class="freshness-banner"
-  [ngClass]="{
-    'banner-critical': isCritical,
-    'banner-warning': isWarning,
-    'banner-fresh': isFresh
-  }"
-    role="alert"
-    [attr.aria-label]="getBannerMessage()">
+    [ngClass]="{
+      'banner-critical': isCritical,
+      'banner-warning': isWarning,
+      'banner-fresh': isFresh
+    }"
+    role="status"
+    [attr.aria-label]="getAriaMessage()">
+
     <!-- Refresh progress bar -->
     @if (isRefreshing) {
       <mat-progress-bar
@@ -15,84 +16,61 @@
         class="refresh-progress">
       </mat-progress-bar>
     }
-    <!-- Main banner row -->
-    <div
-      class="banner-main"
-      role="button"
-      tabindex="0"
-      [attr.aria-expanded]="isExpanded"
-      aria-controls="freshnessDetailsPanel"
-      (click)="toggleExpanded()"
-      (keydown.enter)="toggleExpanded()"
-      (keydown.space)="toggleExpanded(); $event.preventDefault()">
-      <div class="banner-left">
+
+    <!-- Main banner row — compact summary -->
+    <div class="banner-main">
+      <button
+        class="banner-toggle"
+        (click)="toggleExpanded()"
+        [attr.aria-expanded]="isExpanded"
+        aria-controls="freshnessDetailsPanel">
         <mat-icon class="banner-icon">{{ getBannerIcon() }}</mat-icon>
         <span class="banner-message">{{ getBannerMessage() }}</span>
-        <button
-          mat-button
-          class="details-btn"
-          (click)="toggleExpanded(); $event.stopPropagation()">
-          {{ isExpanded ? 'Hide Details' : 'View Details' }}
-        </button>
-      </div>
+        @if (!isFresh) {
+          <span class="stale-count-badge" aria-hidden="true">{{ staleCount }}</span>
+        }
+        <mat-icon class="chevron-icon">{{ isExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+      </button>
+
       <div class="banner-actions">
         @if (bannerState?.lastSuccessfulSync) {
           <span class="last-sync">
-            Last sync: {{ bannerState!.lastSuccessfulSync! | date:'short' }}
+            <mat-icon class="sync-icon" aria-hidden="true">schedule</mat-icon>
+            {{ bannerState!.lastSuccessfulSync! | date:'shortTime' }}
           </span>
         }
         <button
-          matButton="outlined"
+          mat-stroked-button
           class="refresh-btn"
-          (click)="refreshData(); $event.stopPropagation()"
+          (click)="refreshData()"
           [disabled]="isRefreshing"
           matTooltip="Trigger a fresh data sync from all warehouses">
           <mat-icon>refresh</mat-icon>
-          Refresh Data
-        </button>
-        <button
-          mat-icon-button
-          class="expand-btn"
-          (click)="toggleExpanded(); $event.stopPropagation()"
-          [matTooltip]="isExpanded ? 'Hide details' : 'Show warehouse details'">
-          <mat-icon>{{ isExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+          Refresh
         </button>
       </div>
     </div>
-    <!-- Expanded per-warehouse detail table -->
+
+    <!-- Expanded per-warehouse detail -->
     @if (isExpanded) {
-      <div class="banner-detail" id="freshnessDetailsPanel">
-        <table class="freshness-table" aria-label="Per-warehouse data freshness">
-          <thead>
-            <tr>
-              <th>Warehouse</th>
-              <th>Status</th>
-              <th>Data Age</th>
-              <th>Last Sync</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (wh of bannerState?.warehouses; track wh.warehouse_id) {
-              <tr
-                [ngClass]="'row-freshness-' + (wh.freshness || '').toLowerCase()">
-                <td class="col-warehouse">
-                  <mat-icon class="wh-icon">warehouse</mat-icon>
-                  {{ wh.warehouse_name }}
-                </td>
-                <td>
-                  <span class="status-badge" [ngClass]="'badge-freshness-' + (wh.freshness || '').toLowerCase()">
-                    <mat-icon class="status-icon">{{ getFreshnessIcon(wh.freshness) }}</mat-icon>
-                    {{ wh.freshness }}
-                  </span>
-                </td>
-                <td>{{ formatAgeHours(wh.age_hours) }}</td>
-                <td>{{ wh.last_sync ? (wh.last_sync | date:'short') : 'Unknown' }}</td>
-              </tr>
-            }
-          </tbody>
-        </table>
+      <div class="banner-detail" id="freshnessDetailsPanel" role="region" aria-label="Warehouse data freshness details">
+        <ul class="freshness-list">
+          @for (wh of bannerState?.warehouses; track wh.warehouse_id) {
+            <li class="freshness-item" [ngClass]="'item-freshness-' + (wh.freshness || '').toLowerCase()">
+              <div class="item-left">
+                <span class="status-dot" [ngClass]="'dot-' + (wh.freshness || '').toLowerCase()" aria-hidden="true"></span>
+                <span class="item-name">{{ wh.warehouse_name }}</span>
+              </div>
+              <div class="item-right">
+                <span class="item-age">{{ formatAgeHours(wh.age_hours) }}</span>
+                <span class="item-badge" [ngClass]="'badge-' + (wh.freshness || '').toLowerCase()">
+                  {{ wh.freshness }}
+                </span>
+              </div>
+            </li>
+          }
+        </ul>
       </div>
     }
   </div>
 }
-

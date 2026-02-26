@@ -1,0 +1,122 @@
+<aside class="sidenav" [class.collapsed]="collapsed()">
+  <!-- Header: brand + collapse toggle -->
+  <div class="sidenav-header">
+    @if (!collapsed()) {
+      <span class="sidenav-brand">DMIS</span>
+    }
+    <button class="collapse-btn" (click)="toggleCollapsed()"
+            [matTooltip]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+            matTooltipPosition="right">
+      <mat-icon>{{ collapsed() ? 'menu' : 'branding_watermark' }}</mat-icon>
+    </button>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="sidenav-nav">
+    @for (section of navSections; track section.sectionLabel) {
+      <div class="nav-section">
+        @if (!collapsed()) {
+          <div class="nav-section-header">{{ section.sectionLabel }}</div>
+        } @else {
+          <div class="nav-section-divider"></div>
+        }
+
+        @for (group of section.groups; track group.label) {
+          @if (group.children?.length && !collapsed()) {
+            <mat-expansion-panel
+              [expanded]="group.expanded ?? false"
+              [class.active-group]="isGroupActive(group)"
+              class="nav-panel">
+              <mat-expansion-panel-header>
+                <mat-panel-title class="nav-group-title" [class.disabled-title]="group.disabled">
+                  <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                  <span class="nav-label">{{ group.label }}</span>
+                </mat-panel-title>
+              </mat-expansion-panel-header>
+
+              @for (child of group.children; track child.label) {
+                @if (child.disabled) {
+                  <a class="nav-child disabled"
+                     matTooltip="Coming Soon"
+                     matTooltipPosition="right">
+                    <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
+                    <span class="nav-label">{{ child.label }}</span>
+                  </a>
+                } @else {
+                  <a class="nav-child"
+                     [routerLink]="child.route"
+                     routerLinkActive="active"
+                     [routerLinkActiveOptions]="{ exact: child.route === '/replenishment/dashboard' }"
+                     (click)="onItemClick()">
+                    <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
+                    <span class="nav-label">{{ child.label }}</span>
+                  </a>
+                }
+              }
+            </mat-expansion-panel>
+          } @else if (group.children?.length && collapsed()) {
+            <a class="nav-item"
+               [class.active]="isGroupActive(group)"
+               [class.disabled]="group.disabled"
+               [matTooltip]="group.label"
+               matTooltipPosition="right"
+               tabindex="0"
+               (click)="group.disabled ? null : onItemClick()"
+               (keydown.enter)="group.disabled ? null : onItemClick()"
+               (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
+              <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+            </a>
+          } @else {
+            @if (group.disabled) {
+              <a class="nav-item disabled"
+                 [matTooltip]="collapsed() ? group.label + ' (Coming Soon)' : 'Coming Soon'"
+                 matTooltipPosition="right">
+                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                @if (!collapsed()) {
+                  <span class="nav-label">{{ group.label }}</span>
+                }
+              </a>
+            } @else {
+              <a class="nav-item"
+                 [routerLink]="group.route"
+                 routerLinkActive="active"
+                 [routerLinkActiveOptions]="{ exact: true }"
+                 [matTooltip]="collapsed() ? group.label : ''"
+                 matTooltipPosition="right"
+                 (click)="onItemClick()">
+                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                @if (!collapsed()) {
+                  <span class="nav-label">{{ group.label }}</span>
+                }
+              </a>
+            }
+          }
+        }
+      </div>
+    }
+  </nav>
+
+  <!-- Footer: user card + collapse toggle -->
+  <div class="sidenav-footer">
+    @if (!collapsed()) {
+      <div class="user-card">
+        <div class="user-avatar">
+          <mat-icon>account_circle</mat-icon>
+        </div>
+        <div class="user-info">
+          <span class="user-name">{{ currentUser() }}</span>
+          @if (userRole()) {
+            <span class="user-role">{{ userRole() }}</span>
+          }
+        </div>
+      </div>
+    } @else {
+      <div class="user-card-collapsed"
+           [matTooltip]="currentUser()"
+           matTooltipPosition="right">
+        <mat-icon>account_circle</mat-icon>
+      </div>
+    }
+
+  </div>
+</aside>

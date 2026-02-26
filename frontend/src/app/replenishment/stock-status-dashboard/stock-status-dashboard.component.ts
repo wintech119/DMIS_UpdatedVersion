@@ -37,7 +37,7 @@ import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout
 import { PhaseSelectDialogComponent } from '../phase-select-dialog/phase-select-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
-import { MyDraftsSubmissionsPanelComponent } from '../shared/my-drafts-submissions-panel/my-drafts-submissions-panel.component';
+
 
 interface FilterState {
   categories: string[];
@@ -70,7 +70,6 @@ interface FilterState {
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
     DmisEmptyStateComponent,
-    MyDraftsSubmissionsPanelComponent
   ],
   templateUrl: './stock-status-dashboard.component.html',
   styleUrl: './stock-status-dashboard.component.scss'
@@ -144,6 +143,7 @@ export class StockStatusDashboardComponent implements OnInit {
   private multiWarehouseRequestToken = 0;
   private singleWarehouseRequestToken = 0;
   private currentUserRef: string | null = null;
+  private readonly myNeedsListsCollapsedStorageKey = 'dmis_stock_dashboard_my_needs_lists_collapsed';
   private readonly seenSubmitterUpdateStorageKeyPrefix = 'dmis_needs_list_submitter_updates_seen';
   private loadedSeenSubmitterUpdateStorageKey: string | null = null;
   private seenSubmitterUpdateKeys = new Set<string>();
@@ -164,6 +164,7 @@ export class StockStatusDashboardComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadSeenSubmitterUpdateKeys();
+    this.loadMyNeedsListsCollapsedState();
     const context = String(this.route.snapshot.queryParamMap.get('context') ?? '').trim().toLowerCase();
     if (context === 'wizard') {
       const requestedEvent = Number(this.route.snapshot.queryParamMap.get('event_id'));
@@ -764,6 +765,32 @@ export class StockStatusDashboardComponent implements OnInit {
     localStorage.setItem('dmis_stock_filters', JSON.stringify(state));
   }
 
+  private saveMyNeedsListsCollapsedState(): void {
+    try {
+      localStorage.setItem(
+        this.myNeedsListsCollapsedStorageKey,
+        JSON.stringify(this.myNeedsListsCollapsed)
+      );
+    } catch {
+      // localStorage may be unavailable; keep in-memory state only.
+    }
+  }
+
+  private loadMyNeedsListsCollapsedState(): void {
+    try {
+      const saved = localStorage.getItem(this.myNeedsListsCollapsedStorageKey);
+      if (!saved) {
+        return;
+      }
+      const parsed = JSON.parse(saved);
+      if (typeof parsed === 'boolean') {
+        this.myNeedsListsCollapsed = parsed;
+      }
+    } catch {
+      // Ignore malformed localStorage data and keep defaults.
+    }
+  }
+
   private loadFilterState(): void {
     const saved = localStorage.getItem('dmis_stock_filters');
     if (saved) {
@@ -915,6 +942,7 @@ export class StockStatusDashboardComponent implements OnInit {
   toggleMyNeedsListsCollapsed(event?: Event): void {
     event?.stopPropagation();
     this.myNeedsListsCollapsed = !this.myNeedsListsCollapsed;
+    this.saveMyNeedsListsCollapsedState();
   }
 
   isNeedsListExpanded(row: NeedsListResponse): boolean {
@@ -1202,7 +1230,7 @@ export class StockStatusDashboardComponent implements OnInit {
     const warehouseId = row.warehouse_id ?? row.warehouse_ids?.[0] ?? null;
     return {
       id: String(row.needs_list_id ?? ''),
-      reference_number: String(row.needs_list_no ?? row.needs_list_id ?? 'Needs List'),
+      reference_number: String(row.needs_list_no ?? 'N/A'),
       warehouse: {
         id: warehouseId,
         name: row.warehouses?.[0]?.warehouse_name || (warehouseId ? `Warehouse ${warehouseId}` : 'Unknown'),
@@ -1273,7 +1301,7 @@ export class StockStatusDashboardComponent implements OnInit {
         continue;
       }
 
-      const listRef = row.needs_list_no ?? row.needs_list_id ?? 'Needs list';
+      const listRef = row.needs_list_no ?? 'Needs list';
       if (row.status === 'APPROVED') {
         const approver = row.approved_by ? ` by ${row.approved_by}` : '';
         this.notificationService.showSuccess(`${listRef} was approved${approver}.`);

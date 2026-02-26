@@ -247,7 +247,7 @@
           </div>
           <div class="info-row">
             <span class="info-label">Phase:</span>
-            <mat-chip class="phase-chip">{{ getPhaseLabel() }}</mat-chip>
+            <mat-chip class="phase-chip" [attr.data-phase]="getPhaseLabel()">{{ getPhaseLabel() }}</mat-chip>
           </div>
         </mat-card-content>
       </mat-card>
@@ -467,10 +467,16 @@
 <mat-card class="actions-card">
   <mat-card-content>
     <div class="step-actions">
-      <button mat-button (click)="goBack()" class="back-btn" [disabled]="submitting || savingDraft">
-        <mat-icon>arrow_back</mat-icon>
-        Back
-      </button>
+      <div class="actions-left">
+        <button mat-button (click)="goBack()" class="back-btn" [disabled]="submitting || savingDraft">
+          <mat-icon>arrow_back</mat-icon>
+          Back
+        </button>
+        <button mat-button color="warn" (click)="cancel()" [disabled]="submitting || savingDraft" class="cancel-btn">
+          <mat-icon>close</mat-icon>
+          Cancel
+        </button>
+      </div>
 
       <div class="primary-actions">
         <button

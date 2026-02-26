@@ -83,7 +83,10 @@ export interface NeedsListDuplicateSummary {
   status: string;
   created_by: string;
   created_at: string;
+  warehouse_id?: number;
   warehouse_name?: string;
+  items_count: number;
+  item_ids: number[];
 }
 
 export interface MySubmissionsQueryParams {
@@ -564,27 +567,36 @@ export class ReplenishmentService {
   checkActiveNeedsLists(
     eventId: number,
     warehouseId: number,
-    phase: string,
-    excludeNeedsListId?: string
+    phase: string
   ): Observable<NeedsListDuplicateSummary[]> {
-    return this.listNeedsLists(undefined, {
-      eventId,
+    void eventId;
+    void phase;
+    // Only check statuses that represent active/in-flight needs lists.
+    const activeStatuses = [
+      'PENDING_APPROVAL', 'SUBMITTED', 'PENDING', 'UNDER_REVIEW',
+      'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION', 'DISPATCHED', 'RECEIVED'
+    ];
+    return this.listNeedsLists(activeStatuses, {
       warehouseId,
-      phase,
       includeClosed: false
     }).pipe(
       map(({ needs_lists }) =>
         needs_lists
-          .filter(nl => !excludeNeedsListId || nl.needs_list_id !== excludeNeedsListId)
           .filter(nl => !!nl.needs_list_id && !!nl.needs_list_no)
-          .map(nl => ({
-            needs_list_id: nl.needs_list_id!,
-            needs_list_no: nl.needs_list_no!,
-            status: nl.status ?? '',
-            created_by: nl.created_by ?? '',
-            created_at: nl.created_at ?? '',
-            warehouse_name: nl.warehouses?.[0]?.warehouse_name
-          }))
+          .map(nl => {
+            const items = nl.items || [];
+            return {
+              needs_list_id: nl.needs_list_id!,
+              needs_list_no: nl.needs_list_no!,
+              status: nl.status ?? '',
+              created_by: nl.created_by ?? '',
+              created_at: nl.created_at ?? '',
+              warehouse_id: nl.warehouse_id ?? nl.warehouse_ids?.[0],
+              warehouse_name: nl.warehouses?.[0]?.warehouse_name,
+              items_count: items.length,
+              item_ids: items.map(item => item.item_id)
+            };
+          })
       )
     );
   }

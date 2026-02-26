@@ -8,7 +8,7 @@
       <h1>Needs List Submissions</h1>
       <p class="subtitle">Track drafts, approvals, and fulfillment activity</p>
     </div>
-    <button mat-flat-button color="primary" type="button" class="refresh-btn" (click)="loadSubmissions()">
+    <button mat-stroked-button type="button" class="refresh-btn" (click)="loadSubmissions()">
       <mat-icon>refresh</mat-icon>
       Refresh
     </button>
@@ -33,92 +33,119 @@
 
   <!-- Main content (filters + results) -->
   @if (!loading() && !error()) {
-    <!-- Filters Panel -->
+    <!-- Filters Bar -->
     <div class="filters-panel" role="region" aria-label="Submission filters">
-      <div class="filters-grid">
-        <label class="filter-field">
-          <span class="filter-label">Status</span>
-          <select class="filter-select" [value]="statusFilter()" (change)="onStatusFilterChange($event)">
-            <option value="ALL">All Statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="MODIFIED">Modified</option>
-            <option value="PENDING_APPROVAL">Pending Approval</option>
-            <option value="APPROVED">Approved</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="FULFILLED">Fulfilled</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="SUPERSEDED">Superseded</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-        </label>
+      <!-- Collapsed bar: toggle + summary + active filter count -->
+      <div class="filters-bar">
+        <button
+          class="filters-toggle"
+          type="button"
+          (click)="toggleFilters()"
+          [attr.aria-expanded]="filtersExpanded()"
+          aria-controls="filtersContent">
+          <mat-icon class="filter-icon">filter_list</mat-icon>
+          <span class="filters-title">Filters</span>
+          @if (activeFilterCount() > 0) {
+            <span class="filter-count-badge">{{ activeFilterCount() }}</span>
+          }
+          <mat-icon class="chevron-icon" [class.expanded]="filtersExpanded()">expand_more</mat-icon>
+        </button>
 
-        <label class="filter-field">
-          <span class="filter-label">Replenishment Method</span>
-          <select class="filter-select" [value]="methodFilter()" (change)="onMethodFilterChange($event)">
-            <option value="ALL">All Methods</option>
-            <option value="A">Transfer (A)</option>
-            <option value="B">Donation (B)</option>
-            <option value="C">Procurement (C)</option>
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Warehouse</span>
-          <select class="filter-select" [value]="warehouseFilter() !== null ? warehouseFilter() + '' : ''" (change)="onWarehouseFilterChange($event)">
-            <option value="">All Warehouses</option>
-            @for (warehouse of warehouseOptions(); track warehouse.warehouse_id) {
-              <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
-            }
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Event</span>
-          <select class="filter-select" [value]="eventFilter() !== null ? eventFilter() + '' : ''" (change)="onEventFilterChange($event)">
-            <option value="">All Events</option>
-            @for (event of eventOptions(); track event.id) {
-              <option [value]="event.id">{{ event.name }}</option>
-            }
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Date From</span>
-          <input type="date" class="filter-input" [value]="dateFromFilter()" (change)="onDateFromChange($event)">
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Date To</span>
-          <input type="date" class="filter-input" [value]="dateToFilter()" (change)="onDateToChange($event)">
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">Sort By</span>
-          <select class="filter-select" [value]="sortBy()" (change)="onSortByChange($event)">
-            <option value="date">Date</option>
-            <option value="status">Status</option>
-            <option value="warehouse">Warehouse</option>
-          </select>
-        </label>
-
-        <div class="filter-actions">
-          <button
-            mat-icon-button
-            type="button"
-            class="sort-toggle"
-            [attr.aria-label]="'Sort ' + (sortOrder() === 'desc' ? 'ascending' : 'descending')"
-            (click)="toggleSortOrder()">
-            <mat-icon>{{ sortOrder() === 'desc' ? 'arrow_downward' : 'arrow_upward' }}</mat-icon>
-          </button>
-          <button mat-stroked-button type="button" (click)="clearFilters()" [disabled]="!hasActiveFilters()">
-            Clear Filters
-          </button>
+        <div class="filters-bar-right">
+          <span class="filter-summary" aria-live="polite">
+            {{ submissions().length }} of {{ totalCount() }} submissions
+          </span>
+          @if (hasActiveFilters()) {
+            <button mat-stroked-button class="clear-btn" type="button" (click)="clearFilters()">
+              <mat-icon>close</mat-icon>
+              Clear
+            </button>
+          }
         </div>
       </div>
 
-      <p class="filter-summary" aria-live="polite">
-        Showing {{ submissions().length }} of {{ totalCount() }} submissions
-      </p>
+      <!-- Expanded filter grid -->
+      @if (filtersExpanded()) {
+        <div class="filters-content" id="filtersContent">
+          <div class="filters-grid">
+            <label class="filter-field">
+              <span class="filter-label">Status</span>
+              <select class="filter-select" [value]="statusFilter()" (change)="onStatusFilterChange($event)">
+                <option value="ALL">All Statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="MODIFIED">Modified</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="FULFILLED">Fulfilled</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="SUPERSEDED">Superseded</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Replenishment Method</span>
+              <select class="filter-select" [value]="methodFilter()" (change)="onMethodFilterChange($event)">
+                <option value="ALL">All Methods</option>
+                <option value="A">Transfer (A)</option>
+                <option value="B">Donation (B)</option>
+                <option value="C">Procurement (C)</option>
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Warehouse</span>
+              <select class="filter-select" [value]="warehouseFilter() !== null ? warehouseFilter() + '' : ''" (change)="onWarehouseFilterChange($event)">
+                <option value="">All Warehouses</option>
+                @for (warehouse of warehouseOptions(); track warehouse.warehouse_id) {
+                  <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Event</span>
+              <select class="filter-select" [value]="eventFilter() !== null ? eventFilter() + '' : ''" (change)="onEventFilterChange($event)">
+                <option value="">All Events</option>
+                @for (event of eventOptions(); track event.id) {
+                  <option [value]="event.id">{{ event.name }}</option>
+                }
+              </select>
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Date From</span>
+              <input type="date" class="filter-input" [value]="dateFromFilter()" (change)="onDateFromChange($event)">
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Date To</span>
+              <input type="date" class="filter-input" [value]="dateToFilter()" (change)="onDateToChange($event)">
+            </label>
+
+            <label class="filter-field">
+              <span class="filter-label">Sort By</span>
+              <select class="filter-select" [value]="sortBy()" (change)="onSortByChange($event)">
+                <option value="date">Date</option>
+                <option value="status">Status</option>
+                <option value="warehouse">Warehouse</option>
+              </select>
+            </label>
+
+            <div class="filter-actions">
+              <button
+                mat-icon-button
+                type="button"
+                class="sort-toggle"
+                [attr.aria-label]="'Sort ' + (sortOrder() === 'desc' ? 'ascending' : 'descending')"
+                (click)="toggleSortOrder()">
+                <mat-icon>{{ sortOrder() === 'desc' ? 'arrow_downward' : 'arrow_upward' }}</mat-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
 
     <!-- Batch actions toolbar -->

@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from replenishment import rules, workflow_store, workflow_store_db
+from replenishment import rules, views, workflow_store, workflow_store_db
 from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
 from replenishment.services import (
     approval as approval_service,
@@ -392,6 +392,30 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(approval["approver_role"], "DG + PPC Endorsement")
         self.assertIn("Open International Competitive Bidding", approval["methods_allowed"])
         self.assertIn("procurement_category_unavailable", warnings)
+
+    def test_determine_approval_tier_donation_not_procurement_conservative(self) -> None:
+        approval, warnings, rationale = approval_service.determine_approval_tier(
+            phase="BASELINE",
+            total_cost=None,
+            cost_missing=True,
+            selected_method="B",
+        )
+        self.assertEqual(approval["tier"], "Below Tier 1")
+        self.assertEqual(approval["approver_role"], "Senior Director (Andrea)")
+        self.assertEqual(warnings, [])
+        self.assertIn("Donation workflow selected", rationale)
+
+    def test_determine_approval_tier_maps_transfer_alias(self) -> None:
+        approval, warnings, rationale = approval_service.determine_approval_tier(
+            phase="BASELINE",
+            total_cost=None,
+            cost_missing=True,
+            selected_method="TRANSFER",
+        )
+        self.assertEqual(approval["tier"], "Below Tier 1")
+        self.assertEqual(approval["approver_role"], "Logistics Manager (Kemar)")
+        self.assertEqual(warnings, [])
+        self.assertIn("Transfer workflow selected", rationale)
     def test_default_windows_are_v41(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(rules.get_windows_version(), "v41")
@@ -440,6 +464,23 @@ class NeedsListServiceTests(SimpleTestCase):
             codes, warnings = rules.resolve_strict_inbound_transfer_codes()
             self.assertEqual(codes, ["D"])
             self.assertNotIn("strict_inbound_mapping_best_effort", warnings)
+
+    def test_normalize_horizon_key_accepts_method_aliases(self) -> None:
+        self.assertEqual(views._normalize_horizon_key("TRANSFER"), "A")
+        self.assertEqual(views._normalize_horizon_key("donation"), "B")
+        self.assertEqual(views._normalize_horizon_key("Procurement"), "C")
+
+    def test_submission_status_requires_actor_scope_includes_returned(self) -> None:
+        self.assertTrue(views._submission_status_requires_actor_scope("RETURNED"))
+
+    def test_record_owned_by_actor_uses_created_by(self) -> None:
+        record = {
+            "created_by": "owner-user",
+            "submitted_by": "owner-user",
+            "updated_by": "reviewer-user",
+        }
+        self.assertTrue(views._record_owned_by_actor(record, "owner-user"))
+        self.assertFalse(views._record_owned_by_actor(record, "reviewer-user"))
 
 
 class ApprovalRoleResolutionTests(SimpleTestCase):
@@ -490,6 +531,7 @@ class ApprovalRoleResolutionTests(SimpleTestCase):
         )
         self.assertIn("ODPEM_DIR_PEOD", roles)
         self.assertIn("SYSTEM_ADMINISTRATOR", roles)
+        self.assertNotIn("LOGISTICS_MANAGER", roles)
         self.assertNotIn("ODPEM_DG", roles)
 
     def test_procurement_policy_includes_test_role_alias_for_dir_peod(self) -> None:
@@ -499,6 +541,15 @@ class ApprovalRoleResolutionTests(SimpleTestCase):
             submitter_roles={"TST_LOGISTICS_MANAGER"},
         )
         self.assertIn("TST_DIR_PEOD", roles)
+
+    def test_donation_policy_allows_logistics_manager(self) -> None:
+        roles = approval_service.required_roles_for_approval(
+            {"approver_role": "Senior Director (Andrea)"},
+            record={"selected_method": "B", "warehouse_id": 1},
+            submitter_roles={"LOGISTICS_MANAGER"},
+        )
+        self.assertIn("LOGISTICS_MANAGER", roles)
+        self.assertIn("SENIOR_DIRECTOR", roles)
 
     def test_table_columns_uses_configured_schema_for_postgres_introspection(
         self,
@@ -1628,6 +1679,68 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_submit_blocks_duplicate_overlap_when_existing_non_draft_exists(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(DEV_AUTH_USER_ID="officer-1", DEV_AUTH_ROLES=["LOGISTICS"]):
+                first_draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                first_submit = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{first_draft['needs_list_id']}/submit",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(first_submit.status_code, 200)
+
+            with self.settings(DEV_AUTH_USER_ID="manager-1", DEV_AUTH_ROLES=["LOGISTICS"]):
+                second_draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                second_submit = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{second_draft['needs_list_id']}/submit",
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(second_submit.status_code, 409)
+        body = second_submit.json()
+        self.assertIn("duplicate", body.get("errors", {}))
+        self.assertGreaterEqual(len(body.get("conflicts", [])), 1)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=[],
         DEV_AUTH_PERMISSIONS=[
             "replenishment.needs_list.preview",
@@ -1902,6 +2015,78 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(mine_only.status_code, 200)
         mine_ids = [row.get("needs_list_id") for row in mine_only.json().get("needs_lists", [])]
         self.assertEqual(mine_ids, [mine_draft.get("needs_list_id")])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="reviewer",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_owner_scoped_visibility_ignores_updated_by_for_modified_records(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            with self.settings(
+                DEV_AUTH_USER_ID="submitter",
+                DEV_AUTH_ROLES=["LOGISTICS"],
+                DEV_AUTH_PERMISSIONS=[],
+            ):
+                draft = self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                ).json()
+                submit_response = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{draft['needs_list_id']}/submit",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(submit_response.status_code, 200)
+
+            returned = self.client.post(
+                f"/api/v1/replenishment/needs-list/{draft['needs_list_id']}/return",
+                {"reason_code": "DATA_QUALITY", "reason": "Data mismatch"},
+                format="json",
+            )
+            self.assertEqual(returned.status_code, 200)
+            self.assertEqual(returned.json().get("status"), "MODIFIED")
+
+            mine_only = self.client.get(
+                "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
+            )
+            my_submissions = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=20"
+            )
+
+        self.assertEqual(mine_only.status_code, 200)
+        self.assertEqual(my_submissions.status_code, 200)
+
+        mine_ids = [row.get("needs_list_id") for row in mine_only.json().get("needs_lists", [])]
+        my_submission_ids = [row.get("id") for row in my_submissions.json().get("results", [])]
+        self.assertNotIn(draft.get("needs_list_id"), mine_ids)
+        self.assertNotIn(draft.get("needs_list_id"), my_submission_ids)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -3219,6 +3404,163 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(approve_denied.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_logistics_manager_can_approve_donation_method(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                {**self._draft_payload(), "selected_method": "B"},
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="approver"):
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(approve.status_code, 200)
+                self.assertEqual(approve.json().get("status"), "APPROVED")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_logistics_manager_cannot_approve_procurement_method(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                {**self._draft_payload(), "selected_method": "C"},
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="approver"):
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(approve.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_logistics_manager_cannot_reject_procurement_method(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                {**self._draft_payload(), "selected_method": "C"},
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="approver"):
+                reject = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/reject",
+                    {"reason": "Unauthorized for procurement approval flow"},
+                    format="json",
+                )
+                self.assertEqual(reject.status_code, 403)
 
     @override_settings(
         AUTH_ENABLED=False,
