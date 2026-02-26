@@ -186,14 +186,29 @@ export class NeedsListReviewDetailComponent implements OnInit {
   private needsListId = '';
 
   private normalizeHorizon(value: unknown): HorizonType | null {
-    const normalized = String(value ?? '').trim().toUpperCase().replace('-', '_').replace(' ', '_');
-    if (normalized === 'A' || normalized === 'TRANSFER' || normalized === 'INTER_WAREHOUSE') {
+    const normalized = String(value ?? '').trim().toUpperCase().replace(/[-\s]+/g, '_');
+    if (
+      normalized === 'A' ||
+      normalized === 'TRANSFER' ||
+      normalized === 'INTER_WAREHOUSE' ||
+      normalized === 'HORIZON_A'
+    ) {
       return 'A';
     }
-    if (normalized === 'B' || normalized === 'DONATION' || normalized === 'DONATIONS') {
+    if (
+      normalized === 'B' ||
+      normalized === 'DONATION' ||
+      normalized === 'DONATIONS' ||
+      normalized === 'HORIZON_B'
+    ) {
       return 'B';
     }
-    if (normalized === 'C' || normalized === 'PROCUREMENT' || normalized === 'PURCHASE') {
+    if (
+      normalized === 'C' ||
+      normalized === 'PROCUREMENT' ||
+      normalized === 'PURCHASE' ||
+      normalized === 'HORIZON_C'
+    ) {
       return 'C';
     }
     return null;
