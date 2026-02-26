@@ -73,15 +73,8 @@ def _record_owned_by_actor(needs_list: NeedsList, actor: str | None) -> bool:
     if not normalized_actor:
         return False
 
-    return any(
-        _normalize_actor(candidate) == normalized_actor
-        for candidate in (
-            needs_list.create_by_id,
-            needs_list.submitted_by,
-            needs_list.update_by_id,
-        )
-        if candidate
-    )
+    owner = _normalize_actor(getattr(needs_list, "create_by_id", None))
+    return bool(owner) and owner == normalized_actor
 
 
 def _utc_now() -> datetime:

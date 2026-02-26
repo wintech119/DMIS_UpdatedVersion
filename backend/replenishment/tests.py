@@ -482,6 +482,16 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertTrue(views._record_owned_by_actor(record, "owner-user"))
         self.assertFalse(views._record_owned_by_actor(record, "reviewer-user"))
 
+    def test_record_owned_by_actor_db_uses_created_by(self) -> None:
+        needs_list = NeedsList(
+            create_by_id="owner-user",
+            submitted_by="submitter-user",
+            update_by_id="reviewer-user",
+        )
+        self.assertTrue(workflow_store_db._record_owned_by_actor(needs_list, "owner-user"))
+        self.assertFalse(workflow_store_db._record_owned_by_actor(needs_list, "submitter-user"))
+        self.assertFalse(workflow_store_db._record_owned_by_actor(needs_list, "reviewer-user"))
+
     def test_duplicate_conflicts_match_item_and_warehouse_pairs(self) -> None:
         current_record = {
             "needs_list_id": "CUR-1",
