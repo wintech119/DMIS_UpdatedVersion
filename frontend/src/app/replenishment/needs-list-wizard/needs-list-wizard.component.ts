@@ -68,12 +68,13 @@ export class NeedsListWizardComponent implements OnInit {
 
   ngOnInit(): void {
     // Load query params from dashboard navigation
-    this.route.queryParams.pipe(
-      takeUntilDestroyed(this.destroyRef)
-    ).subscribe(params => {
-      const routeNeedsListId = String(this.route.snapshot.paramMap.get('id') ?? '').trim();
-      const needsListId = String(params['needs_list_id'] ?? routeNeedsListId).trim();
+import { combineLatest } from 'rxjs';
 
+    combineLatest([this.route.paramMap, this.route.queryParams]).pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(([paramMap, params]) => {
+      const routeNeedsListId = String(paramMap.get('id') ?? '').trim();
+      const needsListId = String(params['needs_list_id'] ?? routeNeedsListId).trim();
       if (!needsListId) {
         this.hydratedNeedsListId = null;
         this.resetStaleStateForNewWizardSession();
