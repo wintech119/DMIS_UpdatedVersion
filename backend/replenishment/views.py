@@ -1811,6 +1811,18 @@ def needs_list_bulk_submit(request):
                 exclude_needs_list_id=needs_list_id,
             )
         except DuplicateConflictValidationError:
+            logger.exception(
+                "needs_list_duplicate_validation_failed",
+                extra={
+                    "event_type": "VALIDATION_ERROR",
+                    "needs_list_id": needs_list_id,
+                    "actor": actor,
+                    "status": record.get("status") if isinstance(record, dict) else None,
+                    "event_id": record.get("event_id") if isinstance(record, dict) else None,
+                    "phase": record.get("phase") if isinstance(record, dict) else None,
+                    "warehouse_id": record.get("warehouse_id") if isinstance(record, dict) else None,
+                },
+            )
             errors.append(
                 {
                     "id": needs_list_id,
@@ -2394,6 +2406,18 @@ def needs_list_submit(request, needs_list_id: str):
             exclude_needs_list_id=needs_list_id,
         )
     except DuplicateConflictValidationError:
+        logger.exception(
+            "needs_list_duplicate_validation_failed",
+            extra={
+                "event_type": "VALIDATION_ERROR",
+                "needs_list_id": needs_list_id,
+                "actor": _actor_id(request),
+                "status": record.get("status") if isinstance(record, dict) else None,
+                "event_id": record.get("event_id") if isinstance(record, dict) else None,
+                "phase": record.get("phase") if isinstance(record, dict) else None,
+                "warehouse_id": record.get("warehouse_id") if isinstance(record, dict) else None,
+            },
+        )
         return Response(
             {
                 "errors": {
