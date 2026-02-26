@@ -47,8 +47,16 @@ const ROUTE_BREADCRUMBS: { pattern: RegExp; crumbs: (match: RegExpMatchArray) =>
 ];
 
 function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
+  let normalized = String(url || '').replace(/[?#].*$/, '').trim();
+  if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+  if (normalized === '') {
+    normalized = '/';
+  }
+
   for (const entry of ROUTE_BREADCRUMBS) {
-    const match = url.match(entry.pattern);
+    const match = normalized.match(entry.pattern);
     if (match) return entry.crumbs(match);
   }
   return [{ label: 'Home' }];
