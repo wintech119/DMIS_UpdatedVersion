@@ -462,8 +462,17 @@ export class ScopeStepComponent implements OnInit {
       return of(void 0);
     }
 
+    const draftIds = Array.from(new Set(
+      (state.draft_ids || [])
+        .map((id: unknown) => String(id || '').trim())
+        .filter((id: string) => id.length > 0)
+    ));
+    if (draftIds.length === 0) {
+      return of(void 0);
+    }
+
     return this.replenishmentService.bulkDeleteDrafts(
-      [previewNeedsListId],
+      draftIds,
       'Cancelled while editing draft from wizard.'
     ).pipe(
       map(() => void 0),
