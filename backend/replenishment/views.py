@@ -8,7 +8,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -41,6 +41,14 @@ from api.rbac import (
     PERM_PROCUREMENT_CANCEL,
     resolve_roles_and_permissions,
 )
+from api.tenancy import (
+    can_access_record,
+    can_access_warehouse,
+    resolve_tenant_context,
+    resolve_warehouse_tenant_id,
+    tenant_context_to_dict,
+)
+from api.task_engine import TaskRule, resolve_available_tasks
 from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
 from replenishment.models import Procurement
 from replenishment.services import approval as approval_service
@@ -91,6 +99,139 @@ _DUPLICATE_GUARD_ACTIVE_STATUSES = {
     "DISPATCHED",
     "RECEIVED",
 }
+_NEEDS_LIST_EXECUTION_STATUSES = {
+    "APPROVED",
+    "IN_PREPARATION",
+    "DISPATCHED",
+    "RECEIVED",
+    "IN_PROGRESS",
+}
+
+
+def _record_for_task_context(context: Mapping[str, Any]) -> Dict[str, Any]:
+    record = context.get("record")
+    return record if isinstance(record, dict) else {}
+
+
+def _record_status_for_task(record: Dict[str, Any]) -> str:
+    return str(record.get("status") or "").strip().upper()
+
+
+def _can_mark_dispatched(context: Mapping[str, Any]) -> bool:
+    record = _record_for_task_context(context)
+    status = _record_status_for_task(record)
+    if status == "IN_PREPARATION":
+        return True
+    if status != "IN_PROGRESS":
+        return False
+    return bool(record.get("prep_started_at")) and not bool(record.get("dispatched_at"))
+
+
+def _can_mark_received(context: Mapping[str, Any]) -> bool:
+    record = _record_for_task_context(context)
+    status = _record_status_for_task(record)
+    if status == "DISPATCHED":
+        return True
+    if status != "IN_PROGRESS":
+        return False
+    return bool(record.get("dispatched_at")) and not bool(record.get("received_at"))
+
+
+def _can_mark_completed(context: Mapping[str, Any]) -> bool:
+    record = _record_for_task_context(context)
+    status = _record_status_for_task(record)
+    if status == "RECEIVED":
+        return True
+    if status != "IN_PROGRESS":
+        return False
+    return bool(record.get("received_at")) and not bool(record.get("completed_at"))
+
+
+_NEEDS_LIST_TASK_RULES = (
+    TaskRule(
+        task_code="edit_lines",
+        required_permissions=(PERM_NEEDS_LIST_EDIT_LINES,),
+        statuses=frozenset({"DRAFT", "MODIFIED", "RETURNED"}),
+    ),
+    TaskRule(
+        task_code="submit",
+        required_permissions=(PERM_NEEDS_LIST_SUBMIT,),
+        statuses=frozenset({"DRAFT", "MODIFIED", "RETURNED"}),
+    ),
+    TaskRule(
+        task_code="cancel",
+        required_permissions=(PERM_NEEDS_LIST_CANCEL,),
+        statuses=frozenset({"DRAFT", "MODIFIED", "RETURNED"}),
+    ),
+    TaskRule(
+        task_code="review_comments",
+        required_permissions=(PERM_NEEDS_LIST_REVIEW_COMMENTS,),
+        statuses=frozenset(PENDING_APPROVAL_STATUSES),
+    ),
+    TaskRule(
+        task_code="return",
+        required_permissions=(PERM_NEEDS_LIST_RETURN,),
+        statuses=frozenset(PENDING_APPROVAL_STATUSES),
+    ),
+    TaskRule(
+        task_code="reject",
+        required_permissions=(PERM_NEEDS_LIST_REJECT,),
+        statuses=frozenset(PENDING_APPROVAL_STATUSES),
+    ),
+    TaskRule(
+        task_code="approve",
+        required_permissions=(PERM_NEEDS_LIST_APPROVE,),
+        statuses=frozenset(PENDING_APPROVAL_STATUSES),
+    ),
+    TaskRule(
+        task_code="escalate",
+        required_permissions=(PERM_NEEDS_LIST_ESCALATE,),
+        statuses=frozenset(PENDING_APPROVAL_STATUSES),
+    ),
+    TaskRule(
+        task_code="start_preparation",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset({"APPROVED"}),
+    ),
+    TaskRule(
+        task_code="mark_dispatched",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset({"IN_PREPARATION", "IN_PROGRESS"}),
+        predicate=_can_mark_dispatched,
+    ),
+    TaskRule(
+        task_code="mark_received",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset({"DISPATCHED", "IN_PROGRESS"}),
+        predicate=_can_mark_received,
+    ),
+    TaskRule(
+        task_code="mark_completed",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset({"RECEIVED", "IN_PROGRESS"}),
+        predicate=_can_mark_completed,
+    ),
+    TaskRule(
+        task_code="generate_transfers",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset(_NEEDS_LIST_EXECUTION_STATUSES),
+    ),
+    TaskRule(
+        task_code="manage_donations",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset(_NEEDS_LIST_EXECUTION_STATUSES),
+    ),
+    TaskRule(
+        task_code="export_procurement",
+        required_permissions=(PERM_NEEDS_LIST_EXECUTE,),
+        statuses=frozenset(_NEEDS_LIST_EXECUTION_STATUSES),
+    ),
+    TaskRule(
+        task_code="cancel",
+        required_permissions=(PERM_NEEDS_LIST_CANCEL,),
+        statuses=frozenset(_NEEDS_LIST_EXECUTION_STATUSES),
+    ),
+)
 
 
 class DuplicateConflictValidationError(ValueError):
@@ -184,6 +325,97 @@ def _parse_selected_item_keys(
 
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+def _tenant_context(request):
+    cached = getattr(request, "_tenant_context_cache", None)
+    if cached is not None:
+        return cached
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    context = resolve_tenant_context(request, request.user, permissions)
+    request._tenant_context_cache = context
+    return context
+
+
+def _should_enforce_tenant_scope(request) -> bool:
+    """
+    Rollout gate for strict tenant scope enforcement.
+    When enabled, all tenant-scoped read/write paths are enforced.
+    """
+    return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
+
+
+def _tenant_scope_denied_response(
+    request,
+    *,
+    warehouse_id: int | None = None,
+    record: Dict[str, Any] | None = None,
+    write: bool = False,
+) -> Response:
+    context = _tenant_context(request)
+    details: Dict[str, Any] = {
+        "message": "Access denied for tenant scope.",
+        "write": bool(write),
+        "tenant_context": tenant_context_to_dict(context),
+    }
+    if warehouse_id is not None:
+        details["warehouse_id"] = warehouse_id
+        details["target_tenant_id"] = resolve_warehouse_tenant_id(warehouse_id)
+    if isinstance(record, dict):
+        details["needs_list_id"] = record.get("needs_list_id")
+        details["record_warehouse_id"] = record.get("warehouse_id")
+    return Response({"errors": {"tenant_scope": details}}, status=403)
+
+
+def _require_warehouse_scope(
+    request,
+    warehouse_id: object,
+    *,
+    write: bool = False,
+) -> Response | None:
+    if not _should_enforce_tenant_scope(request):
+        return None
+    parsed_warehouse_id = _to_int_or_none(warehouse_id)
+    if parsed_warehouse_id is None:
+        return None
+    context = _tenant_context(request)
+    if can_access_warehouse(context, parsed_warehouse_id, write=write):
+        return None
+    return _tenant_scope_denied_response(
+        request,
+        warehouse_id=parsed_warehouse_id,
+        write=write,
+    )
+
+
+def _require_record_scope(
+    request,
+    record: Dict[str, Any],
+    *,
+    write: bool = False,
+) -> Response | None:
+    if not _should_enforce_tenant_scope(request):
+        return None
+    context = _tenant_context(request)
+    if can_access_record(context, record, write=write):
+        return None
+    return _tenant_scope_denied_response(
+        request,
+        record=record,
+        write=write,
+    )
+
+
+def _record_tenant_id(record: Dict[str, Any], snapshot: Dict[str, Any] | None = None) -> int | None:
+    record_tenant = _to_int_or_none(record.get("tenant_id"))
+    if record_tenant is not None:
+        return record_tenant
+    warehouse_id = _to_int_or_none(record.get("warehouse_id"))
+    if warehouse_id is None and isinstance(snapshot, dict):
+        warehouse_id = _to_int_or_none(snapshot.get("warehouse_id"))
+    if warehouse_id is None:
+        return None
+    return resolve_warehouse_tenant_id(warehouse_id)
 
 
 def _audit_username(request) -> str | None:
@@ -598,6 +830,7 @@ def _compute_approval_summary(
     record: Dict[str, Any],
     snapshot: Dict[str, Any],
 ) -> Dict[str, Any]:
+    tenant_id = _record_tenant_id(record, snapshot)
     selected_method = _normalize_horizon_key(
         record.get("selected_method") or snapshot.get("selected_method")
     )
@@ -613,6 +846,7 @@ def _compute_approval_summary(
             total_estimated_cost,
             bool(approval_warnings),
             selected_method=selected_method,
+            tenant_id=tenant_id,
         )
     )
     authority_warnings, escalation_required = (
@@ -629,6 +863,8 @@ def _compute_approval_summary(
         "warnings": warnings,
         "rationale": approval_rationale,
         "escalation_required": escalation_required,
+        "tenant_id": tenant_id,
+        "policy_version": approval.get("policy_version"),
     }
 
 
@@ -843,6 +1079,23 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     return response, {}
 
 
+def _available_actions_for_record(request, record: Dict[str, Any]) -> list[str]:
+    status = str(record.get("status") or "").strip().upper()
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    enforce_scope = _should_enforce_tenant_scope(request)
+    can_write_scope = True
+    if enforce_scope:
+        tenant_context = _tenant_context(request)
+        can_write_scope = can_access_record(tenant_context, record, write=True)
+    return resolve_available_tasks(
+        _NEEDS_LIST_TASK_RULES,
+        status=status,
+        permissions=permissions,
+        can_write_scope=can_write_scope,
+        context={"record": record},
+    )
+
+
 def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool = True) -> Dict[str, Any]:
     snapshot = (
         workflow_store.apply_overrides(record)
@@ -904,6 +1157,7 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "return_reason_code": record.get("return_reason_code"),
             "reject_reason": record.get("reject_reason"),
             "approval_summary": approval_summary,
+            "tenant_id": _record_tenant_id(record, snapshot),
         }
     )
     return response
@@ -1474,8 +1728,12 @@ def needs_list_list(request):
 
     records = workflow_store.list_records(statuses)
     actor = _normalize_actor(_actor_id(request))
+    tenant_context = _tenant_context(request)
+    enforce_tenant_scope = _should_enforce_tenant_scope(request)
     filtered_records: list[Dict[str, Any]] = []
     for record in records:
+        if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
+            continue
         status_value = str(record.get("status") or "").upper()
         if not include_closed and status_value in _CLOSED_NEEDS_LIST_STATUSES:
             continue
@@ -1508,7 +1766,11 @@ def needs_list_list(request):
 
         filtered_records.append(record)
 
-    serialized = [_serialize_workflow_record(r) for r in filtered_records]
+    serialized = []
+    for record in filtered_records:
+        row = _serialize_workflow_record(record)
+        row["allowed_actions"] = _available_actions_for_record(request, record)
+        serialized.append(row)
     if mine_only:
         serialized.sort(key=_record_sort_timestamp, reverse=True)
     else:
@@ -1574,10 +1836,15 @@ def needs_list_my_submissions(request):
     _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
 
     records = workflow_store.list_records(store_status_filters)
+    tenant_context = _tenant_context(request)
+    enforce_tenant_scope = _should_enforce_tenant_scope(request)
     summaries: list[Dict[str, Any]] = []
     for record in records:
+        if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
+            continue
         serialized = _serialize_workflow_record(record, include_overrides=True)
         summary = _serialize_submission_summary(serialized)
+        summary["allowed_actions"] = _available_actions_for_record(request, record)
         summary_status = str(summary.get("status") or "").strip().upper()
         if (
             mine_only or _submission_status_requires_actor_scope(summary_status)
@@ -1632,6 +1899,9 @@ def needs_list_summary_version(_request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(_request, record, write=False)
+    if scope_error:
+        return scope_error
 
     serialized = _serialize_workflow_record(record, include_overrides=False)
     normalized_status = _normalize_status_for_ui(serialized.get("status"))
@@ -1663,6 +1933,9 @@ def needs_list_fulfillment_sources(_request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(_request, record, write=False)
+    if scope_error:
+        return scope_error
 
     serialized = _serialize_workflow_record(record, include_overrides=True)
     list_status = str(serialized.get("status") or "").strip().upper()
@@ -1794,6 +2067,9 @@ def needs_list_bulk_submit(request):
         if not record:
             errors.append({"id": needs_list_id, "error": "Not found."})
             continue
+        if _require_record_scope(request, record, write=True):
+            errors.append({"id": needs_list_id, "error": "Access denied for tenant scope."})
+            continue
 
         previous_status = str(record.get("status") or "").upper()
         if not _status_matches(previous_status, "DRAFT", "MODIFIED", include_db_transitions=True):
@@ -1891,6 +2167,9 @@ def needs_list_bulk_delete(request):
         if not record:
             errors.append({"id": needs_list_id, "error": "Not found."})
             continue
+        if _require_record_scope(request, record, write=True):
+            errors.append({"id": needs_list_id, "error": "Access denied for tenant scope."})
+            continue
 
         status = str(record.get("status") or "").upper()
         if not _status_matches(status, "DRAFT", "MODIFIED", include_db_transitions=True):
@@ -1967,6 +2246,17 @@ def get_all_warehouses(request):
     Returns list of warehouses with warehouse_id and warehouse_name.
     """
     warehouses = data_access.get_all_warehouses()
+    tenant_context = _tenant_context(request)
+    if _should_enforce_tenant_scope(request):
+        warehouses = [
+            warehouse
+            for warehouse in warehouses
+            if can_access_warehouse(
+                tenant_context,
+                _to_int_or_none(warehouse.get("warehouse_id") if isinstance(warehouse, dict) else None),
+                write=False,
+            )
+        ]
 
     logger.info(
         "get_all_warehouses",
@@ -1989,6 +2279,13 @@ def needs_list_preview(request):
     response, errors = _build_preview_response(payload)
     if errors:
         return Response({"errors": errors}, status=400)
+    scope_error = _require_warehouse_scope(
+        request,
+        response.get("warehouse_id"),
+        write=False,
+    )
+    if scope_error:
+        return scope_error
 
     logger.info(
         "needs_list_preview",
@@ -2049,6 +2346,25 @@ def needs_list_preview_multi(request):
     phase = str(phase).upper()
     if phase not in rules.PHASES:
         return Response({"errors": {"phase": "Must be SURGE, STABILIZED, or BASELINE."}}, status=400)
+
+    # Enforce tenant warehouse scope before doing warehouse-specific preview work.
+    unauthorized_warehouses = [
+        warehouse_id
+        for warehouse_id in validated_warehouse_ids
+        if _require_warehouse_scope(request, warehouse_id, write=False)
+    ]
+    if unauthorized_warehouses:
+        return Response(
+            {
+                "errors": {
+                    "tenant_scope": (
+                        "Access denied for one or more requested warehouses."
+                    )
+                },
+                "unauthorized_warehouse_ids": unauthorized_warehouses,
+            },
+            status=403,
+        )
 
     # Aggregate results from all warehouses
     all_items = []
@@ -2132,6 +2448,13 @@ def needs_list_draft(request):
 
     if errors:
         return Response({"errors": errors}, status=400)
+    scope_error = _require_warehouse_scope(
+        request,
+        response.get("warehouse_id"),
+        write=True,
+    )
+    if scope_error:
+        return scope_error
 
     try:
         workflow_store.store_enabled_or_raise()
@@ -2177,6 +2500,7 @@ def needs_list_draft(request):
         "event_id": event_id,
         "event_name": event_name,
         "warehouse_id": warehouse_id,
+        "tenant_id": resolve_warehouse_tenant_id(_to_int_or_none(warehouse_id)),
         "warehouse_ids": [warehouse_id] if warehouse_id is not None else [],
         "warehouses": (
             [{"warehouse_id": warehouse_id, "warehouse_name": warehouse_name}]
@@ -2226,8 +2550,12 @@ def needs_list_get(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return scope_error
 
     response = _serialize_workflow_record(record, include_overrides=True)
+    response["allowed_actions"] = _available_actions_for_record(request, record)
     logger.info(
         "needs_list_get",
         extra={
@@ -2253,6 +2581,9 @@ def needs_list_edit_lines(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     status = str(record.get("status") or "").upper()
     if not _status_matches(status, "DRAFT", "MODIFIED", include_db_transitions=True):
@@ -2326,6 +2657,9 @@ def needs_list_review_comments(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     status = str(record.get("status") or "").upper()
     if status not in PENDING_APPROVAL_STATUSES:
@@ -2390,6 +2724,9 @@ def needs_list_submit(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     previous_status = str(record.get("status") or "").upper()
     if not _status_matches(previous_status, "DRAFT", "MODIFIED", include_db_transitions=True):
@@ -2476,6 +2813,9 @@ def needs_list_return(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -2541,6 +2881,9 @@ def needs_list_reject(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -2606,6 +2949,9 @@ def needs_list_approve(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -2692,6 +3038,9 @@ def needs_list_escalate(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     current_status = str(record.get("status") or "").upper()
     if current_status not in PENDING_APPROVAL_STATUSES:
@@ -2738,6 +3087,9 @@ def needs_list_review_reminder(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     status = str(record.get("status") or "").upper()
     if status not in PENDING_APPROVAL_STATUSES:
@@ -2814,6 +3166,9 @@ def needs_list_start_preparation(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if record.get("status") != "APPROVED":
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
@@ -2854,6 +3209,9 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if not _status_matches(record.get("status"), "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be in preparation."}}, status=409)
@@ -2899,6 +3257,9 @@ def needs_list_mark_received(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if not _status_matches(record.get("status"), "DISPATCHED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be dispatched."}}, status=409)
@@ -2944,6 +3305,9 @@ def needs_list_mark_completed(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if not _status_matches(record.get("status"), "RECEIVED", include_db_transitions=True):
         return Response({"errors": {"status": "Needs list must be received."}}, status=409)
@@ -2984,6 +3348,9 @@ def needs_list_cancel(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if not _status_matches(record.get("status"), "APPROVED", "IN_PREPARATION", include_db_transitions=True):
         return Response({"errors": {"status": "Cancel not allowed in current state."}}, status=409)
@@ -3032,6 +3399,9 @@ def needs_list_generate_transfers(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     if not _status_matches(
         record.get("status"), "APPROVED", "IN_PREPARATION", "IN_PROGRESS",
@@ -3153,6 +3523,9 @@ def needs_list_transfers(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return scope_error
 
     transfers, warnings = data_access.get_transfers_for_needs_list(needs_list_id)
     logger.info(
@@ -3184,6 +3557,9 @@ def needs_list_transfer_update(request, needs_list_id: str, transfer_id: int):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     body = request.data or {}
     reason = str(body.get("reason") or "").strip()
@@ -3243,6 +3619,9 @@ def needs_list_transfer_confirm(request, needs_list_id: str, transfer_id: int):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     actor = _actor_id(request)
     success, warnings = data_access.confirm_transfer_draft(transfer_id, needs_list_id, str(actor))
@@ -3291,6 +3670,9 @@ def needs_list_donations(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return scope_error
 
     snapshot = workflow_store.apply_overrides(record)
     items = snapshot.get("items", [])
@@ -3348,6 +3730,9 @@ def needs_list_donations_allocate(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=True)
+    if scope_error:
+        return scope_error
 
     allocations = request.data if isinstance(request.data, list) else []
     if not allocations:
@@ -3385,6 +3770,9 @@ def needs_list_donations_export(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return scope_error
 
     fmt = request.query_params.get("format", "csv").lower()
     snapshot = workflow_store.apply_overrides(record)
@@ -3440,6 +3828,9 @@ def needs_list_procurement_export(request, needs_list_id: str):
     record = workflow_store.get_record(needs_list_id)
     if not record:
         return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return scope_error
 
     fmt = request.query_params.get("format", "csv").lower()
     snapshot = workflow_store.apply_overrides(record)

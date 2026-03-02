@@ -180,6 +180,10 @@ DEV_AUTH_PERMISSIONS = [
     if perm.strip()
 ]
 
+# Tenant-scope rollout control.
+# Default is disabled for backward compatibility until tenant mappings are complete.
+TENANT_SCOPE_ENFORCEMENT = os.getenv("TENANT_SCOPE_ENFORCEMENT", "0") == "1"
+
 # Needs List Preview settings (TBD finalize from PRD/appendices).
 def _get_csv_env(name: str, default: list[str]) -> list[str]:
     value = os.getenv(name)

@@ -27,6 +27,11 @@ class NeedsListPermission(BasePermission):
         if not required:
             return False
 
+        if isinstance(required, dict):
+            required = required.get(request.method) or required.get("*")
+            if not required:
+                return False
+
         user = request.user
         if not getattr(user, "is_authenticated", False):
             return False

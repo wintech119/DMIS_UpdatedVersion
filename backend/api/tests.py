@@ -1,9 +1,12 @@
-from django.test import TestCase, override_settings
+from types import SimpleNamespace
+
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from api import rbac
 from api.authentication import Principal
+from api.permissions import NeedsListPermission
 
 
 class HealthEndpointTests(TestCase):
@@ -123,3 +126,27 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("replenishment.needs_list.submit", permissions)
+
+
+class NeedsListPermissionTests(SimpleTestCase):
+    def _build_request(self, method: str, *, authenticated: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(
+            method=method,
+            user=SimpleNamespace(is_authenticated=authenticated),
+        )
+
+    @patch(
+        "api.permissions.resolve_roles_and_permissions",
+        return_value=([], {"tenant.approval_policy.view"}),
+    )
+    def test_supports_method_specific_permission_mapping(self, _mock_permissions) -> None:
+        permission = NeedsListPermission()
+        view = SimpleNamespace(
+            required_permission={
+                "GET": "tenant.approval_policy.view",
+                "PUT": "tenant.approval_policy.manage",
+            }
+        )
+
+        self.assertTrue(permission.has_permission(self._build_request("GET"), view))
+        self.assertFalse(permission.has_permission(self._build_request("PUT"), view))

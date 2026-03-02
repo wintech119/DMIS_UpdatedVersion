@@ -26,7 +26,6 @@ from app.utils.timezone import format_datetime, datetime_to_jamaica, now
 from app.security.user_keycloak import check_refresh_token, keycloak_login, keycloak_logout
 from app.security.user_ldap import ldap_login, ldap_logout
 from app.security.csrf_validation import init_csrf_origin_validation
-from app.security.url_safety import is_safe_url, get_safe_redirect_url
 from app.security.rate_limiting import init_rate_limiting, limiter, RATE_LIMIT_AUTH
 from app.security.cors_config import init_cors
 from app.security.audit_logger import (
@@ -237,8 +236,8 @@ def login():
         password = request.form.get('password')
         success = _do_login(email, password)
         if success:
-            next_page = request.args.get('next')
-            return redirect(get_safe_redirect_url(next_page, 'dashboard.index'))
+            # Always return users to dashboard after login to avoid open-redirect risk.
+            return redirect(url_for('dashboard.index'))
         else:
             flash('Invalid email or password', 'danger')
     

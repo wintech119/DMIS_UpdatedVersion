@@ -47,6 +47,12 @@ from replenishment.views import (
     supplier_list_create,
     supplier_detail,
 )
+from replenishment.tenant_views import (
+    tenant_approval_policy_detail,
+    tenant_approval_policy_publish,
+    tenant_feature_detail,
+    tenant_feature_list,
+)
 
 urlpatterns = [
     path("active-event", get_active_event, name="get_active_event"),
@@ -187,4 +193,24 @@ urlpatterns = [
     # ── Suppliers ────────────────────────────────────────────────────────
     path("suppliers/", supplier_list_create, name="supplier_list_create"),
     path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
+    path(
+        "tenants/<int:tenant_id>/approval-policy/<str:workflow_type>",
+        tenant_approval_policy_detail,
+        name="tenant_approval_policy_detail",
+    ),
+    path(
+        "tenants/<int:tenant_id>/approval-policy/<str:workflow_type>/publish",
+        tenant_approval_policy_publish,
+        name="tenant_approval_policy_publish",
+    ),
+    path(
+        "tenants/<int:tenant_id>/features",
+        tenant_feature_list,
+        name="tenant_feature_list",
+    ),
+    path(
+        "tenants/<int:tenant_id>/features/<str:feature_key>",
+        tenant_feature_detail,
+        name="tenant_feature_detail",
+    ),
 ]

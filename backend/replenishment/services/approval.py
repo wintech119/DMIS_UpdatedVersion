@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import DatabaseError, connection
 
 from replenishment import rules
+from replenishment.services import tenant_policy
 
 _TABLE_COLUMNS_CACHE: dict[tuple[str, str, str], set[str]] = {}
 
@@ -267,8 +268,19 @@ def determine_approval_tier(
     total_cost: float | None,
     cost_missing: bool,
     selected_method: str | None = None,
+    tenant_id: int | None = None,
 ) -> Tuple[Dict[str, object], List[str], str]:
     method = _normalize_selected_method(selected_method) or ""
+    policy_decision = tenant_policy.resolve_approval_from_tenant_policy(
+        tenant_id=tenant_id,
+        method=method or "C",
+        phase=phase,
+        total_cost=total_cost,
+        cost_missing=cost_missing,
+    )
+    if policy_decision is not None:
+        return policy_decision
+
     if method == "A":
         # Transfer approvals are not procurement-cost driven.
         return (
@@ -393,6 +405,20 @@ def required_roles_for_approval(
 ) -> set[str]:
     method = _selected_method(record)
     normalized_submitter_roles = _normalized_role_set(submitter_roles)
+    explicit_roles = _normalized_role_set(approval.get("approver_role_codes"))
+    if explicit_roles:
+        roles = set(explicit_roles)
+        delegate_roles = _normalized_role_set(approval.get("delegate_role_codes"))
+        allow_delegate_for_logistics = bool(
+            approval.get("allow_logistics_delegate_on_submitter_role")
+        )
+        if (
+            allow_delegate_for_logistics
+            and delegate_roles
+            and normalized_submitter_roles.intersection(LOGISTICS_SUBMITTER_ROLES)
+        ):
+            roles.update(delegate_roles)
+        return _expand_role_aliases(roles)
 
     if method == "A":
         # Transfer: Logistics Manager; Director PEOD can approve on behalf
