@@ -24,7 +24,7 @@ from .models import (
     NeedsListItem,
     NeedsListAudit,
 )
-from .services import data_access
+from .services import data_access, phase_window_policy
 
 logger = logging.getLogger("dmis.audit")
 
@@ -618,16 +618,9 @@ def create_draft(
     selected_item_keys = payload.get("selected_item_keys")
     filters = payload.get("filters")
 
-    # Convert planning window to hours (assumes demand/planning windows are in API payload)
-    # For now, use default values based on phase
-    phase_windows = {
-        'SURGE': {'demand': 6, 'planning': 72},
-        'STABILIZED': {'demand': 72, 'planning': 168},
-        'BASELINE': {'demand': 720, 'planning': 720},
-    }
-    windows = phase_windows.get(phase, phase_windows['BASELINE'])
-    demand_window_hours = windows['demand']
-    planning_window_hours = windows['planning']
+    windows = phase_window_policy.get_effective_phase_windows(int(event_id), str(phase or "BASELINE"))
+    demand_window_hours = int(windows["demand_hours"])
+    planning_window_hours = int(windows["planning_hours"])
     if planning_window_days is not None:
         try:
             planning_window_hours = int(float(planning_window_days) * 24)

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from django.conf import settings
 from django.db import DatabaseError, connection
 
 from api.authentication import Principal
@@ -200,9 +201,11 @@ def resolve_tenant_context(
     memberships = list_user_tenant_memberships(principal)
     membership_by_id = {membership.tenant_id: membership for membership in memberships}
 
+    query_params = getattr(request, "query_params", None)
+    query_tenant_value = query_params.get("tenant_id") if hasattr(query_params, "get") else None
     requested_tenant_id = _parse_int(
         request.META.get("HTTP_X_TENANT_ID")
-        or request.query_params.get("tenant_id")
+        or query_tenant_value
     )
 
     active_membership: TenantMembership | None = None
@@ -344,6 +347,28 @@ def can_access_tenant(
         return _target_tenant_allows_neoc_actions(target_tenant_id)
 
     return context.can_read_all_tenants
+
+
+def can_manage_phase_window_config(context: TenantContext) -> bool:
+    """
+    Event phase demand/planning windows are centrally managed and must only be
+    configurable by ODPEM national and ODPEM-NEOC tenants.
+    """
+    active_type = _normalize_tenant_type(context.active_tenant_type)
+    if active_type not in {"NATIONAL", "NEOC", "NATIONAL_LEVEL"}:
+        return False
+
+    configured_codes = getattr(settings, "NATIONAL_PHASE_WINDOW_ADMIN_CODES", [])
+    allowed_codes = {
+        _normalize_tenant_code(value)
+        for value in configured_codes
+        if str(value or "").strip()
+    }
+    if not allowed_codes:
+        allowed_codes = {"OFFICE_OF_DISASTER_P", "ODPEM_NEOC"}
+
+    active_code = _normalize_tenant_code(context.active_tenant_code)
+    return active_code in allowed_codes
 
 
 def can_access_warehouse(

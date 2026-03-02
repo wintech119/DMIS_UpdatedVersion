@@ -52,7 +52,7 @@ from api.task_engine import TaskRule, resolve_available_tasks
 from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
 from replenishment.models import Procurement
 from replenishment.services import approval as approval_service
-from replenishment.services import data_access, needs_list
+from replenishment.services import data_access, needs_list, phase_window_policy
 from replenishment.services import procurement as procurement_service
 from replenishment.services.procurement import ProcurementError
 
@@ -937,7 +937,7 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     if phase not in rules.PHASES:
         return {}, {"phase": "Must be SURGE, STABILIZED, or BASELINE."}
 
-    windows = rules.get_phase_windows(phase)
+    windows = phase_window_policy.get_effective_phase_windows(int(event_id), phase)
     demand_window_hours = int(windows["demand_hours"])
     planning_window_hours = int(windows["planning_hours"])
     planning_window_days = planning_window_hours / 24

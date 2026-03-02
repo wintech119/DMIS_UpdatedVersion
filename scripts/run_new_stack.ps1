@@ -138,8 +138,20 @@ $backendCmd = $backendCmd.Replace("__BACKEND_PATH__", $backendPath).
 $frontendCmd = @'
 $host.ui.RawUI.WindowTitle = "DMIS Angular UI"
 Set-Location -Path "__FRONTEND_PATH__"
-if (__INSTALL_FLAG__ -or -not (Test-Path "node_modules")) { npm install }
+$depsHealthy = (Test-Path "node_modules") -and (Test-Path "node_modules/@angular/core/package.json") -and (Test-Path "node_modules/@angular/cli/package.json")
+if (__INSTALL_FLAG__ -or -not $depsHealthy) {
+  npm install
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "npm install failed. Resolve frontend dependency errors above, then retry."
+    Pause
+    exit $LASTEXITCODE
+  }
+}
 npm start
+if ($LASTEXITCODE -ne 0) {
+  Pause
+  exit $LASTEXITCODE
+}
 '@
 $frontendCmd = $frontendCmd.Replace("__FRONTEND_PATH__", $frontendPath).Replace("__INSTALL_FLAG__", $installFlagLiteral)
 

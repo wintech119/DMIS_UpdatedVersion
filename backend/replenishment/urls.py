@@ -53,9 +53,23 @@ from replenishment.tenant_views import (
     tenant_feature_detail,
     tenant_feature_list,
 )
+from replenishment.phase_window_views import (
+    event_phase_window_detail,
+    event_phase_window_list,
+)
 
 urlpatterns = [
     path("active-event", get_active_event, name="get_active_event"),
+    path(
+        "events/<int:event_id>/phase-windows",
+        event_phase_window_list,
+        name="event_phase_window_list",
+    ),
+    path(
+        "events/<int:event_id>/phase-windows/<str:phase>",
+        event_phase_window_detail,
+        name="event_phase_window_detail",
+    ),
     path("warehouses", get_all_warehouses, name="get_all_warehouses"),
     path("needs-list/preview", needs_list_preview, name="needs_list_preview"),
     path("needs-list/preview-multi", needs_list_preview_multi, name="needs_list_preview_multi"),

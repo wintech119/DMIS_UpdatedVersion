@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
-from api.tenancy import TenantContext, TenantMembership, can_access_tenant
+from api.tenancy import (
+    TenantContext,
+    TenantMembership,
+    can_access_tenant,
+    can_manage_phase_window_config,
+)
 
 
 class TenancyAccessTests(SimpleTestCase):
@@ -89,3 +94,37 @@ class TenancyAccessTests(SimpleTestCase):
 
         target_opt_in.return_value = True
         self.assertTrue(can_access_tenant(context, 42, write=True))
+
+    @override_settings(NATIONAL_PHASE_WINDOW_ADMIN_CODES=["OFFICE-OF-DISASTER-P", "ODPEM-NEOC"])
+    def test_phase_window_config_allowed_for_odpem_and_neoc(self) -> None:
+        odpem_context = TenantContext(
+            requested_tenant_id=27,
+            active_tenant_id=27,
+            active_tenant_code="OFFICE-OF-DISASTER-P",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+        neoc_context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=2,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=True,
+        )
+        other_context = TenantContext(
+            requested_tenant_id=3,
+            active_tenant_id=3,
+            active_tenant_code="ODPEM-LOGISTICS",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        self.assertTrue(can_manage_phase_window_config(odpem_context))
+        self.assertTrue(can_manage_phase_window_config(neoc_context))
+        self.assertFalse(can_manage_phase_window_config(other_context))
