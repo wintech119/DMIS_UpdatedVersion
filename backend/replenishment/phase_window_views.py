@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
@@ -80,8 +82,6 @@ def event_phase_window_detail(request, event_id: int, phase: str):
     scope_error = _manage_scope_error(request)
     if scope_error:
         return scope_error
-
-from collections.abc import Mapping
 
     body = request.data if isinstance(request.data, Mapping) else {}
     demand_hours = body.get("demand_hours", body.get("demand_window_hours"))
