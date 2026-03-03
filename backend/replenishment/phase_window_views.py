@@ -81,7 +81,9 @@ def event_phase_window_detail(request, event_id: int, phase: str):
     if scope_error:
         return scope_error
 
-    body = request.data if isinstance(request.data, dict) else {}
+from collections.abc import Mapping
+
+    body = request.data if isinstance(request.data, Mapping) else {}
     demand_hours = body.get("demand_hours", body.get("demand_window_hours"))
     planning_hours = body.get("planning_hours", body.get("planning_window_hours"))
 
