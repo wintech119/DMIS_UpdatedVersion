@@ -133,6 +133,23 @@ class TaskEngineTests(SimpleTestCase):
         self.assertEqual(without_flag, [])
         self.assertEqual(with_flag, ["escalate"])
 
+    def test_unsupported_permission_mode_raises_value_error(self) -> None:
+        rules = (
+            TaskRule(
+                task_code="bad_mode_rule",
+                required_permissions=("tenant.approval_policy.view",),
+                permission_mode="ANYY",
+            ),
+        )
+
+        with self.assertRaisesMessage(ValueError, "Unsupported permission_mode"):
+            resolve_available_tasks(
+                rules,
+                status="ANY",
+                permissions=["tenant.approval_policy.view"],
+                can_write_scope=True,
+            )
+
 
 class NeedsListExecutionTaskRuleTests(SimpleTestCase):
     def _resolve(self, status: str, record: dict[str, object] | None = None) -> list[str]:

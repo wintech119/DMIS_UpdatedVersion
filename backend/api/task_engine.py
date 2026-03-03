@@ -40,6 +40,8 @@ def _matches_permission(rule: TaskRule, permission_set: set[str]) -> bool:
     if not required:
         return True
     mode = str(rule.permission_mode or "any").strip().lower()
+    if mode not in {"any", "all", "none"}:
+        raise ValueError(f"Unsupported permission_mode: {rule.permission_mode!r}")
     if mode == "all":
         return required.issubset(permission_set)
     if mode == "none":
