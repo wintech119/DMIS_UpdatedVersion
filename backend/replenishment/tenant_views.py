@@ -23,6 +23,18 @@ def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
 
 
+def _parse_enabled_flag(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return None
+
+
 def _tenant_scope_error(request, tenant_id: int, *, write: bool) -> Response | None:
     _, permissions = resolve_roles_and_permissions(request, request.user)
     context = resolve_tenant_context(request, request.user, permissions)
@@ -159,7 +171,12 @@ def tenant_feature_detail(request, tenant_id: int, feature_key: str):
     body: dict[str, Any] = request.data if isinstance(request.data, dict) else {}
     if "enabled" not in body:
         return Response({"errors": {"enabled": "enabled is required."}}, status=400)
-    enabled = bool(body.get("enabled"))
+    enabled = _parse_enabled_flag(body.get("enabled"))
+    if enabled is None:
+        return Response(
+            {"errors": {"enabled": "enabled must be a boolean (or one of: true/false, 1/0, yes/no, on/off)."}},
+            status=400,
+        )
     settings = body.get("settings")
     if settings is not None and not isinstance(settings, dict):
         return Response({"errors": {"settings": "settings must be an object when provided."}}, status=400)
