@@ -401,10 +401,13 @@ def can_access_record(
     if warehouse_id is not None:
         return can_access_warehouse(context, warehouse_id, write=write)
 
-    for value in (record.get("warehouse_ids") or []):
-        candidate_id = _parse_int(value)
-        if candidate_id is None:
-            continue
-        if can_access_warehouse(context, candidate_id, write=write):
-            return True
+    warehouse_ids = record.get("warehouse_ids")
+    if isinstance(warehouse_ids, (list, tuple, set)):
+        for value in warehouse_ids:
+            candidate_id = _parse_int(value)
+            if candidate_id is None:
+                continue
+            if can_access_warehouse(context, candidate_id, write=write):
+                return True
+    return False
     return False
