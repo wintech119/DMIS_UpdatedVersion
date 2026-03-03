@@ -67,6 +67,19 @@ def _json_text(value: dict[str, Any]) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
 
 
+def _parse_enabled_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    return False
+
+
 @dataclass(frozen=True)
 class TenantConfigValue:
     config_id: int
@@ -468,7 +481,7 @@ def list_tenant_features(tenant_id: int) -> list[dict[str, Any]]:
         features.append(
             {
                 "feature_key": feature_key,
-                "enabled": bool(value.get("enabled", False)),
+                "enabled": _parse_enabled_flag(value.get("enabled", False)),
                 "settings": value.get("settings", {}),
                 "effective_date": row[3].isoformat() if row[3] else None,
                 "expiry_date": row[4].isoformat() if row[4] else None,
@@ -492,7 +505,7 @@ def set_tenant_feature(
     now = timezone.now()
     today = timezone.localdate()
     value = {
-        "enabled": bool(enabled),
+        "enabled": _parse_enabled_flag(enabled),
         "settings": settings if isinstance(settings, dict) else {},
     }
     serialized = _json_text(value)
@@ -553,7 +566,7 @@ def set_tenant_feature(
     if latest is None:
         latest = {
             "feature_key": normalized_feature_key,
-            "enabled": bool(enabled),
+            "enabled": _parse_enabled_flag(enabled),
             "settings": settings if isinstance(settings, dict) else {},
             "effective_date": today.isoformat(),
             "expiry_date": None,
