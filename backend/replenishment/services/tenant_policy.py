@@ -487,6 +487,7 @@ def set_tenant_feature(
     actor: object,
 ) -> dict[str, Any]:
     key = _feature_config_key(feature_key)
+    normalized_feature_key = key[len(FEATURE_KEY_PREFIX):]
     actor_ref = _actor_ref(actor)
     now = timezone.now()
     today = timezone.localdate()
@@ -545,10 +546,13 @@ def set_tenant_feature(
             ],
         )
 
-    latest = next((feature for feature in list_tenant_features(int(tenant_id)) if feature["feature_key"] == feature_key.lower().replace(" ", "_")), None)
+    latest = next(
+        (feature for feature in list_tenant_features(int(tenant_id)) if feature["feature_key"] == normalized_feature_key),
+        None,
+    )
     if latest is None:
         latest = {
-            "feature_key": feature_key.lower().replace(" ", "_"),
+            "feature_key": normalized_feature_key,
             "enabled": bool(enabled),
             "settings": settings if isinstance(settings, dict) else {},
             "effective_date": today.isoformat(),
