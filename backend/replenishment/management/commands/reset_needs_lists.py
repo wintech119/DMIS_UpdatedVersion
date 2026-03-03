@@ -226,15 +226,21 @@ class Command(BaseCommand):
         if not self._table_exists(table_name):
             return
 
+    def _export_csv(self, table_name: str, sql: str, path: Path) -> None:
+        if not self._table_exists(table_name):
+            return
+
         with connection.cursor() as cursor:
             cursor.execute(sql)
             columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
-        with path.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(columns)
-            writer.writerows(rows)
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(columns)
+                while True:
+                    batch = cursor.fetchmany(1000)
+                    if not batch:
+                        break
+                    writer.writerows(batch)
 
     def _lock_tables(self) -> None:
         if connection.vendor != "postgresql":
