@@ -190,7 +190,7 @@ class Command(BaseCommand):
                 [
                     to_tenant_id,
                     row.user_id,
-                    bool(set_primary or row.is_primary_tenant),
+                    bool(set_primary and row.is_primary_tenant),
                     row.access_level or "FULL",
                     now,
                     assigned_by,
