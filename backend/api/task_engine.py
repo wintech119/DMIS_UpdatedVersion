@@ -43,7 +43,7 @@ def _matches_permission(rule: TaskRule, permission_set: set[str]) -> bool:
     if mode == "all":
         return required.issubset(permission_set)
     if mode == "none":
-        return True
+        return not any(permission in permission_set for permission in required)
     return any(permission in permission_set for permission in required)
 
 

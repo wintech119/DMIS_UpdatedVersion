@@ -78,6 +78,34 @@ class TaskEngineTests(SimpleTestCase):
             ["publish_policy"],
         )
 
+    def test_permission_mode_none_requires_absence_of_required_permissions(self) -> None:
+        rules = (
+            TaskRule(
+                task_code="can_request_access",
+                required_permissions=("tenant.approval_policy.manage",),
+                permission_mode="none",
+            ),
+        )
+
+        self.assertEqual(
+            resolve_available_tasks(
+                rules,
+                status="ANY",
+                permissions=["tenant.approval_policy.view"],
+                can_write_scope=True,
+            ),
+            ["can_request_access"],
+        )
+        self.assertEqual(
+            resolve_available_tasks(
+                rules,
+                status="ANY",
+                permissions=["tenant.approval_policy.manage"],
+                can_write_scope=True,
+            ),
+            [],
+        )
+
     def test_predicate_allows_domain_specific_guard(self) -> None:
         rules = (
             TaskRule(
