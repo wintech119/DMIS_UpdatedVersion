@@ -894,6 +894,10 @@ def _normalize_submitted_approval_summary(summary: object) -> Dict[str, Any] | N
     parsed_cost = None
     if total_estimated_cost is not None:
         parsed_cost = _to_float_or_none(total_estimated_cost)
+    tenant_id = _to_int_or_none(summary.get("tenant_id"))
+    policy_version = summary.get("policy_version")
+    if policy_version is None and isinstance(approval, dict):
+        policy_version = approval.get("policy_version")
     return {
         "total_required_qty": round(total_required_qty, 2),
         "total_estimated_cost": None if parsed_cost is None else round(parsed_cost, 2),
@@ -901,6 +905,8 @@ def _normalize_submitted_approval_summary(summary: object) -> Dict[str, Any] | N
         "warnings": warnings,
         "rationale": str(summary.get("rationale") or ""),
         "escalation_required": bool(summary.get("escalation_required")),
+        "tenant_id": tenant_id,
+        "policy_version": policy_version,
     }
 
 
