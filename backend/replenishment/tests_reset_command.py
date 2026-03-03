@@ -65,9 +65,11 @@ class ResetNeedsListsCommandTests(SimpleTestCase):
             "replenishment.management.commands.reset_needs_lists.transaction.atomic",
             return_value=nullcontext(),
         ):
-            backup_dir = Path("backend/.tmp/test_reset_backups").resolve()
-            command.handle(execute=True, allow_prod=False, backup_dir=str(backup_dir))
+from tempfile import TemporaryDirectory
 
+            with TemporaryDirectory() as tmpdir:
+                backup_dir = Path(tmpdir).resolve()
+                command.handle(execute=True, allow_prod=False, backup_dir=str(backup_dir))
         write_backups.assert_called_once()
         lock_tables.assert_called_once()
         detach_links.assert_called_once()
