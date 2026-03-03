@@ -409,9 +409,13 @@ def required_roles_for_approval(
     if explicit_roles:
         roles = set(explicit_roles)
         delegate_roles = _normalized_role_set(approval.get("delegate_role_codes"))
-        allow_delegate_for_logistics = bool(
-            approval.get("allow_logistics_delegate_on_submitter_role")
-        )
+        raw_delegate_flag = approval.get("allow_logistics_delegate_on_submitter_role")
+        if isinstance(raw_delegate_flag, bool):
+            allow_delegate_for_logistics = raw_delegate_flag
+        else:
+            allow_delegate_for_logistics = (
+                str(raw_delegate_flag).strip().lower() in {"1", "true", "yes", "on"}
+            )
         if (
             allow_delegate_for_logistics
             and delegate_roles
