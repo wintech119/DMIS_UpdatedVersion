@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.test import SimpleTestCase
 
-from api.rbac import PERM_NEEDS_LIST_EXECUTE
+from api.rbac import PERM_NEEDS_LIST_CANCEL, PERM_NEEDS_LIST_EXECUTE
 from api.task_engine import TaskRule, resolve_available_tasks
 from replenishment.views import _NEEDS_LIST_TASK_RULES
 
@@ -187,3 +187,31 @@ class NeedsListExecutionTaskRuleTests(SimpleTestCase):
         self.assertNotIn("mark_completed", prep_started_tasks)
         self.assertIn("mark_received", dispatched_tasks)
         self.assertNotIn("mark_dispatched", dispatched_tasks)
+
+
+class NeedsListCancelTaskRuleTests(SimpleTestCase):
+    def _resolve_with_record(self, status: str, record: dict[str, object] | None = None) -> list[str]:
+        effective_record = record or {"status": status}
+        return resolve_available_tasks(
+            _NEEDS_LIST_TASK_RULES,
+            status=status,
+            permissions=[PERM_NEEDS_LIST_CANCEL],
+            can_write_scope=True,
+            context={"record": effective_record},
+        )
+
+    def test_cancel_not_advertised_for_dispatched_or_received(self) -> None:
+        self.assertNotIn("cancel", self._resolve_with_record("DISPATCHED"))
+        self.assertNotIn("cancel", self._resolve_with_record("RECEIVED"))
+
+    def test_cancel_not_advertised_after_dispatch_metadata_exists(self) -> None:
+        tasks = self._resolve_with_record(
+            "IN_PROGRESS",
+            {
+                "status": "IN_PROGRESS",
+                "dispatched_at": "2026-01-01T01:00:00Z",
+                "received_at": None,
+                "completed_at": None,
+            },
+        )
+        self.assertNotIn("cancel", tasks)

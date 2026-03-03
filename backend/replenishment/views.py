@@ -147,6 +147,14 @@ def _can_mark_completed(context: Mapping[str, Any]) -> bool:
     return bool(record.get("received_at")) and not bool(record.get("completed_at"))
 
 
+def _can_cancel_execution(context: Mapping[str, Any]) -> bool:
+    record = _record_for_task_context(context)
+    status = _record_status_for_task(record)
+    if status not in {"APPROVED", "IN_PREPARATION", "IN_PROGRESS"}:
+        return False
+    return not any(record.get(field) for field in ("dispatched_at", "received_at", "completed_at"))
+
+
 _NEEDS_LIST_TASK_RULES = (
     TaskRule(
         task_code="edit_lines",
@@ -229,7 +237,8 @@ _NEEDS_LIST_TASK_RULES = (
     TaskRule(
         task_code="cancel",
         required_permissions=(PERM_NEEDS_LIST_CANCEL,),
-        statuses=frozenset(_NEEDS_LIST_EXECUTION_STATUSES),
+        statuses=frozenset({"APPROVED", "IN_PREPARATION", "IN_PROGRESS"}),
+        predicate=_can_cancel_execution,
     ),
 )
 
