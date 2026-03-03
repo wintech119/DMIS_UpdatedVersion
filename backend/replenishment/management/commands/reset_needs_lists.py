@@ -100,8 +100,11 @@ class Command(BaseCommand):
             encoding="utf-8",
         )
 
-        if post_counts["needs"]["total_needs_lists"] != 0:
-            raise CommandError("Reset failed: needs_list still contains rows after execution.")
+        for counter_name, counter_value in post_counts["needs"].items():
+            if int(counter_value) != 0:
+                raise CommandError(
+                    f"Reset failed: needs counter '{counter_name}' remained non-zero ({counter_value})."
+                )
 
         if post_counts["queue"]["queue_visible_total"] != 0:
             raise CommandError("Reset failed: queue-visible needs lists remain after execution.")
