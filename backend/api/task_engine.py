@@ -67,7 +67,8 @@ def resolve_available_tasks(
             continue
         if rule.requires_write_scope and not can_write_scope:
             continue
-        if rule.statuses and normalized_status not in rule.statuses:
+        normalized_rule_statuses = {_status_value(candidate) for candidate in rule.statuses}
+        if normalized_rule_statuses and normalized_status not in normalized_rule_statuses:
             continue
         if not _matches_permission(rule, permission_set):
             continue

@@ -150,6 +150,24 @@ class TaskEngineTests(SimpleTestCase):
                 can_write_scope=True,
             )
 
+    def test_status_matching_is_case_insensitive(self) -> None:
+        rules = (
+            TaskRule(
+                task_code="review",
+                required_permissions=("tenant.approval_policy.view",),
+                statuses=frozenset({"pending_approval"}),
+            ),
+        )
+
+        tasks = resolve_available_tasks(
+            rules,
+            status="PENDING_APPROVAL",
+            permissions=["tenant.approval_policy.view"],
+            can_write_scope=True,
+        )
+
+        self.assertEqual(tasks, ["review"])
+
 
 class NeedsListExecutionTaskRuleTests(SimpleTestCase):
     def _resolve(self, status: str, record: dict[str, object] | None = None) -> list[str]:
