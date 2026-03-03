@@ -46,6 +46,12 @@ def _manage_scope_error(request) -> Response | None:
     )
 
 
+def _phase_window_error_status(exc: Exception) -> int:
+    message = str(exc or "").lower()
+    backend_markers = ("database", "db", "storage", "connection", "timeout", "backend")
+    return 500 if any(marker in message for marker in backend_markers) else 400
+
+
 @api_view(["GET"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
@@ -53,7 +59,10 @@ def event_phase_window_list(request, event_id: int):
     try:
         windows = phase_window_policy.list_effective_phase_windows(int(event_id))
     except PhaseWindowPolicyError as exc:
-        return Response({"errors": {"event_phase_windows": str(exc)}}, status=400)
+        return Response(
+            {"errors": {"event_phase_windows": str(exc)}},
+            status=_phase_window_error_status(exc),
+        )
     context = _tenant_context(request)
     return Response(
         {
@@ -95,7 +104,10 @@ def event_phase_window_detail(request, event_id: int, phase: str):
             actor=_actor_id(request),
         )
     except PhaseWindowPolicyError as exc:
-        return Response({"errors": {"event_phase_windows": str(exc)}}, status=400)
+        return Response(
+            {"errors": {"event_phase_windows": str(exc)}},
+            status=_phase_window_error_status(exc),
+        )
 
     return Response(
         {
