@@ -40,8 +40,7 @@ def _event_exists(event_id: int) -> bool:
             cursor.execute("SELECT 1 FROM event WHERE event_id = %s LIMIT 1", [event_id])
             return cursor.fetchone() is not None
     except DatabaseError:
-        # Do not hard-fail on metadata lookup problems; save path will still guard integrity.
-        return True
+        return False
 
 
 def _fetch_active_event_phase_config(event_id: int, phase: str) -> EventPhaseConfig | None:
