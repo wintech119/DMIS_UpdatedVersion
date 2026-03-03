@@ -1030,6 +1030,7 @@ class DataAccessAtomicityTests(TestCase):
         )
 
 
+@override_settings(TENANT_SCOPE_ENFORCEMENT=False)
 class NeedsListWorkflowApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()

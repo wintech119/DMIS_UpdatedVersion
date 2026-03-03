@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
 from api.rbac import resolve_roles_and_permissions
+from api.tenancy import resolve_tenant_context, tenant_context_to_dict
 
 
 @api_view(["GET"])
@@ -18,12 +19,14 @@ def health(request):
 @permission_classes([IsAuthenticated])
 def whoami(request):
     roles, permissions = resolve_roles_and_permissions(request, request.user)
+    tenant_context = resolve_tenant_context(request, request.user, permissions)
     return Response(
         {
             "user_id": request.user.user_id,
             "username": request.user.username,
             "roles": roles,
             "permissions": sorted(permissions),
+            "tenant_context": tenant_context_to_dict(tenant_context),
         }
     )
 

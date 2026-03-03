@@ -47,9 +47,29 @@ from replenishment.views import (
     supplier_list_create,
     supplier_detail,
 )
+from replenishment.tenant_views import (
+    tenant_approval_policy_detail,
+    tenant_approval_policy_publish,
+    tenant_feature_detail,
+    tenant_feature_list,
+)
+from replenishment.phase_window_views import (
+    event_phase_window_detail,
+    event_phase_window_list,
+)
 
 urlpatterns = [
     path("active-event", get_active_event, name="get_active_event"),
+    path(
+        "events/<int:event_id>/phase-windows",
+        event_phase_window_list,
+        name="event_phase_window_list",
+    ),
+    path(
+        "events/<int:event_id>/phase-windows/<str:phase>",
+        event_phase_window_detail,
+        name="event_phase_window_detail",
+    ),
     path("warehouses", get_all_warehouses, name="get_all_warehouses"),
     path("needs-list/preview", needs_list_preview, name="needs_list_preview"),
     path("needs-list/preview-multi", needs_list_preview_multi, name="needs_list_preview_multi"),
@@ -187,4 +207,24 @@ urlpatterns = [
     # ── Suppliers ────────────────────────────────────────────────────────
     path("suppliers/", supplier_list_create, name="supplier_list_create"),
     path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
+    path(
+        "tenants/<int:tenant_id>/approval-policy/<str:workflow_type>",
+        tenant_approval_policy_detail,
+        name="tenant_approval_policy_detail",
+    ),
+    path(
+        "tenants/<int:tenant_id>/approval-policy/<str:workflow_type>/publish",
+        tenant_approval_policy_publish,
+        name="tenant_approval_policy_publish",
+    ),
+    path(
+        "tenants/<int:tenant_id>/features",
+        tenant_feature_list,
+        name="tenant_feature_list",
+    ),
+    path(
+        "tenants/<int:tenant_id>/features/<str:feature_key>",
+        tenant_feature_detail,
+        name="tenant_feature_detail",
+    ),
 ]

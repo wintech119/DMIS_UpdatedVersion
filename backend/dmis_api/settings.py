@@ -180,6 +180,10 @@ DEV_AUTH_PERMISSIONS = [
     if perm.strip()
 ]
 
+# Tenant-scope rollout control.
+# Default is disabled for backward compatibility until tenant mappings are complete.
+TENANT_SCOPE_ENFORCEMENT = os.getenv("TENANT_SCOPE_ENFORCEMENT", "0") == "1"
+
 # Needs List Preview settings (TBD finalize from PRD/appendices).
 def _get_csv_env(name: str, default: list[str]) -> list[str]:
     value = os.getenv(name)
@@ -206,6 +210,13 @@ def _get_int_env(name: str, default: int | None) -> int | None:
     except ValueError as exc:
         raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
 
+
+# Only these national tenants may manage event phase demand/planning windows.
+# Values are tenant_code entries and are compared case-insensitively.
+NATIONAL_PHASE_WINDOW_ADMIN_CODES = _get_csv_env(
+    "NATIONAL_PHASE_WINDOW_ADMIN_CODES",
+    ["OFFICE-OF-DISASTER-P", "ODPEM-NEOC"],
+)
 
 NEEDS_SAFETY_FACTOR = _get_float_env("NEEDS_SAFETY_FACTOR", 1.25)
 NEEDS_HORIZON_A_DAYS = _get_int_env("NEEDS_HORIZON_A_DAYS", 7)

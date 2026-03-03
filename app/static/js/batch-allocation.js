@@ -8,7 +8,11 @@ const BatchAllocation = (function() {
     let currentItemId = null;
     let currentItemData = null;
     let currentBatches = {};
-    let currentAllocations = {};
+    let currentAllocations = Object.create(null);
+
+    function isSafeObjectKey(key) {
+        return !['__proto__', 'prototype', 'constructor'].includes(String(key));
+    }
     
     // DOM elements
     const elements = {
@@ -175,7 +179,9 @@ const BatchAllocation = (function() {
             console.log(`API returned ${allBatches.length} batches:`, allBatches.map(b => `${b.batch_id} (${b.batch_no})`));
             
             allBatches.forEach(batch => {
-                currentBatches[batch.batch_id] = batch;
+                if (isSafeObjectKey(batch.batch_id)) {
+                    currentBatches[batch.batch_id] = batch;
+                }
             });
             
             // Check if previously allocated batches are in the list
@@ -206,7 +212,7 @@ const BatchAllocation = (function() {
      * Load existing allocations from the main form
      */
     function loadExistingAllocations() {
-        currentAllocations = {};
+        currentAllocations = Object.create(null);
         
         // Look for hidden inputs with pattern: batch_allocation_{itemId}_{batchId}
         const inputs = document.querySelectorAll(`input[name^="batch_allocation_${currentItemId}_"]`);
@@ -219,7 +225,9 @@ const BatchAllocation = (function() {
                 const batchId = parseInt(parts[3]);
                 const qty = parseFloat(input.value) || 0;
                 if (qty > 0) {
-                    currentAllocations[batchId] = qty;
+                    if (isSafeObjectKey(batchId)) {
+                        currentAllocations[batchId] = qty;
+                    }
                     console.log(`  - Loaded allocation: batch ${batchId} = ${qty}`);
                 }
             }
@@ -304,10 +312,13 @@ const BatchAllocation = (function() {
      * @returns {Object} Warehouses grouped by warehouse_id
      */
     function groupBatchesByWarehouse(batches) {
-        const groups = {};
+        const groups = Object.create(null);
         
         batches.forEach(batch => {
-            const warehouseId = batch.warehouse_id;
+            const warehouseId = String(batch.warehouse_id);
+            if (!isSafeObjectKey(warehouseId)) {
+                return;
+            }
             if (!groups[warehouseId]) {
                 groups[warehouseId] = {
                     warehouse_id: warehouseId,
