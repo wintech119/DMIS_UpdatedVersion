@@ -71,7 +71,8 @@ class Command(BaseCommand):
 
         backfill_rows = []
         if backfill_tenant_warehouse:
-            backfill_rows = self._missing_tenant_warehouse_rows()
+            scoped_tenant_ids = sorted({from_tenant_id, to_tenant_id})
+            backfill_rows = self._missing_tenant_warehouse_rows(scoped_tenant_ids)
 
         self.stdout.write("Tenant scope alignment plan:")
         self.stdout.write(f"- from tenant: {from_tenant_id}")
@@ -112,7 +113,13 @@ class Command(BaseCommand):
                         target_tenant_id=to_tenant_id,
                     )
             if backfill_tenant_warehouse and backfill_rows:
-                self._insert_tenant_warehouse_rows(backfill_rows, actor_ref=actor_ref, now=now)
+                scoped_tenant_ids = sorted({from_tenant_id, to_tenant_id})
+                self._insert_tenant_warehouse_rows(
+                    backfill_rows,
+                    actor_ref=actor_ref,
+                    now=now,
+                    tenant_ids=scoped_tenant_ids,
+                )
 
         self.stdout.write(self.style.SUCCESS("Tenant scope alignment applied successfully."))
 
@@ -235,10 +242,13 @@ class Command(BaseCommand):
                 [*user_ids, target_tenant_id],
             )
 
-    def _missing_tenant_warehouse_rows(self) -> list[tuple[int, int]]:
+    def _missing_tenant_warehouse_rows(self, tenant_ids: list[int]) -> list[tuple[int, int]]:
+        if not tenant_ids:
+            return []
+        placeholders = ", ".join(["%s"] * len(tenant_ids))
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT w.tenant_id, w.warehouse_id
                 FROM warehouse w
                 LEFT JOIN tenant_warehouse tw
@@ -247,9 +257,11 @@ class Command(BaseCommand):
                     AND tw.effective_date <= CURRENT_DATE
                     AND (tw.expiry_date IS NULL OR tw.expiry_date >= CURRENT_DATE)
                 WHERE w.tenant_id IS NOT NULL
+                  AND w.tenant_id IN ({placeholders})
                   AND tw.warehouse_id IS NULL
                 ORDER BY w.warehouse_id
-                """
+                """,
+                tenant_ids,
             )
             rows = cursor.fetchall()
         return [(int(row[0]), int(row[1])) for row in rows]
@@ -260,10 +272,15 @@ class Command(BaseCommand):
         *,
         actor_ref: str,
         now: datetime,
+        tenant_ids: list[int],
     ) -> None:
+        allowed_tenant_ids = set(tenant_ids)
+        filtered_rows = [(tenant_id, warehouse_id) for tenant_id, warehouse_id in rows if tenant_id in allowed_tenant_ids]
+        if not filtered_rows:
+            return
         insert_rows = [
             [tenant_id, warehouse_id, "OWNED", "FULL", timezone.localdate(), None, actor_ref, now]
-            for tenant_id, warehouse_id in rows
+            for tenant_id, warehouse_id in filtered_rows
         ]
         with connection.cursor() as cursor:
             cursor.executemany(
