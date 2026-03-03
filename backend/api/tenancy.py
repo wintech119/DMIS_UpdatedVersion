@@ -222,7 +222,17 @@ def resolve_tenant_context(
         and active_membership is None
         and can_read_all
     ):
-        active_membership = _tenant_by_id(requested_tenant_id)
+        provisional_context = TenantContext(
+            requested_tenant_id=requested_tenant_id,
+            active_tenant_id=None,
+            active_tenant_code=None,
+            active_tenant_type=None,
+            memberships=memberships,
+            can_read_all_tenants=can_read_all,
+            can_act_cross_tenant=can_act_cross_tenant,
+        )
+        if can_access_tenant(provisional_context, requested_tenant_id, write=False):
+            active_membership = _tenant_by_id(requested_tenant_id)
 
     return TenantContext(
         requested_tenant_id=requested_tenant_id,

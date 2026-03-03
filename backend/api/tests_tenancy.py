@@ -9,7 +9,10 @@ from api.tenancy import (
     TenantMembership,
     can_access_tenant,
     can_manage_phase_window_config,
+    resolve_tenant_context,
 )
+from api.authentication import Principal
+from api.rbac import PERM_NATIONAL_READ_ALL_TENANTS
 
 
 class TenancyAccessTests(SimpleTestCase):
@@ -128,3 +131,32 @@ class TenancyAccessTests(SimpleTestCase):
         self.assertTrue(can_manage_phase_window_config(odpem_context))
         self.assertTrue(can_manage_phase_window_config(neoc_context))
         self.assertFalse(can_manage_phase_window_config(other_context))
+
+    @patch("api.tenancy._tenant_by_id")
+    @patch("api.tenancy.list_user_tenant_memberships")
+    def test_resolve_context_does_not_activate_requested_tenant_without_neoc_access(
+        self,
+        memberships_mock,
+        tenant_by_id_mock,
+    ) -> None:
+        memberships_mock.return_value = tuple()
+        tenant_by_id_mock.return_value = TenantMembership(
+            tenant_id=42,
+            tenant_code="PAR42",
+            tenant_name="Parish 42",
+            tenant_type="PARISH",
+            is_primary=False,
+            access_level=None,
+        )
+        request = type("Req", (), {"META": {"HTTP_X_TENANT_ID": "42"}, "query_params": {}})()
+        principal = Principal(user_id="1", username="user", roles=[])
+
+        context = resolve_tenant_context(
+            request,
+            principal,
+            [PERM_NATIONAL_READ_ALL_TENANTS],
+        )
+
+        tenant_by_id_mock.assert_not_called()
+        self.assertEqual(context.requested_tenant_id, 42)
+        self.assertIsNone(context.active_tenant_id)
