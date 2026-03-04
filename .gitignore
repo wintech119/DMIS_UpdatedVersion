@@ -141,3 +141,5 @@ docs/attached_assets/__live_tables.txt
 docs/attached_assets/__schema_tables.txt
 # Frontend npm cache
 frontend/.npm-cache/
+
+.tmp_docx_extract/

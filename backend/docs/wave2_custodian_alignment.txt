@@ -1,9 +1,0 @@
-Custodian -> tenant alignment report:
-- custodians: 3
-- safe backfill candidates (NULL tenant_id): 0
-- mismatches (manual review): 0
-- apply mode: True
-- custodian_id=2 name='OFFICE OF DISASTER PREPAREDNESS AND EMERGENCY MANAGEMENT (ODPEM)' tenant_id=27 suggested=27 source=warehouse_majority warehouses=11 donations=0
-- custodian_id=3 name='JAMAICA DEFENCE FORCE (JDF)' tenant_id=28 suggested=28 source=tenant_name_match warehouses=0 donations=0
-- custodian_id=4 name='MINISTRY OF LABOUR AND SOCIAL SECURITY (MLSS)' tenant_id=26 suggested=26 source=tenant_name_match warehouses=0 donations=0
-No safe custodian tenant backfills required.
