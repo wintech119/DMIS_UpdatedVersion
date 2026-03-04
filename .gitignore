@@ -114,6 +114,7 @@ db.sqlite3
 **/logs/
 # Claude/Cursor local settings (may contain paths or tokens)
 .claude/
+.mcp.json
 
 # ---------------------------------------------------------------------------
 # Non-application / generated or downloaded data

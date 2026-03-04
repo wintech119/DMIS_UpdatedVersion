@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
-import { map, shareReplay } from 'rxjs/operators';
+import { Observable, throwError } from 'rxjs';
+import { catchError, map, shareReplay } from 'rxjs/operators';
 import {
   LookupItem,
   MasterDetailResponse,
@@ -84,6 +84,10 @@ export class MasterDataService {
         `${this.apiUrl}/${tableKey}/lookup`, { params },
       ).pipe(
         map(res => res.items),
+        catchError(err => {
+          this.lookupCache.delete(cacheKey);
+          return throwError(() => err);
+        }),
         shareReplay(1),
       );
       this.lookupCache.set(cacheKey, obs$);
