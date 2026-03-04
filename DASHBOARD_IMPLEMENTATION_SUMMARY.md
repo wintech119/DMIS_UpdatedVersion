@@ -178,3 +178,10 @@ As a Logistics Manager working in the field:
 ✅ **Actionable**: One button to generate needs list
 
 *"If it's not logged, it didn't happen"* - All actions flow to existing audit workflow.
+
+## Related Documentation
+
+- [CLAUDE.md](CLAUDE.md) — DMIS Supply Replenishment module context and coding standards
+- [CLAUDE_CODE_SUPPLY_REPLENISHMENT_GUIDE.md](CLAUDE_CODE_SUPPLY_REPLENISHMENT_GUIDE.md) — Claude-oriented supply replenishment guide
+- [CODEX_SUPPLY_REPLENISHMENT_GUIDE.md](CODEX_SUPPLY_REPLENISHMENT_GUIDE.md) — Codex-oriented supply replenishment guide
+- [DASHBOARD_IMPLEMENTATION_SUMMARY.md](DASHBOARD_IMPLEMENTATION_SUMMARY.md) — This document (Stock Status Dashboard implementation summary)

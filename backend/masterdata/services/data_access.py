@@ -246,7 +246,7 @@ _register(TableConfig(
     fields=[
         FieldDef("item_id", pk=True, auto_pk=True, db_type="int", label="ID"),
         FieldDef("item_code", required=True, unique=True, uppercase=True,
-                 max_length=16, searchable=True, label="Item Code",
+                 max_length=30, searchable=True, label="Item Code",
                  pattern=r"^[A-Z0-9\-_\.]+$",
                  pattern_message="Only uppercase letters, digits, hyphens, underscores, dots"),
         FieldDef("item_name", required=True, unique=True, uppercase=True,

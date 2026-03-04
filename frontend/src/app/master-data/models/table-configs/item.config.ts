@@ -21,7 +21,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
     // ── Item Identity ────────────────────────────────────────────────────────
     {
       field: 'item_code', label: 'Item Code', type: 'text', required: true,
-      maxLength: 16, uppercase: true,
+      maxLength: 30, uppercase: true,
       pattern: '^[A-Z0-9\\-_\\.]+$', patternMessage: 'Only uppercase letters, digits, hyphens, underscores, dots',
       group: 'Item Identity',
       hint: 'Uppercase letters, digits, hyphens, underscores, and dots only',

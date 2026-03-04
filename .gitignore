@@ -68,6 +68,10 @@ deploy/*.conf
 backend/.local/
 backend/.tmp/
 backend/runtime/
+backend/runtime/db_backup_schema_pre_hardening_*.sql
+backend/runtime/db_backup_schema_pre_phase*.sql
+backend/runtime/db_backup_schema_pre_*.sql
+backend/runtime/db_backup_*.sql
 
 # Codex local artifacts (config may contain DATABASE_URI and other secrets)
 .codex/
@@ -114,6 +118,7 @@ db.sqlite3
 **/user_data/
 **/logs/
 # Claude/Cursor local settings (may contain paths or tokens)
+.claude
 .claude/
 .mcp.json
 

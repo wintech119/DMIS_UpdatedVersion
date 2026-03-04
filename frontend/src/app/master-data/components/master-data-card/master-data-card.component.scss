@@ -48,6 +48,7 @@
   flex-shrink: 0;
 
   mat-icon,
+  /* stylelint-disable-next-line selector-pseudo-element-no-unknown */
   ::ng-deep mat-icon {
     font-size: 20px;
     width: 20px;
