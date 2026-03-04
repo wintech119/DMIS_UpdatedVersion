@@ -17,6 +17,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { LookupItem, MasterTableConfig } from '../../models/master-data.models';
 import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
+import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 
 export interface MasterFormDialogData {
   config: MasterTableConfig;
@@ -76,6 +77,9 @@ export interface MasterFormDialogData {
                 </mat-select>
                 @if (form.get(field.field)?.hasError('required')) {
                   <mat-error>{{ field.label }} is required</mat-error>
+                }
+                @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
+                  <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
                 }
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
@@ -232,6 +236,9 @@ export class MasterFormDialogComponent implements OnInit {
   isSaving = signal(false);
   isLoadingRecord = signal(false);
   lookups = signal<Record<string, LookupItem[]>>({});
+  readonly formErrorMessages: Record<string, string> = {
+    fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
+  };
 
   private versionNbr: number | null = null;
 
@@ -256,6 +263,11 @@ export class MasterFormDialogComponent implements OnInit {
         field.field,
         new FormControl(field.defaultValue ?? null, validators),
       );
+    }
+
+    if (this.data.config.tableKey === 'items') {
+      this.form.setValidators(validateFefoRequiresExpiry);
+      this.form.updateValueAndValidity({ emitEvent: false });
     }
   }
 
@@ -303,7 +315,10 @@ export class MasterFormDialogComponent implements OnInit {
   }
 
   onSave(): void {
-    if (this.form.invalid) return;
+    if (!this.form.valid) {
+      this.form.markAllAsTouched();
+      return;
+    }
 
     this.isSaving.set(true);
     const rawData = this.form.getRawValue();
@@ -350,5 +365,17 @@ export class MasterFormDialogComponent implements OnInit {
         }
       },
     });
+  }
+
+  getFormErrorMessage(errorKey: string): string {
+    return this.formErrorMessages[errorKey] || 'Please fix the validation errors.';
+  }
+
+  isFormErrorVisible(errorKey: string): boolean {
+    if (!this.form.hasError(errorKey)) return false;
+
+    const issuanceTouched = this.form.get('issuance_order')?.touched ?? false;
+    const canExpireTouched = this.form.get('can_expire_flag')?.touched ?? false;
+    return issuanceTouched || canExpireTouched || this.form.touched;
   }
 }

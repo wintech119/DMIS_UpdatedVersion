@@ -41,6 +41,9 @@
                       @if (form.get(field.field)?.hasError('server')) {
                         <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
                       }
+                      @if (field.hint) {
+                        <mat-hint align="start">{{ field.hint }}</mat-hint>
+                      }
                       @if (field.maxLength) {
                         <mat-hint align="end">
                           {{ (form.get(field.field)?.value?.length || 0) }} / {{ field.maxLength }}
@@ -57,8 +60,14 @@
                           <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                         }
                       </mat-select>
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
+                        <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
                       }
                     </mat-form-field>
                   }
@@ -73,6 +82,8 @@
                       </mat-select>
                       @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
                         <mat-hint>No options available.</mat-hint>
+                      } @else if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
                       }
                       @if (lookupErrors()[field.lookupTable!]) {
                         <mat-error>{{ lookupErrors()[field.lookupTable!] }}</mat-error>
@@ -86,9 +97,24 @@
                     </mat-form-field>
                   }
                   @case ('boolean') {
-                    <mat-checkbox [formControlName]="field.field" class="bool-field">
-                      {{ field.label }}
-                    </mat-checkbox>
+                    <div class="toggle-row">
+                      <div class="toggle-row__text">
+                        <span class="toggle-row__label" [id]="field.field + '-label'">
+                          {{ field.label }}
+                        </span>
+                        @if (field.hint) {
+                          <span class="toggle-row__hint" [id]="field.field + '-hint'">
+                            {{ field.hint }}
+                          </span>
+                        }
+                      </div>
+                      <mat-slide-toggle
+                        [formControlName]="field.field"
+                        [attr.aria-labelledby]="field.field + '-label'"
+                        [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                        color="primary">
+                      </mat-slide-toggle>
+                    </div>
                   }
                   @case ('date') {
                     <mat-form-field appearance="outline" class="full-width">
@@ -97,6 +123,9 @@
                         [attr.aria-required]="field.required || null" />
                       <mat-datepicker-toggle matIconSuffix [for]="picker" />
                       <mat-datepicker #picker />
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }
@@ -112,6 +141,9 @@
                         [maxlength]="field.maxLength || null"
                         [attr.aria-required]="field.required || null" />
                       <mat-icon matPrefix>email</mat-icon>
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }
@@ -131,6 +163,9 @@
                         placeholder="+1 (XXX) XXX-XXXX"
                         [attr.aria-required]="field.required || null" />
                       <mat-icon matPrefix>phone</mat-icon>
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }
@@ -147,6 +182,9 @@
                       <mat-label>{{ field.label }}</mat-label>
                       <input matInput type="number" [formControlName]="field.field"
                         [attr.aria-required]="field.required || null" />
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }
@@ -161,6 +199,9 @@
                       <input matInput [formControlName]="field.field"
                         [maxlength]="field.maxLength || null"
                         [attr.aria-required]="field.required || null" />
+                      @if (field.hint) {
+                        <mat-hint>{{ field.hint }}</mat-hint>
+                      }
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }

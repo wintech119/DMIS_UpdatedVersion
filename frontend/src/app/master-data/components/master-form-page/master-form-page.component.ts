@@ -11,7 +11,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -23,6 +23,7 @@ import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
+import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 
 @Component({
   selector: 'dmis-master-form-page',
@@ -30,7 +31,7 @@ import { ReplenishmentService } from '../../../replenishment/services/replenishm
   imports: [
     CommonModule, ReactiveFormsModule, RouterModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
-    MatIconModule, MatCheckboxModule, MatDatepickerModule, MatNativeDateModule,
+    MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
     MatProgressBarModule, MatCardModule, MatTooltipModule,
   ],
   templateUrl: './master-form-page.component.html',
@@ -54,6 +55,9 @@ export class MasterFormPageComponent implements OnInit {
   lookups = signal<Record<string, LookupItem[]>>({});
   lookupErrors = signal<Record<string, string>>({});
   pk = signal<string | number | null>(null);
+  readonly formErrorMessages: Record<string, string> = {
+    fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
+  };
 
   private versionNbr: number | null = null;
   locationForm = new FormGroup({
@@ -130,6 +134,11 @@ export class MasterFormPageComponent implements OnInit {
         new FormControl(field.defaultValue ?? null, validators),
       );
     }
+
+    if (cfg.tableKey === 'items') {
+      this.form.setValidators(validateFefoRequiresExpiry);
+      this.form.updateValueAndValidity({ emitEvent: false });
+    }
   }
 
   private loadLookups(cfg: MasterTableConfig): void {
@@ -205,7 +214,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   onSave(): void {
-    if (this.form.invalid) {
+    if (!this.form.valid) {
       this.form.markAllAsTouched();
       return;
     }
@@ -352,6 +361,12 @@ export class MasterFormPageComponent implements OnInit {
       'Inventory Settings': 'inventory_2',
       'Procurement': 'shopping_cart',
       'Financial': 'payments',
+      'Item Identity': 'label',
+      'Classification': 'category',
+      'Inventory Rules': 'inventory_2',
+      'Tracking & Behaviour': 'track_changes',
+      'Notes & Storage': 'notes',
+      'Notes': 'notes',
     };
     return iconMap[groupLabel] || 'folder';
   }
@@ -414,5 +429,17 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     this.notify.showError(fallbackMessage || 'Storage location assignment failed.');
+  }
+
+  getFormErrorMessage(errorKey: string): string {
+    return this.formErrorMessages[errorKey] || 'Please fix the validation errors.';
+  }
+
+  isFormErrorVisible(errorKey: string): boolean {
+    if (!this.form.hasError(errorKey)) return false;
+
+    const issuanceTouched = this.form.get('issuance_order')?.touched ?? false;
+    const canExpireTouched = this.form.get('can_expire_flag')?.touched ?? false;
+    return issuanceTouched || canExpireTouched || this.form.touched;
   }
 }

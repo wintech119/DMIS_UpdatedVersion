@@ -1,97 +1,122 @@
 <div class="master-home-page">
-  <header class="master-home-header">
+  <!-- Page header -->
+  <header class="md-page-header">
     <h1>Master Data</h1>
     <p>
-      Select a domain to manage high-value master tables. Policy, tenant-access,
-      and advanced system catalogs are staged and shown as planning placeholders.
+      Select a domain to manage high-value master tables.
+      <em>Policy, tenant-access, and advanced system catalogs are staged as planning placeholders.</em>
     </p>
   </header>
 
-  <section class="domain-selector" aria-label="Master data domain selector">
-    @for (domain of domains(); track domain.id) {
-      <button
-        mat-stroked-button
-        type="button"
-        class="domain-button"
-        [class.active]="activeDomain()?.id === domain.id"
-        (click)="setDomain(domain.id)"
-      >
-        <mat-icon>{{ domain.icon }}</mat-icon>
-        {{ domain.label }}
-      </button>
-    }
-  </section>
-
+  <!-- Restricted domain notice -->
   @if (showRestrictedDomainNotice()) {
-    <mat-card class="restricted-card">
-      <mat-card-content>
-        <p>
-          Advanced/System masters are restricted to System Administrator access.
-          Showing the default accessible domain instead.
-        </p>
-      </mat-card-content>
-    </mat-card>
+    <div class="md-notice md-notice--warning" role="alert">
+      <mat-icon aria-hidden="true">warning_amber</mat-icon>
+      <p>
+        Advanced/System masters are restricted to System Administrator access.
+        Showing the default accessible domain instead.
+      </p>
+    </div>
   }
 
-  @if (activeDomain(); as domain) {
-    <section class="domain-overview" [attr.aria-label]="domain.label + ' overview'">
-      <div class="overview-title">
-        <mat-icon>{{ domain.icon }}</mat-icon>
-        <h2>{{ domain.label }}</h2>
-      </div>
-      <p class="overview-description">{{ domain.description }}</p>
-    </section>
-
-    @if (activeCards().length === 0) {
-      <mat-card class="empty-card">
-        <mat-card-content>
-          <p>No tables are currently configured in this domain.</p>
-        </mat-card-content>
-      </mat-card>
-    } @else {
-      <section class="cards-grid" [attr.aria-label]="domain.label + ' tables'">
-        @for (card of activeCards(); track card.kind + '-' + (card.kind === 'implemented' ? card.routePath : card.tableName)) {
-          @if (card.kind === 'implemented') {
-            <mat-card class="table-card">
-              <mat-card-header>
-                <mat-icon mat-card-avatar>{{ card.icon }}</mat-icon>
-                <mat-card-title>{{ card.label }}</mat-card-title>
-                <mat-card-subtitle>
-                  @if (card.readOnly) {
-                    Read-only
-                  } @else {
-                    Editable
-                  }
-                </mat-card-subtitle>
-              </mat-card-header>
-              <mat-card-content>
-                @if (card.note) {
-                  <p>{{ card.note }}</p>
-                } @else {
-                  <p>Manage {{ card.label.toLowerCase() }} records.</p>
-                }
-              </mat-card-content>
-              <mat-card-actions align="end">
-                <a mat-stroked-button [routerLink]="listLink(card.routePath)">View</a>
-                @if (!card.readOnly) {
-                  <a mat-flat-button color="primary" [routerLink]="createLink(card.routePath)">Create</a>
-                }
-              </mat-card-actions>
-            </mat-card>
-          } @else {
-            <mat-card class="table-card planned">
-              <mat-card-header>
-                <mat-icon mat-card-avatar>hourglass_top</mat-icon>
-                <mat-card-title>{{ card.label }}</mat-card-title>
-                <mat-card-subtitle>Coming soon</mat-card-subtitle>
-              </mat-card-header>
-              <mat-card-content>
-                <p>Planned table: <code>{{ card.tableName }}</code></p>
-              </mat-card-content>
-            </mat-card>
-          }
-        }
-      </section>
+  <!-- Domain tab bar -->
+  <nav role="tablist" aria-label="Master Data domains" class="md-tabs">
+    @for (domain of domains(); track domain.id) {
+      @if (domain.implementedRoutePaths.length === 0) {
+        <!-- Planning (disabled) tab -->
+        <button
+          role="tab"
+          type="button"
+          class="md-tab md-tab--planning"
+          [attr.aria-selected]="activeDomain()?.id === domain.id"
+          [attr.aria-controls]="domain.id + '-panel'"
+          [attr.id]="domain.id + '-tab'"
+          disabled
+          [attr.aria-disabled]="true"
+          [attr.title]="domain.label + ': coming soon'"
+        >
+          <mat-icon aria-hidden="true">{{ domain.icon }}</mat-icon>
+          <span>{{ domain.label }}</span>
+          <span class="md-tab__planning-badge" aria-label="planned feature">Planned</span>
+        </button>
+      } @else {
+        <!-- Active tab -->
+        <button
+          role="tab"
+          type="button"
+          class="md-tab"
+          [class.md-tab--active]="activeDomain()?.id === domain.id"
+          [attr.aria-selected]="activeDomain()?.id === domain.id"
+          [attr.aria-controls]="domain.id + '-panel'"
+          [attr.id]="domain.id + '-tab'"
+          (click)="setDomain(domain.id)"
+        >
+          <mat-icon aria-hidden="true">{{ domain.icon }}</mat-icon>
+          <span>{{ domain.label }}</span>
+        </button>
+      }
     }
+  </nav>
+
+  <!-- Tab panels -->
+  @for (domain of domains(); track domain.id) {
+    <section
+      [id]="domain.id + '-panel'"
+      role="tabpanel"
+      [attr.aria-labelledby]="domain.id + '-tab'"
+      [attr.aria-label]="domain.label + ' tables'"
+      [class.md-panel--hidden]="activeDomain()?.id !== domain.id"
+    >
+      @if (activeDomain()?.id === domain.id) {
+        <!-- Domain intro -->
+        <div class="md-section-intro">
+          <span class="md-section-intro__icon" aria-hidden="true">
+            <mat-icon>{{ domain.icon }}</mat-icon>
+          </span>
+          <div>
+            <h2 class="md-section-intro__title">{{ domain.label }}</h2>
+            <p class="md-section-intro__desc">{{ domain.description }}</p>
+          </div>
+        </div>
+
+        <!-- Card grid -->
+        @if (activeCards().length === 0) {
+          <div class="md-empty">
+            <mat-icon aria-hidden="true">inbox</mat-icon>
+            <p>No tables are currently configured in this domain.</p>
+          </div>
+        } @else {
+          <div class="md-card-grid" role="list">
+            @for (
+              card of activeCards();
+              track card.kind + '-' + (card.kind === 'implemented' ? card.routePath : card.tableName)
+            ) {
+              @if (card.kind === 'implemented') {
+                <div role="listitem">
+                  <dmis-master-data-card
+                    [title]="card.label"
+                    [description]="card.note || 'Manage ' + card.label.toLowerCase() + ' records.'"
+                    [editable]="!card.readOnly"
+                    [canCreate]="!card.readOnly"
+                    (viewClicked)="navigate(card.routePath)"
+                    (createClicked)="create(card.routePath)"
+                  >
+                    <mat-icon slot="icon">{{ card.icon }}</mat-icon>
+                  </dmis-master-data-card>
+                </div>
+              } @else {
+                <div role="listitem" class="md-planned-card" aria-label="{{ card.label }}: planned">
+                  <span class="md-planned-card__icon" aria-hidden="true">
+                    <mat-icon>hourglass_top</mat-icon>
+                  </span>
+                  <span class="md-planned-card__title">{{ card.label }}</span>
+                  <span class="md-planned-card__sub">Coming soon</span>
+                </div>
+              }
+            }
+          </div>
+        }
+      }
+    </section>
   }
 </div>

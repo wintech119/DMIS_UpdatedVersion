@@ -52,6 +52,7 @@ export class MasterListComponent implements OnInit {
   private notify = inject(DmisNotificationService);
   private destroyRef = inject(DestroyRef);
   private breakpointObserver = inject(BreakpointObserver);
+  private latestLoadRequestId = 0;
 
   config = signal<MasterTableConfig | null>(null);
   rows = signal<MasterRecord[]>([]);
