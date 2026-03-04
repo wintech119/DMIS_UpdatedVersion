@@ -9,8 +9,6 @@ import {
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 
 import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
@@ -21,6 +19,7 @@ import {
   MasterDomainId,
   isMasterDomainId,
 } from '../../models/master-domain-map';
+import { MasterDataCardComponent } from '../master-data-card/master-data-card.component';
 
 interface ImplementedCard {
   kind: 'implemented';
@@ -45,9 +44,8 @@ type DomainCard = ImplementedCard | PlannedCard;
   imports: [
     CommonModule,
     RouterModule,
-    MatButtonModule,
-    MatCardModule,
     MatIconModule,
+    MasterDataCardComponent,
   ],
   templateUrl: './master-home.component.html',
   styleUrl: './master-home.component.scss',
@@ -145,12 +143,12 @@ export class MasterHomeComponent {
     });
   }
 
-  createLink(routePath: string): string[] {
-    return ['/master-data', routePath, 'new'];
+  navigate(routePath: string): void {
+    this.router.navigate(['/master-data', routePath]);
   }
 
-  listLink(routePath: string): string[] {
-    return ['/master-data', routePath];
+  create(routePath: string): void {
+    this.router.navigate(['/master-data', routePath, 'new']);
   }
 
   formatTableName(value: string): string {

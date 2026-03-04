@@ -1,0 +1,39 @@
+<article
+  class="md-card"
+  [attr.aria-label]="title() + ' table'"
+>
+  <header class="md-card__header">
+    <span class="md-card__icon" aria-hidden="true">
+      <ng-content select="[slot=icon]" />
+    </span>
+    <span class="md-card__title">{{ title() }}</span>
+    @if (editable()) {
+      <span class="md-card__badge md-card__badge--editable">Editable</span>
+    } @else {
+      <span class="md-card__badge md-card__badge--readonly">Read-only</span>
+    }
+  </header>
+
+  <p class="md-card__description">{{ description() }}</p>
+
+  <footer class="md-card__footer">
+    <button
+      type="button"
+      class="btn btn--outline"
+      [attr.aria-label]="'View ' + title()"
+      (click)="viewClicked.emit()"
+    >
+      View
+    </button>
+    @if (canCreate()) {
+      <button
+        type="button"
+        class="btn btn--primary"
+        [attr.aria-label]="'Create new ' + title()"
+        (click)="createClicked.emit()"
+      >
+        Create
+      </button>
+    }
+  </footer>
+</article>

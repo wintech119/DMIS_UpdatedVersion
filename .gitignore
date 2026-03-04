@@ -69,8 +69,9 @@ backend/.local/
 backend/.tmp/
 backend/runtime/
 
-# Codex local artifacts
+# Codex local artifacts (config may contain DATABASE_URI and other secrets)
 .codex/
+.codex/config.toml
 
 # ---------------------------------------------------------------------------
 # Database files and test data (do not commit; may contain PII or env-specific data)

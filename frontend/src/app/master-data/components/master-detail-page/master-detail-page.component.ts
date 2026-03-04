@@ -42,6 +42,7 @@ export class MasterDetailPageComponent implements OnInit {
   private notify = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
   private destroyRef = inject(DestroyRef);
+  private latestRecordRequestId = 0;
 
   config = signal<MasterTableConfig | null>(null);
   record = signal<MasterRecord | null>(null);
