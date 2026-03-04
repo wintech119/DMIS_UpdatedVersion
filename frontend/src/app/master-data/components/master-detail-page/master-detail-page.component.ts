@@ -113,15 +113,19 @@ export class MasterDetailPageComponent implements OnInit {
     const cfg = this.config();
     if (!cfg || !this.pk()) return;
 
+    const requestId = ++this.latestRecordRequestId;
     this.isLoading.set(true);
     this.service.get(cfg.tableKey, this.pk()!).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: res => {
+        if (requestId !== this.latestRecordRequestId) return;
         this.record.set(res.record);
         this.isLoading.set(false);
       },
       error: () => {
+        if (requestId !== this.latestRecordRequestId) return;
+        this.isLoading.set(false);
         this.notify.showError('Record not found.');
         this.navigateBack();
       },
