@@ -131,7 +131,11 @@
       }
 
       <!-- Audit info (only for tables with audit columns) -->
-      @if (r['create_by_id'] || r['created_by'] || r['version_nbr']) {
+      @if (
+        r['create_by_id'] || r['created_by'] || r['create_dtime'] || r['created_at'] ||
+        r['update_by_id'] || r['updated_by'] || r['update_dtime'] || r['updated_at'] || r['update_timestamp'] ||
+        r['version_nbr']
+      ) {
         <section class="detail-section audit-section" aria-label="Audit information section">
           <h3 class="section-title">
             <mat-icon>history</mat-icon>
