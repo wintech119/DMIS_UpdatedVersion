@@ -33,5 +33,10 @@ export const routes: Routes = [
   { path: 'replenishment/procurement/:procId', component: ProcurementDetailComponent },
   { path: 'replenishment/procurement/:procId/edit', component: ProcurementFormComponent },
   { path: 'replenishment/procurement/:procId/receive', component: ProcurementIntakeComponent },
+  // Master Data (lazy loaded)
+  {
+    path: 'master-data',
+    loadChildren: () => import('./master-data/master-data.routes').then(m => m.MASTER_DATA_ROUTES),
+  },
   { path: '**', redirectTo: 'replenishment/dashboard' }
 ];

@@ -2,14 +2,18 @@ export interface NavItem {
   label: string;
   icon: string;
   route?: string;
+  queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
+  sysadminOnly?: boolean;
 }
 
 export interface NavGroup {
   label: string;
   icon: string;
   route?: string;
+  queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
+  sysadminOnly?: boolean;
   children?: NavItem[];
   expanded?: boolean;
 }
@@ -70,14 +74,39 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         label: 'Master Data',
         icon: 'settings',
-        disabled: true,
+        expanded: false,
         children: [
-          { label: 'Warehouses', icon: 'warehouse', disabled: true },
-          { label: 'Items', icon: 'category', disabled: true },
-          { label: 'Events', icon: 'event', disabled: true },
-          { label: 'Agencies', icon: 'corporate_fare', disabled: true },
-          { label: 'Donors', icon: 'handshake', disabled: true },
-          { label: 'Custodians', icon: 'badge', disabled: true },
+          {
+            label: 'Catalogs',
+            icon: 'menu_book',
+            route: '/master-data',
+            queryParams: { domain: 'catalogs' },
+          },
+          {
+            label: 'Operational Masters',
+            icon: 'domain',
+            route: '/master-data',
+            queryParams: { domain: 'operational' },
+          },
+          {
+            label: 'Policies',
+            icon: 'policy',
+            route: '/master-data',
+            queryParams: { domain: 'policies' },
+          },
+          {
+            label: 'Tenant & Access',
+            icon: 'admin_panel_settings',
+            route: '/master-data',
+            queryParams: { domain: 'tenant-access' },
+          },
+          {
+            label: 'Advanced/System',
+            icon: 'security',
+            route: '/master-data',
+            queryParams: { domain: 'advanced' },
+            sysadminOnly: true,
+          },
         ],
       },
       {

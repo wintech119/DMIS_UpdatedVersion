@@ -21,7 +21,7 @@
           <div class="nav-section-divider"></div>
         }
 
-        @for (group of section.groups; track group.label) {
+        @for (group of visibleGroups(section); track group.label) {
           @if (group.children?.length && !collapsed()) {
             <mat-expansion-panel
               [expanded]="group.expanded ?? false"
@@ -34,7 +34,7 @@
                 </mat-panel-title>
               </mat-expansion-panel-header>
 
-              @for (child of group.children; track child.label) {
+              @for (child of visibleChildren(group); track child.label) {
                 @if (child.disabled) {
                   <a class="nav-child disabled"
                      matTooltip="Coming Soon"
@@ -45,8 +45,8 @@
                 } @else {
                   <a class="nav-child"
                      [routerLink]="child.route"
-                     routerLinkActive="active"
-                     [routerLinkActiveOptions]="{ exact: child.route === '/replenishment/dashboard' }"
+                     [queryParams]="child.queryParams"
+                     [class.active]="isRouteActive(child.route!, child.queryParams)"
                      (click)="onItemClick()">
                     <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
                     <span class="nav-label">{{ child.label }}</span>
@@ -55,17 +55,27 @@
               }
             </mat-expansion-panel>
           } @else if (group.children?.length && collapsed()) {
-            <a class="nav-item"
-               [class.active]="isGroupActive(group)"
-               [class.disabled]="group.disabled"
-               [matTooltip]="group.label"
-               matTooltipPosition="right"
-               tabindex="0"
-               (click)="group.disabled ? null : onItemClick()"
-               (keydown.enter)="group.disabled ? null : onItemClick()"
-               (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
-              <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
-            </a>
+            @if (firstVisibleChild(group); as firstChild) {
+              <a class="nav-item"
+                 [class.active]="isGroupActive(group)"
+                 [class.disabled]="group.disabled"
+                 [routerLink]="firstChild.route"
+                 [queryParams]="firstChild.queryParams"
+                 [matTooltip]="group.label"
+                 matTooltipPosition="right"
+                 tabindex="0"
+                 (click)="group.disabled ? null : onItemClick()"
+                 (keydown.enter)="group.disabled ? null : onItemClick()"
+                 (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
+                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+              </a>
+            } @else {
+              <a class="nav-item disabled"
+                 [matTooltip]="group.label + ' (Coming Soon)'"
+                 matTooltipPosition="right">
+                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+              </a>
+            }
           } @else {
             @if (group.disabled) {
               <a class="nav-item disabled"
@@ -79,8 +89,8 @@
             } @else {
               <a class="nav-item"
                  [routerLink]="group.route"
-                 routerLinkActive="active"
-                 [routerLinkActiveOptions]="{ exact: true }"
+                 [queryParams]="group.queryParams"
+                 [class.active]="isRouteActive(group.route!, group.queryParams)"
                  [matTooltip]="collapsed() ? group.label : ''"
                  matTooltipPosition="right"
                  (click)="onItemClick()">

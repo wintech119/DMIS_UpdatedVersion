@@ -114,6 +114,7 @@ db.sqlite3
 **/logs/
 # Claude/Cursor local settings (may contain paths or tokens)
 .claude/
+.mcp.json
 
 # ---------------------------------------------------------------------------
 # Non-application / generated or downloaded data
@@ -130,3 +131,33 @@ db.sqlite3
 *.csv
 !**/docs/**/*.csv
 !**/fixtures/example*.csv
+
+# Docs attached assets (generated/extracted; keep __live_dmis_schema.sql)
+docs/attached_assets/DMIS_Requirements_Specification_v5_1 Consolidated.docx
+docs/attached_assets/__dmis_v51_flat.txt
+docs/attached_assets/__dmis_v51_text.txt
+docs/attached_assets/__document_raw.xml
+docs/attached_assets/__dump_tables.txt
+docs/attached_assets/__live_tables.txt
+docs/attached_assets/__schema_tables.txt
+# Frontend npm cache
+frontend/.npm-cache/
+
+.tmp_docx_extract/
+
+# Generated migration/audit artifacts from local assistant workflows
+backend/docs/DMIS_MASTER_TABLE_AUDIT_PATCHED.md
+backend/docs/master_table_snapshot_*.md
+backend/docs/wave2_*.txt
+backend/docs/wave3_*.txt
+docs/attached_assets/implementation/
+docs/migration/MASTER_TABLE_DEPRECATION_ROADMAP.md
+docs/migration/master_table_wave*.sql
+docs/migration/recon-summary.md
+docs/migration/status-code-alignment.md
+backend/replenishment/management/commands/align_custodian_tenant_mapping.py
+backend/replenishment/management/commands/enforce_location_storage_policy.py
+backend/replenishment/management/commands/master_table_audit_snapshot.py
+backend/replenishment/management/commands/scaffold_wave3_master_tables.py
+backend/replenishment/management/commands/seed_event_phase_config_baseline.py
+backend/replenishment/management/commands/verify_warehouse_sync_status_parity.py

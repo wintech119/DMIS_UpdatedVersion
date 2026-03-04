@@ -14,6 +14,13 @@
       "command": "./scripts/run_django_mcp.cmd",
       "args": [],
       "env": {}
+    },
+    "postgres": {
+      "command": "uvx",
+      "args": ["postgres-mcp", "--access-mode=unrestricted"],
+      "env": {
+        "DATABASE_URI": "postgresql://postgres:YOUR_PASSWORD@localhost:5432/dmis"
+      }
     }
   }
 }

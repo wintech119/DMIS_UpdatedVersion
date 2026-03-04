@@ -1,0 +1,306 @@
+﻿// ---------------------------------------------------------------------------
+// Master Detail Page â€“ Modernized UI (matching replenishment design language)
+// Uses 8px grid, DMIS tokens, WCAG 2.2 compliant
+// ---------------------------------------------------------------------------
+
+:host {
+  display: block;
+  font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+// â”€â”€ Page Container (matches master-list-page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.detail-page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  color: var(--dmis-text-primary, #1a1a1a);
+}
+
+// â”€â”€ Page Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+  gap: 12px;
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    .back-btn {
+      color: #6b7280;
+
+      &:hover { color: #374151; }
+      &:focus-visible {
+        outline: 2px solid #1565c0;
+        outline-offset: 2px;
+      }
+    }
+
+    .header-text {
+      h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+    }
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+
+    button {
+      border-radius: 8px;
+      font-weight: 500;
+
+      &:focus-visible {
+        outline: 2px solid #1565c0;
+        outline-offset: 2px;
+      }
+    }
+  }
+}
+
+// â”€â”€ Status Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+
+  &.active {
+    background: #d4edda;
+    color: #155724;
+  }
+
+  &.inactive {
+    background: #f1f1f1;
+    color: #6b7280;
+  }
+}
+
+// â”€â”€ Content Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// â”€â”€ Detail Sections (matches replenishment .form-section) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.detail-section {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+
+  // Remove default mat-card chrome
+  ::ng-deep {
+    .mat-mdc-card-header { padding: 0; margin-bottom: 16px; }
+    .mdc-card { box-shadow: none; border: none; }
+    .mat-mdc-card-content { padding: 0; }
+    &.mat-mdc-card { box-shadow: none; border: none; background: transparent; padding: 0; }
+  }
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1a1a1a;
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    color: #0f766e;
+  }
+}
+
+.section-description {
+  margin: 0 0 14px;
+  color: #4b5563;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.location-assignment-section {
+  border-left: 4px solid #0ea5e9;
+
+  .section-title mat-icon {
+    color: #0ea5e9;
+  }
+}
+
+.assignment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.assignment-field {
+  width: 100%;
+}
+
+.assignment-actions {
+  display: flex;
+  justify-content: flex-end;
+
+  button {
+    min-height: 40px;
+    border-radius: 8px;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+// Audit Section Accent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.audit-section {
+  border-left: 4px solid #94a3b8;
+
+  .section-title {
+    color: #64748b;
+
+    mat-icon {
+      color: #94a3b8;
+    }
+  }
+}
+
+// â”€â”€ Detail Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 24px;
+
+  .detail-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    &.colspan-2 {
+      grid-column: 1 / -1;
+    }
+
+    .field-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #6b7280;
+    }
+
+    .field-value {
+      font-size: 0.9375rem;
+      color: #1a1a1a;
+      word-break: break-word;
+      line-height: 1.4;
+
+      &.empty-value {
+        color: #9ca3af;
+        font-style: italic;
+      }
+    }
+  }
+}
+
+// â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+@media (max-width: 1024px) {
+  .detail-page-container {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .detail-page-container {
+    padding: 10px;
+  }
+
+  .detail-header {
+    padding: 0 0 8px;
+    margin-bottom: 12px;
+
+    .header-left .header-text h2 {
+      font-size: 1.125rem;
+    }
+
+    .header-actions {
+      width: 100%;
+      justify-content: flex-end;
+
+      button {
+        min-height: 44px;
+      }
+    }
+  }
+
+  .detail-section {
+    padding: 16px;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+
+    .detail-field.colspan-2 {
+      grid-column: 1;
+    }
+  }
+
+  .assignment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-actions {
+    justify-content: stretch;
+
+    button {
+      width: 100%;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .detail-page-container {
+    padding: 5px;
+  }
+
+  .detail-section {
+    padding: 12px;
+    border-radius: 6px;
+  }
+
+  .detail-content {
+    gap: 12px;
+  }
+}
+

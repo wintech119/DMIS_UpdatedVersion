@@ -1,0 +1,97 @@
+<div class="master-home-page">
+  <header class="master-home-header">
+    <h1>Master Data</h1>
+    <p>
+      Select a domain to manage high-value master tables. Policy, tenant-access,
+      and advanced system catalogs are staged and shown as planning placeholders.
+    </p>
+  </header>
+
+  <section class="domain-selector" aria-label="Master data domain selector">
+    @for (domain of domains(); track domain.id) {
+      <button
+        mat-stroked-button
+        type="button"
+        class="domain-button"
+        [class.active]="activeDomain()?.id === domain.id"
+        (click)="setDomain(domain.id)"
+      >
+        <mat-icon>{{ domain.icon }}</mat-icon>
+        {{ domain.label }}
+      </button>
+    }
+  </section>
+
+  @if (showRestrictedDomainNotice()) {
+    <mat-card class="restricted-card">
+      <mat-card-content>
+        <p>
+          Advanced/System masters are restricted to System Administrator access.
+          Showing the default accessible domain instead.
+        </p>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  @if (activeDomain(); as domain) {
+    <section class="domain-overview" [attr.aria-label]="domain.label + ' overview'">
+      <div class="overview-title">
+        <mat-icon>{{ domain.icon }}</mat-icon>
+        <h2>{{ domain.label }}</h2>
+      </div>
+      <p class="overview-description">{{ domain.description }}</p>
+    </section>
+
+    @if (activeCards().length === 0) {
+      <mat-card class="empty-card">
+        <mat-card-content>
+          <p>No tables are currently configured in this domain.</p>
+        </mat-card-content>
+      </mat-card>
+    } @else {
+      <section class="cards-grid" [attr.aria-label]="domain.label + ' tables'">
+        @for (card of activeCards(); track card.kind + '-' + (card.kind === 'implemented' ? card.routePath : card.tableName)) {
+          @if (card.kind === 'implemented') {
+            <mat-card class="table-card">
+              <mat-card-header>
+                <mat-icon mat-card-avatar>{{ card.icon }}</mat-icon>
+                <mat-card-title>{{ card.label }}</mat-card-title>
+                <mat-card-subtitle>
+                  @if (card.readOnly) {
+                    Read-only
+                  } @else {
+                    Editable
+                  }
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                @if (card.note) {
+                  <p>{{ card.note }}</p>
+                } @else {
+                  <p>Manage {{ card.label.toLowerCase() }} records.</p>
+                }
+              </mat-card-content>
+              <mat-card-actions align="end">
+                <a mat-stroked-button [routerLink]="listLink(card.routePath)">View</a>
+                @if (!card.readOnly) {
+                  <a mat-flat-button color="primary" [routerLink]="createLink(card.routePath)">Create</a>
+                }
+              </mat-card-actions>
+            </mat-card>
+          } @else {
+            <mat-card class="table-card planned">
+              <mat-card-header>
+                <mat-icon mat-card-avatar>hourglass_top</mat-icon>
+                <mat-card-title>{{ card.label }}</mat-card-title>
+                <mat-card-subtitle>Coming soon</mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                <p>Planned table: <code>{{ card.tableName }}</code></p>
+              </mat-card-content>
+            </mat-card>
+          }
+        }
+      </section>
+    }
+  }
+</div>

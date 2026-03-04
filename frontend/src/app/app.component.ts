@@ -4,6 +4,7 @@ import { Router, NavigationEnd, RouterOutlet, RouterLink } from '@angular/router
 import { Subscription, filter } from 'rxjs';
 import { DmisDataFreshnessBannerComponent } from './replenishment/shared/dmis-data-freshness-banner/dmis-data-freshness-banner.component';
 import { SidenavComponent } from './layout/sidenav/sidenav.component';
+import { getMasterDomainLabel } from './master-data/models/master-domain-map';
 
 export interface DevUser {
   user_id: string;
@@ -40,23 +41,46 @@ const ROUTE_BREADCRUMBS: { pattern: RegExp; crumbs: (match: RegExpMatchArray) =>
   { pattern: /^\/replenishment\/procurement\/(.+)$/,      crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement Orders' }, { label: `Order #${m[1]}` }] },
   // Catch-all for replenishment
   { pattern: /^\/replenishment/,                          crumbs: () => [{ label: 'Supply Replenishment' }] },
+  // Master Data
+  { pattern: /^\/master-data\/([^/]+)\/new$/,             crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: 'New' }] },
+  { pattern: /^\/master-data\/([^/]+)\/([^/]+)\/edit$/,   crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: `#${m[2]}`, route: `/master-data/${m[1]}/${m[2]}` }, { label: 'Edit' }] },
+  { pattern: /^\/master-data\/([^/]+)\/([^/]+)$/,         crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: `#${m[2]}` }] },
+  { pattern: /^\/master-data\/([^/]+)$/,                   crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]) }] },
+  { pattern: /^\/master-data/,                             crumbs: () => [{ label: 'Master Data' }] },
   // Future sections
   { pattern: /^\/inventory/,                              crumbs: () => [{ label: 'Inventory' }] },
   { pattern: /^\/operations/,                             crumbs: () => [{ label: 'Operations' }] },
   { pattern: /^\/management/,                             crumbs: () => [{ label: 'Management' }] },
 ];
 
+/** Convert route path like 'item-categories' to 'Item Categories' */
+function formatRoutePath(path: string): string {
+  return path.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
-  let normalized = String(url || '').replace(/[?#].*$/, '').trim();
-  if (!normalized.startsWith('/')) {
+  let normalized = String(url || '').trim();
+  if (!normalized) {
+    normalized = '/';
+  } else if (!normalized.startsWith('/')) {
     normalized = `/${normalized}`;
   }
-  if (normalized === '') {
-    normalized = '/';
+
+  const [path, queryString = ''] = normalized.replace(/#.*$/, '').split('?');
+  if (path === '/master-data') {
+    const query = new URLSearchParams(queryString);
+    const domainLabel = getMasterDomainLabel(query.get('domain'));
+    if (domainLabel) {
+      return [
+        { label: 'Master Data', route: '/master-data' },
+        { label: domainLabel },
+      ];
+    }
+    return [{ label: 'Master Data' }];
   }
 
   for (const entry of ROUTE_BREADCRUMBS) {
-    const match = normalized.match(entry.pattern);
+    const match = path.match(entry.pattern);
     if (match) return entry.crumbs(match);
   }
   return [{ label: 'Home' }];
@@ -82,6 +106,7 @@ export class AppComponent implements OnInit, OnDestroy {
   title = 'dmis-frontend';
   readonly currentUser = signal('Unknown');
   readonly userRole = signal('');
+  readonly userRoles = signal<string[]>([]);
   readonly devUsers = signal<DevUser[]>([]);
   readonly selectedDevUser = signal('');
   readonly canSwitchDevUser = computed(() => this.devUsers().length > 0);
@@ -127,8 +152,9 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   formatDevUserLabel(user: DevUser): string {
+    const identity = String(user.email ?? '').trim() || user.username;
     const primaryRole = user.roles[0];
-    return primaryRole ? `${user.username} (${primaryRole})` : user.username;
+    return primaryRole ? `${identity} (${primaryRole})` : identity;
   }
 
   private loadWhoAmI(): void {
@@ -139,10 +165,13 @@ export class AppComponent implements OnInit, OnDestroy {
           const display = String(data.username ?? data.user_id ?? '').trim();
           this.currentUser.set(display || 'Unknown');
           const roles = data.roles ?? [];
+          this.userRoles.set(roles);
           this.userRole.set(roles[0] ?? '');
         },
         error: () => {
           this.currentUser.set('Unknown');
+          this.userRoles.set([]);
+          this.userRole.set('');
         }
       });
   }

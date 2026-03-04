@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
-import { Router, NavigationEnd, RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, NavigationEnd, RouterLink } from '@angular/router';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
@@ -16,7 +16,6 @@ const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
   standalone: true,
   imports: [
     RouterLink,
-    RouterLinkActive,
     MatExpansionModule,
     MatListModule,
     MatIconModule,
@@ -35,10 +34,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   readonly navItemClicked = output<void>();
   readonly switchUser = output<string>();
   readonly clearUser = output<void>();
-  readonly currentUrl = signal(this.normalizePath(this.router.url));
+  readonly currentUrl = signal(this.normalizeUrl(this.router.url));
   // Inputs from parent
   readonly currentUser = input('Unknown');
   readonly userRole = input('');
+  readonly userRoles = input<string[]>([]);
   readonly devUsers = input<DevUser[]>([]);
   readonly selectedDevUser = input('');
   readonly canSwitchDevUser = input(false);
@@ -48,7 +48,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.routerSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe((e) => this.currentUrl.set(this.normalizePath(e.urlAfterRedirects)));
+      .subscribe((e) => this.currentUrl.set(this.normalizeUrl(e.urlAfterRedirects)));
   }
 
   ngOnDestroy(): void {
@@ -62,13 +62,46 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   isGroupActive(group: NavGroup): boolean {
-    const url = this.currentUrl();
-    if (group.route) {
-      return url === group.route || url.startsWith(group.route + '/');
+    if (group.route && this.isRouteActive(group.route, group.queryParams)) {
+      return true;
     }
-    return !!group.children?.some(
-      (child) => child.route && (url === child.route || url.startsWith(child.route + '/'))
+    return this.visibleChildren(group).some(
+      (child) => child.route && this.isRouteActive(child.route, child.queryParams)
     );
+  }
+
+  visibleGroups(section: NavSection): NavGroup[] {
+    return section.groups.filter((group) => {
+      if (!this.canViewSysadminOnly(group.sysadminOnly)) {
+        return false;
+      }
+      if (!group.children?.length) {
+        return true;
+      }
+      return this.visibleChildren(group).length > 0;
+    });
+  }
+
+  visibleChildren(group: NavGroup) {
+    return (group.children ?? []).filter((child) => this.canViewSysadminOnly(child.sysadminOnly));
+  }
+
+  firstVisibleChild(group: NavGroup) {
+    return this.visibleChildren(group).find((child) => !child.disabled && !!child.route) ?? null;
+  }
+
+  isRouteActive(route: string, queryParams?: Record<string, string | number | boolean>): boolean {
+    const { path, params } = this.parseUrlParts(this.currentUrl());
+    if (queryParams && Object.keys(queryParams).length > 0) {
+      if (path !== route) return false;
+      for (const [key, value] of Object.entries(queryParams)) {
+        if (params.get(key) !== String(value)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return path === route || path.startsWith(route + '/');
   }
 
   onItemClick(): void {
@@ -83,11 +116,23 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.clearUser.emit();
   }
 
-  private normalizePath(url: string): string {
-    const base = String(url ?? '').split('?')[0].split('#')[0].trim();
+  private canViewSysadminOnly(sysadminOnly?: boolean): boolean {
+    if (!sysadminOnly) return true;
+    const roles = this.userRoles().map((role) => String(role).trim().toUpperCase());
+    return roles.includes('SYSTEM_ADMINISTRATOR');
+  }
+
+  private normalizeUrl(url: string): string {
+    const base = String(url ?? '').split('#')[0].trim();
     if (!base) {
       return '/';
     }
     return base.startsWith('/') ? base : `/${base}`;
+  }
+
+  private parseUrlParts(url: string): { path: string; params: URLSearchParams } {
+    const [pathPart, queryPart = ''] = String(url ?? '').split('?');
+    const path = pathPart || '/';
+    return { path, params: new URLSearchParams(queryPart) };
   }
 }

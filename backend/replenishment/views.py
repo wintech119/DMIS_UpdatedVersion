@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from api.authentication import LegacyCompatAuthentication
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
+    PERM_MASTERDATA_EDIT,
     PERM_NEEDS_LIST_CREATE_DRAFT,
     PERM_NEEDS_LIST_EDIT_LINES,
     PERM_NEEDS_LIST_ESCALATE,
@@ -53,6 +54,7 @@ from replenishment import rules, workflow_store as workflow_store_file, workflow
 from replenishment.models import Procurement
 from replenishment.services import approval as approval_service
 from replenishment.services import data_access, needs_list, phase_window_policy
+from replenishment.services import location_storage
 from replenishment.services import procurement as procurement_service
 from replenishment.services.procurement import ProcurementError
 
@@ -2288,6 +2290,59 @@ def get_all_warehouses(request):
 
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def assign_storage_location(request):
+    body = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+
+    item_id = _parse_positive_int(body.get("item_id"), "item_id", errors)
+    inventory_id = _parse_positive_int(body.get("inventory_id"), "inventory_id", errors)
+    location_id = _parse_positive_int(body.get("location_id"), "location_id", errors)
+
+    batch_id: int | None = None
+    raw_batch_id = body.get("batch_id")
+    if raw_batch_id not in (None, ""):
+        batch_id = _parse_positive_int(raw_batch_id, "batch_id", errors)
+
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    assert item_id is not None
+    assert inventory_id is not None
+    assert location_id is not None
+
+    try:
+        result = location_storage.assign_storage_location(
+            item_id=item_id,
+            inventory_id=inventory_id,
+            location_id=location_id,
+            batch_id=batch_id,
+            actor_id=_actor_id(request),
+        )
+    except location_storage.LocationAssignmentError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=exc.status_code)
+
+    logger.info(
+        "location_assignment_saved",
+        extra={
+            "event_type": "UPDATE",
+            "user_id": getattr(request.user, "user_id", None),
+            "username": getattr(request.user, "username", None),
+            "item_id": result.get("item_id"),
+            "inventory_id": result.get("inventory_id"),
+            "location_id": result.get("location_id"),
+            "batch_id": result.get("batch_id"),
+            "storage_table": result.get("storage_table"),
+            "created": bool(result.get("created")),
+        },
+    )
+
+    status_code = 201 if result.get("created") else 200
+    return Response(result, status=status_code)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPreviewPermission])
 def needs_list_preview(request):
     payload = request.data or {}
@@ -3936,8 +3991,10 @@ needs_list_donations.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_allocate.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_export.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_procurement_export.required_permission = PERM_NEEDS_LIST_EXECUTE
+assign_storage_location.required_permission = [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT]
 
 for view_func in (
+    assign_storage_location,
     needs_list_draft,
     needs_list_get,
     needs_list_edit_lines,

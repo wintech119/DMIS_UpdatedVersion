@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "api",
     "replenishment",
+    "masterdata",
 ]
 
 MIDDLEWARE = [
