@@ -19,7 +19,7 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCardModule } from '@angular/material/card';
 
-import { MasterTableConfig } from '../../models/master-data.models';
+import { MasterRecord, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterFormDialogComponent } from '../master-form-dialog/master-form-dialog.component';
@@ -28,10 +28,10 @@ import { DmisEmptyStateComponent } from '../../../replenishment/shared/dmis-empt
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
-import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, tap } from 'rxjs';
 
 @Component({
-  selector: 'master-list',
+  selector: 'dmis-master-list',
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
@@ -54,7 +54,7 @@ export class MasterListComponent implements OnInit {
   private breakpointObserver = inject(BreakpointObserver);
 
   config = signal<MasterTableConfig | null>(null);
-  rows = signal<Record<string, any>[]>([]);
+  rows = signal<MasterRecord[]>([]);
   totalCount = signal(0);
   isLoading = signal(true);
   isMobile = signal(false);
@@ -103,12 +103,14 @@ export class MasterListComponent implements OnInit {
     });
 
     this.searchSubject.pipe(
+      tap(search => {
+        this.searchText.set(search);
+        this.pageIndex.set(0);
+      }),
       debounceTime(300),
       distinctUntilChanged(),
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe(search => {
-      this.searchText.set(search);
-      this.pageIndex.set(0);
+    ).subscribe(() => {
       this.loadData();
     });
   }
@@ -118,10 +120,12 @@ export class MasterListComponent implements OnInit {
   }
 
   clearFilters(): void {
+    const hadSearch = !!this.searchText();
     this.statusFilter.set('');
-    this.searchText.set('');
-    this.pageIndex.set(0);
-    this.loadData();
+    this.searchSubject.next('');
+    if (!hadSearch) {
+      this.loadData();
+    }
   }
 
   onSearchInput(event: Event): void {
@@ -178,20 +182,28 @@ export class MasterListComponent implements OnInit {
     }
   }
 
-  onView(row: Record<string, any>): void {
+  onView(row: MasterRecord): void {
     const cfg = this.config();
     if (!cfg) return;
-    const pk = row[cfg.pkField];
+    const pk = this.coercePrimaryKey(row[cfg.pkField]);
+    if (pk == null) {
+      this.notify.showError('Cannot open record: invalid primary key.');
+      return;
+    }
 
     if (cfg.formMode === 'page') {
       this.router.navigate(['/master-data', cfg.routePath, pk]);
     }
   }
 
-  onEdit(row: Record<string, any>): void {
+  onEdit(row: MasterRecord): void {
     const cfg = this.config();
     if (!cfg) return;
-    const pk = row[cfg.pkField];
+    const pk = this.coercePrimaryKey(row[cfg.pkField]);
+    if (pk == null) {
+      this.notify.showError('Cannot edit record: invalid primary key.');
+      return;
+    }
 
     if (cfg.formMode === 'dialog') {
       this.openFormDialog(pk);
@@ -200,10 +212,15 @@ export class MasterListComponent implements OnInit {
     }
   }
 
-  onToggleStatus(row: Record<string, any>): void {
+  onToggleStatus(row: MasterRecord): void {
     const cfg = this.config();
     if (!cfg) return;
-    const pk = row[cfg.pkField];
+    const pk = this.coercePrimaryKey(row[cfg.pkField]);
+    if (pk == null) {
+      this.notify.showError('Cannot change status: invalid primary key.');
+      return;
+    }
+    const versionNbr = this.coerceVersionNumber(row['version_nbr']);
     const isActive = row[cfg.statusField || 'status_code'] === 'A';
 
     if (isActive) {
@@ -223,7 +240,7 @@ export class MasterListComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       ).subscribe(confirmed => {
         if (confirmed) {
-          this.service.inactivate(cfg.tableKey, pk, row['version_nbr']).pipe(
+          this.service.inactivate(cfg.tableKey, pk, versionNbr).pipe(
             takeUntilDestroyed(this.destroyRef),
           ).subscribe({
             next: () => {
@@ -243,7 +260,7 @@ export class MasterListComponent implements OnInit {
         }
       });
     } else {
-      this.service.activate(cfg.tableKey, pk, row['version_nbr']).pipe(
+      this.service.activate(cfg.tableKey, pk, versionNbr).pipe(
         takeUntilDestroyed(this.destroyRef),
       ).subscribe({
         next: () => {
@@ -255,7 +272,10 @@ export class MasterListComponent implements OnInit {
     }
   }
 
-  getStatusLabel(value: string): string {
+  getStatusLabel(value: unknown): string {
+    if (typeof value !== 'string') {
+      return 'Unknown';
+    }
     const cfg = this.config();
     if (value === 'A') return cfg?.activeLabel || 'Active';
     if (value === 'I' || value === 'C') return cfg?.inactiveLabel || 'Inactive';
@@ -285,5 +305,16 @@ export class MasterListComponent implements OnInit {
         this.service.clearLookupCache(cfg.tableKey);
       }
     });
+  }
+
+  private coercePrimaryKey(value: unknown): string | number | null {
+    if (typeof value === 'string' || typeof value === 'number') {
+      return value;
+    }
+    return null;
+  }
+
+  private coerceVersionNumber(value: unknown): number | undefined {
+    return typeof value === 'number' ? value : undefined;
   }
 }

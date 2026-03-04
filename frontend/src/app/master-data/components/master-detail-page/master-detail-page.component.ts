@@ -15,7 +15,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
-import { MasterFieldConfig, MasterTableConfig } from '../../models/master-data.models';
+import { MasterFieldConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
@@ -23,7 +23,7 @@ import { ReplenishmentService } from '../../../replenishment/services/replenishm
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 
 @Component({
-  selector: 'master-detail-page',
+  selector: 'dmis-master-detail-page',
   standalone: true,
   imports: [
     CommonModule, RouterModule, ReactiveFormsModule,
@@ -44,7 +44,7 @@ export class MasterDetailPageComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
 
   config = signal<MasterTableConfig | null>(null);
-  record = signal<Record<string, any> | null>(null);
+  record = signal<MasterRecord | null>(null);
   isLoading = signal(true);
   pk = signal<string | number | null>(null);
   assigningLocation = signal(false);
@@ -211,6 +211,7 @@ export class MasterDetailPageComponent implements OnInit {
     const cfg = this.config();
     const r = this.record();
     if (!cfg || !r) return;
+    const versionNbr = this.coerceVersionNumber(r['version_nbr']);
 
     if (this.isActive()) {
       const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
@@ -229,7 +230,7 @@ export class MasterDetailPageComponent implements OnInit {
         takeUntilDestroyed(this.destroyRef),
       ).subscribe(confirmed => {
         if (confirmed) {
-          this.service.inactivate(cfg.tableKey, this.pk()!, r['version_nbr']).pipe(
+          this.service.inactivate(cfg.tableKey, this.pk()!, versionNbr).pipe(
             takeUntilDestroyed(this.destroyRef),
           ).subscribe({
             next: () => {
@@ -248,7 +249,7 @@ export class MasterDetailPageComponent implements OnInit {
         }
       });
     } else {
-      this.service.activate(cfg.tableKey, this.pk()!, r['version_nbr']).pipe(
+      this.service.activate(cfg.tableKey, this.pk()!, versionNbr).pipe(
         takeUntilDestroyed(this.destroyRef),
       ).subscribe({
         next: () => {
@@ -278,7 +279,7 @@ export class MasterDetailPageComponent implements OnInit {
     return iconMap[groupLabel] || 'folder';
   }
 
-  getDisplayValue(field: MasterFieldConfig, value: any): string {
+  getDisplayValue(field: MasterFieldConfig, value: unknown): string {
     if (value == null || value === '') return '-';
     if (field.type === 'boolean') return value ? 'Yes' : 'No';
     if (field.type === 'select' && field.options) {
@@ -297,6 +298,14 @@ export class MasterDetailPageComponent implements OnInit {
     return cfg.inactiveLabel || 'Inactive';
   }
 
+  getAuditCreatedAt(record: MasterRecord): string | number | Date | null {
+    return this.toDateInput(record['create_dtime'] ?? record['created_at']);
+  }
+
+  getAuditUpdatedAt(record: MasterRecord): string | number | Date | null {
+    return this.toDateInput(record['update_dtime'] ?? record['updated_at']);
+  }
+
   getLocationFieldError(fieldName: 'inventory_id' | 'location_id' | 'batch_id'): string | null {
     const control = this.locationForm.controls[fieldName];
     if (!control || !control.touched || !control.errors) return null;
@@ -311,6 +320,17 @@ export class MasterDetailPageComponent implements OnInit {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
     return parsed;
+  }
+
+  private toDateInput(value: unknown): string | number | Date | null {
+    if (value == null) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string' || typeof value === 'number') return value;
+    return null;
+  }
+
+  private coerceVersionNumber(value: unknown): number | undefined {
+    return typeof value === 'number' ? value : undefined;
   }
 
   private clearLocationServerErrors(): void {

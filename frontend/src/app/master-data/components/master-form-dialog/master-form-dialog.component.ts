@@ -14,7 +14,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
-import { LookupItem, MasterFieldConfig, MasterTableConfig } from '../../models/master-data.models';
+import { LookupItem, MasterTableConfig } from '../../models/master-data.models';
 import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
@@ -24,7 +24,7 @@ export interface MasterFormDialogData {
 }
 
 @Component({
-  selector: 'master-form-dialog',
+  selector: 'dmis-master-form-dialog',
   standalone: true,
   imports: [
     CommonModule, ReactiveFormsModule,
@@ -277,7 +277,9 @@ export class MasterFormDialogComponent implements OnInit {
     ).subscribe({
       next: res => {
         const record = res.record;
-        this.versionNbr = record['version_nbr'] ?? null;
+        this.versionNbr = typeof record['version_nbr'] === 'number'
+          ? record['version_nbr']
+          : null;
 
         for (const field of this.data.config.formFields) {
           const control = this.form.get(field.field);

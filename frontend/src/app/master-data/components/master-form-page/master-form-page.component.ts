@@ -25,7 +25,7 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 
 @Component({
-  selector: 'master-form-page',
+  selector: 'dmis-master-form-page',
   standalone: true,
   imports: [
     CommonModule, ReactiveFormsModule, RouterModule,
@@ -182,7 +182,9 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe({
       next: res => {
         const record = res.record;
-        this.versionNbr = record['version_nbr'] ?? null;
+        this.versionNbr = typeof record['version_nbr'] === 'number'
+          ? record['version_nbr']
+          : null;
 
         for (const field of cfg.formFields) {
           const control = this.form.get(field.field);

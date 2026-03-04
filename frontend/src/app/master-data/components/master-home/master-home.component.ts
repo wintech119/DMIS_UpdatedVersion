@@ -40,7 +40,7 @@ interface PlannedCard {
 type DomainCard = ImplementedCard | PlannedCard;
 
 @Component({
-  selector: 'master-home',
+  selector: 'dmis-master-home',
   standalone: true,
   imports: [
     CommonModule,

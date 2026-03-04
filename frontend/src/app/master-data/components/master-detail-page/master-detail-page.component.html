@@ -141,7 +141,7 @@
             </div>
             <div class="detail-field">
               <span class="field-label">Created At</span>
-              <span class="field-value">{{ (r['create_dtime'] || r['created_at']) | date:'medium' }}</span>
+              <span class="field-value">{{ getAuditCreatedAt(r) | date:'medium' }}</span>
             </div>
             <div class="detail-field">
               <span class="field-label">Updated By</span>
@@ -149,7 +149,7 @@
             </div>
             <div class="detail-field">
               <span class="field-label">Updated At</span>
-              <span class="field-value">{{ (r['update_dtime'] || r['updated_at']) | date:'medium' }}</span>
+              <span class="field-value">{{ getAuditUpdatedAt(r) | date:'medium' }}</span>
             </div>
             @if (r['version_nbr']) {
               <div class="detail-field">

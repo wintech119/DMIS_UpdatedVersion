@@ -5,6 +5,7 @@
 export type FormMode = 'dialog' | 'page';
 export type FieldType = 'text' | 'number' | 'select' | 'lookup' | 'boolean' | 'date' | 'textarea' | 'email' | 'phone';
 export type ColumnType = 'text' | 'number' | 'date' | 'boolean' | 'status';
+export type MasterRecord = Record<string, unknown>;
 
 export interface MasterColumnConfig {
   field: string;
@@ -28,7 +29,7 @@ export interface MasterFieldConfig {
   /** For 'lookup' type: which table_key to fetch dropdown data from */
   lookupTable?: string;
   /** For 'boolean' type: default value */
-  defaultValue?: any;
+  defaultValue?: unknown;
   /** Readonly on edit (e.g. donor_code) */
   readonlyOnEdit?: boolean;
   /** Uppercase on input */
@@ -66,7 +67,7 @@ export interface MasterTableConfig {
 // API response interfaces
 // ---------------------------------------------------------------------------
 
-export interface MasterListResponse<T = Record<string, any>> {
+export interface MasterListResponse<T = MasterRecord> {
   results: T[];
   count: number;
   limit: number;
@@ -74,7 +75,7 @@ export interface MasterListResponse<T = Record<string, any>> {
   warnings: string[];
 }
 
-export interface MasterDetailResponse<T = Record<string, any>> {
+export interface MasterDetailResponse<T = MasterRecord> {
   record: T;
   warnings: string[];
 }

@@ -7,6 +7,7 @@ import {
   MasterDetailResponse,
   MasterListResponse,
   MasterLookupResponse,
+  MasterRecord,
   MasterSummaryResponse,
 } from '../models/master-data.models';
 
@@ -45,25 +46,25 @@ export class MasterDataService {
   }
 
   // ── Create ──────────────────────────────────────────────────────────
-  create(tableKey: string, data: Record<string, any>): Observable<MasterDetailResponse> {
+  create(tableKey: string, data: MasterRecord): Observable<MasterDetailResponse> {
     return this.http.post<MasterDetailResponse>(`${this.apiUrl}/${tableKey}/`, data);
   }
 
   // ── Update ──────────────────────────────────────────────────────────
-  update(tableKey: string, pk: string | number, data: Record<string, any>): Observable<MasterDetailResponse> {
+  update(tableKey: string, pk: string | number, data: MasterRecord): Observable<MasterDetailResponse> {
     return this.http.patch<MasterDetailResponse>(`${this.apiUrl}/${tableKey}/${pk}`, data);
   }
 
   // ── Inactivate ──────────────────────────────────────────────────────
   inactivate(tableKey: string, pk: string | number, versionNbr?: number): Observable<MasterDetailResponse> {
-    const body: Record<string, any> = {};
+    const body: { version_nbr?: number } = {};
     if (versionNbr != null) body['version_nbr'] = versionNbr;
     return this.http.post<MasterDetailResponse>(`${this.apiUrl}/${tableKey}/${pk}/inactivate`, body);
   }
 
   // ── Activate ────────────────────────────────────────────────────────
   activate(tableKey: string, pk: string | number, versionNbr?: number): Observable<MasterDetailResponse> {
-    const body: Record<string, any> = {};
+    const body: { version_nbr?: number } = {};
     if (versionNbr != null) body['version_nbr'] = versionNbr;
     return this.http.post<MasterDetailResponse>(`${this.apiUrl}/${tableKey}/${pk}/activate`, body);
   }
