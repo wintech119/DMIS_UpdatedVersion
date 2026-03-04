@@ -236,11 +236,14 @@ export class MasterFormPageComponent implements OnInit {
       next: (res) => {
         this.notify.showSuccess(this.isEdit() ? 'Record updated.' : 'Record created.');
         this.service.clearLookupCache(cfg.tableKey);
-        const newPk = res.record?.[cfg.pkField] || this.pk();
+        const newPk = res.record?.[cfg.pkField] ?? null;
         if (this.isEdit()) {
           this.navigateBack();
-        } else {
+        } else if (newPk != null && newPk !== '') {
           this.router.navigate(['/master-data', cfg.routePath, newPk]);
+        } else {
+          this.notify.showWarning('Record saved, but no primary key was returned.');
+          this.navigateBack();
         }
       },
       error: (err) => {
