@@ -1167,15 +1167,21 @@ def check_uniqueness(
     Returns (is_unique, warnings).
     """
     cfg = TABLE_REGISTRY[table_key]
+    fd = cfg.field(field_name)
+    if not fd:
+        logger.warning(
+            "check_uniqueness(%s.%s): invalid field_name",
+            table_key,
+            field_name,
+        )
+        return True, ["invalid_field"]
+
     if _is_sqlite():
         return True, ["db_unavailable"]
 
     schema = _schema_name()
-    fd = cfg.field(field_name)
-    if not fd:
-        return True, []
-
-    where_parts = [f"UPPER({field_name}) = UPPER(%s)"]
+    safe_field_name = fd.name
+    where_parts = [f"UPPER({safe_field_name}) = UPPER(%s)"]
     params: list[Any] = [value]
 
     if exclude_pk is not None:

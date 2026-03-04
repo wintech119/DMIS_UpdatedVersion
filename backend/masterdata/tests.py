@@ -5,7 +5,7 @@ from rest_framework.request import Request
 
 from masterdata import views
 
-from masterdata.services.data_access import TABLE_REGISTRY, _resolve_order_by
+from masterdata.services.data_access import TABLE_REGISTRY, _resolve_order_by, check_uniqueness
 
 
 class OrderByValidationTests(SimpleTestCase):
@@ -76,3 +76,29 @@ class PaginationLimitClampTests(SimpleTestCase):
         self.assertEqual(response.data["limit"], 500)
         kwargs = mock_list_records.call_args.kwargs
         self.assertEqual(kwargs["limit"], 500)
+
+
+class UniquenessFieldValidationTests(SimpleTestCase):
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_invalid_field_returns_warning_and_skips_query(self, _mock_sqlite):
+        is_unique, warnings = check_uniqueness(
+            "items",
+            "item_name; DROP TABLE item; --",
+            "MRE",
+        )
+
+        self.assertTrue(is_unique)
+        self.assertEqual(warnings, ["invalid_field"])
+
+    @patch("masterdata.services.data_access.connection")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_valid_field_uses_canonical_column_name(self, _mock_sqlite, mock_connection):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (0,)
+
+        is_unique, warnings = check_uniqueness("items", "item_name", "MRE")
+
+        self.assertTrue(is_unique)
+        self.assertEqual(warnings, [])
+        executed_sql = cursor.execute.call_args.args[0]
+        self.assertIn("UPPER(item_name) = UPPER(%s)", executed_sql)
