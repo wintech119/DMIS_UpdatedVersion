@@ -150,6 +150,7 @@ export class MasterListComponent implements OnInit {
     const cfg = this.config();
     if (!cfg) return;
 
+    const requestId = ++this.latestLoadRequestId;
     this.isLoading.set(true);
     this.service.list(cfg.tableKey, {
       status: this.statusFilter() || undefined,
@@ -160,11 +161,13 @@ export class MasterListComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: res => {
+        if (requestId !== this.latestLoadRequestId) return;
         this.rows.set(res.results);
         this.totalCount.set(res.count);
         this.isLoading.set(false);
       },
       error: () => {
+        if (requestId !== this.latestLoadRequestId) return;
         this.notify.showError('Failed to load records.');
         this.isLoading.set(false);
       },
