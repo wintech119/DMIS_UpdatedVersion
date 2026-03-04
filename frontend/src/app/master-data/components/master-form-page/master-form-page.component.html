@@ -66,6 +66,9 @@
                       @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                         <mat-error>{{ field.label }} is required</mat-error>
                       }
+                      @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
+                        <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
+                      }
                     </mat-form-field>
                   }
                   @case ('lookup') {

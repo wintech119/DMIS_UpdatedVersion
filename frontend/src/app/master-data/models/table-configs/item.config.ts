@@ -1,4 +1,20 @@
 import { MasterTableConfig } from '../master-data.models';
+import { AbstractControl, ValidationErrors } from '@angular/forms';
+
+/**
+ * Cross-field validator for item forms:
+ * FEFO issuance requires expiration tracking to be enabled.
+ */
+export function validateFefoRequiresExpiry(control: AbstractControl): ValidationErrors | null {
+  const issuanceOrder = control.get('issuance_order')?.value;
+  const canExpireFlag = control.get('can_expire_flag')?.value;
+
+  if (issuanceOrder === 'FEFO' && canExpireFlag !== true) {
+    return { fefoRequiresExpiry: true };
+  }
+
+  return null;
+}
 
 export const ITEM_CONFIG: MasterTableConfig = {
   tableKey: 'items',
