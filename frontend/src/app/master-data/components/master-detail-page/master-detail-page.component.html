@@ -54,7 +54,10 @@
             @for (field of group.fields; track field.field) {
               <div class="detail-field" [class.colspan-2]="field.colspan === 2">
                 <span class="field-label">{{ field.label }}</span>
-                <span class="field-value" [class.empty-value]="!r[field.field] && r[field.field] !== 0">
+                <span
+                  class="field-value"
+                  [class.empty-value]="r[field.field] === null || r[field.field] === undefined || r[field.field] === ''"
+                >
                   {{ getDisplayValue(field, r[field.field]) }}
                 </span>
               </div>
