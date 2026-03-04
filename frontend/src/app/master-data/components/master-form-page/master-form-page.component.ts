@@ -11,7 +11,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -30,7 +30,7 @@ import { ReplenishmentService } from '../../../replenishment/services/replenishm
   imports: [
     CommonModule, ReactiveFormsModule, RouterModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
-    MatIconModule, MatCheckboxModule, MatDatepickerModule, MatNativeDateModule,
+    MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
     MatProgressBarModule, MatCardModule, MatTooltipModule,
   ],
   templateUrl: './master-form-page.component.html',
@@ -352,6 +352,12 @@ export class MasterFormPageComponent implements OnInit {
       'Inventory Settings': 'inventory_2',
       'Procurement': 'shopping_cart',
       'Financial': 'payments',
+      'Item Identity': 'label',
+      'Classification': 'category',
+      'Inventory Rules': 'inventory_2',
+      'Tracking & Behaviour': 'track_changes',
+      'Notes & Storage': 'notes',
+      'Notes': 'notes',
     };
     return iconMap[groupLabel] || 'folder';
   }

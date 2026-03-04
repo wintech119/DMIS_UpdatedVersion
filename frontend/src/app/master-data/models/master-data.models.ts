@@ -38,6 +38,8 @@ export interface MasterFieldConfig {
   group?: string;
   /** Grid span (1 or 2 columns) */
   colspan?: 1 | 2;
+  /** Optional help text rendered below the field */
+  hint?: string;
 }
 
 export interface MasterTableConfig {

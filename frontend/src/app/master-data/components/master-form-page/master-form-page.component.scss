@@ -20,9 +20,9 @@
 .form-page-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-  padding: 16px;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 8px 0;
 
   .back-btn {
     color: #6b7280;
@@ -56,15 +56,15 @@
 .form-page-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
-// ── Form Sections (matches replenishment .form-section) ─────────────────────
+// ── Form Sections ────────────────────────────────────────────────────────────
 .form-section {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px;
+  border-radius: 6px;
+  padding: 16px;
 
   // Remove default mat-card chrome
   ::ng-deep {
@@ -78,17 +78,19 @@
 .section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
-  font-size: 0.9375rem;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 
   mat-icon, .section-icon {
-    font-size: 20px;
-    width: 20px;
-    height: 20px;
-    color: #0f766e;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    color: #6b7280;
   }
 }
 
@@ -140,11 +142,13 @@
   }
 }
 
-// ── Form Grid (matches replenishment .form-grid) ────────────────────────────
+// ── Form Grid ────────────────────────────────────────────────────────────────
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 20px;
+  gap: 6px 16px;
+  // Extra row gap to ensure multi-line hints don't overlap next field
+  row-gap: 20px;
 
   .form-field {
     width: 100%;
@@ -171,10 +175,37 @@
   color: #9ca3af;
 }
 
-// Boolean checkboxes need vertical alignment with form fields
-.bool-field {
-  margin: 8px 0 12px;
-  padding: 8px 0;
+// ── Slide-toggle rows (boolean fields) ──────────────────────────────────────
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.toggle-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.toggle-row__label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.toggle-row__hint {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  line-height: 1.4;
 }
 
 // ── Action Bar ──────────────────────────────────────────────────────────────
@@ -248,15 +279,11 @@
   .form-page-container {
     padding: 12px;
   }
-
-  .form-page-header {
-    padding: 12px;
-  }
 }
 
 @media (max-width: 768px) {
   .form-page-container {
-    padding: 10px;
+    padding: 8px;
   }
 
   .form-page-header {
@@ -266,7 +293,7 @@
   }
 
   .form-section {
-    padding: 16px;
+    padding: 12px;
   }
 
   .form-grid {

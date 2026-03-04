@@ -133,7 +133,7 @@ db.sqlite3
 !**/docs/**/*.csv
 !**/fixtures/example*.csv
 
-# Docs attached assets (generated/extracted; keep __live_dmis_schema.sql)
+# Docs attached assets (generated/extracted)
 docs/attached_assets/DMIS_Requirements_Specification_v5_1 Consolidated.docx
 docs/attached_assets/__dmis_v51_flat.txt
 docs/attached_assets/__dmis_v51_text.txt
