@@ -1,0 +1,283 @@
+@if (config(); as cfg) {
+  <div class="form-page-container">
+  <!-- Header -->
+  <div class="form-page-header">
+    <button mat-icon-button class="back-btn" (click)="onCancel()" matTooltip="Back to list"
+      aria-label="Back to list">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <div class="header-text">
+      <h2>{{ isEdit() ? 'Edit' : 'New' }} {{ cfg.displayName }}</h2>
+      @if (isEdit()) {
+        <span class="header-subtitle">Update the fields below and save your changes</span>
+      }
+    </div>
+  </div>
+
+  @if (isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  } @else {
+    <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
+      @for (group of fieldGroups(); track group.label) {
+        <section class="form-section" [attr.aria-label]="group.label + ' section'">
+          <h3 class="section-title">
+            <mat-icon>{{ getSectionIcon(group.label) }}</mat-icon>
+            {{ group.label }}
+          </h3>
+          <div class="form-grid">
+            @for (field of group.fields; track field.field) {
+              <div class="form-field" [class.colspan-2]="field.colspan === 2">
+                @switch (field.type) {
+                  @case ('textarea') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <textarea matInput [formControlName]="field.field"
+                        [maxlength]="field.maxLength || null"
+                        rows="3"
+                        [attr.aria-required]="field.required || null"></textarea>
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                      @if (field.maxLength) {
+                        <mat-hint align="end">
+                          {{ (form.get(field.field)?.value?.length || 0) }} / {{ field.maxLength }}
+                        </mat-hint>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('select') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <mat-select [formControlName]="field.field"
+                        [attr.aria-required]="field.required || null">
+                        @for (opt of field.options; track opt.value) {
+                          <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                        }
+                      </mat-select>
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('lookup') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <mat-select [formControlName]="field.field"
+                        [attr.aria-required]="field.required || null">
+                        @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                          <mat-option [value]="item.value">{{ item.label }}</mat-option>
+                        }
+                      </mat-select>
+                      @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                        <mat-hint>No options available.</mat-hint>
+                      }
+                      @if (lookupErrors()[field.lookupTable!]) {
+                        <mat-error>{{ lookupErrors()[field.lookupTable!] }}</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('boolean') {
+                    <mat-checkbox [formControlName]="field.field" class="bool-field">
+                      {{ field.label }}
+                    </mat-checkbox>
+                  }
+                  @case ('date') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                        [attr.aria-required]="field.required || null" />
+                      <mat-datepicker-toggle matIconSuffix [for]="picker" />
+                      <mat-datepicker #picker />
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('email') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <input matInput type="email" [formControlName]="field.field"
+                        [maxlength]="field.maxLength || null"
+                        [attr.aria-required]="field.required || null" />
+                      <mat-icon matPrefix>email</mat-icon>
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('email')) {
+                        <mat-error>Invalid email format</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('phone') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <input matInput type="tel" [formControlName]="field.field"
+                        [maxlength]="field.maxLength || null"
+                        placeholder="+1 (XXX) XXX-XXXX"
+                        [attr.aria-required]="field.required || null" />
+                      <mat-icon matPrefix>phone</mat-icon>
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('pattern')) {
+                        <mat-error>{{ field.patternMessage || 'Invalid phone format' }}</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @case ('number') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <input matInput type="number" [formControlName]="field.field"
+                        [attr.aria-required]="field.required || null" />
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                  @default {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>{{ field.label }}</mat-label>
+                      <input matInput [formControlName]="field.field"
+                        [maxlength]="field.maxLength || null"
+                        [attr.aria-required]="field.required || null" />
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                        <mat-error>{{ field.label }} is required</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('maxlength')) {
+                        <mat-error>Max {{ field.maxLength }} characters</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('pattern')) {
+                        <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
+                      }
+                      @if (form.get(field.field)?.hasError('server')) {
+                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                      }
+                    </mat-form-field>
+                  }
+                }
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      @if (canAssignLocation()) {
+        <section class="form-section location-assignment-section" aria-label="Storage location assignment section">
+          <h3 class="section-title">
+            <mat-icon>shelves</mat-icon>
+            Storage Location Assignment
+          </h3>
+          <p class="section-description">
+            @if (isBatchedItem()) {
+              This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+            } @else {
+              This item is non-batched. Provide Inventory ID and Location ID only.
+            }
+          </p>
+          <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+
+          <div class="assignment-form" [formGroup]="locationForm">
+            <div class="assignment-grid">
+              <mat-form-field appearance="outline" class="assignment-field">
+                <mat-label>Inventory ID</mat-label>
+                <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help">
+                  @for (item of lookups()['inventory'] || []; track item.value) {
+                    <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                  }
+                </mat-select>
+                @if ((lookups()['inventory'] || []).length === 0) {
+                  <mat-hint id="inventory-id-help">No inventory options found.</mat-hint>
+                } @else {
+                  <mat-hint id="inventory-id-help">Select an existing inventory record.</mat-hint>
+                }
+                @if (getLocationFieldError('inventory_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="assignment-field">
+                <mat-label>Location ID</mat-label>
+                <mat-select formControlName="location_id">
+                  @for (item of lookups()['locations'] || []; track item.value) {
+                    <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                  }
+                </mat-select>
+                @if ((lookups()['locations'] || []).length === 0) {
+                  <mat-hint>No locations found. Create one in Master Data > Locations.</mat-hint>
+                }
+                @if (getLocationFieldError('location_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              @if (isBatchedItem()) {
+                <mat-form-field appearance="outline" class="assignment-field">
+                  <mat-label>Batch ID</mat-label>
+                  <input matInput type="number" min="1" formControlName="batch_id" />
+                  @if (getLocationFieldError('batch_id'); as error) {
+                    <mat-error>{{ error }}</mat-error>
+                  }
+                </mat-form-field>
+              }
+            </div>
+
+            <div class="assignment-actions">
+              <button
+                mat-flat-button
+                color="primary"
+                type="button"
+                [disabled]="assigningLocation()"
+                (click)="onAssignStorageLocation()"
+              >
+                @if (assigningLocation()) {
+                  <mat-icon class="spin">sync</mat-icon>
+                  Assigning...
+                } @else {
+                  <mat-icon>add_location_alt</mat-icon>
+                  Assign Location
+                }
+              </button>
+            </div>
+          </div>
+        </section>
+      }
+
+      <!-- Action Bar -->
+      <div class="form-actions">
+        <button mat-stroked-button type="button" class="cancel-btn" (click)="onCancel()">
+          Cancel
+        </button>
+        <button mat-flat-button color="primary" type="submit" class="save-btn"
+          [disabled]="isSaving() || form.invalid">
+          @if (isSaving()) {
+            <mat-icon class="spin">sync</mat-icon> Saving...
+          } @else {
+            <mat-icon>save</mat-icon> {{ isEdit() ? 'Update' : 'Create' }}
+          }
+        </button>
+      </div>
+    </form>
+  }
+  </div>
+}

@@ -52,9 +52,11 @@ def dev_users(request):
                 FROM "user" u
                 JOIN user_role ur ON ur.user_id = u.user_id
                 JOIN role r ON r.id = ur.role_id
-                JOIN role_permission rp ON rp.role_id = r.id
-                JOIN permission p ON p.perm_id = rp.perm_id
-                WHERE p.resource = 'replenishment.needs_list'
+                LEFT JOIN role_permission rp ON rp.role_id = r.id
+                LEFT JOIN permission p ON p.perm_id = rp.perm_id
+                WHERE
+                    COALESCE(u.is_active, TRUE) = TRUE
+                    AND COALESCE(u.status_code, 'A') = 'A'
                 ORDER BY u.username, u.user_id
                 """
             )

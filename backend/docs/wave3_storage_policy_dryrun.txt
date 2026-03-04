@@ -1,0 +1,6 @@
+Location storage policy enforcement:
+- item_location writes will be blocked for batched items
+- batchlocation writes will be blocked for non-batched items
+- derived view v_item_location_batched will be created/updated
+- apply mode: False
+Dry-run only. Re-run with --apply to persist trigger policy.

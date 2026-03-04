@@ -1,0 +1,8 @@
+Warehouse sync parity report:
+- warehouse rows evaluated: 11
+- repair mode: False
+Summary:
+- matched: 11
+- mismatched: 0
+- missing_shadow_rows: 0
+- orphan_shadow_rows: 0

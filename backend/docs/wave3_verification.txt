@@ -1,0 +1,9 @@
+policy_triggers=[('batchlocation', 'trg_enforce_batchlocation_policy'), ('item_location', 'trg_enforce_item_location_policy')]
+v_item_location_batched_exists=True
+role_scope_policy_count=0
+approval_reason_code_count=5
+event_severity_profile_count=0
+resource_capability_ref_count=4
+allocation_priority_rule_count=0
+tenant_access_policy_count=0
+batched_item_location_policy_test=item_location policy violation: item_id 1 is batch-tracked; use batchlocation.

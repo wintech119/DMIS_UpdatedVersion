@@ -1,0 +1,166 @@
+@if (config(); as cfg) {
+  <div class="detail-page-container">
+  <!-- Header -->
+  <div class="detail-header">
+    <div class="header-left">
+      <button mat-icon-button class="back-btn" (click)="navigateBack()" matTooltip="Back to list"
+        aria-label="Back to list">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
+        <h2>
+          {{ cfg.displayName }} Detail
+          @if (record(); as r) {
+            @if (cfg.hasStatus !== false) {
+              <span class="status-badge" [class.active]="isActive()" [class.inactive]="!isActive()">
+                {{ getStatusLabel() }}
+              </span>
+            }
+          }
+        </h2>
+      </div>
+    </div>
+    @if (record() && !cfg.readOnly) {
+      <div class="header-actions">
+        <button mat-stroked-button (click)="onEdit()">
+          <mat-icon>edit</mat-icon> Edit
+        </button>
+        @if (cfg.hasStatus !== false) {
+          @if (isActive()) {
+            <button mat-stroked-button color="warn" (click)="onToggleStatus()">
+              <mat-icon>block</mat-icon> Inactivate
+            </button>
+          } @else {
+            <button mat-stroked-button (click)="onToggleStatus()">
+              <mat-icon>check_circle</mat-icon> Activate
+            </button>
+          }
+        }
+      </div>
+    }
+  </div>
+
+  @if (isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  } @else if (record(); as r) {
+    <div class="detail-content">
+      @for (group of fieldGroups(); track group.label) {
+        <section class="detail-section" [attr.aria-label]="group.label + ' section'">
+          <h3 class="section-title">
+            <mat-icon>{{ getSectionIcon(group.label) }}</mat-icon>
+            {{ group.label }}
+          </h3>
+          <div class="detail-grid">
+            @for (field of group.fields; track field.field) {
+              <div class="detail-field" [class.colspan-2]="field.colspan === 2">
+                <span class="field-label">{{ field.label }}</span>
+                <span class="field-value" [class.empty-value]="!r[field.field] && r[field.field] !== 0">
+                  {{ getDisplayValue(field, r[field.field]) }}
+                </span>
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      @if (isItemRecord()) {
+        <section class="detail-section location-assignment-section" aria-label="Storage location assignment section">
+          <h3 class="section-title">
+            <mat-icon>shelves</mat-icon>
+            Storage Location Assignment
+          </h3>
+          <p class="section-description">
+            @if (isBatchedItem()) {
+              This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+            } @else {
+              This item is non-batched. Provide Inventory ID and Location ID only.
+            }
+          </p>
+          <form class="assignment-form" [formGroup]="locationForm" (ngSubmit)="onAssignStorageLocation()">
+            <div class="assignment-grid">
+              <mat-form-field appearance="outline" class="assignment-field">
+                <mat-label>Inventory ID</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  min="1"
+                  formControlName="inventory_id"
+                  aria-describedby="inventory-id-help"
+                />
+                <mat-hint id="inventory-id-help">Use warehouse inventory ID</mat-hint>
+                @if (getLocationFieldError('inventory_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="assignment-field">
+                <mat-label>Location ID</mat-label>
+                <input matInput type="number" min="1" formControlName="location_id" />
+                @if (getLocationFieldError('location_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              @if (isBatchedItem()) {
+                <mat-form-field appearance="outline" class="assignment-field">
+                  <mat-label>Batch ID</mat-label>
+                  <input matInput type="number" min="1" formControlName="batch_id" />
+                  @if (getLocationFieldError('batch_id'); as error) {
+                    <mat-error>{{ error }}</mat-error>
+                  }
+                </mat-form-field>
+              }
+            </div>
+
+            <div class="assignment-actions">
+              <button mat-flat-button color="primary" type="submit" [disabled]="assigningLocation()">
+                @if (assigningLocation()) {
+                  <mat-icon class="spin">sync</mat-icon>
+                  Assigning...
+                } @else {
+                  <mat-icon>add_location_alt</mat-icon>
+                  Assign Location
+                }
+              </button>
+            </div>
+          </form>
+        </section>
+      }
+
+      <!-- Audit info (only for tables with audit columns) -->
+      @if (r['create_by_id'] || r['created_by'] || r['version_nbr']) {
+        <section class="detail-section audit-section" aria-label="Audit information section">
+          <h3 class="section-title">
+            <mat-icon>history</mat-icon>
+            Audit Information
+          </h3>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <span class="field-label">Created By</span>
+              <span class="field-value">{{ r['create_by_id'] || r['created_by'] || '-' }}</span>
+            </div>
+            <div class="detail-field">
+              <span class="field-label">Created At</span>
+              <span class="field-value">{{ (r['create_dtime'] || r['created_at']) | date:'medium' }}</span>
+            </div>
+            <div class="detail-field">
+              <span class="field-label">Updated By</span>
+              <span class="field-value">{{ r['update_by_id'] || r['updated_by'] || '-' }}</span>
+            </div>
+            <div class="detail-field">
+              <span class="field-label">Updated At</span>
+              <span class="field-value">{{ (r['update_dtime'] || r['updated_at']) | date:'medium' }}</span>
+            </div>
+            @if (r['version_nbr']) {
+              <div class="detail-field">
+                <span class="field-label">Version</span>
+                <span class="field-value">{{ r['version_nbr'] }}</span>
+              </div>
+            }
+          </div>
+        </section>
+      }
+    </div>
+  }
+  </div>
+}

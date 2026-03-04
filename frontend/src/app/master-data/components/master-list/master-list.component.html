@@ -1,0 +1,220 @@
+@if (config(); as cfg) {
+  <div class="master-list-page">
+    <!-- Header -->
+    <div class="page-header">
+      <div class="header-text">
+        <h1>{{ cfg.displayName }}</h1>
+        <p class="subtitle">{{ cfg.searchPlaceholder || 'Manage ' + cfg.displayName.toLowerCase() }}</p>
+      </div>
+      @if (!cfg.readOnly) {
+        <button mat-flat-button color="primary" (click)="onAdd()" class="add-btn">
+          <mat-icon>add</mat-icon>
+          Add New
+        </button>
+      }
+    </div>
+
+    <!-- Filters Panel -->
+    <div class="filters-panel" role="region" [attr.aria-label]="cfg.displayName + ' filters'">
+      <div class="filters-bar">
+        <button
+          class="filters-toggle"
+          type="button"
+          (click)="toggleFilters()"
+          [attr.aria-expanded]="filtersExpanded()"
+          aria-controls="filtersContent">
+          <mat-icon class="filter-icon">filter_list</mat-icon>
+          <span class="filters-title">Filters</span>
+          @if (activeFilterCount() > 0) {
+            <span class="filter-count-badge">{{ activeFilterCount() }}</span>
+          }
+          <mat-icon class="chevron-icon" [class.expanded]="filtersExpanded()">expand_more</mat-icon>
+        </button>
+
+        <div class="filters-bar-right">
+          <span class="filter-summary" aria-live="polite">
+            {{ rows().length }} of {{ totalCount() }} records
+          </span>
+          @if (hasActiveFilters()) {
+            <button mat-stroked-button class="clear-btn" type="button" (click)="clearFilters()">
+              <mat-icon>close</mat-icon>
+              Clear
+            </button>
+          }
+        </div>
+      </div>
+
+      @if (filtersExpanded()) {
+        <div class="filters-content" id="filtersContent">
+          <div class="filters-grid">
+            <label class="filter-field filter-search">
+              <span class="filter-label">Search</span>
+              <input
+                type="text"
+                class="filter-input"
+                [value]="searchText()"
+                (input)="onSearchInput($event)"
+                [placeholder]="cfg.searchPlaceholder || 'Search...'">
+            </label>
+
+            @if (cfg.hasStatus !== false) {
+              <label class="filter-field">
+                <span class="filter-label">Status</span>
+                <select class="filter-select" [value]="statusFilter() || 'ALL'" (change)="onStatusFilterChange($event)">
+                  <option value="ALL">All statuses</option>
+                  <option value="A">{{ cfg.activeLabel || 'Active' }}</option>
+                  <option [value]="cfg.inactiveLabel === 'Closed' ? 'C' : 'I'">{{ cfg.inactiveLabel || 'Inactive' }}</option>
+                </select>
+              </label>
+            }
+          </div>
+        </div>
+      }
+    </div>
+
+    <!-- Loading -->
+    @if (isLoading()) {
+      <dmis-skeleton-loader variant="table-row" [count]="5" />
+    } @else if (rows().length === 0) {
+      <!-- Empty State -->
+      <dmis-empty-state
+        icon="search_off"
+        title="No records found"
+        [message]="searchText() ? 'Try adjusting your search or filters.' : 'No ' + cfg.displayName.toLowerCase() + ' exist yet.'"
+        [actionLabel]="cfg.readOnly ? '' : 'Add New'"
+        actionIcon="add"
+        (action)="onAdd()"
+      />
+    } @else {
+      <!-- Desktop Table -->
+      @if (!isMobile()) {
+        <div class="table-container">
+          <table mat-table [dataSource]="rows()" class="master-table">
+            @for (col of cfg.columns; track col.field) {
+              <ng-container [matColumnDef]="col.field">
+                <th mat-header-cell *matHeaderCellDef>{{ col.header }}</th>
+                <td mat-cell *matCellDef="let row">
+                  @switch (col.type) {
+                    @case ('status') {
+                      <span class="status-chip" [attr.data-status]="row[col.field]">
+                        <mat-icon class="status-icon">{{ row[col.field] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
+                        {{ getStatusLabel(row[col.field]) }}
+                      </span>
+                    }
+                    @case ('boolean') {
+                      <mat-icon [class.bool-true]="row[col.field]" [class.bool-false]="!row[col.field]">
+                        {{ row[col.field] ? 'check_circle' : 'cancel' }}
+                      </mat-icon>
+                    }
+                    @case ('date') {
+                      {{ row[col.field] | date:'mediumDate' }}
+                    }
+                    @default {
+                      {{ row[col.field] }}
+                    }
+                  }
+                </td>
+              </ng-container>
+            }
+
+            @if (!cfg.readOnly) {
+              <ng-container matColumnDef="_actions">
+                <th mat-header-cell *matHeaderCellDef class="actions-col"></th>
+                <td mat-cell *matCellDef="let row" class="actions-col">
+                  <button mat-icon-button [matMenuTriggerFor]="actionMenu" aria-label="Actions">
+                    <mat-icon>more_vert</mat-icon>
+                  </button>
+                  <mat-menu #actionMenu="matMenu">
+                    @if (cfg.formMode === 'page') {
+                      <button mat-menu-item (click)="onView(row)">
+                        <mat-icon>visibility</mat-icon> View
+                      </button>
+                    }
+                    <button mat-menu-item (click)="onEdit(row)">
+                      <mat-icon>edit</mat-icon> Edit
+                    </button>
+                    @if (cfg.hasStatus !== false) {
+                      @if (row[cfg.statusField || 'status_code'] === 'A') {
+                        <button mat-menu-item (click)="onToggleStatus(row)">
+                          <mat-icon color="warn">block</mat-icon> Inactivate
+                        </button>
+                      } @else {
+                        <button mat-menu-item (click)="onToggleStatus(row)">
+                          <mat-icon>check_circle</mat-icon> Activate
+                        </button>
+                      }
+                    }
+                  </mat-menu>
+                </td>
+              </ng-container>
+            }
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns()"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns();"
+                class="clickable-row"
+                [class.row-inactive]="cfg.hasStatus !== false && row[cfg.statusField || 'status_code'] !== 'A'"
+                (click)="cfg.formMode === 'page' ? onView(row) : null"
+                [style.cursor]="cfg.formMode === 'page' ? 'pointer' : 'default'"
+                tabindex="0"
+                (keydown.enter)="cfg.formMode === 'page' ? onView(row) : null"></tr>
+          </table>
+        </div>
+      } @else {
+        <!-- Mobile Card List -->
+        <div class="card-list">
+          @for (row of rows(); track $index) {
+            <mat-card class="record-card"
+                      (click)="cfg.formMode === 'page' ? onView(row) : onEdit(row)"
+                      tabindex="0"
+                      (keydown.enter)="cfg.formMode === 'page' ? onView(row) : onEdit(row)"
+                      role="link">
+              <mat-card-header>
+                <span class="card-title">{{ row[cfg.columns[0].field] || row[cfg.pkField] }}</span>
+                @if (cfg.hasStatus !== false) {
+                  <span class="status-chip" [attr.data-status]="row[cfg.statusField || 'status_code']">
+                    <mat-icon class="status-icon">{{ row[cfg.statusField || 'status_code'] === 'A' ? 'check_circle' : 'cancel' }}</mat-icon>
+                    {{ getStatusLabel(row[cfg.statusField || 'status_code']) }}
+                  </span>
+                }
+              </mat-card-header>
+              <mat-card-content>
+                @for (col of cfg.columns | slice:1; track col.field) {
+                  @if (!col.hideMobile && col.type !== 'status' && row[col.field]) {
+                    <div class="card-field">
+                      <span class="card-label">{{ col.header }}</span>
+                      <span>{{ row[col.field] }}</span>
+                    </div>
+                  }
+                }
+              </mat-card-content>
+              @if (!cfg.readOnly) {
+                <mat-card-actions align="end">
+                  <button mat-button color="primary" (click)="onEdit(row); $event.stopPropagation()">
+                    <mat-icon>edit</mat-icon> Edit
+                  </button>
+                  @if (cfg.hasStatus !== false) {
+                    <button mat-button
+                      (click)="onToggleStatus(row); $event.stopPropagation()"
+                      [color]="row[cfg.statusField || 'status_code'] === 'A' ? 'warn' : 'primary'">
+                      <mat-icon>{{ row[cfg.statusField || 'status_code'] === 'A' ? 'block' : 'check_circle' }}</mat-icon>
+                      {{ row[cfg.statusField || 'status_code'] === 'A' ? 'Inactivate' : 'Activate' }}
+                    </button>
+                  }
+                </mat-card-actions>
+              }
+            </mat-card>
+          }
+        </div>
+      }
+
+      <!-- Paginator -->
+      <mat-paginator
+        [length]="totalCount()"
+        [pageSize]="pageSize()"
+        [pageIndex]="pageIndex()"
+        [pageSizeOptions]="[10, 25, 50, 100]"
+        (page)="onPageChange($event)"
+        showFirstLastButtons />
+    }
+  </div>
+}

@@ -1,0 +1,9 @@
+Wave 3 master table scaffolding:
+- role_scope_policy
+- approval_reason_code
+- event_severity_profile
+- resource_capability_ref
+- allocation_priority_rule
+- tenant_access_policy
+- apply mode: False
+Dry-run only. Re-run with --apply to create missing tables.

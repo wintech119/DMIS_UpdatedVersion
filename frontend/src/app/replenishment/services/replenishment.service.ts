@@ -102,6 +102,22 @@ export interface MySubmissionsQueryParams {
   page_size?: number;
 }
 
+export interface AssignStorageLocationPayload {
+  item_id: number;
+  inventory_id: number;
+  location_id: number;
+  batch_id?: number;
+}
+
+export interface AssignStorageLocationResponse {
+  storage_table: string;
+  created: boolean;
+  item_id: number;
+  inventory_id: number;
+  location_id: number;
+  batch_id: number | null;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -392,7 +408,16 @@ export class ReplenishmentService {
     );
   }
 
-  // ── Transfer Draft Methods (Horizon A) ──────────────────────────────────
+  assignStorageLocation(
+    payload: AssignStorageLocationPayload
+  ): Observable<AssignStorageLocationResponse> {
+    return this.http.post<AssignStorageLocationResponse>(
+      `${this.apiUrl}/inventory/location-assignment`,
+      payload
+    );
+  }
+
+  // -- Transfer Draft Methods (Horizon A) --
 
   generateTransfers(needsListId: string): Observable<TransferDraftsResponse> {
     return this.http.post<TransferDraftsResponse>(
@@ -428,7 +453,7 @@ export class ReplenishmentService {
     );
   }
 
-  // ── Donation Methods (Horizon B) ────────────────────────────────────────
+  // -- Donation Methods (Horizon B) --
 
   getDonations(needsListId: string): Observable<DonationsResponse> {
     return this.http.get<DonationsResponse>(
@@ -453,7 +478,7 @@ export class ReplenishmentService {
     );
   }
 
-  // ── Procurement Methods (Horizon C) ─────────────────────────────────────
+  // -- Procurement Methods (Horizon C) --
 
   exportProcurementNeeds(needsListId: string, format: 'csv' | 'pdf' = 'csv'): Observable<Blob> {
     return this.http.get(
@@ -544,7 +569,7 @@ export class ReplenishmentService {
     );
   }
 
-  // ── Supplier Methods ──────────────────────────────────────────────────────
+  // -- Supplier Methods --
 
   listSuppliers(): Observable<{ suppliers: Supplier[]; count: number }> {
     return this.http.get<{ suppliers: Supplier[]; count: number }>(

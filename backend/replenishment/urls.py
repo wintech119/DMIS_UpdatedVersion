@@ -1,6 +1,7 @@
 from django.urls import path
 
 from replenishment.views import (
+    assign_storage_location,
     get_active_event,
     get_all_warehouses,
     needs_list_approve,
@@ -71,6 +72,11 @@ urlpatterns = [
         name="event_phase_window_detail",
     ),
     path("warehouses", get_all_warehouses, name="get_all_warehouses"),
+    path(
+        "inventory/location-assignment",
+        assign_storage_location,
+        name="assign_storage_location",
+    ),
     path("needs-list/preview", needs_list_preview, name="needs_list_preview"),
     path("needs-list/preview-multi", needs_list_preview_multi, name="needs_list_preview_multi"),
     path("needs-list/draft", needs_list_draft, name="needs_list_draft"),
