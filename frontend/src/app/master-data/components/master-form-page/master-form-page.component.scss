@@ -147,6 +147,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px 16px;
+
   // Extra row gap to ensure multi-line hints don't overlap next field
   row-gap: 20px;
 
