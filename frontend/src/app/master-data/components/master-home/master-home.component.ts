@@ -84,6 +84,9 @@ export class MasterHomeComponent {
   });
 
   showRestrictedDomainNotice = computed(() => {
+    if (!this.authRbac.loaded()) {
+      return false;
+    }
     const requested = this.requestedDomain();
     const requestedDomain = MASTER_DOMAIN_DEFINITIONS.find((domain) => domain.id === requested);
     return Boolean(requestedDomain?.sysadminOnly && !this.isSystemAdmin());
