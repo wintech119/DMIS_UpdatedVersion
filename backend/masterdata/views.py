@@ -37,6 +37,10 @@ from masterdata.services.validation import validate_record
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PAGE_LIMIT = 100
+MIN_PAGE_LIMIT = 1
+MAX_PAGE_LIMIT = 500
+
 
 def _actor_id(request) -> str:
     return str(getattr(request.user, "user_id", "system"))
@@ -77,10 +81,11 @@ def _handle_list(request, cfg):
     search = request.query_params.get("search")
     order_by = request.query_params.get("order_by")
     try:
-        limit = min(int(request.query_params.get("limit", 100)), 500)
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
         offset = max(int(request.query_params.get("offset", 0)), 0)
     except (ValueError, TypeError):
-        limit, offset = 100, 0
+        limit, offset = DEFAULT_PAGE_LIMIT, 0
 
     rows, total, warnings = list_records(
         cfg.key,
