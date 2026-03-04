@@ -15,6 +15,11 @@ from django.db import DatabaseError, connection, transaction
 
 logger = logging.getLogger(__name__)
 
+_ORDER_BY_PATTERN = re.compile(
+    r"^\s*(?P<column>[A-Za-z_][A-Za-z0-9_]*)\s*(?:(?P<direction>ASC|DESC))?\s*$",
+    re.IGNORECASE,
+)
+
 
 # ---------------------------------------------------------------------------
 # DB helpers (same pattern as replenishment.services.data_access)
@@ -625,6 +630,75 @@ def get_table_config(table_key: str) -> TableConfig | None:
     return TABLE_REGISTRY.get(table_key)
 
 
+def _parse_sort_expression(
+    sort_expr: str | None,
+    *,
+    allowed_columns: dict[str, str],
+) -> str | None:
+    """
+    Parse and normalize a sortable expression to:
+      "<column> ASC|DESC"
+
+    Accepted forms:
+      - "column"
+      - "column ASC"
+      - "column DESC"
+      - "-column"
+    """
+    if not sort_expr:
+        return None
+
+    sort_expr = sort_expr.strip()
+    if not sort_expr:
+        return None
+
+    if sort_expr.startswith("-"):
+        col = sort_expr[1:].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", col):
+            return None
+        normalized_col = allowed_columns.get(col.lower())
+        if not normalized_col:
+            return None
+        return f"{normalized_col} DESC"
+
+    match = _ORDER_BY_PATTERN.fullmatch(sort_expr)
+    if not match:
+        return None
+
+    col = match.group("column")
+    normalized_col = allowed_columns.get(col.lower())
+    if not normalized_col:
+        return None
+
+    direction = (match.group("direction") or "ASC").upper()
+    return f"{normalized_col} {direction}"
+
+
+def _resolve_order_by(cfg: TableConfig, requested_order_by: str | None) -> Tuple[str, bool]:
+    """
+    Resolve a safe ORDER BY expression from request + table config.
+    Returns (<order_sql>, <requested_order_was_invalid>).
+    """
+    allowed_columns = {fd.name.lower(): fd.name for fd in cfg.fields}
+    requested = _parse_sort_expression(requested_order_by, allowed_columns=allowed_columns)
+    explicit_requested = bool(requested_order_by and requested_order_by.strip())
+    if requested:
+        return requested, False
+
+    default_order = _parse_sort_expression(cfg.default_order, allowed_columns=allowed_columns)
+    if default_order:
+        return default_order, explicit_requested
+
+    logger.warning(
+        "Invalid default_order=%r for table=%s; falling back to %s ASC",
+        cfg.default_order,
+        cfg.key,
+        cfg.pk_field,
+    )
+    pk_col = allowed_columns.get(cfg.pk_field.lower(), cfg.pk_field)
+    return f"{pk_col} ASC", explicit_requested
+
+
 def list_records(
     table_key: str,
     *,
@@ -664,7 +738,9 @@ def list_records(
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
-    sort_col = order_by or cfg.default_order
+    sort_col, invalid_order_by = _resolve_order_by(cfg, order_by)
+    if invalid_order_by:
+        warnings.append("invalid_order_by")
     count_params = list(params)
 
     try:
