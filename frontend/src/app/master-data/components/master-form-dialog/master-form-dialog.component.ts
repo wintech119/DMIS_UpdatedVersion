@@ -77,6 +77,9 @@ export interface MasterFormDialogData {
                 @if (form.get(field.field)?.hasError('required')) {
                   <mat-error>{{ field.label }} is required</mat-error>
                 }
+                @if (form.get(field.field)?.hasError('server')) {
+                  <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                }
               </mat-form-field>
             }
             @case ('lookup') {
