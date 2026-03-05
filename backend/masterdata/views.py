@@ -377,16 +377,19 @@ def ifrc_suggest(request):
     if not sanitized_name:
         return Response({"error": "Input contains no usable characters."}, status=400)
 
+    # Optional hint params: fold into item name for v4 agent's single-input pipeline
     size_weight = _SAFE_INPUT_RE.sub("", str(request.query_params.get("size_weight", ""))).strip()[:20]
     form = _SAFE_INPUT_RE.sub("", str(request.query_params.get("form", ""))).strip()[:20]
     material = _SAFE_INPUT_RE.sub("", str(request.query_params.get("material", ""))).strip()[:30]
 
-    suggestion = _ifrc_agent().suggest(
-        sanitized_name,
-        size_weight=size_weight,
-        form=form,
-        material=material,
-    )
+    # Build combined input (v4 classify from name alone; extra hints improve results)
+    combined_name = sanitized_name
+    for hint in (size_weight, form, material):
+        if hint:
+            combined_name = f"{combined_name} {hint}"
+    combined_name = combined_name.strip()
+
+    suggestion = _ifrc_agent().generate(combined_name)
     suggestion_id = _write_ifrc_audit_log(
         item_name_input=sanitized_name,
         suggestion=suggestion,
@@ -395,16 +398,17 @@ def ifrc_suggest(request):
 
     response_payload = {
         "suggestion_id": str(suggestion_id) if suggestion_id is not None else None,
-        "ifrc_code": suggestion.ifrc_code,
-        "ifrc_description": suggestion.ifrc_description,
+        # Map v4 field names to existing API field names for backward compatibility
+        "ifrc_code": suggestion.item_code,
+        "ifrc_description": suggestion.standardised_name,
         "confidence": suggestion.confidence,
         "match_type": suggestion.match_type,
         "construction_rationale": suggestion.construction_rationale,
-        "group_code": suggestion.group_code,
-        "family_code": suggestion.family_code,
-        "category_code": suggestion.category_code,
-        "spec_segment": suggestion.spec_segment,
-        "sequence": suggestion.sequence,
+        "group_code": suggestion.grp or "",
+        "family_code": suggestion.fam or "",
+        "category_code": suggestion.cat or "",
+        "spec_segment": suggestion.spec_seg or "",
+        "sequence": suggestion.seq or 0,
         "auto_fill_threshold": cfg["AUTO_FILL_CONFIDENCE_THRESHOLD"],
     }
 
@@ -447,8 +451,8 @@ def _write_ifrc_audit_log(
     try:
         row = ItemIfrcSuggestLog.objects.create(
             item_name_input=item_name_input[:120],
-            suggested_code=(suggestion.ifrc_code or "")[:30],
-            suggested_desc=(suggestion.ifrc_description or "")[:120],
+            suggested_code=(suggestion.item_code or "")[:30],
+            suggested_desc=(suggestion.standardised_name or "")[:120],
             confidence=suggestion.confidence,
             match_type=(suggestion.match_type or "none")[:20],
             construction_rationale=(suggestion.construction_rationale or "")[:4000],

@@ -11,6 +11,6 @@ class IFRCSuggestionResponseSerializer(serializers.Serializer):
     group_code = serializers.CharField(max_length=1, allow_blank=True, required=False)
     family_code = serializers.CharField(max_length=3, allow_blank=True, required=False)
     category_code = serializers.CharField(max_length=4, allow_blank=True, required=False)
-    spec_segment = serializers.CharField(max_length=5, allow_blank=True, required=False)
+    spec_segment = serializers.CharField(max_length=7, allow_blank=True, required=False)
     sequence = serializers.IntegerField(min_value=0, required=False)
     auto_fill_threshold = serializers.FloatField(min_value=0.0, max_value=1.0)

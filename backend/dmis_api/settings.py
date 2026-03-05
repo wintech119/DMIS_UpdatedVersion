@@ -268,6 +268,12 @@ NEEDS_BURN_FALLBACK = os.getenv("NEEDS_BURN_FALLBACK", "reliefrqst")
 IFRC_AGENT = {
     "IFRC_ENABLED": _get_bool_env("IFRC_ENABLED", True),
     "LLM_ENABLED": _get_bool_env("IFRC_LLM_ENABLED", False),
+    # Path to the taxonomy reference MD file.
+    # Override via IFRC_TAXONOMY_FILE env var to support different deployment layouts.
+    "TAXONOMY_FILE": os.environ.get(
+        "IFRC_TAXONOMY_FILE",
+        str(BASE_DIR / "masterdata" / "data" / "ifrc_catalogue_taxonomy.md"),
+    ),
     "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
     "OLLAMA_MODEL_ID": os.getenv("OLLAMA_MODEL_ID", "qwen3.5:0.8b"),
     "OLLAMA_TIMEOUT_SECONDS": _get_int_env("OLLAMA_TIMEOUT_SECONDS", 10) or 10,
