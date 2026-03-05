@@ -7,12 +7,18 @@ All endpoints are parameterized by ``table_key`` which maps to a
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Any
 
+from django.conf import settings
+from django.core.cache import cache
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
+from masterdata.ifrc_code_agent import IFRCCodeSuggestion, IFRCAgent, cb_is_open
+from masterdata.models import ItemIfrcSuggestLog
 from masterdata.permissions import (
     MasterDataPermission,
     PERM_MASTERDATA_CREATE,
@@ -20,6 +26,7 @@ from masterdata.permissions import (
     PERM_MASTERDATA_INACTIVATE,
     PERM_MASTERDATA_VIEW,
 )
+from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.services.data_access import (
     TABLE_REGISTRY,
     activate_record,
@@ -40,6 +47,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_PAGE_LIMIT = 100
 MIN_PAGE_LIMIT = 1
 MAX_PAGE_LIMIT = 500
+_SAFE_INPUT_RE = re.compile(r"[^a-zA-Z0-9\s\-\'\(\)/]")
+_IFRC_AGENT_SINGLETON: IFRCAgent | None = None
 
 
 def _actor_id(request) -> str:
@@ -51,6 +60,42 @@ def _validate_table_key(table_key: str):
     if cfg is None:
         return None, Response({"detail": f"Unknown table: {table_key}"}, status=404)
     return cfg, None
+
+
+def _ifrc_cfg() -> dict[str, Any]:
+    cfg = getattr(settings, "IFRC_AGENT", {})
+    return {
+        "IFRC_ENABLED": bool(cfg.get("IFRC_ENABLED", True)),
+        "MIN_INPUT_LENGTH": int(cfg.get("MIN_INPUT_LENGTH", 3)),
+        "MAX_INPUT_LENGTH": int(cfg.get("MAX_INPUT_LENGTH", 120)),
+        "RATE_LIMIT_PER_MINUTE": int(cfg.get("RATE_LIMIT_PER_MINUTE", 30)),
+        "AUTO_FILL_CONFIDENCE_THRESHOLD": float(cfg.get("AUTO_FILL_CONFIDENCE_THRESHOLD", 0.80)),
+        "OLLAMA_MODEL_ID": str(cfg.get("OLLAMA_MODEL_ID", "qwen3.5:0.8b")),
+        "LLM_ENABLED": bool(cfg.get("LLM_ENABLED", False)),
+    }
+
+
+def _ifrc_agent() -> IFRCAgent:
+    global _IFRC_AGENT_SINGLETON
+    if _IFRC_AGENT_SINGLETON is None:
+        _IFRC_AGENT_SINGLETON = IFRCAgent()
+    return _IFRC_AGENT_SINGLETON
+
+
+def _ifrc_rate_limit_key(user_id: str) -> str:
+    return f"ifrc:rate:{user_id}:{int(time.time() // 60)}"
+
+
+def _allow_ifrc_request(user_id: str, per_minute: int) -> bool:
+    key = _ifrc_rate_limit_key(user_id)
+    if cache.add(key, 1, timeout=70):
+        return True
+    try:
+        current = cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, timeout=70)
+        current = 1
+    return int(current) <= int(per_minute)
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +164,13 @@ def _handle_create(request, cfg):
 
     # Fetch the newly created record to return it
     record, _ = get_record(cfg.key, pk_val)
+    _link_ifrc_selection_if_present(
+        request_data=data,
+        actor_id=_actor_id(request),
+        table_key=cfg.key,
+        record=record,
+        warnings=warnings,
+    )
     return Response({"record": record, "warnings": warnings}, status=201)
 
 
@@ -173,7 +225,26 @@ def _handle_update(request, cfg, pk_value):
         except (ValueError, TypeError):
             expected_version = None
 
-    errors = validate_record(cfg, data, is_update=True, current_pk=pk_value)
+    existing_record = None
+    if cfg.key == "items" and (
+        "issuance_order" in data or "can_expire_flag" in data
+    ):
+        existing_record, read_warnings = get_record(cfg.key, pk_value)
+        if existing_record is None:
+            if "db_error" in read_warnings:
+                return Response(
+                    {"detail": "Failed to load record for validation.", "warnings": read_warnings},
+                    status=500,
+                )
+            return Response({"detail": "Not found."}, status=404)
+
+    errors = validate_record(
+        cfg,
+        data,
+        is_update=True,
+        current_pk=pk_value,
+        existing_record=existing_record,
+    )
     if errors:
         return Response({"errors": errors}, status=400)
 
@@ -191,7 +262,49 @@ def _handle_update(request, cfg, pk_value):
         return Response({"detail": "Update failed.", "warnings": warnings}, status=500)
 
     record, _ = get_record(cfg.key, pk_value)
+    _link_ifrc_selection_if_present(
+        request_data=data,
+        actor_id=_actor_id(request),
+        table_key=cfg.key,
+        record=record,
+        warnings=warnings,
+    )
     return Response({"record": record, "warnings": warnings})
+
+
+def _link_ifrc_selection_if_present(
+    *,
+    request_data: dict[str, Any],
+    actor_id: str,
+    table_key: str,
+    record: dict[str, Any] | None,
+    warnings: list[str],
+) -> None:
+    """
+    If an item save includes `ifrc_suggest_log_id`, link the saved item_code
+    back to that suggestion log row for audit traceability.
+    """
+    if table_key != "items" or not record:
+        return
+
+    suggestion_id = request_data.get("ifrc_suggest_log_id")
+    if suggestion_id in (None, ""):
+        return
+
+    item_code = str(record.get("item_code") or "").strip().upper()
+    if not item_code:
+        return
+
+    try:
+        updated = ItemIfrcSuggestLog.objects.filter(
+            pk=suggestion_id,
+            user_id=actor_id,
+        ).update(selected_code=item_code[:30])
+        if updated == 0:
+            warnings.append("ifrc_log_not_linked")
+    except Exception as exc:
+        logger.warning("Failed to link IFRC suggestion log %r: %s", suggestion_id, exc)
+        warnings.append("ifrc_log_link_failed")
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +342,122 @@ def master_lookup(request, table_key: str):
 
 
 master_lookup.required_permission = PERM_MASTERDATA_VIEW
+
+
+# ---------------------------------------------------------------------------
+# IFRC Suggest / Health
+# ---------------------------------------------------------------------------
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_suggest(request):
+    cfg = _ifrc_cfg()
+    if not cfg["IFRC_ENABLED"]:
+        return Response({"detail": "IFRC suggestion service is disabled."}, status=503)
+
+    user_id = _actor_id(request)
+    if not _allow_ifrc_request(user_id, cfg["RATE_LIMIT_PER_MINUTE"]):
+        return Response({"detail": "Rate limit exceeded."}, status=429)
+
+    raw_name = str(request.query_params.get("name", "")).strip()
+    if len(raw_name) < cfg["MIN_INPUT_LENGTH"]:
+        return Response(
+            {"error": f"'name' must be at least {cfg['MIN_INPUT_LENGTH']} characters."},
+            status=400,
+        )
+    if len(raw_name) > cfg["MAX_INPUT_LENGTH"]:
+        return Response(
+            {"error": f"'name' must not exceed {cfg['MAX_INPUT_LENGTH']} characters."},
+            status=400,
+        )
+
+    sanitized_name = _SAFE_INPUT_RE.sub("", raw_name).strip()
+    if not sanitized_name:
+        return Response({"error": "Input contains no usable characters."}, status=400)
+
+    size_weight = _SAFE_INPUT_RE.sub("", str(request.query_params.get("size_weight", ""))).strip()[:20]
+    form = _SAFE_INPUT_RE.sub("", str(request.query_params.get("form", ""))).strip()[:20]
+    material = _SAFE_INPUT_RE.sub("", str(request.query_params.get("material", ""))).strip()[:30]
+
+    suggestion = _ifrc_agent().suggest(
+        sanitized_name,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+    )
+    suggestion_id = _write_ifrc_audit_log(
+        item_name_input=sanitized_name,
+        suggestion=suggestion,
+        user_id=user_id,
+    )
+
+    response_payload = {
+        "suggestion_id": str(suggestion_id) if suggestion_id is not None else None,
+        "ifrc_code": suggestion.ifrc_code,
+        "ifrc_description": suggestion.ifrc_description,
+        "confidence": suggestion.confidence,
+        "match_type": suggestion.match_type,
+        "construction_rationale": suggestion.construction_rationale,
+        "group_code": suggestion.group_code,
+        "family_code": suggestion.family_code,
+        "category_code": suggestion.category_code,
+        "spec_segment": suggestion.spec_segment,
+        "sequence": suggestion.sequence,
+        "auto_fill_threshold": cfg["AUTO_FILL_CONFIDENCE_THRESHOLD"],
+    }
+
+    serializer = IFRCSuggestionResponseSerializer(response_payload)
+    return Response(serializer.data, status=200)
+
+
+ifrc_suggest.required_permission = PERM_MASTERDATA_VIEW
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_health(request):
+    cfg = _ifrc_cfg()
+    breaker_open = cb_is_open()
+    status = "healthy" if cfg["IFRC_ENABLED"] and not breaker_open else "degraded"
+
+    return Response(
+        {
+            "status": status,
+            "ifrc_enabled": cfg["IFRC_ENABLED"],
+            "llm_enabled": cfg["LLM_ENABLED"],
+            "llm_circuit_breaker_open": breaker_open,
+            "model_id": cfg["OLLAMA_MODEL_ID"],
+        },
+        status=200 if status == "healthy" else 206,
+    )
+
+
+ifrc_health.required_permission = PERM_MASTERDATA_VIEW
+
+
+def _write_ifrc_audit_log(
+    *,
+    item_name_input: str,
+    suggestion: IFRCCodeSuggestion,
+    user_id: str,
+) -> int | None:
+    try:
+        row = ItemIfrcSuggestLog.objects.create(
+            item_name_input=item_name_input[:120],
+            suggested_code=(suggestion.ifrc_code or "")[:30],
+            suggested_desc=(suggestion.ifrc_description or "")[:120],
+            confidence=suggestion.confidence,
+            match_type=(suggestion.match_type or "none")[:20],
+            construction_rationale=(suggestion.construction_rationale or "")[:4000],
+            user_id=user_id[:50],
+        )
+        return int(row.pk)
+    except Exception as exc:
+        logger.warning("Failed to write IFRC audit log for user %s: %s", user_id, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +550,8 @@ for _view in (
     master_detail_update,
     master_summary,
     master_lookup,
+    ifrc_suggest,
+    ifrc_health,
     master_inactivate,
     master_activate,
 ):

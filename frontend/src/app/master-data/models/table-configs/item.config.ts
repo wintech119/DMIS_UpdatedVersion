@@ -49,10 +49,10 @@ export const ITEM_CONFIG: MasterTableConfig = {
       hint: 'Display name shown across dashboards and reports',
     },
     {
-      field: 'sku_code', label: 'SKU Code', type: 'text', required: true,
+      field: 'sku_code', label: 'SKU Code (Optional)', type: 'text', required: false,
       maxLength: 30, uppercase: true,
       group: 'Item Identity',
-      hint: 'Inventory and procurement system identifier',
+      hint: 'Inventory or procurement system reference — leave blank if not applicable',
     },
 
     // ── Classification ───────────────────────────────────────────────────────
@@ -64,7 +64,6 @@ export const ITEM_CONFIG: MasterTableConfig = {
     },
     {
       field: 'item_desc', label: 'Description', type: 'textarea', required: true,
-      colspan: 2,
       group: 'Classification',
       hint: 'Purpose and specifications of this item',
     },
@@ -139,13 +138,13 @@ export const ITEM_CONFIG: MasterTableConfig = {
     // ── Notes & Storage ──────────────────────────────────────────────────────
     {
       field: 'usage_desc', label: 'Usage Description', type: 'textarea',
-      maxLength: 300, colspan: 2,
+      maxLength: 300,
       group: 'Notes & Storage',
       hint: 'How and when this item is distributed or consumed',
     },
     {
       field: 'storage_desc', label: 'Storage Description', type: 'textarea',
-      maxLength: 300, colspan: 2,
+      maxLength: 300,
       group: 'Notes & Storage',
       hint: 'Handling instructions, temperature, or special storage conditions',
     },

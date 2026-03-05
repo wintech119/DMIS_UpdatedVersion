@@ -116,9 +116,9 @@ class LegacyCompatAuthentication(BaseAuthentication):
             )
 
         if settings.DEV_AUTH_ENABLED:
-            if not settings.DEBUG:
+            if not settings.DEBUG and not getattr(settings, "TESTING", False):
                 raise AuthenticationFailed(
-                    "DEV_AUTH_ENABLED requires DEBUG=1 to prevent unsafe production use."
+                    "DEV_AUTH_ENABLED requires DEBUG=1 outside tests to prevent unsafe production use."
                 )
             override_principal = _resolve_dev_override_principal(request)
             if override_principal is not None:

@@ -1,324 +1,406 @@
 @if (config(); as cfg) {
   <div class="form-page-container">
-  <!-- Header -->
-  <div class="form-page-header">
-    <button mat-icon-button class="back-btn" (click)="onCancel()" matTooltip="Back to list"
-      aria-label="Back to list">
-      <mat-icon>arrow_back</mat-icon>
-    </button>
-    <div class="header-text">
-      <h2>{{ isEdit() ? 'Edit' : 'New' }} {{ cfg.displayName }}</h2>
-      @if (isEdit()) {
-        <span class="header-subtitle">Update the fields below and save your changes</span>
-      }
+
+    <!-- ── Header ── -->
+    <div class="form-page-header">
+      <button mat-icon-button class="back-btn" (click)="onCancel()" matTooltip="Back to list"
+        aria-label="Back to list">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="header-text">
+        <h2>{{ isEdit() ? 'Edit' : 'New' }} {{ cfg.displayName }}</h2>
+        @if (isEdit()) {
+          <span class="header-subtitle">Update the fields below and save your changes</span>
+        }
+      </div>
     </div>
-  </div>
 
-  @if (isLoading()) {
-    <mat-progress-bar mode="indeterminate" />
-  } @else {
-    <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
-      @for (group of fieldGroups(); track group.label) {
-        <section class="form-section" [attr.aria-label]="group.label + ' section'">
-          <h3 class="section-title">
-            <mat-icon>{{ getSectionIcon(group.label) }}</mat-icon>
-            {{ group.label }}
-          </h3>
-          <div class="form-grid">
-            @for (field of group.fields; track field.field) {
-              <div class="form-field" [class.colspan-2]="field.colspan === 2">
-                @switch (field.type) {
-                  @case ('textarea') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <textarea matInput [formControlName]="field.field"
-                        [maxlength]="field.maxLength || null"
-                        rows="3"
-                        [attr.aria-required]="field.required || null"></textarea>
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                      @if (field.hint) {
-                        <mat-hint align="start">{{ field.hint }}</mat-hint>
-                      }
-                      @if (field.maxLength) {
-                        <mat-hint align="end">
-                          {{ (form.get(field.field)?.value?.length || 0) }} / {{ field.maxLength }}
-                        </mat-hint>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('select') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <mat-select [formControlName]="field.field"
-                        [attr.aria-required]="field.required || null">
-                        @for (opt of field.options; track opt.value) {
-                          <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+    @if (isLoading()) {
+      <mat-progress-bar mode="indeterminate" />
+    } @else {
+      <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
+
+        @for (group of fieldGroups(); track group.label) {
+          <section class="form-section" [attr.aria-label]="group.label + ' section'">
+            <h3 class="section-title">
+              <mat-icon aria-hidden="true">{{ getSectionIcon(group.label) }}</mat-icon>
+              {{ group.label }}
+            </h3>
+
+            <!--
+              form-grid is the default 2-column grid.
+              For the Item Identity group on the Items form we apply a named-area
+              grid so IFRC hints (left) and SKU (right) share the second row.
+            -->
+            <div class="form-grid"
+              [class.identity-grid-new]="isItemRecord() && group.label === 'Item Identity'">
+
+              @for (field of group.fields; track field.field) {
+                <div class="form-field"
+                  [class.colspan-2]="field.colspan === 2"
+                  [attr.data-field]="field.field">
+
+                  @switch (field.type) {
+
+                    @case ('textarea') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <textarea matInput
+                          cdkTextareaAutosize
+                          cdkAutosizeMinRows="3"
+                          cdkAutosizeMaxRows="8"
+                          [formControlName]="field.field"
+                          [maxlength]="field.maxLength || null"
+                          [attr.aria-required]="field.required || null"></textarea>
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
                         }
-                      </mat-select>
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
-                        <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('lookup') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <mat-select [formControlName]="field.field"
-                        [attr.aria-required]="field.required || null">
-                        @for (item of lookups()[field.lookupTable!] || []; track item.value) {
-                          <mat-option [value]="item.value">{{ item.label }}</mat-option>
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
                         }
-                      </mat-select>
-                      @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
-                        <mat-hint>No options available.</mat-hint>
-                      } @else if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (lookupErrors()[field.lookupTable!]) {
-                        <mat-error>{{ lookupErrors()[field.lookupTable!] }}</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('boolean') {
-                    <div class="toggle-row">
-                      <div class="toggle-row__text">
-                        <span class="toggle-row__label" [id]="field.field + '-label'">
-                          {{ field.label }}
-                        </span>
                         @if (field.hint) {
-                          <span class="toggle-row__hint" [id]="field.field + '-hint'">
-                            {{ field.hint }}
-                          </span>
+                          <mat-hint>{{ field.hint }}</mat-hint>
                         }
+                        @if (field.maxLength) {
+                          <mat-hint align="end">{{ (form.get(field.field)?.value?.length || 0) }}/{{ field.maxLength }}</mat-hint>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @case ('select') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-select [formControlName]="field.field"
+                          [attr.aria-required]="field.required || null">
+                          @for (opt of field.options; track opt.value) {
+                            <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                          }
+                        </mat-select>
+                        @if (field.hint) {
+                          <mat-hint>{{ field.hint }}</mat-hint>
+                        }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
+                          <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @case ('lookup') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-select [formControlName]="field.field"
+                          [attr.aria-required]="field.required || null">
+                          @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                            <mat-option [value]="item.value">{{ item.label }}</mat-option>
+                          }
+                        </mat-select>
+                        @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                          <mat-hint>No options available.</mat-hint>
+                        } @else if (field.hint) {
+                          <mat-hint>{{ field.hint }}</mat-hint>
+                        }
+                        @if (lookupErrors()[field.lookupTable!]) {
+                          <mat-error>{{ lookupErrors()[field.lookupTable!] }}</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @case ('boolean') {
+                      <div class="toggle-row">
+                        <div class="toggle-row__text">
+                          <span class="toggle-row__label" [id]="field.field + '-label'">
+                            {{ field.label }}
+                          </span>
+                          @if (field.hint) {
+                            <span class="toggle-row__hint" [id]="field.field + '-hint'">
+                              {{ field.hint }}
+                            </span>
+                          }
+                        </div>
+                        <mat-slide-toggle
+                          [formControlName]="field.field"
+                          [attr.aria-labelledby]="field.field + '-label'"
+                          [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                          color="primary">
+                        </mat-slide-toggle>
                       </div>
-                      <mat-slide-toggle
-                        [formControlName]="field.field"
-                        [attr.aria-labelledby]="field.field + '-label'"
-                        [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
-                        color="primary">
-                      </mat-slide-toggle>
-                    </div>
-                  }
-                  @case ('date') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <input matInput [matDatepicker]="picker" [formControlName]="field.field"
-                        [attr.aria-required]="field.required || null" />
-                      <mat-datepicker-toggle matIconSuffix [for]="picker" />
-                      <mat-datepicker #picker />
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('email') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <input matInput type="email" [formControlName]="field.field"
-                        [maxlength]="field.maxLength || null"
-                        [attr.aria-required]="field.required || null" />
-                      <mat-icon matPrefix>email</mat-icon>
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('email')) {
-                        <mat-error>Invalid email format</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('phone') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <input matInput type="tel" [formControlName]="field.field"
-                        [maxlength]="field.maxLength || null"
-                        placeholder="+1 (XXX) XXX-XXXX"
-                        [attr.aria-required]="field.required || null" />
-                      <mat-icon matPrefix>phone</mat-icon>
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('pattern')) {
-                        <mat-error>{{ field.patternMessage || 'Invalid phone format' }}</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @case ('number') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <input matInput type="number" [formControlName]="field.field"
-                        [attr.aria-required]="field.required || null" />
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                  @default {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>{{ field.label }}</mat-label>
-                      <input matInput [formControlName]="field.field"
-                        [maxlength]="field.maxLength || null"
-                        [attr.aria-required]="field.required || null" />
-                      @if (field.hint) {
-                        <mat-hint>{{ field.hint }}</mat-hint>
-                      }
-                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                        <mat-error>{{ field.label }} is required</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('maxlength')) {
-                        <mat-error>Max {{ field.maxLength }} characters</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('pattern')) {
-                        <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
-                      }
-                      @if (form.get(field.field)?.hasError('server')) {
-                        <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                      }
-                    </mat-form-field>
-                  }
-                }
-              </div>
-            }
-          </div>
-        </section>
-      }
+                    }
 
-      @if (canAssignLocation()) {
-        <section class="form-section location-assignment-section" aria-label="Storage location assignment section">
-          <h3 class="section-title">
-            <mat-icon>shelves</mat-icon>
-            Storage Location Assignment
-          </h3>
-          <p class="section-description">
-            @if (isBatchedItem()) {
-              This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
-            } @else {
-              This item is non-batched. Provide Inventory ID and Location ID only.
-            }
-          </p>
-          <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+                    @case ('date') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                          [attr.aria-required]="field.required || null" />
+                        <mat-datepicker-toggle matIconSuffix [for]="picker" />
+                        <mat-datepicker #picker />
+                        @if (field.hint) { <mat-hint>{{ field.hint }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
 
-          <div class="assignment-form" [formGroup]="locationForm">
-            <div class="assignment-grid">
-              <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Inventory ID</mat-label>
-                <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help">
-                  @for (item of lookups()['inventory'] || []; track item.value) {
-                    <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                    @case ('email') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-icon matPrefix>email</mat-icon>
+                        <input matInput type="email" [formControlName]="field.field"
+                          [maxlength]="field.maxLength || null"
+                          [attr.aria-required]="field.required || null" />
+                        @if (field.hint) { <mat-hint>{{ field.hint }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('email')) {
+                          <mat-error>Invalid email format</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @case ('phone') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-icon matPrefix>phone</mat-icon>
+                        <input matInput type="tel" [formControlName]="field.field"
+                          [maxlength]="field.maxLength || null"
+                          placeholder="+1 (XXX) XXX-XXXX"
+                          [attr.aria-required]="field.required || null" />
+                        @if (field.hint) { <mat-hint>{{ field.hint }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('pattern')) {
+                          <mat-error>{{ field.patternMessage || 'Invalid phone format' }}</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @case ('number') {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <input matInput type="number" [formControlName]="field.field"
+                          [attr.aria-required]="field.required || null" />
+                        @if (field.hint) { <mat-hint>{{ field.hint }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
+                    @default {
+                      <!-- Text input -->
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ field.label }}</mat-label>
+                        <input matInput [formControlName]="field.field"
+                          [maxlength]="field.maxLength || null"
+                          [attr.aria-required]="field.required || null" />
+                        <!--
+                          For the item_code field: show "generating" hint while the IFRC
+                          agent is running, otherwise fall through to the normal hint.
+                        -->
+                        @if (field.field === 'item_code' && ifrcLoading()) {
+                          <mat-hint aria-live="polite">Generating IFRC code…</mat-hint>
+                        } @else if (field.hint) {
+                          <mat-hint>{{ field.hint }}</mat-hint>
+                        }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                          <mat-error>{{ field.label }} is required</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('maxlength')) {
+                          <mat-error>Max {{ field.maxLength }} characters</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('pattern')) {
+                          <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
+                        }
+                        @if (form.get(field.field)?.hasError('server')) {
+                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                        }
+                      </mat-form-field>
+                    }
+
                   }
-                </mat-select>
-                @if ((lookups()['inventory'] || []).length === 0) {
-                  <mat-hint id="inventory-id-help">No inventory options found.</mat-hint>
-                } @else {
-                  <mat-hint id="inventory-id-help">Select an existing inventory record.</mat-hint>
-                }
-                @if (getLocationFieldError('inventory_id'); as error) {
-                  <mat-error>{{ error }}</mat-error>
-                }
-              </mat-form-field>
+                </div>
+              }
 
-              <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Location ID</mat-label>
-                <mat-select formControlName="location_id">
-                  @for (item of lookups()['locations'] || []; track item.value) {
-                    <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
-                  }
-                </mat-select>
-                @if ((lookups()['locations'] || []).length === 0) {
-                  <mat-hint>No locations found. Create one in Master Data > Locations.</mat-hint>
-                }
-                @if (getLocationFieldError('location_id'); as error) {
-                  <mat-error>{{ error }}</mat-error>
-                }
-              </mat-form-field>
+              <!--
+                IFRC spec hints — rendered as a direct grid child (not inside the
+                item_code cell) so CSS grid-area can position it independently.
+                Shown on the Items form in both create and edit mode.
+              -->
+              @if (isItemRecord() && group.label === 'Item Identity') {
+                <div class="form-field ifrc-hints-cell"
+                  [formGroup]="ifrcSpecForm"
+                  role="group"
+                  aria-label="IFRC code specification hints (optional)">
+                  <span class="ifrc-spec-label" aria-hidden="true">
+                    IFRC code hints&nbsp;<span class="optional">(optional)</span>
+                  </span>
+                  <div class="ifrc-spec-fields">
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                      <mat-label>Size / Weight</mat-label>
+                      <input matInput formControlName="size_weight"
+                        placeholder="e.g. 200g, 5L, 10cm"
+                        aria-describedby="ifrc-size-desc" />
+                    </mat-form-field>
 
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                      <mat-label>Form</mat-label>
+                      <mat-select formControlName="form" aria-label="Item presentation form">
+                        <mat-option value="">— None —</mat-option>
+                        <mat-option value="tablet">Tablet</mat-option>
+                        <mat-option value="capsule">Capsule</mat-option>
+                        <mat-option value="liquid">Liquid</mat-option>
+                        <mat-option value="solution">Solution</mat-option>
+                        <mat-option value="powder">Powder</mat-option>
+                        <mat-option value="sachet">Sachet</mat-option>
+                        <mat-option value="cream">Cream</mat-option>
+                        <mat-option value="gel">Gel</mat-option>
+                        <mat-option value="syrup">Syrup</mat-option>
+                        <mat-option value="injection">Injection</mat-option>
+                        <mat-option value="canned">Canned</mat-option>
+                        <mat-option value="bar">Bar</mat-option>
+                        <mat-option value="bottle">Bottle</mat-option>
+                        <mat-option value="bag">Bag</mat-option>
+                        <mat-option value="box">Box</mat-option>
+                        <mat-option value="roll">Roll</mat-option>
+                        <mat-option value="sheet">Sheet</mat-option>
+                        <mat-option value="kit">Kit</mat-option>
+                        <mat-option value="pack">Pack</mat-option>
+                        <mat-option value="tube">Tube</mat-option>
+                        <mat-option value="spray">Spray</mat-option>
+                      </mat-select>
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                      <mat-label>Material</mat-label>
+                      <input matInput formControlName="material"
+                        placeholder="e.g. cotton, plastic" />
+                    </mat-form-field>
+                  </div>
+                </div>
+              }
+
+            </div><!-- /.form-grid -->
+          </section>
+        }
+
+        <!-- ── Storage Location Assignment (edit mode only) ── -->
+        @if (canAssignLocation()) {
+          <section class="form-section location-assignment-section"
+            aria-label="Storage location assignment section">
+            <h3 class="section-title">
+              <mat-icon aria-hidden="true">shelves</mat-icon>
+              Storage Location Assignment
+            </h3>
+            <p class="section-description">
               @if (isBatchedItem()) {
-                <mat-form-field appearance="outline" class="assignment-field">
-                  <mat-label>Batch ID</mat-label>
-                  <input matInput type="number" min="1" formControlName="batch_id" />
-                  @if (getLocationFieldError('batch_id'); as error) {
+                This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+              } @else {
+                This item is non-batched. Provide Inventory ID and Location ID only.
+              }
+            </p>
+            <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+
+            <div class="assignment-form" [formGroup]="locationForm">
+              <div class="assignment-grid">
+                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                  <mat-label>Inventory ID</mat-label>
+                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help">
+                    @for (item of lookups()['inventory'] || []; track item.value) {
+                      <mat-option [value]="item.value">{{ item.value }} – {{ item.label }}</mat-option>
+                    }
+                  </mat-select>
+                  @if ((lookups()['inventory'] || []).length === 0) {
+                    <mat-hint id="inventory-id-help">No inventory options found.</mat-hint>
+                  } @else {
+                    <mat-hint id="inventory-id-help">Select an existing inventory record.</mat-hint>
+                  }
+                  @if (getLocationFieldError('inventory_id'); as error) {
                     <mat-error>{{ error }}</mat-error>
                   }
                 </mat-form-field>
-              }
-            </div>
 
-            <div class="assignment-actions">
-              <button
-                mat-flat-button
-                color="primary"
-                type="button"
-                [disabled]="assigningLocation()"
-                (click)="onAssignStorageLocation()"
-              >
-                @if (assigningLocation()) {
-                  <mat-icon class="spin">sync</mat-icon>
-                  Assigning...
-                } @else {
-                  <mat-icon>add_location_alt</mat-icon>
-                  Assign Location
+                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                  <mat-label>Location ID</mat-label>
+                  <mat-select formControlName="location_id">
+                    @for (item of lookups()['locations'] || []; track item.value) {
+                      <mat-option [value]="item.value">{{ item.value }} – {{ item.label }}</mat-option>
+                    }
+                  </mat-select>
+                  @if ((lookups()['locations'] || []).length === 0) {
+                    <mat-hint>No locations found. Create one in Master Data › Locations.</mat-hint>
+                  }
+                  @if (getLocationFieldError('location_id'); as error) {
+                    <mat-error>{{ error }}</mat-error>
+                  }
+                </mat-form-field>
+
+                @if (isBatchedItem()) {
+                  <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                    <mat-label>Batch ID</mat-label>
+                    <input matInput type="number" min="1" formControlName="batch_id" />
+                    @if (getLocationFieldError('batch_id'); as error) {
+                      <mat-error>{{ error }}</mat-error>
+                    }
+                  </mat-form-field>
                 }
-              </button>
-            </div>
-          </div>
-        </section>
-      }
+              </div>
 
-      <!-- Action Bar -->
-      <div class="form-actions">
-        <button mat-stroked-button type="button" class="cancel-btn" (click)="onCancel()">
-          Cancel
-        </button>
-        <button mat-flat-button color="primary" type="submit" class="save-btn"
-          [disabled]="isSaving() || form.invalid">
-          @if (isSaving()) {
-            <mat-icon class="spin">sync</mat-icon> Saving...
-          } @else {
-            <mat-icon>save</mat-icon> {{ isEdit() ? 'Update' : 'Create' }}
-          }
-        </button>
-      </div>
-    </form>
-  }
+              <div class="assignment-actions">
+                <button mat-flat-button color="primary" type="button"
+                  [disabled]="assigningLocation()"
+                  (click)="onAssignStorageLocation()">
+                  @if (assigningLocation()) {
+                    <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
+                    Assigning…
+                  } @else {
+                    <mat-icon aria-hidden="true">add_location_alt</mat-icon>
+                    Assign Location
+                  }
+                </button>
+              </div>
+            </div>
+          </section>
+        }
+
+        <!-- ── Action Bar ── -->
+        <div class="form-actions" role="toolbar" aria-label="Form actions">
+          <button mat-stroked-button type="button" class="cancel-btn" (click)="onCancel()">
+            Cancel
+          </button>
+          <button mat-flat-button color="primary" type="submit" class="save-btn"
+            [disabled]="isSaving() || form.invalid">
+            @if (isSaving()) {
+              <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Saving…
+            } @else {
+              <mat-icon aria-hidden="true">save</mat-icon>
+              {{ isEdit() ? 'Update' : 'Create' }}
+            }
+          </button>
+        </div>
+
+      </form>
+    }
   </div>
 }

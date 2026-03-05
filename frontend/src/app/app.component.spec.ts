@@ -16,10 +16,10 @@ describe('AppComponent', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render toolbar title', () => {
+  it('should render topbar root label', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.app-title')?.textContent).toContain('DMIS');
+    expect(compiled.querySelector('.breadcrumb-root')?.textContent).toContain('DMIS');
   });
 });

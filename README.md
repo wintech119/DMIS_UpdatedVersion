@@ -1,107 +1,219 @@
-# Disaster Recovery Inventory Management System Frontend
+# Disaster Management Information System (DMIS)
 
-## Django backend (venv)
+DMIS is delivered as a Django + Angular application.
 
-The Python venv lives in the **project root**. Activate it from there, or use the path that goes up from subfolders:
+## Stack
+
+- Backend: Django 4.2 (LTS) + Django REST Framework
+- Frontend: Angular 21+
+- Database: PostgreSQL 16+
+- Cache: Redis (optional in dev, required in production)
+- Optional AI runtime: Ollama (for IFRC suggestion classification)
+
+## Important architecture note
+
+- The Flask stack is being phased out.
+- New features are implemented only in Django + Angular.
+
+## Repository structure
+
+- `backend/`: Django API and domain services
+- `frontend/`: Angular application
+- `.venv/`: recommended Python virtual environment at repo root
+
+## Local setup
+
+### 1. Python environment
 
 ```powershell
-# From project root (DMIS_UpdatedVersion):
+# from repository root
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# From backend\ or frontend\:
-..\.venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt
 ```
 
-If PowerShell blocks the script:
-- Run once in that terminal: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
-- Or use **Command Prompt (cmd)** instead: `cd` to project root, then run `.venv\Scripts\activate.bat`
+If PowerShell blocks script execution:
 
-## Getting started
+- Run once: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+- Or use `cmd` with `.venv\Scripts\activate.bat`
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### 2. Frontend dependencies
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://bizdevgit.egovja.com/egovja/business-solutions-services/egov-projects/internal-clients/disaster-recovery-inventory-management-system/disaster-recovery-inventory-management-system-frontend.git
-git branch -M main
-git push -uf origin main
+```powershell
+cd frontend
+npm ci
 ```
 
-## Integrate with your tools
+If PowerShell blocks `npm`, use `npm.cmd` instead:
 
-- [ ] [Set up project integrations](https://bizdevgit.egovja.com/egovja/business-solutions-services/egov-projects/internal-clients/disaster-recovery-inventory-management-system/disaster-recovery-inventory-management-system-frontend/-/settings/integrations)
+```powershell
+npm.cmd run -s lint
+```
 
-## Collaborate with your team
+### 3. Backend environment variables
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Copy and edit:
 
-## Test and Deploy
+```powershell
+copy backend\.env.example backend\.env
+```
 
-Use the built-in continuous integration in GitLab.
+Set database variables in `.env`:
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_HOST`
+- `DB_PORT`
 
-***
+## Database migrations
 
-# Editing this README
+Run from `backend/`:
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```powershell
+..\.venv\Scripts\python.exe manage.py migrate
+```
 
-## Suggestions for a good README
+Check migration status:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```powershell
+..\.venv\Scripts\python.exe manage.py showmigrations masterdata
+..\.venv\Scripts\python.exe manage.py migrate --check
+```
 
-## Name
-Choose a self-explaining name for your project.
+## Production configuration
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### Required environment variables
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+| Variable | Description |
+|---|---|
+| `DJANGO_SECRET_KEY` | Long random string - never use the dev default |
+| `DJANGO_DEBUG` | Must be `0` |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames, e.g. `api.dmis.gov.jm` |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL connection |
+| `REDIS_URL` | Redis connection string, e.g. `redis://redis:6379/1` |
+| `AUTH_ENABLED` | Set to `1` to enforce Keycloak JWT validation |
+| `AUTH_ISSUER` | Keycloak realm URL |
+| `AUTH_AUDIENCE` | Client ID registered in Keycloak |
+| `AUTH_JWKS_URL` | `<AUTH_ISSUER>/protocol/openid-connect/certs` |
+| `AUTH_USER_ID_CLAIM` | JWT claim containing the user ID (e.g. `sub`) |
+| `AUTH_USERNAME_CLAIM` | JWT claim for display name |
+| `AUTH_ROLES_CLAIM` | JWT claim carrying role list (if not using DB RBAC) |
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### Redis cache
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The IFRC circuit breaker and per-user rate limiter use Django's cache framework.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+- **Dev (no Redis)**: leave `REDIS_URL` unset - falls back to in-process memory cache. Circuit breaker state is not shared across workers.
+- **Production**: set `REDIS_URL`. All workers share circuit breaker state and rate-limit counters correctly.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+# Example
+REDIS_URL=redis://redis:6379/1
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+### LLM / Ollama in production
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Set `IFRC_LLM_ENABLED=1` only when an Ollama instance is reachable at `OLLAMA_BASE_URL`. The agent has a built-in circuit breaker - if Ollama is unreachable it falls back to rule-based classification automatically. Tune `IFRC_CB_FAILURE_THRESHOLD` and `IFRC_CB_RESET_TIMEOUT` to match your Ollama SLA.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### WSGI server
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Django's `manage.py runserver` is not suitable for production. Use Gunicorn (or uWSGI):
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+pip install gunicorn
+gunicorn dmis_api.wsgi:application --workers 4 --bind 0.0.0.0:8000
+```
 
-## License
-For open source projects, say how it is licensed.
+## IFRC Item Code Generator Agent (v3)
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+This repository uses the v3 approach:
+
+- Generates IFRC-compliant item codes from item name and item attributes
+- Does not depend on scraping/syncing external IFRC catalogue data at runtime
+- Suggests code only; user approval/save remains explicit
+- Logs suggestions in `item_ifrc_suggest_log` for audit traceability
+
+### LLM behavior and model switching
+
+- The agent uses `init_chat_model(...)` in:
+  - `backend/masterdata/ifrc_code_agent.py`
+- LLM is optional and controlled by environment variables.
+- Change models by setting `OLLAMA_MODEL_ID` only.
+
+Key IFRC settings in `backend/dmis_api/settings.py`:
+
+- `IFRC_ENABLED` (default `true`)
+- `IFRC_LLM_ENABLED` (default `false`)
+- `OLLAMA_BASE_URL` (default `http://localhost:11434`)
+- `OLLAMA_MODEL_ID` (default `qwen3.5:0.8b`)
+- `OLLAMA_TIMEOUT_SECONDS` (default `10`)
+- `IFRC_AUTO_FILL_THRESHOLD` (default `0.80`)
+- `IFRC_MIN_INPUT_LENGTH` (default `3`)
+- `IFRC_MAX_INPUT_LENGTH` (default `120`)
+- `IFRC_CB_FAILURE_THRESHOLD` (default `5`)
+- `IFRC_CB_RESET_TIMEOUT` (default `120`)
+- `IFRC_RATE_LIMIT_PER_MINUTE` (default `30`)
+
+### API endpoints
+
+Under `api/v1/masterdata`:
+
+- `GET /items/ifrc-suggest?name=<item_name>`
+- `GET /items/ifrc-health`
+
+Notes:
+
+- Suggest endpoint validates/sanitizes input and rate-limits requests per user.
+- Suggest response includes `suggestion_id`; item save can pass `ifrc_suggest_log_id` so selected code is written back to the log row.
+
+## Item code and validation rules
+
+- `item.item_code` is `VARCHAR(30)`.
+- FEFO rule is enforced on both frontend and backend:
+  - If `issuance_order === "FEFO"`, then `can_expire_flag` must be `true`.
+
+## Run the apps
+
+### Backend
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py runserver
+```
+
+### Frontend
+
+```powershell
+cd frontend
+npm.cmd start
+```
+
+## Verification commands
+
+### Backend tests
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py test masterdata.tests --verbosity=2
+```
+
+### Frontend lint/build
+
+```powershell
+cd frontend
+npm.cmd run -s lint
+npm.cmd run -s build
+```
+
+## Current implementation files for IFRC v3
+
+- `backend/masterdata/ifrc_code_agent.py`
+- `backend/masterdata/views.py`
+- `backend/masterdata/serializers.py`
+- `backend/masterdata/models.py`
+- `backend/masterdata/migrations/0003_ifrc_v3_generator_schema.py`
+- `frontend/src/app/master-data/services/ifrc-suggest.service.ts`
+- `frontend/src/app/master-data/models/ifrc-suggest.models.ts`
+- `frontend/src/app/master-data/components/master-form-page/master-form-page.component.ts`
+- `frontend/src/app/master-data/components/master-form-page/master-form-page.component.html`

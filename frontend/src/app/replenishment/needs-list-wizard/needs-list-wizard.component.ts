@@ -1,14 +1,14 @@
 import { Component, OnInit, ViewChild, DestroyRef, ChangeDetectorRef, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatStepperModule, MatStepper } from '@angular/material/stepper';
 import { StepperSelectionEvent } from '@angular/cdk/stepper';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { combineLatest } from 'rxjs';
+import { combineLatest, of } from 'rxjs';
 
 import { WizardStateService } from './services/wizard-state.service';
 import { ItemAdjustment, AdjustmentReason } from './models/wizard-state.model';
@@ -68,8 +68,11 @@ export class NeedsListWizardComponent implements OnInit {
   confirmationState: WizardConfirmationState | null = null;
 
   ngOnInit(): void {
+    const paramMap$ = this.route.paramMap ?? of(this.route.snapshot?.paramMap ?? convertToParamMap({}));
+    const queryParams$ = this.route.queryParams ?? of(this.route.snapshot?.queryParams ?? {});
+
     // Load query params from dashboard navigation
-    combineLatest([this.route.paramMap, this.route.queryParams]).pipe(
+    combineLatest([paramMap$, queryParams$]).pipe(
       takeUntilDestroyed(this.destroyRef)
     ).subscribe(([paramMap, params]) => {
       const routeNeedsListId = String(paramMap.get('id') ?? '').trim();

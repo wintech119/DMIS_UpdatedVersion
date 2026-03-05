@@ -1,11 +1,23 @@
-from unittest.mock import patch
+import importlib
+from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 from django.test import RequestFactory, SimpleTestCase
+from django.test import override_settings
 from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from masterdata import views
 
-from masterdata.services.data_access import TABLE_REGISTRY, _resolve_order_by, check_uniqueness
+from masterdata.services.data_access import (
+    TABLE_REGISTRY,
+    _resolve_order_by,
+    check_uniqueness,
+    create_record,
+    update_record,
+)
+from masterdata.services.validation import _cross_field_validation
+from masterdata.ifrc_code_agent import IFRCAgent, IFRCCodeSuggestion, _encode_spec, _next_sequence
 
 
 class OrderByValidationTests(SimpleTestCase):
@@ -102,3 +114,260 @@ class UniquenessFieldValidationTests(SimpleTestCase):
         self.assertEqual(warnings, [])
         executed_sql = cursor.execute.call_args.args[0]
         self.assertIn("UPPER(item_name) = UPPER(%s)", executed_sql)
+
+
+class ItemCrossFieldValidationTests(SimpleTestCase):
+    def test_fefo_requires_expiry(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "issuance_order": "FEFO",
+                "can_expire_flag": False,
+            },
+        )
+        self.assertEqual(
+            errors.get("can_expire_flag"),
+            "Can Expire must be enabled when Issuance Order is FEFO.",
+        )
+
+    def test_fefo_patch_allows_existing_expiry_enabled(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {"issuance_order": "FEFO"},
+            is_update=True,
+            existing_record={"can_expire_flag": True},
+        )
+        self.assertEqual(errors, {})
+
+    def test_fefo_patch_blocks_disabling_expiry_when_existing_order_is_fefo(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {"can_expire_flag": False},
+            is_update=True,
+            existing_record={"issuance_order": "FEFO"},
+        )
+        self.assertEqual(
+            errors.get("can_expire_flag"),
+            "Can Expire must be enabled when Issuance Order is FEFO.",
+        )
+
+
+class ItemSkuNormalizationTests(SimpleTestCase):
+    @patch("masterdata.services.data_access.connection")
+    @patch("masterdata.services.data_access.transaction.atomic")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_create_blank_sku_is_saved_as_null(
+        self,
+        _mock_sqlite,
+        _mock_atomic,
+        mock_connection,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (123,)
+
+        pk_val, warnings = create_record("items", {"sku_code": "   "}, "tester")
+
+        self.assertEqual(pk_val, 123)
+        self.assertEqual(warnings, [])
+        _, params = cursor.execute.call_args.args
+        self.assertIn(None, params)
+
+    @patch("masterdata.services.data_access.connection")
+    @patch("masterdata.services.data_access.transaction.atomic")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_update_blank_sku_is_saved_as_null(
+        self,
+        _mock_sqlite,
+        _mock_atomic,
+        mock_connection,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+
+        success, warnings = update_record(
+            "items",
+            99,
+            {"sku_code": "   "},
+            "tester",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(warnings, [])
+        _, params = cursor.execute.call_args.args
+        self.assertIsNone(params[0])
+
+
+class ItemUpdateValidationContextTests(SimpleTestCase):
+    def setUp(self):
+        self.cfg = TABLE_REGISTRY["items"]
+
+    @patch("masterdata.views.update_record", return_value=(True, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    @patch("masterdata.views.get_record")
+    def test_item_update_passes_existing_record_to_validation(
+        self,
+        mock_get_record,
+        mock_validate,
+        _mock_update,
+    ):
+        existing_record = {
+            "item_id": 1,
+            "issuance_order": "FIFO",
+            "can_expire_flag": True,
+        }
+        mock_get_record.side_effect = [(existing_record, []), (existing_record, [])]
+
+        request = SimpleNamespace(
+            data={"issuance_order": "FEFO"},
+            user=SimpleNamespace(user_id="tester"),
+        )
+        response = views._handle_update(request, self.cfg, 1)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            mock_validate.call_args.kwargs.get("existing_record"),
+            existing_record,
+        )
+
+
+class ItemCodeMigrationSchemaTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.migration = importlib.import_module(
+            "masterdata.migrations.0001_item_code_varchar_30"
+        )
+
+    def test_legacy_table_lookup_uses_configured_schema(self):
+        schema_editor = SimpleNamespace(connection=MagicMock())
+        cursor = schema_editor.connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = ("tenant_a.item",)
+
+        with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+            exists = self.migration._legacy_item_table_exists(schema_editor)
+
+        self.assertTrue(exists)
+        self.assertEqual(cursor.execute.call_args.args[0], "SELECT to_regclass(%s)")
+        self.assertEqual(cursor.execute.call_args.args[1], ["tenant_a.item"])
+
+    def test_forwards_sql_uses_configured_schema(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+        with patch.object(self.migration, "_legacy_item_table_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration._forwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn("ALTER TABLE tenant_a.item", executed_sql)
+        self.assertIn("CREATE VIEW tenant_a.v_stock_status AS", executed_sql)
+
+
+@override_settings(
+    IFRC_AGENT={
+        "LLM_ENABLED": False,
+        "CB_REDIS_KEY": "ifrc:test:cb",
+        "CB_FAILURE_THRESHOLD": 5,
+        "CB_RESET_TIMEOUT_SECONDS": 120,
+        "OLLAMA_MODEL_ID": "qwen3.5:0.8b",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_TIMEOUT_SECONDS": 10,
+    }
+)
+class IFRCAgentTests(SimpleTestCase):
+    @patch("masterdata.ifrc_code_agent._next_sequence", return_value=(1, "SEQ=1 selected."))
+    def test_suggest_generates_v3_code_when_llm_disabled(self, _mock_seq):
+        agent = IFRCAgent()
+        result = agent.suggest("water tabs")
+
+        self.assertEqual(result.match_type, "fallback")
+        self.assertIsNotNone(result.ifrc_code)
+        self.assertRegex(result.ifrc_code, r"^[A-Z]{8}[A-Z0-9]{0,5}\d{2}$")
+        self.assertEqual(result.group_code, "W")
+        self.assertEqual(result.family_code, "WTR")
+        self.assertEqual(result.category_code, "TABL")
+        self.assertEqual(result.sequence, 1)
+
+    def test_spec_encoding_prefers_form_then_size(self):
+        self.assertEqual(_encode_spec("200 g", "tablet", "plastic"), "TB200")
+
+    def test_spec_encoding_uses_material_when_form_absent(self):
+        self.assertEqual(_encode_spec("20 l", "", "plastic"), "PL20L")
+
+    def test_empty_input_returns_none(self):
+        agent = IFRCAgent()
+        result = agent.suggest("   ")
+        self.assertEqual(result.match_type, "none")
+        self.assertIsNone(result.ifrc_code)
+
+
+class IFRCSequenceLookupTests(SimpleTestCase):
+    @patch("masterdata.ifrc_code_agent.connection")
+    def test_sequence_lookup_uses_configured_schema(self, mock_connection):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+
+        with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+            seq, _ = _next_sequence("WWTRTABL")
+
+        self.assertEqual(seq, 1)
+        executed_sql = cursor.execute.call_args.args[0]
+        self.assertIn("FROM tenant_a.item", executed_sql)
+
+
+class IFRCSuggestViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="test-user",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_VIEW],
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_success(
+        self,
+        mock_ifrc_agent,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_ifrc_agent.return_value.suggest.return_value = IFRCCodeSuggestion(
+            ifrc_code="WWTRTABLTB01",
+            ifrc_description="WATER PURIFICATION TABLET",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=W Family=WTR Category=TABL Spec=TB SEQ=01",
+            llm_used=False,
+            group_code="W",
+            family_code="WTR",
+            category_code="TABL",
+            spec_segment="TB",
+            sequence=1,
+        )
+
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water tabs"})
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["ifrc_code"], "WWTRTABLTB01")
+        self.assertEqual(response.data["suggestion_id"], "123")
+        self.assertEqual(response.data["match_type"], "generated")
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=False)
+    def test_ifrc_suggest_rate_limited(self, _mock_rate_limit, _mock_permission):
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water"})
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 429)
