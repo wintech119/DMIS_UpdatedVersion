@@ -281,8 +281,8 @@ def _link_ifrc_selection_if_present(
     warnings: list[str],
 ) -> None:
     """
-    If an item save includes `ifrc_suggest_log_id`, link the saved item_code
-    back to that suggestion log row for audit traceability.
+    If an item save includes `ifrc_suggest_log_id`, append a new audit row with
+    the selected_code for traceability (ItemIfrcSuggestLog is append-only).
     """
     if table_key != "items" or not record:
         return
@@ -296,12 +296,24 @@ def _link_ifrc_selection_if_present(
         return
 
     try:
-        updated = ItemIfrcSuggestLog.objects.filter(
+        original = ItemIfrcSuggestLog.objects.filter(
             pk=suggestion_id,
             user_id=actor_id,
-        ).update(selected_code=item_code[:30])
-        if updated == 0:
+        ).first()
+        if original is None:
             warnings.append("ifrc_log_not_linked")
+            return
+
+        ItemIfrcSuggestLog.objects.create(
+            item_name_input=original.item_name_input,
+            suggested_code=original.suggested_code,
+            suggested_desc=original.suggested_desc,
+            confidence=original.confidence,
+            match_type=original.match_type,
+            construction_rationale=original.construction_rationale,
+            selected_code=item_code[:30],
+            user_id=original.user_id,
+        )
     except Exception as exc:
         logger.warning("Failed to link IFRC suggestion log %r: %s", suggestion_id, exc)
         warnings.append("ifrc_log_link_failed")

@@ -1,10 +1,37 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+
+
+_APPEND_ONLY_ERROR = (
+    "ItemIfrcSuggestLog is append-only; existing rows cannot be modified or deleted."
+)
+
+
+class ItemIfrcSuggestLogQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError(_APPEND_ONLY_ERROR)
+
+    def delete(self):
+        raise ValidationError(_APPEND_ONLY_ERROR)
+
+    def _raw_delete(self, using):
+        raise ValidationError(_APPEND_ONLY_ERROR)
+
+
+class ItemIfrcSuggestLogManager(models.Manager.from_queryset(ItemIfrcSuggestLogQuerySet)):
+    pass
 
 
 class ItemIfrcSuggestLog(models.Model):
     """
     Immutable audit record for IFRC code generation suggestions.
+
+    Runtime protections enforce append-only behavior at the ORM layer.
+    Add a database-level safeguard in a migration (trigger and/or DB
+    permissions) for defense in depth.
     """
+
+    objects = ItemIfrcSuggestLogManager()
 
     MATCH_TYPE_GENERATED = "generated"
     MATCH_TYPE_FALLBACK = "fallback"
@@ -66,9 +93,18 @@ class ItemIfrcSuggestLog(models.Model):
     class Meta:
         db_table = "item_ifrc_suggest_log"
         ordering = ["-created_at"]
+        get_latest_by = "created_at"
         verbose_name = "IFRC Suggest Log"
         verbose_name_plural = "IFRC Suggest Logs"
 
     def __str__(self) -> str:
         code = self.suggested_code or "none"
         return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.item_name_input} -> {code}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError(_APPEND_ONLY_ERROR)
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(_APPEND_ONLY_ERROR)
