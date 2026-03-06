@@ -298,6 +298,37 @@ export class MasterFormPageComponent implements OnInit {
     return 'Failed to load IFRC suggestion.';
   }
 
+  private hasIfrcItemCodeProvenance(record: Record<string, unknown>): boolean {
+    const sourceKeys = [
+      'item_code_source',
+      'item_code_provenance',
+      'ifrc_code_source',
+      'ifrc_provenance',
+    ];
+    for (const key of sourceKeys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().toLowerCase().includes('ifrc')) {
+        return true;
+      }
+    }
+
+    const booleanKeys = [
+      'item_code_ifrc_generated',
+      'ifrc_generated_flag',
+    ];
+    for (const key of booleanKeys) {
+      if (record[key] === true) {
+        return true;
+      }
+    }
+
+    const suggestLogId = record['ifrc_suggest_log_id'];
+    if (suggestLogId === null || suggestLogId === undefined) {
+      return false;
+    }
+    return String(suggestLogId).trim().length > 0;
+  }
+
   private loadLookups(cfg: MasterTableConfig): void {
     const lookupFields = cfg.formFields.filter(f => f.type === 'lookup' && f.lookupTable);
     const lookupTables = new Map<string, string>();
@@ -365,10 +396,12 @@ export class MasterFormPageComponent implements OnInit {
         // Re-run cross-field validators (e.g. FEFO requires expiry) after silent patch
         this.form.updateValueAndValidity({ emitEvent: false });
 
-        // For items: mark as "auto-filled" so subsequent user changes to item_name
-        // trigger IFRC auto-fill exactly as they do in create mode.
+        // For items: only preserve auto-filled behavior when persisted provenance
+        // indicates the current item_code originated from IFRC suggestion flow.
         if (cfg.tableKey === 'items') {
-          this.itemCodeAutoFilled = true;
+          this.itemCodeAutoFilled = this.hasIfrcItemCodeProvenance(
+            record as Record<string, unknown>,
+          );
         }
 
         this.isLoading.set(false);
