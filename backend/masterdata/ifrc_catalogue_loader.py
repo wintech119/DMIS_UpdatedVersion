@@ -131,7 +131,8 @@ def parse_taxonomy(md_path: Path) -> IFRCTaxonomy:
     """
     Parse the taxonomy MD into an IFRCTaxonomy object.
     Raises FileNotFoundError if the file is missing.
-    Raises ValueError if no groups are parsed.
+    Raises ValueError if no groups are parsed or if parsed structure has
+    no categories/items.
     """
     if not md_path.exists():
         raise FileNotFoundError(
@@ -198,6 +199,18 @@ def parse_taxonomy(md_path: Path) -> IFRCTaxonomy:
         for f in g.families.values()
         for c in f.categories.values()
     )
+    zero_counts: list[str] = []
+    if n_categories == 0:
+        zero_counts.append("n_categories")
+    if n_items == 0:
+        zero_counts.append("n_items")
+    if zero_counts:
+        raise ValueError(
+            "Invalid IFRCTaxonomy parsed from taxonomy file "
+            f"{md_path}: zero value in {', '.join(zero_counts)} "
+            f"(n_categories={n_categories}, n_items={n_items}) before "
+            "_build_keyword_index can produce a usable keyword index."
+        )
     logger.info(
         "IFRC taxonomy loaded: %d groups, %d families, %d categories, %d items, %d keywords",
         n_groups, n_families, n_categories, n_items, len(taxonomy.keyword_index),
