@@ -89,6 +89,7 @@ class AgentState:
     grp:        Optional[str] = None
     fam:        Optional[str] = None
     cat:        Optional[str] = None
+    source:     str           = "unknown"
     llm_used:   bool          = False
     result:     Optional[IFRCCodeSuggestion] = None
 
@@ -243,11 +244,12 @@ def _llm_classify(
 def _best_effort_fallback(
     name: str,
     taxonomy: IFRCTaxonomy,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str]:
     """
     Rule-based fallback. Checks item name tokens against group keywords,
     then picks the first family/category available.
     Defaults to H/SHE/TRPL (tarpaulin) as a common disaster-relief item.
+    Returns (grp, fam, cat, source).
     """
     n = name.lower()
     tokens = set(re.findall(r"[a-z]{3,}", n))
@@ -270,18 +272,18 @@ def _best_effort_fallback(
             fam = next(iter(g.families))
             f   = g.families[fam]
             cat = next(iter(f.categories), "UNKN")
-            return grp, fam, cat
+            return grp, fam, cat, "fallback"
 
     # Default: H/SHE/TRPL
     if "H" in taxonomy.groups:
         h = taxonomy.groups["H"]
         if "SHE" in h.families and "TRPL" in h.families["SHE"].categories:
-            return "H", "SHE", "TRPL"
+            return "H", "SHE", "TRPL", "fallback"
 
     grp = next(iter(taxonomy.groups))
     fam = next(iter(taxonomy.groups[grp].families))
     cat = next(iter(taxonomy.groups[grp].families[fam].categories), "UNKN")
-    return grp, fam, cat
+    return grp, fam, cat, "fallback"
 
 
 # ─── Spec encoding (mirrors real IFRC form/material/size spec) ────────────────
@@ -547,38 +549,53 @@ def _generate_alternatives(
 # ─── Pipeline stages ──────────────────────────────────────────────────────────
 
 def _stage_normalize(state: AgentState) -> AgentState:
+    if not (state.item_name or "").strip():
+        state.normalized = ""
+        state.source = "empty"
+        return state
     s = state.item_name.strip().lower()
     s = re.sub(r"[^a-z0-9\s\-\',/]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        state.normalized = ""
+        state.source = "empty"
+        return state
     state.normalized = s
     return state
 
 
 def _stage_classify(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
+    if state.source == "empty":
+        state.grp, state.fam, state.cat = None, None, None
+        state.llm_used = False
+        return state
+
     name = state.normalized or state.item_name
 
     hit = _keyword_classify(name, taxonomy)
     if hit:
         state.grp, state.fam, state.cat = hit
+        state.source = "keyword"
         state.llm_used = False
         return state
 
     if not _cfg("LLM_ENABLED") or _cb_is_open():
         if _cb_is_open():
             logger.info("IFRC circuit breaker open — using fallback.")
-        state.grp, state.fam, state.cat = _best_effort_fallback(name, taxonomy)
+        state.grp, state.fam, state.cat, state.source = _best_effort_fallback(name, taxonomy)
         state.llm_used = False
         return state
 
     try:
         grp, fam, cat, _ = _llm_classify(state.item_name, taxonomy)
         state.grp, state.fam, state.cat = grp, fam, cat
+        state.source = "llm"
         state.llm_used = True
         _cb_record_success()
     except Exception as exc:
         logger.warning("IFRC LLM failed (%s). Using fallback.", exc)
         _cb_record_failure()
-        state.grp, state.fam, state.cat = _best_effort_fallback(name, taxonomy)
+        state.grp, state.fam, state.cat, state.source = _best_effort_fallback(name, taxonomy)
         state.llm_used = False
 
     return state
@@ -599,11 +616,20 @@ def _stage_construct(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
         alts     = _generate_alternatives(
             state.item_name, state.grp, state.fam, state.cat, taxonomy
         )
+        if state.source == "fallback":
+            confidence = 0.45
+            match_type = "generated_fallback"
+        elif state.llm_used:
+            confidence = 0.90
+            match_type = "generated"
+        else:
+            confidence = 0.85
+            match_type = "generated"
         state.result = IFRCCodeSuggestion(
             item_code=built["code"],
             standardised_name=std_name,
-            confidence=0.90 if state.llm_used else 0.85,
-            match_type="generated",
+            confidence=confidence,
+            match_type=match_type,
             grp=built["grp"],
             grp_label=built["grp_label"],
             fam=built["fam"],
