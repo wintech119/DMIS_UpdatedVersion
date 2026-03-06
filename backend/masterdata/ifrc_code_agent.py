@@ -371,21 +371,37 @@ def _encode_size(text: str) -> str:
     return ""
 
 
-def _encode_spec(item_name: str) -> str:
+def _encode_spec(item_name: str, form: str = "", material: str = "") -> str:
     """
     Build Specifications segment (0-7 chars) from the item name.
     Mirrors real IFRC spec encoding: [form/material (2 letters)] + [size (1-3 chars)].
     """
-    n     = item_name.lower()
+    n = item_name.lower()
+    form_text = (form or "").strip().lower()
+    material_text = (material or "").strip().lower()
     parts: list[str] = []
 
-    # Form code (2 letters) takes priority
-    for kw, code in _FORM_CODES.items():
-        if re.search(r"\b" + re.escape(kw) + r"\b", n):
-            parts.append(code)
-            break
+    # Explicit form parameter takes priority over parsing item_name.
+    if form_text:
+        for kw, code in _FORM_CODES.items():
+            if re.search(r"\b" + re.escape(kw) + r"\b", form_text):
+                parts.append(code)
+                break
 
-    # Material code when no form matched
+    # Fall back to form terms found in item_name.
+    if not parts:
+        for kw, code in _FORM_CODES.items():
+            if re.search(r"\b" + re.escape(kw) + r"\b", n):
+                parts.append(code)
+                break
+
+    # Material code when no form matched, using explicit material first.
+    if not parts:
+        if material_text:
+            for kw, code in _MATERIAL_CODES.items():
+                if kw in material_text:
+                    parts.append(code)
+                    break
     if not parts:
         for kw, code in _MATERIAL_CODES.items():
             if kw in n:
