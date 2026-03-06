@@ -129,7 +129,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Cache — Redis in production/staging, LocMemCache fallback for dev without Redis.
 _redis_url = os.getenv("REDIS_URL", "")
-if _redis_url:
+_running_tests = (
+    TESTING
+    or any("pytest" in arg.lower() for arg in sys.argv[1:])
+    or os.getenv("RUNNING_TESTS", "0") == "1"
+)
+_test_redis_cache_enabled = os.getenv("TEST_REDIS_CACHE_ENABLED", "0") == "1"
+if _redis_url and (not _running_tests or _test_redis_cache_enabled):
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
