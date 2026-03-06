@@ -85,6 +85,9 @@ class IFRCCodeSuggestion:
 @dataclass
 class AgentState:
     item_name:  str
+    size_weight: str = ""
+    form: str = ""
+    material: str = ""
     normalized: Optional[str] = None
     grp:        Optional[str] = None
     fam:        Optional[str] = None
@@ -383,7 +386,12 @@ def _encode_size(text: str) -> str:
     return ""
 
 
-def _encode_spec(item_name: str, form: str = "", material: str = "") -> str:
+def _encode_spec(
+    item_name: str,
+    form: str = "",
+    material: str = "",
+    size_weight: str = "",
+) -> str:
     """
     Build Specifications segment (0-7 chars) from the item name.
     Mirrors real IFRC spec encoding: [form/material (2 letters)] + [size (1-3 chars)].
@@ -391,6 +399,7 @@ def _encode_spec(item_name: str, form: str = "", material: str = "") -> str:
     n = item_name.lower()
     form_text = (form or "").strip().lower()
     material_text = (material or "").strip().lower()
+    size_text = (size_weight or "").strip().lower()
     parts: list[str] = []
 
     # Explicit form parameter takes priority over parsing item_name.
@@ -420,8 +429,10 @@ def _encode_spec(item_name: str, form: str = "", material: str = "") -> str:
                 parts.append(code)
                 break
 
-    # Size appended after form/material
-    size = _encode_size(item_name)
+    # Size appended after form/material; explicit size hint takes precedence.
+    size = _encode_size(size_text) if size_text else ""
+    if not size:
+        size = _encode_size(item_name)
     if size:
         parts.append(size)
 
@@ -492,12 +503,16 @@ def _construct_code(
     cat: str,
     item_name: str,
     taxonomy: IFRCTaxonomy,
+    *,
+    size_weight: str = "",
+    form: str = "",
+    material: str = "",
 ) -> dict:
     """
     Build the full IFRC code: GROUP(1)+FAMILY(3)+CATEGORY(4)+SPEC(0-7)+SEQ(02).
     Returns all segments and a human-readable rationale.
     """
-    spec    = _encode_spec(item_name)
+    spec    = _encode_spec(item_name, form=form, material=material, size_weight=size_weight)
     prefix  = f"{grp}{fam}{cat}{spec}".upper()
     seq     = _find_next_seq(prefix)
     code    = f"{prefix}{seq:02d}"
@@ -547,6 +562,10 @@ def _generate_alternatives(
     used_fam: str,
     used_cat: str,
     taxonomy: IFRCTaxonomy,
+    *,
+    size_weight: str = "",
+    form: str = "",
+    material: str = "",
 ) -> list[dict]:
     """Generate up to 2 alternative classifications from the keyword index."""
     words = re.findall(r"[a-zA-Z]{3,}", item_name.lower())
@@ -559,7 +578,16 @@ def _generate_alternatives(
             if triple not in seen:
                 grp, fam, cat = triple
                 try:
-                    built = _construct_code(grp, fam, cat, item_name, taxonomy)
+                    built = _construct_code(
+                        grp,
+                        fam,
+                        cat,
+                        item_name,
+                        taxonomy,
+                        size_weight=size_weight,
+                        form=form,
+                        material=material,
+                    )
                     alts.append({
                         "item_code": built["code"],
                         "grp": grp, "grp_label": taxonomy.group_label(grp),
@@ -645,10 +673,26 @@ def _stage_construct(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
         return state
 
     try:
-        built    = _construct_code(state.grp, state.fam, state.cat, state.item_name, taxonomy)
+        built    = _construct_code(
+            state.grp,
+            state.fam,
+            state.cat,
+            state.item_name,
+            taxonomy,
+            size_weight=state.size_weight,
+            form=state.form,
+            material=state.material,
+        )
         std_name = _standardise_description(state.item_name)
         alts     = _generate_alternatives(
-            state.item_name, state.grp, state.fam, state.cat, taxonomy
+            state.item_name,
+            state.grp,
+            state.fam,
+            state.cat,
+            taxonomy,
+            size_weight=state.size_weight,
+            form=state.form,
+            material=state.material,
         )
         if state.source == "fallback":
             confidence = 0.45
@@ -720,9 +764,21 @@ class IFRCAgent:
         2. python manage.py reload_ifrc_taxonomy
     """
 
-    def generate(self, item_name: str) -> IFRCCodeSuggestion:
+    def generate(
+        self,
+        item_name: str,
+        *,
+        size_weight: str = "",
+        form: str = "",
+        material: str = "",
+    ) -> IFRCCodeSuggestion:
         taxonomy = get_taxonomy()
-        state    = AgentState(item_name=item_name)
+        state    = AgentState(
+            item_name=item_name,
+            size_weight=size_weight,
+            form=form,
+            material=material,
+        )
         state    = _stage_normalize(state)
         state    = _stage_classify(state, taxonomy)
         state    = _stage_construct(state, taxonomy)
@@ -737,9 +793,10 @@ class IFRCAgent:
         form: str = "",
         material: str = "",
     ) -> IFRCCodeSuggestion:
-        """Backward-compat shim: folds v3-style hint params into the item name."""
-        combined = item_name
-        for extra in (size_weight, form, material):
-            if extra:
-                combined = f"{combined} {extra}"
-        return self.generate(combined.strip())
+        """Backward-compat shim preserving v3 hint params as explicit inputs."""
+        return self.generate(
+            item_name,
+            size_weight=size_weight,
+            form=form,
+            material=material,
+        )
