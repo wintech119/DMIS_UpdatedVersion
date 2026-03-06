@@ -29,6 +29,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Optional
 
 from django.conf import settings
@@ -338,9 +339,16 @@ def _encode_size(text: str) -> str:
     m = _SIZE_RE.search(text.lower())
     if not m:
         return ""
-    number = float(m.group(1))
-    unit   = m.group(2).lower()
-    n      = int(round(number))
+    unit = m.group(2).lower()
+    try:
+        n = int(
+            Decimal(m.group(1)).quantize(
+                Decimal("1"),
+                rounding=ROUND_HALF_UP,
+            )
+        )
+    except (InvalidOperation, ValueError):
+        return ""
     if unit == "kg":
         return f"{n}K"[:3]
     if unit == "mg":
