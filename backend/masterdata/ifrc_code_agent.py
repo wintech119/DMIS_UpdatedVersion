@@ -94,9 +94,28 @@ class AgentState:
 
 # ─── Circuit breaker ──────────────────────────────────────────────────────────
 
+def _cb_count_key() -> str:
+    return f"{_cfg('CB_REDIS_KEY')}:count"
+
+
+def _cb_open_until_key() -> str:
+    return f"{_cfg('CB_REDIS_KEY')}:open_until"
+
+
 def _cb_is_open() -> bool:
-    state = cache.get(_cfg("CB_REDIS_KEY")) or {}
-    return bool(state.get("open"))
+    open_until_raw = cache.get(_cb_open_until_key())
+    if open_until_raw is None:
+        return False
+    try:
+        open_until = int(open_until_raw)
+    except (TypeError, ValueError):
+        cache.delete(_cb_open_until_key())
+        return False
+    now = int(time.time())
+    if now < open_until:
+        return True
+    cache.delete(_cb_open_until_key())
+    return False
 
 
 def cb_is_open() -> bool:
@@ -105,18 +124,36 @@ def cb_is_open() -> bool:
 
 
 def _cb_record_failure() -> None:
-    key       = _cfg("CB_REDIS_KEY")
+    count_key = _cb_count_key()
+    open_key = _cb_open_until_key()
     threshold = int(_cfg("CB_FAILURE_THRESHOLD"))
-    timeout   = int(_cfg("CB_RESET_TIMEOUT_SECONDS"))
-    state = cache.get(key) or {"failures": 0, "open": False}
-    state["failures"] = int(state.get("failures", 0)) + 1
-    if state["failures"] >= threshold:
-        state["open"] = True
-        logger.warning("IFRC circuit breaker OPEN after %d LLM failures.", state["failures"])
-    cache.set(key, state, timeout=timeout * 2)
+    timeout = max(int(_cfg("CB_RESET_TIMEOUT_SECONDS")), 1)
+
+    # Atomic increment where supported by backend.
+    if cache.add(count_key, 1, timeout=timeout):
+        failures = 1
+    else:
+        try:
+            failures = int(cache.incr(count_key))
+        except (ValueError, TypeError):
+            cache.set(count_key, 1, timeout=timeout)
+            failures = 1
+    try:
+        cache.touch(count_key, timeout=timeout)
+    except (AttributeError, NotImplementedError, TypeError):
+        # Backend may not implement touch; initial timeout still bounds the key lifetime.
+        pass
+
+    if failures >= threshold:
+        open_until = int(time.time()) + timeout
+        cache.set(open_key, open_until, timeout=timeout)
+        logger.warning("IFRC circuit breaker OPEN after %d LLM failures.", failures)
 
 
 def _cb_record_success() -> None:
+    cache.delete(_cb_count_key())
+    cache.delete(_cb_open_until_key())
+    # Cleanup legacy state key from older implementation.
     cache.delete(_cfg("CB_REDIS_KEY"))
 
 
