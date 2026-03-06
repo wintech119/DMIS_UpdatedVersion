@@ -343,31 +343,43 @@ def _encode_size(text: str) -> str:
     if not m:
         return ""
     unit = m.group(2).lower()
+    if unit in ("lt", "liter", "litre"):
+        unit = "l"
+
     try:
-        n = int(
-            Decimal(m.group(1)).quantize(
-                Decimal("1"),
-                rounding=ROUND_HALF_UP,
-            )
-        )
+        value = Decimal(m.group(1))
     except (InvalidOperation, ValueError):
         return ""
-    if unit == "kg":
-        return f"{n}K"[:3]
-    if unit == "mg":
-        return str(n)[:3]
-    if unit == "g":
-        return f"{n // 1000}K" if n >= 1000 else str(n)[:3]
-    if unit in ("l", "lt", "liter", "litre"):
-        return f"{n}L"[:3]
-    if unit == "ml":
-        return f"{n // 1000}L" if n >= 1000 else f"{n}M"[:3]
-    if unit == "cm":
-        return f"{n}C"[:3]
-    if unit == "mm":
-        return f"{n}M"[:3]
-    if unit in ("kva", "kw"):
-        return f"{n}K"[:3]
+
+    try:
+        # Normalize first, then quantize once on the canonical base unit.
+        if unit in ("kg", "g", "mg"):
+            grams = (
+                value * Decimal("1000")
+                if unit == "kg"
+                else value / Decimal("1000")
+                if unit == "mg"
+                else value
+            )
+            n = int(grams.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return f"{n // 1000}K"[:3] if n >= 1000 else str(n)[:3]
+
+        if unit in ("l", "ml"):
+            milliliters = value * Decimal("1000") if unit == "l" else value
+            n = int(milliliters.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return f"{n // 1000}L"[:3] if n >= 1000 else f"{n}M"[:3]
+
+        if unit in ("cm", "mm"):
+            millimeters = value * Decimal("10") if unit == "cm" else value
+            n = int(millimeters.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return f"{n // 10}C"[:3] if n >= 10 and n % 10 == 0 else f"{n}M"[:3]
+
+        if unit in ("kva", "kw"):
+            n = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return f"{n}K"[:3]
+    except (InvalidOperation, ValueError):
+        return ""
+
     return ""
 
 
