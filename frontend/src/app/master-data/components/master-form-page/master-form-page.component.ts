@@ -8,7 +8,7 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of, Subject } from 'rxjs';
 import {
-  debounceTime, distinctUntilChanged, finalize, map, switchMap,
+  catchError, debounceTime, distinctUntilChanged, finalize, map, switchMap,
 } from 'rxjs/operators';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -216,7 +216,13 @@ export class MasterFormPageComponent implements OnInit {
           size_weight: size_weight ?? '',
           form: form ?? '',
           material: material ?? '',
-        }).pipe(finalize(() => this.ifrcLoading.set(false)));
+        }).pipe(
+          catchError((error) => {
+            this.ifrcError.set(this.getIfrcErrorMessage(error));
+            return of(null);
+          }),
+          finalize(() => this.ifrcLoading.set(false)),
+        );
       }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((suggestion) => {
@@ -227,7 +233,10 @@ export class MasterFormPageComponent implements OnInit {
           itemCodeControl.patchValue('', { emitEvent: false });
         }
         this.itemCodeAutoFilled = false;
-        this.ifrcError.set(null);
+        const currentName = String(itemNameControl.value ?? '').trim();
+        if (currentName.length < 3) {
+          this.ifrcError.set(null);
+        }
         return;
       }
 
@@ -251,6 +260,42 @@ export class MasterFormPageComponent implements OnInit {
       itemCodeControl.patchValue(suggestion.ifrc_code, { emitEvent: false });
       this.itemCodeAutoFilled = true;
     });
+  }
+
+  private getIfrcErrorMessage(error: unknown): string {
+    if (typeof error === 'string' && error.trim()) {
+      return error.trim();
+    }
+
+    const errObj = error as {
+      message?: unknown;
+      status?: unknown;
+      error?: unknown;
+    };
+    const payload = errObj?.error;
+    if (payload && typeof payload === 'object') {
+      const payloadObj = payload as Record<string, unknown>;
+      const detail = payloadObj['detail'];
+      if (typeof detail === 'string' && detail.trim()) {
+        return detail.trim();
+      }
+      const payloadError = payloadObj['error'];
+      if (typeof payloadError === 'string' && payloadError.trim()) {
+        return payloadError.trim();
+      }
+      const payloadMessage = payloadObj['message'];
+      if (typeof payloadMessage === 'string' && payloadMessage.trim()) {
+        return payloadMessage.trim();
+      }
+    }
+
+    if (typeof errObj?.message === 'string' && errObj.message.trim()) {
+      return errObj.message.trim();
+    }
+    if (typeof errObj?.status === 'number') {
+      return `IFRC suggestion request failed (${errObj.status}).`;
+    }
+    return 'Failed to load IFRC suggestion.';
   }
 
   private loadLookups(cfg: MasterTableConfig): void {
