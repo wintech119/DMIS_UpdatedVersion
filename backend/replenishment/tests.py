@@ -1112,6 +1112,7 @@ class NeedsListPreviewApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1143,6 +1144,7 @@ class NeedsListPreviewApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1201,6 +1203,7 @@ class NeedsListPreviewMultiApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1260,6 +1263,7 @@ class NeedsListPreviewMultiApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1293,6 +1297,7 @@ class NeedsListPreviewMultiApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1440,6 +1445,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1478,6 +1484,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1511,6 +1518,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1544,6 +1552,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1583,6 +1592,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1619,6 +1629,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1682,6 +1693,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1740,6 +1752,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1794,6 +1807,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1833,6 +1847,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1854,6 +1869,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1886,6 +1902,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1926,6 +1943,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1941,6 +1959,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -1986,6 +2005,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2044,6 +2064,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2115,6 +2136,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2186,6 +2208,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2248,6 +2271,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2302,6 +2326,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2351,6 +2376,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2410,6 +2436,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=[],
         DEV_AUTH_PERMISSIONS=[
@@ -2459,6 +2486,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2578,6 +2606,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2632,6 +2661,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2689,6 +2719,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2761,6 +2792,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2811,6 +2843,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2843,6 +2876,7 @@ class NeedsListWorkflowApiTests(TestCase):
             with override_settings(
                 AUTH_ENABLED=False,
                 DEV_AUTH_ENABLED=True,
+                TEST_DEV_AUTH_ENABLED=True,
                 DEV_AUTH_USER_ID="submitter",
                 DEV_AUTH_ROLES=["LOGISTICS"],
                 DEV_AUTH_PERMISSIONS=[],
@@ -2879,6 +2913,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -2911,6 +2946,7 @@ class NeedsListWorkflowApiTests(TestCase):
             with override_settings(
                 AUTH_ENABLED=False,
                 DEV_AUTH_ENABLED=True,
+                TEST_DEV_AUTH_ENABLED=True,
                 DEV_AUTH_USER_ID="submitter",
                 DEV_AUTH_ROLES=["LOGISTICS"],
                 DEV_AUTH_PERMISSIONS=[],
@@ -2955,6 +2991,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3020,6 +3057,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3084,6 +3122,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3136,6 +3175,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3197,6 +3237,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3259,6 +3300,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3346,6 +3388,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3439,6 +3482,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3513,6 +3557,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3591,6 +3636,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3665,6 +3711,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3730,6 +3777,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3800,6 +3848,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3960,6 +4009,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4011,6 +4061,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4078,6 +4129,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4131,6 +4183,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4183,6 +4236,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4235,6 +4289,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4287,6 +4342,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4348,6 +4404,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4429,6 +4486,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="approver",
         DEV_AUTH_ROLES=[],
         DEV_AUTH_PERMISSIONS=[
@@ -4498,6 +4556,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4574,6 +4633,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4653,6 +4713,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4771,6 +4832,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4822,6 +4884,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4881,6 +4944,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -4975,6 +5039,7 @@ class NeedsListWorkflowApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -5622,6 +5687,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="exec-user",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
@@ -5643,6 +5709,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="exec-user",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
@@ -5664,6 +5731,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter-1",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
@@ -5699,6 +5767,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter-2",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
@@ -5735,6 +5804,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="approver-2",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.approve"],
@@ -5771,6 +5841,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="approver-1",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.reject"],
@@ -5798,6 +5869,7 @@ class ProcurementPermissionApiTests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="logistics-1",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.cancel"],

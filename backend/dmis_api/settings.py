@@ -186,6 +186,7 @@ if AUTH_ENABLED:
         )
 
 DEV_AUTH_ENABLED = os.getenv("DEV_AUTH_ENABLED", "0") == "1"
+TEST_DEV_AUTH_ENABLED = os.getenv("TEST_DEV_AUTH_ENABLED", "0") == "1"
 DEV_AUTH_USER_ID = os.getenv("DEV_AUTH_USER_ID", "dev-user")
 DEV_AUTH_ROLES = [role.strip() for role in os.getenv("DEV_AUTH_ROLES", "").split(",") if role.strip()]
 DEV_AUTH_PERMISSIONS = [
