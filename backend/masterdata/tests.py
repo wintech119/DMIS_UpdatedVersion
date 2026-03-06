@@ -340,19 +340,21 @@ class IFRCSuggestViewTests(SimpleTestCase):
         _mock_rate_limit,
         _mock_permission,
     ):
-        mock_ifrc_agent.return_value.suggest.return_value = IFRCCodeSuggestion(
-            ifrc_code="WWTRTABLTB01",
-            ifrc_description="WATER PURIFICATION TABLET",
+        suggestion = IFRCCodeSuggestion(
+            item_code="WWTRTABLTB01",
+            standardised_name="WATER PURIFICATION TABLET",
             confidence=0.88,
             match_type="generated",
             construction_rationale="Group=W Family=WTR Category=TABL Spec=TB SEQ=01",
             llm_used=False,
-            group_code="W",
-            family_code="WTR",
-            category_code="TABL",
-            spec_segment="TB",
-            sequence=1,
+            grp="W",
+            fam="WTR",
+            cat="TABL",
+            spec_seg="TB",
+            seq=1,
         )
+        mock_ifrc_agent.return_value.generate.return_value = suggestion
+        mock_ifrc_agent.return_value.suggest.return_value = suggestion
 
         request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water tabs"})
         force_authenticate(request, user=self.user)
