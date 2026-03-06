@@ -250,8 +250,22 @@ class DuplicateConflictValidationError(ValueError):
 
 
 def _use_db_workflow_store() -> bool:
+    # Backward-compatible test/dev override: the JSON workflow store remains the
+    # default for explicit dev-store runs and test execution.
+    if os.getenv("NEEDS_WORKFLOW_DEV_STORE", "0") == "1":
+        return False
+
+    backend_override = str(os.getenv("NEEDS_WORKFLOW_BACKEND", "")).strip().lower()
+    if backend_override in {"db", "database", "postgres", "postgresql"}:
+        return True
+    if backend_override in {"file", "json", "dev"}:
+        return False
+
+    if getattr(settings, "TESTING", False):
+        return False
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
         return False
+
     engine = str(settings.DATABASES.get("default", {}).get("ENGINE", "")).lower()
     return "postgresql" in engine
 

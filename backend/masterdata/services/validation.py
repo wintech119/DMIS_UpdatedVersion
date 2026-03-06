@@ -23,6 +23,7 @@ def validate_record(
     *,
     is_update: bool = False,
     current_pk: Any = None,
+    existing_record: Dict[str, Any] | None = None,
 ) -> Dict[str, str]:
     """
     Run all field-level validations against *data*.
@@ -102,7 +103,14 @@ def validate_record(
                 continue
 
     # Cross-field validations
-    errors.update(_cross_field_validation(cfg, data, is_update=is_update))
+    errors.update(
+        _cross_field_validation(
+            cfg,
+            data,
+            is_update=is_update,
+            existing_record=existing_record,
+        )
+    )
 
     return errors
 
@@ -112,6 +120,7 @@ def _cross_field_validation(
     data: Dict[str, Any],
     *,
     is_update: bool = False,
+    existing_record: Dict[str, Any] | None = None,
 ) -> Dict[str, str]:
     """Business rules that span multiple fields."""
     errors: Dict[str, str] = {}
@@ -167,5 +176,21 @@ def _cross_field_validation(
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
         if status == "A" and data.get("reason_desc"):
             errors["reason_desc"] = "Reason must be empty for active warehouses."
+
+    # Items: FEFO issuance requires expiration tracking.
+    if cfg.key == "items":
+        def _merged_item_value(field_name: str):
+            if field_name in data:
+                return data.get(field_name)
+            if is_update and existing_record is not None:
+                return existing_record.get(field_name)
+            return None
+
+        issuance_order = str(_merged_item_value("issuance_order") or "").upper().strip()
+        can_expire = _merged_item_value("can_expire_flag")
+        if issuance_order == "FEFO" and can_expire is not True:
+            errors["can_expire_flag"] = (
+                "Can Expire must be enabled when Issuance Order is FEFO."
+            )
 
     return errors

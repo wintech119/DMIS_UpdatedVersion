@@ -57,6 +57,7 @@ _DEV_ROLE_PERMISSION_MAP = {
         PERM_NEEDS_LIST_CREATE_DRAFT,
         PERM_NEEDS_LIST_EDIT_LINES,
         PERM_NEEDS_LIST_SUBMIT,
+        PERM_NEEDS_LIST_APPROVE,
         PERM_NEEDS_LIST_EXECUTE,
         PERM_NEEDS_LIST_CANCEL,
         PERM_PROCUREMENT_CREATE,
@@ -207,6 +208,8 @@ def resolve_roles_and_permissions(
 
 
 def _db_rbac_enabled() -> bool:
+    if getattr(settings, "TESTING", False):
+        return False
     if not settings.AUTH_USE_DB_RBAC:
         return False
     return settings.DATABASES["default"]["ENGINE"].endswith("postgresql")

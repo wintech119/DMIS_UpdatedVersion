@@ -1,6 +1,5 @@
 // ---------------------------------------------------------------------------
-// Master Form Page – Modernized UI (matching replenishment design language)
-// Uses 8px grid, DMIS tokens, WCAG 2.2 compliant
+// Master Form Page – Compact, structured layout
 // ---------------------------------------------------------------------------
 
 :host {
@@ -8,30 +7,25 @@
   font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 
-// ── Page Container (matches master-list-page) ───────────────────────────────
+// ── Page container ────────────────────────────────────────────────────────────
 .form-page-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 16px;
   color: var(--dmis-text-primary, #1a1a1a);
 }
 
-// ── Page Header ──────────────────────────────────────────────────────────────
+// ── Header ────────────────────────────────────────────────────────────────────
 .form-page-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 8px 0;
+  gap: 10px;
+  margin-bottom: 12px;
 
   .back-btn {
     color: #6b7280;
-
     &:hover { color: #374151; }
-    &:focus-visible {
-      outline: 2px solid #1565c0;
-      outline-offset: 2px;
-    }
+    &:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
   }
 
   .header-text {
@@ -39,152 +33,135 @@
 
     h2 {
       margin: 0;
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       font-weight: 600;
       color: #1a1a1a;
     }
 
     .header-subtitle {
-      font-size: 0.8125rem;
+      font-size: 0.78rem;
       color: #6b7280;
-      margin-top: 2px;
     }
   }
 }
 
-// ── Form Content ─────────────────────────────────────────────────────────────
+// ── Form content ──────────────────────────────────────────────────────────────
 .form-page-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-// ── Form Sections ────────────────────────────────────────────────────────────
+// ── Form sections ─────────────────────────────────────────────────────────────
 .form-section {
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  padding: 16px;
-
-  // Remove default mat-card chrome
-  ::ng-deep {
-    .mat-mdc-card-header { padding: 0; margin-bottom: 16px; }
-    .mdc-card { box-shadow: none; border: none; }
-    .mat-mdc-card-content { padding: 0; }
-    &.mat-mdc-card { box-shadow: none; border: none; background: transparent; padding: 0; }
-  }
+  padding: 12px 14px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 12px;
-  font-size: 0.875rem;
-  font-weight: 600;
+  gap: 5px;
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
   color: #374151;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 
-  mat-icon, .section-icon {
-    font-size: 16px;
-    width: 16px;
-    height: 16px;
-    color: #6b7280;
+  mat-icon {
+    font-size: 15px;
+    width: 15px;
+    height: 15px;
+    color: #9ca3af;
   }
 }
 
 .section-description {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   color: #4b5563;
-  font-size: 0.875rem;
-  line-height: 1.45;
-}
-
-.location-assignment-section {
-  border-left: 4px solid #0ea5e9;
-
-  .section-title mat-icon {
-    color: #0ea5e9;
-  }
-}
-
-.assignment-item-id {
-  margin: 0 0 12px;
   font-size: 0.8125rem;
-  color: #334155;
-  font-weight: 600;
+  line-height: 1.4;
 }
 
-.assignment-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.assignment-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.assignment-field {
-  width: 100%;
-}
-
-.assignment-actions {
-  display: flex;
-  justify-content: flex-end;
-
-  button {
-    min-height: 40px;
-    border-radius: 8px;
-  }
-}
-
-// ── Form Grid ────────────────────────────────────────────────────────────────
+// ── Form grid (default 2-column) ──────────────────────────────────────────────
+// align-items: start ensures short fields (dropdowns) don't stretch to match
+// tall neighbours (textareas).
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
-
-  // Extra row gap to ensure multi-line hints don't overlap next field
-  row-gap: 20px;
+  gap: 6px 14px;
+  align-items: start;
 
   .form-field {
     width: 100%;
+    min-width: 0; // prevent overflow in grid cells
 
-    &.colspan-2 {
-      grid-column: 1 / -1;
-    }
+    &.colspan-2 { grid-column: 1 / -1; }
   }
 }
 
-.full-width {
-  width: 100%;
+.full-width { width: 100%; }
+
+// ── Identity grid – new item (IFRC hints + SKU share the second row) ──────────
+//   ┌─────────────────┬─────────────────┐
+//   │   Item Code     │   Item Name     │  row 1
+//   ├─────────────────┼─────────────────┤
+//   │   IFRC hints    │   SKU Code      │  row 2
+//   └─────────────────┴─────────────────┘
+.identity-grid-new {
+  grid-template-areas:
+    "item-code  item-name"
+    "ifrc-hints sku-code";
+
+  > [data-field="item_code"]  { grid-area: item-code; }
+  > [data-field="item_name"]  { grid-area: item-name; }
+  > [data-field="sku_code"]   { grid-area: sku-code; }
+  > .ifrc-hints-cell          { grid-area: ifrc-hints; }
 }
 
-// ── Field Adjustments ───────────────────────────────────────────────────────
-// Reduce excessive subscript space for tighter layout
-::ng-deep .mat-mdc-form-field-subscript-wrapper {
-  // Keep space for error messages but reduce default padding
+// ── IFRC code hints cell ──────────────────────────────────────────────────────
+.ifrc-hints-cell {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  box-sizing: border-box;
 }
 
-// Email/Phone prefix icon
-::ng-deep .mat-mdc-form-field .mdc-text-field--outlined .mat-mdc-form-field-icon-prefix {
-  padding-right: 4px;
-  color: #9ca3af;
+.ifrc-spec-label {
+  display: block;
+  font-size: 0.71rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+
+  .optional {
+    font-weight: 400;
+    text-transform: none;
+    color: #94a3b8;
+  }
 }
 
-// ── Slide-toggle rows (boolean fields) ──────────────────────────────────────
+.ifrc-spec-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+// ── Toggle rows (boolean fields) ──────────────────────────────────────────────
 .toggle-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #f9fafb;
   width: 100%;
   box-sizing: border-box;
@@ -193,32 +170,66 @@
 .toggle-row__text {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   flex: 1;
 }
 
 .toggle-row__label {
-  font-size: 0.9375rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: #1a1a1a;
 }
 
 .toggle-row__hint {
-  font-size: 0.8125rem;
+  font-size: 0.775rem;
   color: #6b7280;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
-// ── Action Bar ──────────────────────────────────────────────────────────────
+// ── Location assignment section ───────────────────────────────────────────────
+.location-assignment-section {
+  border-left: 3px solid #0ea5e9;
+  .section-title mat-icon { color: #0ea5e9; }
+}
+
+.assignment-item-id {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+.assignment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.assignment-field { width: 100%; }
+
+.assignment-actions {
+  display: flex;
+  justify-content: flex-end;
+  button { min-height: 36px; border-radius: 6px; }
+}
+
+// ── Sticky action bar ─────────────────────────────────────────────────────────
 .form-actions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 12px 16px;
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 6px;
   position: sticky;
   bottom: 0;
   z-index: 10;
@@ -226,121 +237,57 @@
   .cancel-btn {
     color: #6b7280;
     font-weight: 500;
-
-    &:focus-visible {
-      outline: 2px solid #1565c0;
-      outline-offset: 2px;
-    }
+    &:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
   }
 
   .save-btn {
     font-weight: 600;
-    min-height: 40px;
-    padding: 0 24px;
-    border-radius: 8px;
-    letter-spacing: 0.01em;
+    min-height: 36px;
+    padding: 0 20px;
+    border-radius: 6px;
+    &:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
 
-    &:focus-visible {
-      outline: 2px solid #1565c0;
-      outline-offset: 2px;
-    }
-
-    mat-icon {
-      font-size: 18px;
-      width: 18px;
-      height: 18px;
-    }
+    mat-icon { font-size: 17px; width: 17px; height: 17px; }
   }
 }
 
-// ── Saving Spinner ──────────────────────────────────────────────────────────
-.spin {
-  animation: spin 1s linear infinite;
-}
+// ── Saving animation ──────────────────────────────────────────────────────────
+.spin { animation: spin 1s linear infinite; }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  to   { transform: rotate(360deg); }
 }
 
-// ── Required Field Indicator ────────────────────────────────────────────────
-.required-note {
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-bottom: 4px;
-
-  .asterisk {
-    color: #dc2626;
-    font-weight: 600;
-  }
-}
-
-// ── Responsive ──────────────────────────────────────────────────────────────
-@media (max-width: 1024px) {
-  .form-page-container {
-    padding: 12px;
-  }
-}
-
+// ── Responsive ────────────────────────────────────────────────────────────────
 @media (max-width: 768px) {
-  .form-page-container {
-    padding: 8px;
-  }
+  .form-page-container { padding: 8px; }
 
-  .form-page-header {
-    h2 {
-      font-size: 1.125rem;
-    }
-  }
-
-  .form-section {
-    padding: 12px;
-  }
-
-  .form-grid {
+  .form-grid,
+  .identity-grid-new {
     grid-template-columns: 1fr;
+    grid-template-areas: none !important;
 
-    .form-field.colspan-2 {
-      grid-column: 1;
-    }
+    > [data-field] { grid-area: unset !important; }
+    > .ifrc-hints-cell { grid-area: unset !important; }
+
+    .form-field.colspan-2 { grid-column: 1; }
   }
+
+  .ifrc-spec-fields { grid-template-columns: 1fr 1fr; }
+
+  .assignment-grid { grid-template-columns: 1fr; }
 
   .form-actions {
     flex-direction: column-reverse;
-    gap: 10px;
-    padding: 12px 16px;
-
-    button {
-      width: 100%;
-      min-height: 44px;
-      justify-content: center;
-    }
-  }
-
-  .assignment-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .assignment-actions {
-    justify-content: stretch;
-
-    button {
-      width: 100%;
-    }
+    gap: 8px;
+    padding: 10px 12px;
+    button { width: 100%; min-height: 42px; justify-content: center; }
   }
 }
 
 @media (max-width: 480px) {
-  .form-page-container {
-    padding: 5px;
-  }
-
-  .form-section {
-    padding: 12px;
-    border-radius: 6px;
-  }
-
-  .form-page-content {
-    gap: 12px;
-  }
+  .form-page-container { padding: 5px; }
+  .form-section { padding: 10px; }
+  .ifrc-spec-fields { grid-template-columns: 1fr; }
 }

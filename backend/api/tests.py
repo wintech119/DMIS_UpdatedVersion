@@ -40,6 +40,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["VIEWER"],
         DEV_AUTH_PERMISSIONS=[],
@@ -58,6 +59,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],

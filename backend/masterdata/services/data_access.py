@@ -68,6 +68,7 @@ class FieldDef:
         pattern: str | None = None,
         pattern_message: str | None = None,
         searchable: bool = False,
+        empty_as_null: bool = False,
     ):
         self.name = name
         self.label = label or name.replace("_", " ").title()
@@ -87,6 +88,7 @@ class FieldDef:
         self.pattern = pattern
         self.pattern_message = pattern_message
         self.searchable = searchable
+        self.empty_as_null = empty_as_null
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +253,9 @@ _register(TableConfig(
                  pattern_message="Only uppercase letters, digits, hyphens, underscores, dots"),
         FieldDef("item_name", required=True, unique=True, uppercase=True,
                  max_length=60, searchable=True, label="Item Name"),
-        FieldDef("sku_code", required=True, unique=True, uppercase=True,
-                 max_length=30, searchable=True, label="SKU Code"),
+        FieldDef("sku_code", required=False, unique=True, uppercase=True,
+                 max_length=30, searchable=True, label="SKU Code",
+                 empty_as_null=True),
         FieldDef("category_id", required=True, db_type="int", label="Category",
                  fk_table="itemcatg", fk_pk="category_id", fk_label="category_desc"),
         FieldDef("item_desc", required=True, label="Description"),
@@ -824,6 +827,18 @@ def get_record(
         return None, ["db_error"]
 
 
+def _normalize_field_value(fd: FieldDef, value: Any) -> Any:
+    if fd.empty_as_null and isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    if fd.uppercase and isinstance(value, str):
+        value = value.strip().upper()
+    if fd.name == "email_text" and isinstance(value, str):
+        value = value.strip().lower()
+    return value
+
+
 def create_record(
     table_key: str, data: Dict[str, Any], actor_id: str
 ) -> Tuple[Any | None, List[str]]:
@@ -847,11 +862,7 @@ def create_record(
         if fd.auto_pk:
             continue
         if fd.name in data:
-            val = data[fd.name]
-            if fd.uppercase and isinstance(val, str):
-                val = val.strip().upper()
-            if fd.name == "email_text" and isinstance(val, str):
-                val = val.strip().lower()
+            val = _normalize_field_value(fd, data[fd.name])
             columns.append(fd.name)
             values.append(val)
         elif fd.default is not None:
@@ -930,11 +941,7 @@ def update_record(
         if fd.pk or fd.readonly:
             continue
         if fd.name in data:
-            val = data[fd.name]
-            if fd.uppercase and isinstance(val, str):
-                val = val.strip().upper()
-            if fd.name == "email_text" and isinstance(val, str):
-                val = val.strip().lower()
+            val = _normalize_field_value(fd, data[fd.name])
             set_parts.append(f"{fd.name} = %s")
             params.append(val)
 

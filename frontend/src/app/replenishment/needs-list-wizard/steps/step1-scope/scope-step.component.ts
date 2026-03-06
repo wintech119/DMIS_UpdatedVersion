@@ -374,15 +374,21 @@ export class ScopeStepComponent implements OnInit {
     }
 
     const previewStatus = String(state.previewResponse?.status || '').trim().toUpperCase();
-    const isEditableContext = ids.size > 0 || editableStatuses.has(previewStatus);
-    if (!isEditableContext) {
+    const hasDraftIds = (state.draft_ids || []).some(
+      (id) => String(id || '').trim().length > 0
+    );
+
+    // If a non-editable persisted status exists, never suppress its duplicate warnings.
+    if (ids.size === 0 && previewStatus && !editableStatuses.has(previewStatus)) {
       return ids;
     }
 
-    for (const id of state.draft_ids || []) {
-      const normalizedId = String(id || '').trim();
-      if (normalizedId.length > 0) {
-        ids.add(normalizedId);
+    if (ids.size > 0 || hasDraftIds || editableStatuses.has(previewStatus)) {
+      for (const id of state.draft_ids || []) {
+        const normalizedId = String(id || '').trim();
+        if (normalizedId.length > 0) {
+          ids.add(normalizedId);
+        }
       }
     }
 

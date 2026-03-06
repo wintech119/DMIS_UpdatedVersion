@@ -1,8 +1,10 @@
 import os
+import sys
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+TESTING = any(arg == 'test' or arg.startswith('test') for arg in sys.argv[1:])
 
 
 def _load_env_file(path: Path) -> None:
@@ -125,6 +127,31 @@ STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Cache — Redis in production/staging, LocMemCache fallback for dev without Redis.
+_redis_url = os.getenv("REDIS_URL", "")
+_running_tests = (
+    TESTING
+    or any("pytest" in arg.lower() for arg in sys.argv[1:])
+    or os.getenv("RUNNING_TESTS", "0") == "1"
+)
+_test_redis_cache_enabled = os.getenv("TEST_REDIS_CACHE_ENABLED", "0") == "1"
+if _redis_url and (not _running_tests or _test_redis_cache_enabled):
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": _redis_url,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
 # AuthN/AuthZ configuration (env-driven; no claim-name assumptions).
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
 AUTH_ISSUER = os.getenv("AUTH_ISSUER", "")
@@ -165,6 +192,7 @@ if AUTH_ENABLED:
         )
 
 DEV_AUTH_ENABLED = os.getenv("DEV_AUTH_ENABLED", "0") == "1"
+TEST_DEV_AUTH_ENABLED = os.getenv("TEST_DEV_AUTH_ENABLED", "0") == "1"
 DEV_AUTH_USER_ID = os.getenv("DEV_AUTH_USER_ID", "dev-user")
 DEV_AUTH_ROLES = [role.strip() for role in os.getenv("DEV_AUTH_ROLES", "").split(",") if role.strip()]
 DEV_AUTH_PERMISSIONS = [
@@ -183,8 +211,11 @@ DEV_AUTH_PERMISSIONS = [
 
 # Tenant-scope rollout control.
 # Default is disabled for backward compatibility until tenant mappings are complete.
-TENANT_SCOPE_ENFORCEMENT = os.getenv("TENANT_SCOPE_ENFORCEMENT", "0") == "1"
-
+# Tests are isolated from local .env tenant-scope settings unless explicitly opted in.
+if TESTING:
+    TENANT_SCOPE_ENFORCEMENT = os.getenv("TEST_TENANT_SCOPE_ENFORCEMENT", "0") == "1"
+else:
+    TENANT_SCOPE_ENFORCEMENT = os.getenv("TENANT_SCOPE_ENFORCEMENT", "0") == "1"
 # Needs List Preview settings (TBD finalize from PRD/appendices).
 def _get_csv_env(name: str, default: list[str]) -> list[str]:
     value = os.getenv(name)
@@ -212,6 +243,13 @@ def _get_int_env(name: str, default: int | None) -> int | None:
         raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
 
 
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Only these national tenants may manage event phase demand/planning windows.
 # Values are tenant_code entries and are compared case-insensitively.
 NATIONAL_PHASE_WINDOW_ADMIN_CODES = _get_csv_env(
@@ -231,3 +269,26 @@ NEEDS_STRICT_INBOUND_TRANSFER_STATUSES = _get_csv_env(
 NEEDS_INVENTORY_ACTIVE_STATUS = os.getenv("NEEDS_INVENTORY_ACTIVE_STATUS", "A")
 NEEDS_BURN_SOURCE = os.getenv("NEEDS_BURN_SOURCE", "reliefpkg")
 NEEDS_BURN_FALLBACK = os.getenv("NEEDS_BURN_FALLBACK", "reliefrqst")
+
+
+# IFRC Item Code Assistant configuration.
+IFRC_AGENT = {
+    "IFRC_ENABLED": _get_bool_env("IFRC_ENABLED", True),
+    "LLM_ENABLED": _get_bool_env("IFRC_LLM_ENABLED", False),
+    # Path to the taxonomy reference MD file.
+    # Override via IFRC_TAXONOMY_FILE env var to support different deployment layouts.
+    "TAXONOMY_FILE": os.environ.get(
+        "IFRC_TAXONOMY_FILE",
+        str(BASE_DIR / "masterdata" / "data" / "ifrc_catalogue_taxonomy.md"),
+    ),
+    "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    "OLLAMA_MODEL_ID": os.getenv("OLLAMA_MODEL_ID", "qwen3.5:0.8b"),
+    "OLLAMA_TIMEOUT_SECONDS": _get_int_env("OLLAMA_TIMEOUT_SECONDS", 10) or 10,
+    "AUTO_FILL_CONFIDENCE_THRESHOLD": _get_float_env("IFRC_AUTO_FILL_THRESHOLD", 0.80),
+    "MIN_INPUT_LENGTH": _get_int_env("IFRC_MIN_INPUT_LENGTH", 3) or 3,
+    "MAX_INPUT_LENGTH": _get_int_env("IFRC_MAX_INPUT_LENGTH", 120) or 120,
+    "CB_FAILURE_THRESHOLD": _get_int_env("IFRC_CB_FAILURE_THRESHOLD", 5) or 5,
+    "CB_RESET_TIMEOUT_SECONDS": _get_int_env("IFRC_CB_RESET_TIMEOUT", 120) or 120,
+    "CB_REDIS_KEY": os.getenv("IFRC_CB_REDIS_KEY", "ifrc:circuit_breaker"),
+    "RATE_LIMIT_PER_MINUTE": _get_int_env("IFRC_RATE_LIMIT_PER_MINUTE", 30) or 30,
+}

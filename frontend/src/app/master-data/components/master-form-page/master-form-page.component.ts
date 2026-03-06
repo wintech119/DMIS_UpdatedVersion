@@ -6,6 +6,11 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormGroup, FormControl, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { of, Subject } from 'rxjs';
+import {
+  catchError, debounceTime, distinctUntilChanged, finalize, map, switchMap,
+} from 'rxjs/operators';
+import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -21,15 +26,18 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { LookupItem, MasterFieldConfig, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
+import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
+import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
 
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
   imports: [
     CommonModule, ReactiveFormsModule, RouterModule,
+    TextFieldModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
     MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
     MatProgressBarModule, MatCardModule, MatTooltipModule,
@@ -42,6 +50,7 @@ export class MasterFormPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private service = inject(MasterDataService);
+  private ifrcSuggestService = inject(IfrcSuggestService);
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private destroyRef = inject(DestroyRef);
@@ -54,12 +63,26 @@ export class MasterFormPageComponent implements OnInit {
   assigningLocation = signal(false);
   lookups = signal<Record<string, LookupItem[]>>({});
   lookupErrors = signal<Record<string, string>>({});
+  ifrcLoading = signal(false);
+  ifrcSuggestion = signal<IFRCSuggestion | null>(null);
+  ifrcError = signal<string | null>(null);
   pk = signal<string | number | null>(null);
+
+  /** IFRC specification hint controls — not saved to DB, used only for code generation */
+  ifrcSpecForm = new FormGroup({
+    size_weight: new FormControl<string>(''),
+    form: new FormControl<string>(''),
+    material: new FormControl<string>(''),
+  });
+
+  private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
     fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
   };
 
   private versionNbr: number | null = null;
+  private ifrcSuggestLogId: string | null = null;
+  private itemCodeAutoFilled = false;
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -103,6 +126,7 @@ export class MasterFormPageComponent implements OnInit {
       if (cfg) {
         this.config.set(cfg);
         this.buildForm(cfg);
+        this.setupItemIfrcSuggestion(cfg);
         this.loadLookups(cfg);
       }
     });
@@ -139,6 +163,170 @@ export class MasterFormPageComponent implements OnInit {
       this.form.setValidators(validateFefoRequiresExpiry);
       this.form.updateValueAndValidity({ emitEvent: false });
     }
+  }
+
+  private setupItemIfrcSuggestion(cfg: MasterTableConfig): void {
+    this.ifrcSuggestion.set(null);
+    this.ifrcError.set(null);
+    this.ifrcSuggestLogId = null;
+    this.itemCodeAutoFilled = false;
+
+    if (cfg.tableKey !== 'items') return;
+
+    const itemNameControl = this.form.get('item_name');
+    const itemCodeControl = this.form.get('item_code');
+    if (!itemNameControl || !itemCodeControl) return;
+
+    // Reset auto-fill flag whenever user manually edits item_code
+    itemCodeControl.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      this.itemCodeAutoFilled = false;
+    });
+
+    // Item name changes → push to trigger stream (debounced + deduplicated)
+    itemNameControl.valueChanges.pipe(
+      map((v) => (typeof v === 'string' ? v.trim() : '')),
+      debounceTime(600),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((name) => this.ifrcTrigger$.next(name));
+
+    // Spec hint changes → re-trigger with current item name
+    this.ifrcSpecForm.valueChanges.pipe(
+      debounceTime(400),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      const name = String(itemNameControl.value ?? '').trim();
+      this.ifrcTrigger$.next(name);
+    });
+
+    // Main suggest pipeline
+    this.ifrcTrigger$.pipe(
+      switchMap((itemName) => {
+        if (itemName.length < 3) {
+          this.ifrcSuggestion.set(null);
+          this.ifrcError.set(null);
+          this.ifrcSuggestLogId = null;
+          return of(null);
+        }
+        this.ifrcLoading.set(true);
+        const { size_weight, form, material } = this.ifrcSpecForm.value;
+        return this.ifrcSuggestService.suggest(itemName, {
+          size_weight: size_weight ?? '',
+          form: form ?? '',
+          material: material ?? '',
+        }).pipe(
+          catchError((error) => {
+            this.ifrcError.set(this.getIfrcErrorMessage(error));
+            return of(null);
+          }),
+          finalize(() => this.ifrcLoading.set(false)),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((suggestion) => {
+      if (!suggestion) {
+        this.ifrcSuggestion.set(null);
+        this.ifrcSuggestLogId = null;
+        if (this.itemCodeAutoFilled) {
+          itemCodeControl.patchValue('', { emitEvent: false });
+        }
+        this.itemCodeAutoFilled = false;
+        const currentName = String(itemNameControl.value ?? '').trim();
+        if (currentName.length < 3) {
+          this.ifrcError.set(null);
+        }
+        return;
+      }
+
+      this.ifrcSuggestion.set(suggestion);
+      this.ifrcError.set(null);
+      this.ifrcSuggestLogId = suggestion.suggestion_id;
+
+      const confidence = Number(suggestion.confidence ?? 0);
+      const threshold = Number(suggestion.auto_fill_threshold ?? 1);
+      const meetsAutoFillThreshold = Number.isFinite(confidence)
+        && Number.isFinite(threshold)
+        && confidence >= threshold;
+
+      const currentCode = String(itemCodeControl.value ?? '').trim();
+      if (!suggestion.ifrc_code
+        || !meetsAutoFillThreshold
+        || (!this.itemCodeAutoFilled && currentCode.length > 0)) {
+        return;
+      }
+
+      itemCodeControl.patchValue(suggestion.ifrc_code, { emitEvent: false });
+      this.itemCodeAutoFilled = true;
+    });
+  }
+
+  private getIfrcErrorMessage(error: unknown): string {
+    if (typeof error === 'string' && error.trim()) {
+      return error.trim();
+    }
+
+    const errObj = error as {
+      message?: unknown;
+      status?: unknown;
+      error?: unknown;
+    };
+    const payload = errObj?.error;
+    if (payload && typeof payload === 'object') {
+      const payloadObj = payload as Record<string, unknown>;
+      const detail = payloadObj['detail'];
+      if (typeof detail === 'string' && detail.trim()) {
+        return detail.trim();
+      }
+      const payloadError = payloadObj['error'];
+      if (typeof payloadError === 'string' && payloadError.trim()) {
+        return payloadError.trim();
+      }
+      const payloadMessage = payloadObj['message'];
+      if (typeof payloadMessage === 'string' && payloadMessage.trim()) {
+        return payloadMessage.trim();
+      }
+    }
+
+    if (typeof errObj?.message === 'string' && errObj.message.trim()) {
+      return errObj.message.trim();
+    }
+    if (typeof errObj?.status === 'number') {
+      return `IFRC suggestion request failed (${errObj.status}).`;
+    }
+    return 'Failed to load IFRC suggestion.';
+  }
+
+  private hasIfrcItemCodeProvenance(record: Record<string, unknown>): boolean {
+    const sourceKeys = [
+      'item_code_source',
+      'item_code_provenance',
+      'ifrc_code_source',
+      'ifrc_provenance',
+    ];
+    for (const key of sourceKeys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().toLowerCase().includes('ifrc')) {
+        return true;
+      }
+    }
+
+    const booleanKeys = [
+      'item_code_ifrc_generated',
+      'ifrc_generated_flag',
+    ];
+    for (const key of booleanKeys) {
+      if (record[key] === true) {
+        return true;
+      }
+    }
+
+    const suggestLogId = record['ifrc_suggest_log_id'];
+    if (suggestLogId === null || suggestLogId === undefined) {
+      return false;
+    }
+    return String(suggestLogId).trim().length > 0;
   }
 
   private loadLookups(cfg: MasterTableConfig): void {
@@ -198,12 +386,24 @@ export class MasterFormPageComponent implements OnInit {
         for (const field of cfg.formFields) {
           const control = this.form.get(field.field);
           if (control && record[field.field] !== undefined) {
-            control.setValue(record[field.field]);
+            control.setValue(record[field.field], { emitEvent: false });
           }
           if (field.readonlyOnEdit && this.isEdit() && control) {
             control.disable();
           }
         }
+
+        // Re-run cross-field validators (e.g. FEFO requires expiry) after silent patch
+        this.form.updateValueAndValidity({ emitEvent: false });
+
+        // For items: only preserve auto-filled behavior when persisted provenance
+        // indicates the current item_code originated from IFRC suggestion flow.
+        if (cfg.tableKey === 'items') {
+          this.itemCodeAutoFilled = this.hasIfrcItemCodeProvenance(
+            record as Record<string, unknown>,
+          );
+        }
+
         this.isLoading.set(false);
       },
       error: () => {
@@ -230,6 +430,9 @@ export class MasterFormPageComponent implements OnInit {
       if (field.uppercase && typeof rawData[field.field] === 'string') {
         rawData[field.field] = rawData[field.field].trim().toUpperCase();
       }
+    }
+    if (cfg.tableKey === 'items' && this.ifrcSuggestLogId) {
+      rawData['ifrc_suggest_log_id'] = this.ifrcSuggestLogId;
     }
 
     const obs$ = this.isEdit()
