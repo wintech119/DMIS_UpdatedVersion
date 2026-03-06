@@ -435,7 +435,7 @@ def ifrc_health(request):
             "llm_circuit_breaker_open": breaker_open,
             "model_id": cfg["OLLAMA_MODEL_ID"],
         },
-        status=200 if status == "healthy" else 206,
+        status=200 if status == "healthy" else 503,
     )
 
 
