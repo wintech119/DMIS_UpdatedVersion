@@ -106,13 +106,11 @@
 .full-width { width: 100%; }
 
 // ── Identity grid – new item (IFRC hints + SKU share the second row) ──────────
-//
 //   ┌─────────────────┬─────────────────┐
 //   │   Item Code     │   Item Name     │  row 1
 //   ├─────────────────┼─────────────────┤
 //   │   IFRC hints    │   SKU Code      │  row 2
 //   └─────────────────┴─────────────────┘
-//
 .identity-grid-new {
   grid-template-areas:
     "item-code  item-name"
