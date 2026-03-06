@@ -39,17 +39,24 @@ _BASE_IFRC_SETTINGS = {
 _TEST_TAXONOMY_MD = textwrap.dedent("""\
     ## GROUP:RE Relief (General Emergency Goods)
     ### FAMILY:HO Household (Bedding, Clothing, Equipment)
+    #### CATEGORY:BLKT Blankets and Sleeping
     - ITEM: Blanket, synthetic, medium thermal
-    - ITEM: Mosquito net, family size
     - ITEM: Sleeping bag, lightweight
 
+    #### CATEGORY:NETS Mosquito Nets
+    - ITEM: Mosquito net, family size
+
     ### FAMILY:SH Shelter and Construction
+    #### CATEGORY:TARP Tarpaulins and Tents
     - ITEM: Tarpaulin, 4x5 m
     - ITEM: Family tent, 16 m2
 
     ## GROUP:WS WASH (Water, Sanitation and Hygiene)
     ### FAMILY:WT Water Treatment, Purification and Storage
+    #### CATEGORY:WATR Water Containers
     - ITEM: Jerrycan, plastic, 20 L
+
+    #### CATEGORY:PURI Water Purification
     - ITEM: Water purification tablet
 """)
 
@@ -77,7 +84,9 @@ class TestTaxonomyLoader(TestCase):
 
     def test_parses_items(self):
         t = parse_taxonomy(self.path)
-        items = t.groups["RE"].families["HO"].items
+        categories = t.groups["RE"].families["HO"].categories
+        self.assertIn("BLKT", categories)
+        items = categories["BLKT"].items
         self.assertTrue(any("Blanket" in i for i in items))
 
     def test_keyword_index_built(self):
@@ -103,12 +112,12 @@ class TestKeywordClassifier(TestCase):
     def test_blanket_classified_correctly(self):
         result = _keyword_classify("synthetic blanket medium thermal", self.taxonomy)
         self.assertIsNotNone(result)
-        self.assertEqual(result, ("RE", "HO"))
+        self.assertEqual(result, ("RE", "HO", "BLKT"))
 
     def test_jerrycan_classified_correctly(self):
         result = _keyword_classify("jerrycan 20 litre plastic", self.taxonomy)
         self.assertIsNotNone(result)
-        self.assertEqual(result, ("WS", "WT"))
+        self.assertEqual(result, ("WS", "WT", "WATR"))
 
     def test_unknown_item_returns_none(self):
         result = _keyword_classify("xyzzy zork widget", self.taxonomy)
