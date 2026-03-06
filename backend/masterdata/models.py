@@ -41,8 +41,8 @@ class ItemIfrcSuggestLog(models.Model):
     )
     match_type = models.CharField(
         max_length=20,
-        blank=True,
-        default="",
+        blank=False,
+        default="none",
         choices=MATCH_TYPE_CHOICES,
     )
     construction_rationale = models.TextField(blank=True, default="")
