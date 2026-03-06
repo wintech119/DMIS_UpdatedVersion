@@ -28,13 +28,13 @@ class Migration(migrations.Migration):
             model_name="itemifrcsuggestlog",
             name="match_type",
             field=models.CharField(
-                blank=True,
+                blank=False,
                 choices=[
                     ("generated", "Generated (code constructed)"),
                     ("fallback", "Fallback (rule-based, LLM unavailable)"),
                     ("none", "No code generated"),
                 ],
-                default="",
+                default="none",
                 max_length=20,
             ),
         ),
