@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -32,15 +32,6 @@ from replenishment.services.needs_list import (
 
 def _ensure_legacy_reference_rows() -> None:
     if connection.vendor != "postgresql":
-        return
-
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM needs_list_audit")
-            cursor.execute("DELETE FROM needs_list_item")
-            cursor.execute("DELETE FROM needs_list_workflow_metadata")
-            cursor.execute("DELETE FROM needs_list")
-    except DatabaseError:
         return
 
     statements = [
@@ -408,12 +399,14 @@ def _ensure_legacy_reference_rows() -> None:
         ),
     ]
 
-    try:
+    with transaction.atomic():
         with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM needs_list_audit")
+            cursor.execute("DELETE FROM needs_list_item")
+            cursor.execute("DELETE FROM needs_list_workflow_metadata")
+            cursor.execute("DELETE FROM needs_list")
             for statement, params in statements:
                 cursor.execute(statement, params)
-    except DatabaseError:
-        return
 
 
 def setUpModule() -> None:
