@@ -104,15 +104,21 @@ def _is_postgres(schema_editor) -> bool:
     return schema_editor.connection.vendor == "postgresql"
 
 
-def _schema_name() -> str:
-    schema = os.getenv("DMIS_DB_SCHEMA", "public")
-    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
-        return schema
-    return "public"
+def _schema_name(schema_editor) -> str:
+    configured = os.getenv("DMIS_DB_SCHEMA")
+    if configured is not None:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", configured):
+            raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
+        return configured
+
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT current_schema()")
+        row = cursor.fetchone()
+    return row[0] or "public"
 
 
 def _legacy_item_table_exists(schema_editor) -> bool:
-    relation = f"{_schema_name()}.item"
+    relation = f"{_schema_name(schema_editor)}.item"
     with schema_editor.connection.cursor() as cursor:
         cursor.execute("SELECT to_regclass(%s)", [relation])
         row = cursor.fetchone()
@@ -125,7 +131,7 @@ def _forwards(apps, schema_editor):
         return
     if not _legacy_item_table_exists(schema_editor):
         return
-    schema = _schema_name()
+    schema = _schema_name(schema_editor)
     schema_editor.execute(_FORWARD_SQL_TEMPLATE.format(schema=schema))
 
 
@@ -134,7 +140,7 @@ def _backwards(apps, schema_editor):
         return
     if not _legacy_item_table_exists(schema_editor):
         return
-    schema = _schema_name()
+    schema = _schema_name(schema_editor)
     schema_editor.execute(_REVERSE_SQL_TEMPLATE.format(schema=schema))
 
 
