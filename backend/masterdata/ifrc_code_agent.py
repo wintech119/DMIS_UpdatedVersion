@@ -410,33 +410,47 @@ def _schema_name() -> str:
 def _find_next_seq(prefix: str) -> int:
     """
     Find next available 2-digit sequence for codes matching prefix + NN.
-    Uses raw SQL against the legacy item table.
+    Uses DB-backed locking to avoid race conditions during allocation.
     """
-    from django.db import connection, DatabaseError
+    from django.db import connection, DatabaseError, transaction
 
     schema = _schema_name()
+    prefix_upper = prefix.upper()
+    pattern = f"{prefix_upper}%"
+    seq_pattern = re.compile(rf"^{re.escape(prefix_upper)}(\d{{1,2}})$")
+
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT item_code FROM {schema}.item WHERE item_code LIKE %s",
-                [f"{prefix.upper()}%"],
-            )
-            rows = cursor.fetchall()
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                if connection.vendor == "postgresql":
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        [f"ifrc_seq:{prefix_upper}"],
+                    )
+                cursor.execute(
+                    f"SELECT item_code FROM {schema}.item WHERE item_code LIKE %s",
+                    [pattern],
+                )
+                rows = cursor.fetchall()
     except DatabaseError as exc:
-        logger.warning("Collision check failed for prefix %s: %s", prefix, exc)
-        return 1
+        raise RuntimeError(
+            f"Unable to allocate IFRC sequence for prefix '{prefix_upper}' due to database error."
+        ) from exc
 
     used: set[int] = set()
-    pat = re.compile(rf"^{re.escape(prefix.upper())}(\d{{1,2}})$")
     for (code,) in rows:
-        m = pat.match(str(code or "").strip().upper())
+        m = seq_pattern.match(str(code or "").strip().upper())
         if m:
-            used.add(int(m.group(1)))
+            seq_val = int(m.group(1))
+            if 1 <= seq_val <= 99:
+                used.add(seq_val)
 
-    seq = 1
-    while seq in used:
-        seq += 1
-    return seq
+    for seq in range(1, 100):
+        if seq not in used:
+            return seq
+    raise RuntimeError(
+        f"Unable to allocate IFRC sequence for prefix '{prefix_upper}': all suffixes 01-99 are in use."
+    )
 
 
 # ─── Code construction ────────────────────────────────────────────────────────
