@@ -640,7 +640,7 @@ def _stage_construct(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
         )
         if state.source == "fallback":
             confidence = 0.45
-            match_type = "generated_fallback"
+            match_type = "fallback"
         elif state.llm_used:
             confidence = state.llm_confidence if state.llm_confidence is not None else 0.90
             match_type = "generated"
