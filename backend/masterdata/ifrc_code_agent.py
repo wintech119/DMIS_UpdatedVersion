@@ -91,6 +91,7 @@ class AgentState:
     cat:        Optional[str] = None
     source:     str           = "unknown"
     llm_used:   bool          = False
+    llm_confidence: Optional[float] = None
     result:     Optional[IFRCCodeSuggestion] = None
 
 
@@ -568,6 +569,7 @@ def _stage_classify(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
     if state.source == "empty":
         state.grp, state.fam, state.cat = None, None, None
         state.llm_used = False
+        state.llm_confidence = None
         return state
 
     name = state.normalized or state.item_name
@@ -577,6 +579,7 @@ def _stage_classify(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
         state.grp, state.fam, state.cat = hit
         state.source = "keyword"
         state.llm_used = False
+        state.llm_confidence = None
         return state
 
     if not _cfg("LLM_ENABLED") or _cb_is_open():
@@ -584,19 +587,22 @@ def _stage_classify(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
             logger.info("IFRC circuit breaker open — using fallback.")
         state.grp, state.fam, state.cat, state.source = _best_effort_fallback(name, taxonomy)
         state.llm_used = False
+        state.llm_confidence = None
         return state
 
     try:
-        grp, fam, cat, _ = _llm_classify(state.item_name, taxonomy)
+        grp, fam, cat, llm_confidence = _llm_classify(state.item_name, taxonomy)
         state.grp, state.fam, state.cat = grp, fam, cat
         state.source = "llm"
         state.llm_used = True
+        state.llm_confidence = llm_confidence
         _cb_record_success()
     except Exception as exc:
         logger.warning("IFRC LLM failed (%s). Using fallback.", exc)
         _cb_record_failure()
         state.grp, state.fam, state.cat, state.source = _best_effort_fallback(name, taxonomy)
         state.llm_used = False
+        state.llm_confidence = None
 
     return state
 
@@ -620,7 +626,7 @@ def _stage_construct(state: AgentState, taxonomy: IFRCTaxonomy) -> AgentState:
             confidence = 0.45
             match_type = "generated_fallback"
         elif state.llm_used:
-            confidence = 0.90
+            confidence = state.llm_confidence if state.llm_confidence is not None else 0.90
             match_type = "generated"
         else:
             confidence = 0.85
