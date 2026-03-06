@@ -63,14 +63,20 @@ _TEST_TAXONOMY_MD = textwrap.dedent("""\
 
 def _write_temp_taxonomy() -> Path:
     f = NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
-    f.write(_TEST_TAXONOMY_MD)
-    f.flush()
-    return Path(f.name)
+    try:
+        f.write(_TEST_TAXONOMY_MD)
+        f.flush()
+        return Path(f.name)
+    finally:
+        f.close()
 
 
 class TestTaxonomyLoader(TestCase):
     def setUp(self):
         self.path = _write_temp_taxonomy()
+
+    def tearDown(self):
+        self.path.unlink(missing_ok=True)
 
     def test_parses_groups(self):
         t = parse_taxonomy(self.path)
@@ -101,13 +107,21 @@ class TestTaxonomyLoader(TestCase):
         import tempfile
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write("# No groups here\n")
-        with self.assertRaises(ValueError):
-            parse_taxonomy(Path(f.name))
+            path = Path(f.name)
+        try:
+            with self.assertRaises(ValueError):
+                parse_taxonomy(path)
+        finally:
+            path.unlink(missing_ok=True)
 
 
 class TestKeywordClassifier(TestCase):
     def setUp(self):
-        self.taxonomy = parse_taxonomy(_write_temp_taxonomy())
+        self.path = _write_temp_taxonomy()
+        self.taxonomy = parse_taxonomy(self.path)
+
+    def tearDown(self):
+        self.path.unlink(missing_ok=True)
 
     def test_blanket_classified_correctly(self):
         result = _keyword_classify("synthetic blanket medium thermal", self.taxonomy)
@@ -155,6 +169,9 @@ class TestIFRCAgent(TestCase):
         self.taxonomy_path = _write_temp_taxonomy()
         import masterdata.ifrc_catalogue_loader as loader
         loader._taxonomy_instance = None
+
+    def tearDown(self):
+        self.taxonomy_path.unlink(missing_ok=True)
 
     def _settings(self):
         cfg = dict(_BASE_IFRC_SETTINGS)
