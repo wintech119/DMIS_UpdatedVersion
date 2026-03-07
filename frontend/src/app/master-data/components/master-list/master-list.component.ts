@@ -19,7 +19,7 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCardModule } from '@angular/material/card';
 
-import { MasterRecord, MasterTableConfig } from '../../models/master-data.models';
+import { MasterColumnConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterFormDialogComponent } from '../master-form-dialog/master-form-dialog.component';
@@ -64,6 +64,8 @@ export class MasterListComponent implements OnInit {
   filtersExpanded = signal(false);
   statusFilter = signal<string>('');
   searchText = signal('');
+  sortField = signal('');
+  sortDirection = signal<'asc' | 'desc'>('asc');
   pageSize = signal(25);
   pageIndex = signal(0);
 
@@ -82,10 +84,16 @@ export class MasterListComponent implements OnInit {
     let count = 0;
     if (this.statusFilter()) count++;
     if (this.searchText()) count++;
+    if (this.sortField()) count++;
     return count;
   });
 
   hasActiveFilters = computed(() => this.activeFilterCount() > 0);
+  sortableColumns = computed<MasterColumnConfig[]>(() => {
+    const cfg = this.config();
+    if (!cfg) return [];
+    return cfg.columns.filter((column) => column.sortable);
+  });
 
   ngOnInit(): void {
     this.breakpointObserver.observe([Breakpoints.Handset]).pipe(
@@ -123,8 +131,11 @@ export class MasterListComponent implements OnInit {
   clearFilters(): void {
     const hadSearch = !!this.searchText();
     this.statusFilter.set('');
+    this.sortField.set('');
+    this.sortDirection.set('asc');
     this.searchSubject.next('');
     if (!hadSearch) {
+      this.pageIndex.set(0);
       this.loadData();
     }
   }
@@ -137,6 +148,23 @@ export class MasterListComponent implements OnInit {
   onStatusFilterChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     this.statusFilter.set(value === 'ALL' ? '' : value);
+    this.pageIndex.set(0);
+    this.loadData();
+  }
+
+  onSortFieldChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.sortField.set(value);
+    this.pageIndex.set(0);
+    if (!value) {
+      this.sortDirection.set('asc');
+    }
+    this.loadData();
+  }
+
+  onSortDirectionChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.sortDirection.set(value === 'desc' ? 'desc' : 'asc');
     this.pageIndex.set(0);
     this.loadData();
   }
@@ -156,6 +184,7 @@ export class MasterListComponent implements OnInit {
     this.service.list(cfg.tableKey, {
       status: this.statusFilter() || undefined,
       search: this.searchText() || undefined,
+      orderBy: this.getOrderByParam(cfg),
       limit: this.pageSize(),
       offset: this.pageIndex() * this.pageSize(),
     }).pipe(
@@ -163,7 +192,7 @@ export class MasterListComponent implements OnInit {
     ).subscribe({
       next: res => {
         if (requestId !== this.latestLoadRequestId) return;
-        this.rows.set(res.results);
+        this.rows.set(this.applyClientSort(cfg, res.results));
         this.totalCount.set(res.count);
         this.isLoading.set(false);
       },
@@ -320,5 +349,52 @@ export class MasterListComponent implements OnInit {
 
   private coerceVersionNumber(value: unknown): number | undefined {
     return typeof value === 'number' ? value : undefined;
+  }
+
+  private getOrderByParam(cfg: MasterTableConfig): string | undefined {
+    const field = this.sortField();
+    if (!field) return undefined;
+
+    // For item criticality, enforce domain ordering client-side.
+    if (cfg.tableKey === 'items' && field === 'criticality_level') {
+      return undefined;
+    }
+
+    return this.sortDirection() === 'desc' ? `-${field}` : field;
+  }
+
+  private applyClientSort(cfg: MasterTableConfig, rows: MasterRecord[]): MasterRecord[] {
+    if (cfg.tableKey !== 'items' || this.sortField() !== 'criticality_level') {
+      return rows;
+    }
+
+    const direction = this.sortDirection();
+    return [...rows].sort((a, b) => {
+      const rankA = this.getCriticalityRank(a['criticality_level']);
+      const rankB = this.getCriticalityRank(b['criticality_level']);
+
+      if (rankA == null && rankB == null) return 0;
+      if (rankA == null) return 1;
+      if (rankB == null) return -1;
+
+      const rankDiff = rankA - rankB;
+      if (rankDiff !== 0) {
+        return direction === 'desc' ? -rankDiff : rankDiff;
+      }
+
+      const nameA = String(a['item_name'] ?? '');
+      const nameB = String(b['item_name'] ?? '');
+      const nameDiff = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      return direction === 'desc' ? -nameDiff : nameDiff;
+    });
+  }
+
+  private getCriticalityRank(value: unknown): number | null {
+    const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    if (normalized === 'LOW') return 0;
+    if (normalized === 'NORMAL') return 1;
+    if (normalized === 'HIGH') return 2;
+    if (normalized === 'CRITICAL') return 3;
+    return null;
   }
 }

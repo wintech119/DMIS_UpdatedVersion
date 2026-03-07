@@ -162,6 +162,7 @@
 
 .filters-grid {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: end;
   padding-top: 0.75rem;

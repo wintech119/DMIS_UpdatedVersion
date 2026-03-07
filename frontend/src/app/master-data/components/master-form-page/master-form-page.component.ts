@@ -78,6 +78,7 @@ export class MasterFormPageComponent implements OnInit {
   private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
     fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
+    expiryRequiresFefo: 'Issuance Order must be FEFO when Can Expire is enabled.',
   };
 
   private versionNbr: number | null = null;

@@ -67,6 +67,28 @@
                 </select>
               </label>
             }
+
+            @if (sortableColumns().length > 0) {
+              <label class="filter-field">
+                <span class="filter-label">Sort By</span>
+                <select class="filter-select" [value]="sortField()" (change)="onSortFieldChange($event)">
+                  <option value="">Default</option>
+                  @for (column of sortableColumns(); track column.field) {
+                    <option [value]="column.field">{{ column.header }}</option>
+                  }
+                </select>
+              </label>
+
+              @if (sortField()) {
+                <label class="filter-field">
+                  <span class="filter-label">Direction</span>
+                  <select class="filter-select" [value]="sortDirection()" (change)="onSortDirectionChange($event)">
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                  </select>
+                </label>
+              }
+            }
           </div>
         </div>
       }
