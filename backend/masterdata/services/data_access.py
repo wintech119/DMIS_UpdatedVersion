@@ -19,6 +19,7 @@ _ORDER_BY_PATTERN = re.compile(
     r"^\s*(?P<column>[A-Za-z_][A-Za-z0-9_]*)\s*(?:(?P<direction>ASC|DESC))?\s*$",
     re.IGNORECASE,
 )
+INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +279,7 @@ _register(TableConfig(
         FieldDef("min_stock_threshold", db_type="numeric", default=0,
                  label="Min Stock Threshold"),
         FieldDef("criticality_level", max_length=10, default="NORMAL",
-                 choices=["NORMAL", "HIGH", "CRITICAL"],
+                 choices=["LOW", "NORMAL", "HIGH", "CRITICAL"],
                  label="Criticality Level"),
         FieldDef("comments_text", max_length=300, label="Comments"),
         FieldDef("status_code", required=True, max_length=1, default="A",
@@ -839,6 +840,100 @@ def _normalize_field_value(fd: FieldDef, value: Any) -> Any:
     return value
 
 
+def _guard_inactive_item_forward_write(
+    *,
+    table_key: str,
+    item_id: Any,
+    workflow_state: str,
+) -> Tuple[bool, List[str]]:
+    """
+    Enforce inactive-item forward-write guardrails for write paths.
+
+    Returns ``(allowed, warnings)``. For non-guarded table keys, always allowed.
+    """
+    if table_key != "inventory":
+        return True, []
+    if item_id in (None, ""):
+        return True, []
+    if _is_sqlite():
+        # Keep local sqlite test/dev mode permissive.
+        return True, []
+
+    schema = _schema_name()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT status_code
+                FROM {schema}.item
+                WHERE item_id = %s
+                LIMIT 1
+                """,
+                [item_id],
+            )
+            row = cursor.fetchone()
+    except DatabaseError as exc:
+        logger.warning("Item status lookup failed for item_id=%s: %s", item_id, exc)
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return True, ["item_status_lookup_failed"]
+
+    if not row:
+        # FK validation handles missing item IDs separately.
+        return True, []
+
+    status_code = str(row[0] or "").strip().upper()
+    if status_code == "A":
+        return True, []
+
+    return False, [
+        INACTIVE_ITEM_FORWARD_WRITE_CODE,
+        f"inactive_item_id_{item_id}",
+        f"forward_write_table_{table_key}",
+        f"forward_write_workflow_{workflow_state}",
+    ]
+
+
+def _lookup_inventory_item_id(inventory_id: Any) -> Tuple[Any | None, List[str]]:
+    """
+    Resolve ``item_id`` for an inventory record to enforce item-status guardrails
+    even when update payloads do not include ``item_id``.
+    """
+    if _is_sqlite():
+        return None, []
+
+    schema = _schema_name()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT item_id
+                FROM {schema}.inventory
+                WHERE inventory_id = %s
+                LIMIT 1
+                """,
+                [inventory_id],
+            )
+            row = cursor.fetchone()
+    except DatabaseError as exc:
+        logger.warning(
+            "Inventory item lookup failed for inventory_id=%s: %s",
+            inventory_id,
+            exc,
+        )
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return None, ["inventory_item_lookup_failed"]
+
+    if not row:
+        return None, []
+    return row[0], []
+
+
 def create_record(
     table_key: str, data: Dict[str, Any], actor_id: str
 ) -> Tuple[Any | None, List[str]]:
@@ -853,6 +948,16 @@ def create_record(
 
     schema = _schema_name()
     warnings: List[str] = []
+
+    # Inactive item guardrail (inventory creation).
+    allow_write, guard_warnings = _guard_inactive_item_forward_write(
+        table_key=table_key,
+        item_id=data.get("item_id"),
+        workflow_state="ALWAYS",
+    )
+    warnings.extend(guard_warnings)
+    if not allow_write:
+        return None, warnings
 
     # Build column/value lists
     columns: list[str] = []
@@ -933,6 +1038,24 @@ def update_record(
 
     schema = _schema_name()
     warnings: List[str] = []
+
+    # Inactive item guardrail:
+    # - inventory writes always enforce against the associated item
+    # - other tables enforce only when item_id is explicitly present in payload
+    guard_item_id = data.get("item_id")
+    if table_key == "inventory" and "item_id" not in data:
+        guard_item_id, lookup_warnings = _lookup_inventory_item_id(pk_value)
+        warnings.extend(lookup_warnings)
+
+    if table_key == "inventory" or "item_id" in data:
+        allow_write, guard_warnings = _guard_inactive_item_forward_write(
+            table_key=table_key,
+            item_id=guard_item_id,
+            workflow_state="ALWAYS",
+        )
+        warnings.extend(guard_warnings)
+        if not allow_write:
+            return False, warnings
 
     set_parts: list[str] = []
     params: list[Any] = []

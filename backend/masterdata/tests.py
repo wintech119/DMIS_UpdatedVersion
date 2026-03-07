@@ -10,6 +10,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from masterdata import views
 
 from masterdata.services.data_access import (
+    INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
     _resolve_order_by,
     check_uniqueness,
@@ -117,6 +118,11 @@ class UniquenessFieldValidationTests(SimpleTestCase):
 
 
 class ItemCrossFieldValidationTests(SimpleTestCase):
+    def test_low_criticality_is_allowed_choice(self):
+        cfg = TABLE_REGISTRY["items"]
+        criticality_field = next(fd for fd in cfg.fields if fd.name == "criticality_level")
+        self.assertIn("LOW", criticality_field.choices or [])
+
     def test_fefo_requires_expiry(self):
         cfg = TABLE_REGISTRY["items"]
         errors = _cross_field_validation(
@@ -130,6 +136,30 @@ class ItemCrossFieldValidationTests(SimpleTestCase):
             errors.get("can_expire_flag"),
             "Can Expire must be enabled when Issuance Order is FEFO.",
         )
+
+    def test_can_expire_requires_fefo(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "issuance_order": "FIFO",
+                "can_expire_flag": True,
+            },
+        )
+        self.assertEqual(
+            errors.get("issuance_order"),
+            "Issuance Order must be FEFO when Can Expire is enabled.",
+        )
+
+    def test_can_expire_without_issuance_does_not_override_required_message(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "can_expire_flag": True,
+            },
+        )
+        self.assertNotIn("issuance_order", errors)
 
     def test_fefo_patch_allows_existing_expiry_enabled(self):
         cfg = TABLE_REGISTRY["items"]
@@ -152,6 +182,19 @@ class ItemCrossFieldValidationTests(SimpleTestCase):
         self.assertEqual(
             errors.get("can_expire_flag"),
             "Can Expire must be enabled when Issuance Order is FEFO.",
+        )
+
+    def test_can_expire_patch_blocks_non_fefo_when_existing_can_expire_true(self):
+        cfg = TABLE_REGISTRY["items"]
+        errors = _cross_field_validation(
+            cfg,
+            {"issuance_order": "FIFO"},
+            is_update=True,
+            existing_record={"can_expire_flag": True},
+        )
+        self.assertEqual(
+            errors.get("issuance_order"),
+            "Issuance Order must be FEFO when Can Expire is enabled.",
         )
 
 
@@ -231,6 +274,102 @@ class ItemUpdateValidationContextTests(SimpleTestCase):
             mock_validate.call_args.kwargs.get("existing_record"),
             existing_record,
         )
+
+
+class InactiveItemForwardWriteTests(SimpleTestCase):
+    def setUp(self):
+        self.cfg = TABLE_REGISTRY["inventory"]
+
+    @patch("masterdata.views.validate_record", return_value={})
+    @patch(
+        "masterdata.views.create_record",
+        return_value=(
+            None,
+            [
+                INACTIVE_ITEM_FORWARD_WRITE_CODE,
+                "inactive_item_id_7",
+                "forward_write_table_inventory",
+                "forward_write_workflow_ALWAYS",
+            ],
+        ),
+    )
+    def test_create_returns_machine_readable_inactive_guard(
+        self,
+        _mock_create,
+        _mock_validate,
+    ):
+        request = SimpleNamespace(
+            data={"item_id": 7},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_create(request, self.cfg)
+
+        self.assertEqual(response.status_code, 409)
+        guard = response.data["errors"][INACTIVE_ITEM_FORWARD_WRITE_CODE]
+        self.assertEqual(guard["code"], INACTIVE_ITEM_FORWARD_WRITE_CODE)
+        self.assertEqual(guard["table"], "inventory")
+        self.assertEqual(guard["workflow_state"], "ALWAYS")
+        self.assertEqual(guard["item_ids"], [7])
+
+    @patch(
+        "masterdata.views.update_record",
+        return_value=(
+            False,
+            [
+                INACTIVE_ITEM_FORWARD_WRITE_CODE,
+                "inactive_item_id_9",
+                "forward_write_table_inventory",
+                "forward_write_workflow_ALWAYS",
+            ],
+        ),
+    )
+    @patch("masterdata.views.validate_record", return_value={})
+    @patch("masterdata.views.get_record", return_value=({"item_id": 9}, []))
+    def test_update_returns_machine_readable_inactive_guard(
+        self,
+        _mock_get_record,
+        _mock_validate,
+        _mock_update,
+    ):
+        request = SimpleNamespace(
+            data={"item_id": 9},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_update(request, self.cfg, 1)
+
+        self.assertEqual(response.status_code, 409)
+        guard = response.data["errors"][INACTIVE_ITEM_FORWARD_WRITE_CODE]
+        self.assertEqual(guard["item_ids"], [9])
+
+
+class InventoryGuardLookupTests(SimpleTestCase):
+    @patch(
+        "masterdata.services.data_access._guard_inactive_item_forward_write",
+        return_value=(False, [INACTIVE_ITEM_FORWARD_WRITE_CODE]),
+    )
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_inventory_update_without_item_id_uses_existing_item_for_guard(
+        self,
+        mock_connection,
+        _mock_sqlite,
+        mock_guard,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (42,)
+
+        success, warnings = update_record(
+            "inventory",
+            11,
+            {"usable_qty": 5},
+            "tester",
+        )
+
+        self.assertFalse(success)
+        self.assertIn(INACTIVE_ITEM_FORWARD_WRITE_CODE, warnings)
+        self.assertEqual(mock_guard.call_args.kwargs["item_id"], 42)
 
 
 class ItemCodeMigrationSchemaTests(SimpleTestCase):
