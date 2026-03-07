@@ -85,6 +85,9 @@
                         @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
                           <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
                         }
+                        @if (field.field === 'issuance_order' && isFormErrorVisible('expiryRequiresFefo')) {
+                          <mat-error>{{ getFormErrorMessage('expiryRequiresFefo') }}</mat-error>
+                        }
                       </mat-form-field>
                     }
 
@@ -115,23 +118,32 @@
                     }
 
                     @case ('boolean') {
-                      <div class="toggle-row">
-                        <div class="toggle-row__text">
-                          <span class="toggle-row__label" [id]="field.field + '-label'">
-                            {{ field.label }}
-                          </span>
-                          @if (field.hint) {
-                            <span class="toggle-row__hint" [id]="field.field + '-hint'">
-                              {{ field.hint }}
+                      <div>
+                        <div class="toggle-row">
+                          <div class="toggle-row__text">
+                            <span class="toggle-row__label" [id]="field.field + '-label'">
+                              {{ field.label }}
                             </span>
-                          }
+                            @if (field.hint) {
+                              <span class="toggle-row__hint" [id]="field.field + '-hint'">
+                                {{ field.hint }}
+                              </span>
+                            }
+                          </div>
+                          <mat-slide-toggle
+                            [formControlName]="field.field"
+                            [attr.aria-labelledby]="field.field + '-label'"
+                            [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                            color="primary">
+                          </mat-slide-toggle>
                         </div>
-                        <mat-slide-toggle
-                          [formControlName]="field.field"
-                          [attr.aria-labelledby]="field.field + '-label'"
-                          [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
-                          color="primary">
-                        </mat-slide-toggle>
+
+                        @if (field.field === 'can_expire_flag' && isFormErrorVisible('fefoRequiresExpiry')) {
+                          <p class="toggle-error">{{ getFormErrorMessage('fefoRequiresExpiry') }}</p>
+                        }
+                        @if (field.field === 'can_expire_flag' && isFormErrorVisible('expiryRequiresFefo')) {
+                          <p class="toggle-error">{{ getFormErrorMessage('expiryRequiresFefo') }}</p>
+                        }
                       </div>
                     }
 

@@ -3,17 +3,22 @@ import { AbstractControl, ValidationErrors } from '@angular/forms';
 
 /**
  * Cross-field validator for item forms:
- * FEFO issuance requires expiration tracking to be enabled.
+ * FEFO and expiration tracking must stay bidirectionally aligned.
  */
 export function validateFefoRequiresExpiry(control: AbstractControl): ValidationErrors | null {
-  const issuanceOrder = control.get('issuance_order')?.value;
+  const issuanceOrder = String(control.get('issuance_order')?.value ?? '').toUpperCase();
   const canExpireFlag = control.get('can_expire_flag')?.value;
+  const errors: ValidationErrors = {};
 
   if (issuanceOrder === 'FEFO' && canExpireFlag !== true) {
-    return { fefoRequiresExpiry: true };
+    errors['fefoRequiresExpiry'] = true;
   }
 
-  return null;
+  if (canExpireFlag === true && issuanceOrder !== 'FEFO') {
+    errors['expiryRequiresFefo'] = true;
+  }
+
+  return Object.keys(errors).length ? errors : null;
 }
 
 export const ITEM_CONFIG: MasterTableConfig = {
@@ -31,10 +36,11 @@ export const ITEM_CONFIG: MasterTableConfig = {
     { field: 'category_id', header: 'Category', type: 'text', sortable: true, hideMobile: true },
     { field: 'default_uom_code', header: 'UOM', type: 'text', sortable: true, hideMobile: true },
     { field: 'issuance_order', header: 'Issuance', type: 'text', sortable: true, hideMobile: true },
+    { field: 'criticality_level', header: 'Criticality', type: 'text', sortable: true, hideMobile: true },
     { field: 'status_code', header: 'Status', type: 'status', sortable: true },
   ],
   formFields: [
-    // ── Item Identity ────────────────────────────────────────────────────────
+    // â”€â”€ Item Identity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'item_code', label: 'Item Code', type: 'text', required: true,
       maxLength: 30, uppercase: true,
@@ -52,10 +58,10 @@ export const ITEM_CONFIG: MasterTableConfig = {
       field: 'sku_code', label: 'SKU Code (Optional)', type: 'text', required: false,
       maxLength: 30, uppercase: true,
       group: 'Item Identity',
-      hint: 'Inventory or procurement system reference — leave blank if not applicable',
+      hint: 'Inventory or procurement system reference â€” leave blank if not applicable',
     },
 
-    // ── Classification ───────────────────────────────────────────────────────
+    // â”€â”€ Classification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'category_id', label: 'Category', type: 'lookup', required: true,
       lookupTable: 'item_categories',
@@ -68,7 +74,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       hint: 'Purpose and specifications of this item',
     },
 
-    // ── Inventory Rules ──────────────────────────────────────────────────────
+    // â”€â”€ Inventory Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'default_uom_code', label: 'Default UOM', type: 'lookup', required: true,
       lookupTable: 'uom',
@@ -89,7 +95,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
         { value: 'LIFO', label: 'LIFO (Last In, First Out)' },
       ],
       group: 'Inventory Rules',
-      hint: 'FIFO = first received · FEFO = soonest expiry · LIFO = latest received',
+      hint: 'FIFO = first received · FEFO = soonest expiry (required when Can Expire is enabled) · LIFO = latest received',
     },
     {
       field: 'baseline_burn_rate', label: 'Baseline Burn Rate', type: 'number',
@@ -107,15 +113,16 @@ export const ITEM_CONFIG: MasterTableConfig = {
       field: 'criticality_level', label: 'Criticality Level', type: 'select',
       defaultValue: 'NORMAL',
       options: [
+        { value: 'LOW', label: 'Low' },
         { value: 'NORMAL', label: 'Normal' },
         { value: 'HIGH', label: 'High' },
         { value: 'CRITICAL', label: 'Critical' },
       ],
       group: 'Inventory Rules',
-      hint: 'Affects replenishment priority and approval routing',
+      hint: 'Baseline catalog criticality only. Runtime decisions use resolved criticality.',
     },
 
-    // ── Tracking & Behaviour ─────────────────────────────────────────────────
+    // â”€â”€ Tracking & Behaviour â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'is_batched_flag', label: 'Batch Tracked', type: 'boolean',
       defaultValue: true, colspan: 2,
@@ -126,7 +133,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       field: 'can_expire_flag', label: 'Can Expire', type: 'boolean',
       defaultValue: false, colspan: 2,
       group: 'Tracking & Behaviour',
-      hint: 'Tracks expiration dates. Required when Issuance Order is FEFO',
+      hint: 'Tracks expiration dates. Must be enabled for FEFO issuance, and FEFO is required when this is enabled',
     },
     {
       field: 'units_size_vary_flag', label: 'Units Size Vary', type: 'boolean',
@@ -135,7 +142,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       hint: 'Units may vary in size or weight (e.g. loose produce, bundles)',
     },
 
-    // ── Notes & Storage ──────────────────────────────────────────────────────
+    // â”€â”€ Notes & Storage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'usage_desc', label: 'Usage Description', type: 'textarea',
       maxLength: 300,
@@ -155,7 +162,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       hint: 'Any additional notes or administrative remarks',
     },
 
-    // ── Status ───────────────────────────────────────────────────────────────
+    // â”€â”€ Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
       field: 'status_code', label: 'Status', type: 'select', required: true,
       defaultValue: 'A',

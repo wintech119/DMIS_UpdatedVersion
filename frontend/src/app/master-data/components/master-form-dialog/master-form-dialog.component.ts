@@ -81,6 +81,9 @@ export interface MasterFormDialogData {
                 @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
                   <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
                 }
+                @if (field.field === 'issuance_order' && isFormErrorVisible('expiryRequiresFefo')) {
+                  <mat-error>{{ getFormErrorMessage('expiryRequiresFefo') }}</mat-error>
+                }
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
                 }
@@ -104,9 +107,17 @@ export interface MasterFormDialogData {
               </mat-form-field>
             }
             @case ('boolean') {
-              <mat-checkbox [formControlName]="field.field" class="bool-field">
-                {{ field.label }}
-              </mat-checkbox>
+              <div class="bool-field-wrap">
+                <mat-checkbox [formControlName]="field.field" class="bool-field">
+                  {{ field.label }}
+                </mat-checkbox>
+                @if (field.field === 'can_expire_flag' && isFormErrorVisible('fefoRequiresExpiry')) {
+                  <p class="bool-error">{{ getFormErrorMessage('fefoRequiresExpiry') }}</p>
+                }
+                @if (field.field === 'can_expire_flag' && isFormErrorVisible('expiryRequiresFefo')) {
+                  <p class="bool-error">{{ getFormErrorMessage('expiryRequiresFefo') }}</p>
+                }
+              </div>
             }
             @default {
               <mat-form-field appearance="outline" class="full-width">
@@ -178,8 +189,17 @@ export interface MasterFormDialogData {
       min-width: 380px;
     }
     .full-width { width: 100%; }
-    .bool-field {
+    .bool-field-wrap {
       margin: 4px 0 8px;
+    }
+    .bool-field {
+      margin: 0;
+    }
+    .bool-error {
+      margin: 4px 2px 0;
+      color: #b3261e;
+      font-size: 0.75rem;
+      line-height: 1.2;
     }
     .dialog-actions {
       padding: 12px 24px 20px;
@@ -238,6 +258,7 @@ export class MasterFormDialogComponent implements OnInit {
   lookups = signal<Record<string, LookupItem[]>>({});
   readonly formErrorMessages: Record<string, string> = {
     fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
+    expiryRequiresFefo: 'Issuance Order must be FEFO when Can Expire is enabled.',
   };
 
   private versionNbr: number | null = null;
