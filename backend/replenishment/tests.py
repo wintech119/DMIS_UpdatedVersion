@@ -11,10 +11,16 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from api.rbac import (
+    PERM_CRITICALITY_HAZARD_APPROVE,
+    PERM_CRITICALITY_HAZARD_MANAGE,
+    PERM_CRITICALITY_OVERRIDE_MANAGE,
+)
 from replenishment import rules, views, workflow_store, workflow_store_db
 from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
 from replenishment.services import (
     approval as approval_service,
+    criticality as criticality_service,
     data_access,
     needs_list,
     procurement as procurement_service,
@@ -410,6 +416,7 @@ def _ensure_legacy_reference_rows() -> None:
 
 
 def setUpModule() -> None:
+    workflow_store_db._ensure_needs_list_item_criticality_columns()
     _ensure_legacy_reference_rows()
 
 class NeedsListServiceTests(SimpleTestCase):
@@ -593,60 +600,72 @@ class NeedsListServiceTests(SimpleTestCase):
     def test_surge_critical_activates_all(self) -> None:
         as_of_dt = timezone.now()
         inventory_as_of = as_of_dt - timedelta(hours=1)
-        with patch.dict(os.environ, {"NEEDS_CRITICAL_ITEM_IDS": "1"}):
-            items, _, _ = needs_list.build_preview_items(
-                item_ids=[1],
-                available_by_item={1: 0.0},
-                inbound_donations_by_item={},
-                inbound_transfers_by_item={},
-                burn_by_item={1: 60.0},
-                item_categories={1: 10},
-                category_burn_rates={},
-                demand_window_hours=6,
-                planning_window_hours=72,
-                safety_factor=1.0,
-                horizon_a_hours=24,
-                horizon_b_hours=24,
-                burn_source="reliefpkg",
-                as_of_dt=as_of_dt,
-                phase="SURGE",
-                inventory_as_of=inventory_as_of,
-                base_warnings=[],
-            )
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 60.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="SURGE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+            effective_criticality_by_item={
+                1: {
+                    "effective_criticality_level": "CRITICAL",
+                    "effective_criticality_source": "EVENT_OVERRIDE",
+                }
+            },
+        )
         triggers = items[0]["triggers"]
         self.assertTrue(triggers["activate_all"])
         self.assertTrue(triggers["activate_B"])
         self.assertTrue(triggers["activate_C"])
-        self.assertNotIn("critical_flag_unavailable", items[0]["warnings"])
+        self.assertEqual(items[0]["effective_criticality_level"], "CRITICAL")
+        self.assertEqual(items[0]["effective_criticality_source"], "EVENT_OVERRIDE")
 
     def test_surge_critical_category_activates_all(self) -> None:
         as_of_dt = timezone.now()
         inventory_as_of = as_of_dt - timedelta(hours=1)
-        with patch.dict(os.environ, {"NEEDS_CRITICAL_CATEGORY_IDS": "10"}):
-            items, _, _ = needs_list.build_preview_items(
-                item_ids=[1],
-                available_by_item={1: 0.0},
-                inbound_donations_by_item={},
-                inbound_transfers_by_item={},
-                burn_by_item={1: 60.0},
-                item_categories={1: 10},
-                category_burn_rates={},
-                demand_window_hours=6,
-                planning_window_hours=72,
-                safety_factor=1.0,
-                horizon_a_hours=24,
-                horizon_b_hours=24,
-                burn_source="reliefpkg",
-                as_of_dt=as_of_dt,
-                phase="SURGE",
-                inventory_as_of=inventory_as_of,
-                base_warnings=[],
-            )
+        items, _, _ = needs_list.build_preview_items(
+            item_ids=[1],
+            available_by_item={1: 0.0},
+            inbound_donations_by_item={},
+            inbound_transfers_by_item={},
+            burn_by_item={1: 60.0},
+            item_categories={1: 10},
+            category_burn_rates={},
+            demand_window_hours=6,
+            planning_window_hours=72,
+            safety_factor=1.0,
+            horizon_a_hours=24,
+            horizon_b_hours=24,
+            burn_source="reliefpkg",
+            as_of_dt=as_of_dt,
+            phase="SURGE",
+            inventory_as_of=inventory_as_of,
+            base_warnings=[],
+            effective_criticality_by_item={
+                1: {
+                    "effective_criticality_level": "HIGH",
+                    "effective_criticality_source": "HAZARD_TYPE_DEFAULT",
+                }
+            },
+        )
         triggers = items[0]["triggers"]
         self.assertTrue(triggers["activate_all"])
         self.assertTrue(triggers["activate_B"])
         self.assertTrue(triggers["activate_C"])
-        self.assertNotIn("critical_flag_unavailable", items[0]["warnings"])
+        self.assertEqual(items[0]["effective_criticality_level"], "HIGH")
+        self.assertEqual(items[0]["effective_criticality_source"], "HAZARD_TYPE_DEFAULT")
 
     def test_surge_missing_critical_warns(self) -> None:
         as_of_dt = timezone.now()
@@ -670,7 +689,8 @@ class NeedsListServiceTests(SimpleTestCase):
             inventory_as_of=inventory_as_of,
             base_warnings=[],
         )
-        self.assertIn("critical_flag_unavailable", items[0]["warnings"])
+        self.assertEqual(items[0]["effective_criticality_level"], "NORMAL")
+        self.assertEqual(items[0]["effective_criticality_source"], "ITEM_DEFAULT")
 
     def test_burn_zero_freshness_high_no_estimate(self) -> None:
         as_of_dt = timezone.now()
@@ -832,22 +852,9 @@ class NeedsListServiceTests(SimpleTestCase):
             },
         )
 
-    def test_donation_mapping_avoids_apc(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"DONATION_CONFIRMED_CODES": "A,V,C", "DONATION_IN_TRANSIT_CODES": "V"},
-        ):
-            codes, warnings = rules.resolve_strict_inbound_donation_codes()
-            self.assertTrue(set(codes).issubset({"E", "V", "P"}))
-            self.assertNotIn("A", codes)
-            self.assertNotIn("C", codes)
-            self.assertIn("donation_status_code_invalid_filtered", warnings)
-
-    def test_transfer_mapping_defaults_to_d(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            codes, warnings = rules.resolve_strict_inbound_transfer_codes()
-            self.assertEqual(codes, ["D"])
-            self.assertNotIn("strict_inbound_mapping_best_effort", warnings)
+    def test_strict_inbound_mapping_moves_to_db_governed_paths(self) -> None:
+        self.assertFalse(hasattr(rules, "resolve_strict_inbound_donation_codes"))
+        self.assertFalse(hasattr(rules, "resolve_strict_inbound_transfer_codes"))
 
     def test_normalize_horizon_key_accepts_method_aliases(self) -> None:
         self.assertEqual(views._normalize_horizon_key("TRANSFER"), "A")
@@ -981,6 +988,175 @@ class NeedsListServiceTests(SimpleTestCase):
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0].get("needs_list_id"), "EX-NO-WAREHOUSE-SAME")
         self.assertEqual(conflicts[0].get("overlap_item_ids"), [10])
+
+
+class CriticalityResolverTests(SimpleTestCase):
+    def test_missing_tables_no_longer_emit_table_missing_warnings(self) -> None:
+        as_of_dt = timezone.now()
+        with patch("replenishment.services.criticality._is_sqlite", return_value=False), patch(
+            "replenishment.services.criticality._table_exists",
+            return_value=False,
+        ):
+            hazard_defaults, hazard_warnings = criticality_service._load_hazard_defaults(
+                "public",
+                "HURRICANE",
+                [1],
+                as_of_dt,
+            )
+            event_overrides, override_warnings = criticality_service._load_event_overrides(
+                "public",
+                1,
+                [1],
+                as_of_dt,
+            )
+
+        self.assertEqual(hazard_defaults, {})
+        self.assertEqual(event_overrides, {})
+        self.assertEqual(hazard_warnings, [])
+        self.assertEqual(override_warnings, [])
+
+    def test_hazard_default_lookup_filters_to_approved_rows_when_supported(self) -> None:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [(1, "HIGH")]
+        mock_context = MagicMock()
+        mock_context.__enter__.return_value = mock_cursor
+        mock_context.__exit__.return_value = False
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_context
+
+        with patch("replenishment.services.criticality._is_sqlite", return_value=False), patch(
+            "replenishment.services.criticality._table_exists",
+            return_value=True,
+        ), patch(
+            "replenishment.services.criticality._table_columns",
+            return_value={
+                "item_id",
+                "criticality_level",
+                "event_type",
+                "is_active",
+                "status_code",
+                "approval_status",
+                "effective_from",
+                "effective_to",
+                "update_dtime",
+                "hazard_item_criticality_id",
+            },
+        ), patch("replenishment.services.criticality.connection", mock_connection):
+            resolved, warnings = criticality_service._load_hazard_defaults(
+                "public",
+                "HURRICANE",
+                [1],
+                timezone.now(),
+            )
+
+        self.assertEqual(resolved, {1: "HIGH"})
+        self.assertEqual(warnings, [])
+        executed_sql = mock_cursor.execute.call_args.args[0]
+        self.assertIn("UPPER(approval_status) IN ('APPROVED', 'A')", executed_sql)
+
+
+class CriticalityGovernanceApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[PERM_CRITICALITY_OVERRIDE_MANAGE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.criticality_governance.create_event_override")
+    def test_event_override_create_endpoint(self, mock_create):
+        mock_create.return_value = (
+            {
+                "override_id": 1,
+                "event_id": 5,
+                "item_id": 11,
+                "criticality_level": "HIGH",
+                "is_active": True,
+            },
+            [],
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/criticality/event-overrides",
+            {
+                "event_id": 5,
+                "item_id": 11,
+                "criticality_level": "HIGH",
+                "reason_text": "Road access delayed.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["override"]["criticality_level"], "HIGH")
+        mock_create.assert_called_once()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[PERM_CRITICALITY_HAZARD_APPROVE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.criticality_governance.approve_hazard_default")
+    def test_hazard_default_approve_requires_director_role(
+        self,
+        mock_approve,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/criticality/hazard-defaults/10/approve",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("approval", response.json().get("errors", {}))
+        mock_approve.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="director-user",
+        DEV_AUTH_ROLES=["ODPEM_DIR_PEOD"],
+        DEV_AUTH_PERMISSIONS=[PERM_CRITICALITY_HAZARD_APPROVE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.criticality_governance.approve_hazard_default")
+    def test_hazard_default_approve_allows_director_role(
+        self,
+        mock_approve,
+    ) -> None:
+        mock_approve.return_value = (
+            {
+                "hazard_item_criticality_id": 10,
+                "event_type": "HURRICANE",
+                "item_id": 11,
+                "criticality_level": "CRITICAL",
+                "approval_status": "APPROVED",
+            },
+            [],
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/criticality/hazard-defaults/10/approve",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["hazard_default"]["approval_status"], "APPROVED")
+        mock_approve.assert_called_once()
 
 
 class ApprovalRoleResolutionTests(SimpleTestCase):
@@ -1149,10 +1325,12 @@ class NeedsListPreviewApiTests(TestCase):
     @patch("replenishment.views.data_access.get_burn_by_item")
     @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
     @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_effective_criticality_by_item")
     @patch("replenishment.views.data_access.get_available_by_item")
     def test_preview_endpoint_includes_required_fields(
         self,
         mock_available,
+        mock_criticality,
         mock_donations,
         mock_transfers,
         mock_burn,
@@ -1160,7 +1338,16 @@ class NeedsListPreviewApiTests(TestCase):
         mock_categories,
     ) -> None:
         mock_available.return_value = ({1: 10.0}, [], None)
-        mock_donations.return_value = ({}, ["donation_in_transit_unmodeled"])
+        mock_criticality.return_value = (
+            {
+                1: {
+                    "effective_criticality_level": "HIGH",
+                    "effective_criticality_source": "ITEM_DEFAULT",
+                }
+            },
+            [],
+        )
+        mock_donations.return_value = ({}, [])
         mock_transfers.return_value = ({}, [])
         mock_burn.return_value = (
             {1: 24.0},
@@ -1180,13 +1367,45 @@ class NeedsListPreviewApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertIn("warnings", body)
-        self.assertIn("donation_in_transit_unmodeled", body["warnings"])
         self.assertEqual(len(body["items"]), 1)
         item = body["items"][0]
         self.assertIn("required_qty", item)
         self.assertIn("time_to_stockout", item)
+        self.assertIn("effective_criticality_level", item)
+        self.assertIn("effective_criticality_source", item)
         self.assertEqual(item.get("freshness_state"), "Unknown")
-        self.assertIn("donation_in_transit_unmodeled", item.get("warnings", []))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_preview_endpoint_fails_fast_when_inbound_view_missing(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+    ) -> None:
+        mock_available.return_value = ({}, [], None)
+        mock_donations.return_value = ({}, ["strict_inbound_workflow_view_missing"])
+        mock_transfers.return_value = ({}, ["strict_inbound_workflow_view_missing"])
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview",
+            {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("strict_inbound_workflow_view_missing", response.json().get("errors", {}))
 
 
 class NeedsListPreviewMultiApiTests(TestCase):
@@ -1252,6 +1471,40 @@ class NeedsListPreviewMultiApiTests(TestCase):
             self.assertIn("warehouse_id", item)
             self.assertIn("warehouse_name", item)
             self.assertIn(item["warehouse_id"], [1, 2])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_preview_multi_fails_fast_when_inbound_view_missing(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+    ) -> None:
+        mock_available.return_value = ({}, [], None)
+        mock_donations.return_value = ({}, ["strict_inbound_workflow_view_missing"])
+        mock_transfers.return_value = ({}, ["strict_inbound_workflow_view_missing"])
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/preview-multi",
+            {"event_id": 1, "warehouse_ids": [1, 2], "phase": "BASELINE"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        body = response.json()
+        self.assertEqual(body.get("warehouse_id"), 1)
+        self.assertIn("strict_inbound_workflow_view_missing", body.get("errors", {}))
 
     @override_settings(
         AUTH_ENABLED=False,

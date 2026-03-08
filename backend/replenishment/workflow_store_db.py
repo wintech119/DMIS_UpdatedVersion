@@ -62,6 +62,7 @@ _IN_PROGRESS_STAGE_ALIASES = {
     "RECEIVED": "RECEIVED",
     "RECEIVE": "RECEIVED",
 }
+_NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY = False
 
 
 def _normalize_actor(value: object) -> str:
@@ -183,6 +184,105 @@ def _workflow_needs_list_table_name() -> str:
         schema_name, _ = metadata_table_name.split(".", 1)
         return f"{schema_name}.{connection.ops.quote_name('needs_list')}"
     return connection.ops.quote_name("needs_list")
+
+
+def _workflow_needs_list_item_table_name() -> str:
+    quoted_table_name = connection.ops.quote_name("needs_list_item")
+    if connection.vendor == "postgresql":
+        quoted_schema_name = connection.ops.quote_name("public")
+        return f"{quoted_schema_name}.{quoted_table_name}"
+    return quoted_table_name
+
+
+def _ensure_needs_list_item_criticality_columns() -> None:
+    global _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY
+    if _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY:
+        return
+
+    table_name = _workflow_needs_list_item_table_name()
+    with connection.cursor() as cursor:
+        if connection.vendor == "postgresql":
+            cursor.execute(
+                f"""
+                ALTER TABLE {table_name}
+                    ADD COLUMN IF NOT EXISTS effective_criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL',
+                    ADD COLUMN IF NOT EXISTS effective_criticality_source VARCHAR(30) NOT NULL DEFAULT 'ITEM_DEFAULT'
+                """
+            )
+            cursor.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    effective_criticality_level = CASE
+                        WHEN UPPER(COALESCE(effective_criticality_level, '')) IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW')
+                            THEN UPPER(effective_criticality_level)
+                        ELSE 'NORMAL'
+                    END,
+                    effective_criticality_source = CASE
+                        WHEN UPPER(COALESCE(effective_criticality_source, '')) IN ('EVENT_OVERRIDE', 'HAZARD_TYPE_DEFAULT', 'ITEM_DEFAULT')
+                            THEN UPPER(effective_criticality_source)
+                        ELSE 'ITEM_DEFAULT'
+                    END
+                """
+            )
+            cursor.execute(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'c_needs_list_item_effective_criticality_level'
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ADD CONSTRAINT c_needs_list_item_effective_criticality_level
+                            CHECK (effective_criticality_level IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW'));
+                    END IF;
+                END
+                $$;
+                """
+            )
+            cursor.execute(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'c_needs_list_item_effective_criticality_source'
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ADD CONSTRAINT c_needs_list_item_effective_criticality_source
+                            CHECK (effective_criticality_source IN ('EVENT_OVERRIDE', 'HAZARD_TYPE_DEFAULT', 'ITEM_DEFAULT'));
+                    END IF;
+                END
+                $$;
+                """
+            )
+        else:
+            columns = {
+                str(field.name)
+                for field in connection.introspection.get_table_description(
+                    cursor,
+                    "needs_list_item",
+                )
+            }
+            if "effective_criticality_level" not in columns:
+                cursor.execute(
+                    f"""
+                    ALTER TABLE {table_name}
+                    ADD COLUMN effective_criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL'
+                    """
+                )
+            if "effective_criticality_source" not in columns:
+                cursor.execute(
+                    f"""
+                    ALTER TABLE {table_name}
+                    ADD COLUMN effective_criticality_source VARCHAR(30) NOT NULL DEFAULT 'ITEM_DEFAULT'
+                    """
+                )
+
+    _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY = True
 
 
 def _ensure_workflow_metadata_table() -> None:
@@ -470,6 +570,24 @@ def _normalize_snapshot_item(
     item_meta = item_lookup.get(item_id_int, {}) if item_id_int else {}
     item_name = item_data.get("item_name") or item_meta.get("name")
     item_code = item_data.get("item_code") or item_meta.get("code")
+    effective_criticality_level = str(
+        item_data.get("effective_criticality_level")
+        or item_data.get("criticality_level")
+        or "NORMAL"
+    ).strip().upper()
+    if effective_criticality_level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+        effective_criticality_level = "NORMAL"
+    effective_criticality_source = str(
+        item_data.get("effective_criticality_source")
+        or item_data.get("criticality_source")
+        or "ITEM_DEFAULT"
+    ).strip().upper()
+    if effective_criticality_source not in {
+        "EVENT_OVERRIDE",
+        "HAZARD_TYPE_DEFAULT",
+        "ITEM_DEFAULT",
+    }:
+        effective_criticality_source = "ITEM_DEFAULT"
 
     burn_rate_per_hour = item_data.get("burn_rate_per_hour")
     if burn_rate_per_hour is None:
@@ -527,6 +645,10 @@ def _normalize_snapshot_item(
         "item_id": item_id_int,
         "item_name": item_name,
         "item_code": item_code,
+        "effective_criticality_level": effective_criticality_level,
+        "effective_criticality_source": effective_criticality_source,
+        "criticality_level": effective_criticality_level,
+        "criticality_source": effective_criticality_source,
         "warehouse_id": item_data.get("warehouse_id", warehouse_id),
         "warehouse_name": item_data.get("warehouse_name", warehouse_name),
         "uom_code": item_data.get("uom_code", "EA"),
@@ -602,6 +724,8 @@ def create_draft(
     Returns:
         Dict representation of the created needs list record
     """
+    _ensure_needs_list_item_criticality_columns()
+
     if actor is None:
         actor = 'SYSTEM'
 
@@ -699,6 +823,7 @@ def create_draft(
         _save_workflow_metadata(needs_list, metadata)
 
     # Create line items
+    created_line_items: list[tuple[NeedsListItem, str, str]] = []
     for item_data in items:
         inbound_strict_qty = _coerce_float(item_data.get("inbound_strict_qty"), 0.0)
         inbound_transfer_qty = item_data.get("inbound_transfer_qty")
@@ -723,6 +848,24 @@ def create_draft(
         horizon_a_qty = _extract_horizon_qty(item_data, "A")
         horizon_b_qty = _extract_horizon_qty(item_data, "B")
         horizon_c_qty = _extract_horizon_qty(item_data, "C")
+        effective_criticality_level = str(
+            item_data.get("effective_criticality_level")
+            or item_data.get("criticality_level")
+            or "NORMAL"
+        ).strip().upper()
+        if effective_criticality_level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+            effective_criticality_level = "NORMAL"
+        effective_criticality_source = str(
+            item_data.get("effective_criticality_source")
+            or item_data.get("criticality_source")
+            or "ITEM_DEFAULT"
+        ).strip().upper()
+        if effective_criticality_source not in {
+            "EVENT_OVERRIDE",
+            "HAZARD_TYPE_DEFAULT",
+            "ITEM_DEFAULT",
+        }:
+            effective_criticality_source = "ITEM_DEFAULT"
 
         create_kwargs = {
             "needs_list": needs_list,
@@ -738,6 +881,8 @@ def create_draft(
             "gap_qty": _coerce_decimal(item_data.get('gap_qty')),
             "time_to_stockout_hours": time_to_stockout,
             "severity_level": item_data.get('severity', 'OK'),
+            "effective_criticality_level": effective_criticality_level,
+            "effective_criticality_source": effective_criticality_source,
             "horizon_a_qty": _coerce_decimal(horizon_a_qty),
             "horizon_b_qty": _coerce_decimal(horizon_b_qty),
             "horizon_c_qty": _coerce_decimal(horizon_c_qty),
@@ -749,8 +894,15 @@ def create_draft(
         if inbound_donation_qty is not None:
             create_kwargs["inbound_donation_qty"] = _coerce_decimal(inbound_donation_qty)
 
-        NeedsListItem.objects.create(
+        created_item = NeedsListItem.objects.create(
             **create_kwargs,
+        )
+        created_line_items.append(
+            (
+                created_item,
+                effective_criticality_level,
+                effective_criticality_source,
+            )
         )
 
     # Create audit log entry
@@ -760,6 +912,18 @@ def create_draft(
         notes_text=f"Created with {len(items)} items. Warnings: {', '.join(warnings_list) if warnings_list else 'None'}",
         actor_user_id=actor,
     )
+    for created_item, criticality_level, criticality_source in created_line_items:
+        NeedsListAudit.objects.create(
+            needs_list=needs_list,
+            needs_list_item=created_item,
+            action_type="CREATED",
+            field_name="criticality_level",
+            old_value=None,
+            new_value=criticality_level,
+            reason_code=criticality_source,
+            notes_text="Effective criticality captured for draft generation.",
+            actor_user_id=actor,
+        )
 
     # Return dict representation matching the old JSON format
     return _needs_list_to_dict(needs_list, items, warnings_list)
@@ -794,6 +958,8 @@ def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
 
     Accepts legacy API status aliases and maps them to database status values.
     """
+    _ensure_needs_list_item_criticality_columns()
+
     queryset = NeedsList.objects.all()
 
     if statuses:
@@ -851,6 +1017,8 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         needs_list_id: Primary key of the needs list
         record: Updated record data
     """
+    _ensure_needs_list_item_criticality_columns()
+
     try:
         needs_list = NeedsList.objects.get(needs_list_id=int(needs_list_id))
         metadata = _load_workflow_metadata(needs_list)
@@ -992,6 +1160,8 @@ def add_line_overrides(
     Returns:
         Tuple of (updated record, list of error messages)
     """
+    _ensure_needs_list_item_criticality_columns()
+
     errors: list[str] = []
     now = _utc_now()
     needs_list_id = record.get('needs_list_id')
@@ -1079,6 +1249,8 @@ def add_line_review_notes(
     Returns:
         Tuple of (updated record, list of error messages)
     """
+    _ensure_needs_list_item_criticality_columns()
+
     errors: list[str] = []
     now = _utc_now()
 
@@ -1153,6 +1325,8 @@ def transition_status(
     Returns:
         Updated record dict
     """
+    _ensure_needs_list_item_criticality_columns()
+
     needs_list_id = record.get('needs_list_id')
     if not needs_list_id:
         raise ValueError('needs_list_id missing')
@@ -1279,8 +1453,8 @@ def store_enabled_or_raise() -> None:
     In the database version, this always succeeds since we're using Django ORM.
     Kept for backward compatibility with the JSON file version.
     """
-    # Database store is always enabled
-    pass
+    # Database store is always enabled.
+    _ensure_needs_list_item_criticality_columns()
 
 
 # =============================================================================
@@ -1365,6 +1539,8 @@ def _needs_list_to_dict(
                 "uom_code": item.uom_code,
                 "burn_rate": float(item.burn_rate),
                 "burn_rate_source": item.burn_rate_source,
+                "effective_criticality_level": item.effective_criticality_level,
+                "effective_criticality_source": item.effective_criticality_source,
                 "available_qty": float(item.available_stock),
                 "reserved_qty": float(item.reserved_qty),
                 "inbound_transfer_qty": float(item.inbound_transfer_qty),

@@ -1,10 +1,32 @@
+import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TESTING = any(arg == 'test' or arg.startswith('test') for arg in sys.argv[1:])
+
+if TESTING:
+    # Reduce noisy request logging and known test-only datetime warnings
+    # so large suites are less likely to overwhelm local terminals/worktrees.
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'null': {'class': 'logging.NullHandler'},
+        },
+        'loggers': {
+            'django.request': {'handlers': ['null'], 'level': 'CRITICAL', 'propagate': False},
+            'django.server': {'handlers': ['null'], 'level': 'CRITICAL', 'propagate': False},
+        },
+    }
+    warnings.filterwarnings(
+        'ignore',
+        message=r'DateTimeField .* received a naive datetime .* while time zone support is active\.',
+        category=RuntimeWarning,
+    )
 
 
 def _load_env_file(path: Path) -> None:

@@ -338,6 +338,23 @@
           margin-top: 0.125rem;
           letter-spacing: 0.02em;
         }
+
+        .item-criticality {
+          margin-top: 0.2rem;
+          font-size: 0.75rem;
+          line-height: 1.3;
+          color: #4b5563;
+
+          .criticality-level {
+            font-weight: 600;
+            color: #1f2937;
+            margin-right: 0.25rem;
+          }
+
+          .criticality-source {
+            color: #6b7280;
+          }
+        }
       }
 
       .item-details {

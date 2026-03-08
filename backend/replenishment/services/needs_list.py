@@ -155,6 +155,32 @@ def compute_freshness_state(
     return "stale", [], age_hours
 
 
+def _resolve_effective_criticality(
+    item_id: int,
+    effective_criticality_by_item: Dict[int, Dict[str, str]] | None,
+) -> Tuple[str, str]:
+    if not effective_criticality_by_item:
+        return "NORMAL", "ITEM_DEFAULT"
+
+    entry = effective_criticality_by_item.get(item_id) or {}
+    level = str(
+        entry.get("effective_criticality_level")
+        or entry.get("criticality_level")
+        or "NORMAL"
+    ).strip().upper()
+    source = str(
+        entry.get("effective_criticality_source")
+        or entry.get("criticality_source")
+        or "ITEM_DEFAULT"
+    ).strip().upper()
+
+    if level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+        level = "NORMAL"
+    if source not in {"EVENT_OVERRIDE", "HAZARD_TYPE_DEFAULT", "ITEM_DEFAULT"}:
+        source = "ITEM_DEFAULT"
+    return level, source
+
+
 def build_preview_items(
     item_ids: List[int],
     available_by_item: Dict[int, float],
@@ -175,6 +201,7 @@ def build_preview_items(
     base_warnings: Iterable[str] | None = None,
     critical_item_ids: Iterable[int] | None = None,
     item_names: Dict[int, Dict[str, str] | str] | None = None,
+    effective_criticality_by_item: Dict[int, Dict[str, str]] | None = None,
 ) -> Tuple[List[Dict[str, object]], List[str], Dict[str, int]]:
     items: List[Dict[str, object]] = []
     warnings: List[str] = []
@@ -182,11 +209,7 @@ def build_preview_items(
 
     fallback_counts = {"category_avg": 0, "none": 0}
 
-    critical_item_ids_set = (
-        {int(item_id) for item_id in critical_item_ids if str(item_id).isdigit()}
-        if critical_item_ids
-        else None
-    )
+    _ = critical_item_ids  # Legacy argument kept for API compatibility; runtime criticality is DB-governed.
 
     for item_id in item_ids:
         available = float(available_by_item.get(item_id, 0.0))
@@ -262,17 +285,11 @@ def build_preview_items(
             ab_cannot_cover_window or planning_window_long or b_too_slow or c_too_slow
         )
 
-        category_id = item_categories.get(item_id)
-        is_critical = rules.is_critical(item_id, category_id) or (
-            critical_item_ids_set is not None and item_id in critical_item_ids_set
+        effective_criticality_level, effective_criticality_source = _resolve_effective_criticality(
+            item_id,
+            effective_criticality_by_item,
         )
-        critical_configured = (
-            rules.has_critical_config() or critical_item_ids_set is not None
-        )
-        if gap_positive and phase == "SURGE" and not critical_configured:
-            item_base_warnings = merge_warnings(
-                item_base_warnings, ["critical_flag_unavailable"]
-            )
+        is_critical = effective_criticality_level in {"CRITICAL", "HIGH"}
         activate_all = False
         if gap_positive and phase == "SURGE" and is_critical:
             activate_b = True
@@ -358,6 +375,10 @@ def build_preview_items(
             "item_id": item_id,
             "item_name": item_name,
             "item_code": item_code,
+            "effective_criticality_level": effective_criticality_level,
+            "effective_criticality_source": effective_criticality_source,
+            "criticality_level": effective_criticality_level,
+            "criticality_source": effective_criticality_source,
             "available_qty": round(available, 2),
             "inbound_strict_qty": round(inbound_strict, 2),
             "burn_rate_per_hour": round(burn_rate_per_hour, 4),
@@ -399,3 +420,4 @@ def build_preview_items(
         items.append(item_payload)
 
     return items, warnings, fallback_counts
+

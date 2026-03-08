@@ -19,6 +19,21 @@
       <mat-progress-bar mode="indeterminate" />
     } @else {
       <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
+        @if (submissionError(); as message) {
+          <div class="form-submit-alert" role="alert" aria-live="assertive">
+            <mat-icon aria-hidden="true">error</mat-icon>
+            <div class="form-submit-alert__content">
+              <p class="form-submit-alert__title">{{ message }}</p>
+              @if (submissionErrorDetails().length > 0) {
+                <ul class="form-submit-alert__details">
+                  @for (detail of submissionErrorDetails(); track detail) {
+                    <li>{{ detail }}</li>
+                  }
+                </ul>
+              }
+            </div>
+          </div>
+        }
 
         @for (group of fieldGroups(); track group.label) {
           <section class="form-section" [attr.aria-label]="group.label + ' section'">

@@ -117,6 +117,16 @@
                 @if (item.item_code) {
                   <span class="item-code">{{ item.item_code }}</span>
                 }
+                @if (hasEffectiveCriticalityContext(item)) {
+                  <span class="item-criticality">
+                    <span class="criticality-level">
+                      {{ getEffectiveCriticalityLevel(item) || 'UNSPECIFIED' }}
+                    </span>
+                    @if (getEffectiveCriticalitySource(item); as source) {
+                      <span class="criticality-source">via {{ source }}</span>
+                    }
+                  </span>
+                }
               </div>
             </td>
           </ng-container>
@@ -232,6 +242,14 @@
               <div class="mobile-preview-title">
                 <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
                 <span class="item-warehouse">{{ item.warehouse_name || item.warehouse_id }}</span>
+                @if (hasEffectiveCriticalityContext(item)) {
+                  <span class="item-criticality">
+                    <span class="criticality-level">{{ getEffectiveCriticalityLevel(item) || 'UNSPECIFIED' }}</span>
+                    @if (getEffectiveCriticalitySource(item); as source) {
+                      <span class="criticality-source">via {{ source }}</span>
+                    }
+                  </span>
+                }
               </div>
             </div>
             <div class="mobile-preview-metrics">
