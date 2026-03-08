@@ -172,6 +172,8 @@ export class PreviewStepComponent implements OnInit {
       if (a.required_qty !== b.required_qty) return false;
       if (a.inbound_strict_qty !== b.inbound_strict_qty) return false;
       if (a.severity !== b.severity) return false;
+      if (a.effective_criticality_level !== b.effective_criticality_level) return false;
+      if (a.effective_criticality_source !== b.effective_criticality_source) return false;
 
       if (!this.areHorizonEqual(a.horizon, b.horizon)) return false;
 
@@ -207,6 +209,24 @@ export class PreviewStepComponent implements OnInit {
 
   getSeverityClass(item: NeedsListItem): string {
     return `severity-${item.severity?.toLowerCase() || 'ok'}`;
+  }
+
+  getEffectiveCriticalityLevel(item: NeedsListItem): string | null {
+    const value = String(item.effective_criticality_level || '').trim().toUpperCase();
+    return value || null;
+  }
+
+  getEffectiveCriticalitySource(item: NeedsListItem): string | null {
+    const value = String(item.effective_criticality_source || '').trim().toUpperCase();
+    if (!value) return null;
+    if (value === 'EVENT_OVERRIDE') return 'Event Override';
+    if (value === 'HAZARD_TYPE_DEFAULT') return 'Hazard Type Default';
+    if (value === 'ITEM_DEFAULT') return 'Item Default';
+    return value.replace(/_/g, ' ');
+  }
+
+  hasEffectiveCriticalityContext(item: NeedsListItem): boolean {
+    return !!(this.getEffectiveCriticalityLevel(item) || this.getEffectiveCriticalitySource(item));
   }
 
   getRecommendedSource(item: NeedsListItem): string {

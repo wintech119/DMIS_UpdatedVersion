@@ -248,6 +248,24 @@
               margin-top: 2px;
               letter-spacing: 0.2px;
             }
+
+            .item-criticality {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin-top: 3px;
+              font-size: 10px;
+              line-height: 1.2;
+
+              .criticality-level {
+                font-weight: 600;
+                color: #1f2937;
+              }
+
+              .criticality-source {
+                color: #6b7280;
+              }
+            }
           }
 
           .warehouse-cell {
@@ -582,6 +600,20 @@
         font-size: 11px;
         color: #6b7280;
         margin-top: 1px;
+      }
+
+      .item-criticality {
+        display: block;
+        margin-top: 2px;
+        font-size: 10px;
+        line-height: 1.25;
+        color: #4b5563;
+
+        .criticality-level {
+          font-weight: 600;
+          color: #1f2937;
+          margin-right: 4px;
+        }
       }
     }
   }

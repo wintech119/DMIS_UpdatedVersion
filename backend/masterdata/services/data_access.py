@@ -21,6 +21,27 @@ _ORDER_BY_PATTERN = re.compile(
 )
 INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
 
+_FORWARD_WRITE_BLOCK_ALWAYS_TABLES = {"inventory", "itembatch", "item_location"}
+_FORWARD_WRITE_STATE_TABLES = {
+    "transfer_item": {"DRAFT", "PENDING"},
+    "needs_list_item": {"DRAFT", "DRAFT_GENERATION"},
+    "donation_item": {"ENTERED", "PENDING"},
+    "procurement_item": {"DRAFT"},
+    "reliefpkg_item": {"DRAFT"},
+    "reliefrqst_item": {"DRAFT"},
+}
+_WORKFLOW_STATE_ALIASES = {
+    "P": "PENDING",
+    "PENDING_APPROVAL": "PENDING",
+    "PENDING_REVIEW": "PENDING",
+    "D": "DRAFT",
+    "DRAFT_PENDING": "PENDING",
+    "ENTER": "ENTERED",
+    "E": "ENTERED",
+    "CREATE": "DRAFT",
+    "CREATED": "DRAFT",
+}
+
 
 # ---------------------------------------------------------------------------
 # DB helpers (same pattern as replenishment.services.data_access)
@@ -840,6 +861,27 @@ def _normalize_field_value(fd: FieldDef, value: Any) -> Any:
     return value
 
 
+def _normalize_workflow_state(workflow_state: str) -> str:
+    normalized = str(workflow_state or "").strip().upper()
+    if not normalized:
+        return "UNKNOWN"
+    return _WORKFLOW_STATE_ALIASES.get(normalized, normalized)
+
+
+def _is_forward_write_guarded_state(table_key: str, workflow_state: str) -> Tuple[bool, str]:
+    normalized_table = str(table_key or "").strip().lower()
+    normalized_state = _normalize_workflow_state(workflow_state)
+
+    if normalized_table in _FORWARD_WRITE_BLOCK_ALWAYS_TABLES:
+        return True, "ALWAYS"
+
+    allowed_states = _FORWARD_WRITE_STATE_TABLES.get(normalized_table)
+    if not allowed_states:
+        return False, normalized_state
+
+    return normalized_state in allowed_states, normalized_state
+
+
 def _guard_inactive_item_forward_write(
     *,
     table_key: str,
@@ -851,7 +893,11 @@ def _guard_inactive_item_forward_write(
 
     Returns ``(allowed, warnings)``. For non-guarded table keys, always allowed.
     """
-    if table_key != "inventory":
+    should_guard, normalized_state = _is_forward_write_guarded_state(
+        table_key,
+        workflow_state,
+    )
+    if not should_guard:
         return True, []
     if item_id in (None, ""):
         return True, []
@@ -892,7 +938,7 @@ def _guard_inactive_item_forward_write(
         INACTIVE_ITEM_FORWARD_WRITE_CODE,
         f"inactive_item_id_{item_id}",
         f"forward_write_table_{table_key}",
-        f"forward_write_workflow_{workflow_state}",
+        f"forward_write_workflow_{normalized_state}",
     ]
 
 
@@ -950,10 +996,11 @@ def create_record(
     warnings: List[str] = []
 
     # Inactive item guardrail (inventory creation).
+    workflow_state = str(data.get("workflow_state") or "ALWAYS")
     allow_write, guard_warnings = _guard_inactive_item_forward_write(
         table_key=table_key,
         item_id=data.get("item_id"),
-        workflow_state="ALWAYS",
+        workflow_state=workflow_state,
     )
     warnings.extend(guard_warnings)
     if not allow_write:
@@ -1047,11 +1094,12 @@ def update_record(
         guard_item_id, lookup_warnings = _lookup_inventory_item_id(pk_value)
         warnings.extend(lookup_warnings)
 
+    workflow_state = str(data.get("workflow_state") or "ALWAYS")
     if table_key == "inventory" or "item_id" in data:
         allow_write, guard_warnings = _guard_inactive_item_forward_write(
             table_key=table_key,
             item_id=guard_item_id,
-            workflow_state="ALWAYS",
+            workflow_state=workflow_state,
         )
         warnings.extend(guard_warnings)
         if not allow_write:
@@ -1246,6 +1294,175 @@ def get_lookup(
         return [], ["db_error"]
 
 
+def _workflow_state_tokens(*states: str) -> List[str]:
+    tokens: set[str] = set()
+    for state in states:
+        normalized = _normalize_workflow_state(state)
+        if normalized:
+            tokens.add(normalized)
+        for raw, mapped in _WORKFLOW_STATE_ALIASES.items():
+            if mapped == normalized:
+                tokens.add(raw)
+    return sorted({token.upper() for token in tokens if token})
+
+
+def _run_dependency_count(
+    *,
+    schema: str,
+    sql_from_where: str,
+    params: List[Any],
+    status_column: str | None = None,
+    statuses: List[str] | None = None,
+) -> int:
+    where_sql = sql_from_where
+    final_params = list(params)
+    if status_column and statuses:
+        placeholders = ", ".join(["%s"] * len(statuses))
+        where_sql += f" AND UPPER(COALESCE({status_column}, '')) IN ({placeholders})"
+        final_params.extend(statuses)
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*) {where_sql}", final_params)
+        row = cursor.fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def _check_item_forward_write_dependencies(item_id: Any) -> Tuple[List[str], List[str]]:
+    """
+    Status-scoped dependency checks for item inactivation.
+    Implements the approved inactive-item forward-write matrix.
+    """
+    schema = _schema_name()
+    blocking: List[str] = []
+    warnings: List[str] = []
+
+    active_statuses = ["A", "ACTIVE"]
+    draft_pending_statuses = _workflow_state_tokens("DRAFT", "PENDING")
+    draft_generation_statuses = _workflow_state_tokens("DRAFT", "DRAFT_GENERATION")
+    entered_pending_statuses = _workflow_state_tokens("ENTERED", "PENDING")
+    draft_statuses = _workflow_state_tokens("DRAFT")
+
+    rules = [
+        {
+            "table": "inventory",
+            "label": "Inventory Records",
+            "sql": f"FROM {schema}.inventory inv WHERE inv.item_id = %s",
+            "status_col": "inv.status_code",
+            "statuses": active_statuses,
+        },
+        {
+            "table": "itembatch",
+            "label": "Inventory Batches",
+            "sql": f"FROM {schema}.itembatch ib WHERE ib.item_id = %s",
+            "status_col": "ib.status_code",
+            "statuses": active_statuses,
+        },
+        {
+            "table": "item_location",
+            "label": "Item-Location Assignments",
+            "sql": (
+                f"FROM {schema}.item_location il "
+                f"JOIN {schema}.inventory inv ON inv.inventory_id = il.inventory_id "
+                "WHERE inv.item_id = %s"
+            ),
+            "status_col": "inv.status_code",
+            "statuses": active_statuses,
+        },
+        {
+            "table": "transfer_item",
+            "label": "Draft/Pending Transfers",
+            "sql": (
+                f"FROM {schema}.transfer_item ti "
+                f"JOIN {schema}.transfer t ON t.transfer_id = ti.transfer_id "
+                "WHERE ti.item_id = %s"
+            ),
+            "status_col": "t.status_code",
+            "statuses": draft_pending_statuses,
+        },
+        {
+            "table": "needs_list_item",
+            "label": "Draft Needs Lists",
+            "sql": (
+                f"FROM {schema}.needs_list_item nli "
+                f"JOIN {schema}.needs_list nl ON nl.needs_list_id = nli.needs_list_id "
+                "WHERE nli.item_id = %s"
+            ),
+            "status_col": "nl.status_code",
+            "statuses": draft_generation_statuses,
+        },
+        {
+            "table": "donation_item",
+            "label": "Entered/Pending Donations",
+            "sql": (
+                f"FROM {schema}.donation_item di "
+                f"JOIN {schema}.donation d ON d.donation_id = di.donation_id "
+                "WHERE di.item_id = %s"
+            ),
+            "status_col": "d.status_code",
+            "statuses": entered_pending_statuses,
+        },
+        {
+            "table": "procurement_item",
+            "label": "Draft Procurements",
+            "sql": (
+                f"FROM {schema}.procurement_item pi "
+                f"JOIN {schema}.procurement p ON p.procurement_id = pi.procurement_id "
+                "WHERE pi.item_id = %s"
+            ),
+            "status_col": "p.status_code",
+            "statuses": draft_statuses,
+        },
+        {
+            "table": "reliefpkg_item",
+            "label": "Draft Relief Packages",
+            "sql": (
+                f"FROM {schema}.reliefpkg_item rpi "
+                f"JOIN {schema}.reliefpkg rp ON rp.reliefpkg_id = rpi.reliefpkg_id "
+                "WHERE rpi.item_id = %s"
+            ),
+            "status_col": "rp.status_code",
+            "statuses": draft_statuses,
+        },
+        {
+            "table": "reliefrqst_item",
+            "label": "Draft Relief Requests",
+            "sql": (
+                f"FROM {schema}.reliefrqst_item rri "
+                f"JOIN {schema}.reliefrqst rr ON rr.reliefrqst_id = rri.reliefrqst_id "
+                "WHERE rri.item_id = %s"
+            ),
+            "status_col": "rr.status_code",
+            "statuses": draft_statuses,
+        },
+    ]
+
+    for rule in rules:
+        try:
+            count = _run_dependency_count(
+                schema=schema,
+                sql_from_where=rule["sql"],
+                params=[item_id],
+                status_column=rule["status_col"],
+                statuses=rule["statuses"],
+            )
+            if count > 0:
+                blocking.append(f"{rule['label']} ({count} records)")
+        except DatabaseError as exc:
+            logger.warning(
+                "check_dependencies(items, %s) query on %s failed: %s",
+                item_id,
+                rule["table"],
+                exc,
+            )
+            warnings.append(f"dependency_check_failed_{rule['table']}")
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+
+    return blocking, warnings
+
+
 def check_dependencies(
     table_key: str, pk_value: Any
 ) -> Tuple[List[str], List[str]]:
@@ -1257,6 +1474,9 @@ def check_dependencies(
     cfg = TABLE_REGISTRY[table_key]
     if _is_sqlite():
         return [], ["db_unavailable"]
+
+    if table_key == "items":
+        return _check_item_forward_write_dependencies(pk_value)
 
     schema = _schema_name()
     blocking: List[str] = []

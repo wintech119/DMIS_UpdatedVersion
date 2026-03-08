@@ -4,6 +4,13 @@ from replenishment.views import (
     assign_storage_location,
     get_active_event,
     get_all_warehouses,
+    criticality_event_overrides,
+    criticality_event_override_detail,
+    criticality_hazard_defaults,
+    criticality_hazard_default_detail,
+    criticality_hazard_default_submit,
+    criticality_hazard_default_approve,
+    criticality_hazard_default_reject,
     needs_list_approve,
     needs_list_bulk_delete,
     needs_list_bulk_submit,
@@ -61,6 +68,41 @@ from replenishment.phase_window_views import (
 
 urlpatterns = [
     path("active-event", get_active_event, name="get_active_event"),
+    path(
+        "criticality/event-overrides",
+        criticality_event_overrides,
+        name="criticality_event_overrides",
+    ),
+    path(
+        "criticality/event-overrides/<int:override_id>",
+        criticality_event_override_detail,
+        name="criticality_event_override_detail",
+    ),
+    path(
+        "criticality/hazard-defaults",
+        criticality_hazard_defaults,
+        name="criticality_hazard_defaults",
+    ),
+    path(
+        "criticality/hazard-defaults/<int:hazard_item_criticality_id>",
+        criticality_hazard_default_detail,
+        name="criticality_hazard_default_detail",
+    ),
+    path(
+        "criticality/hazard-defaults/<int:hazard_item_criticality_id>/submit",
+        criticality_hazard_default_submit,
+        name="criticality_hazard_default_submit",
+    ),
+    path(
+        "criticality/hazard-defaults/<int:hazard_item_criticality_id>/approve",
+        criticality_hazard_default_approve,
+        name="criticality_hazard_default_approve",
+    ),
+    path(
+        "criticality/hazard-defaults/<int:hazard_item_criticality_id>/reject",
+        criticality_hazard_default_reject,
+        name="criticality_hazard_default_reject",
+    ),
     path(
         "events/<int:event_id>/phase-windows",
         event_phase_window_list,

@@ -214,6 +214,17 @@ class NeedsListItem(AuditedModel):
         ('FULFILLED', 'Fulfilled'),
         ('CANCELLED', 'Cancelled'),
     ]
+    EFFECTIVE_CRITICALITY_LEVEL_CHOICES = [
+        ('CRITICAL', 'Critical'),
+        ('HIGH', 'High'),
+        ('NORMAL', 'Normal'),
+        ('LOW', 'Low'),
+    ]
+    EFFECTIVE_CRITICALITY_SOURCE_CHOICES = [
+        ('EVENT_OVERRIDE', 'Event Override'),
+        ('HAZARD_TYPE_DEFAULT', 'Hazard Type Default'),
+        ('ITEM_DEFAULT', 'Item Default'),
+    ]
 
     needs_list_item_id = models.AutoField(primary_key=True)
     needs_list = models.ForeignKey(
@@ -232,6 +243,16 @@ class NeedsListItem(AuditedModel):
     inbound_transfer_qty = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
     inbound_donation_qty = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
     inbound_procurement_qty = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
+    effective_criticality_level = models.CharField(
+        max_length=10,
+        choices=EFFECTIVE_CRITICALITY_LEVEL_CHOICES,
+        default='NORMAL',
+    )
+    effective_criticality_source = models.CharField(
+        max_length=30,
+        choices=EFFECTIVE_CRITICALITY_SOURCE_CHOICES,
+        default='ITEM_DEFAULT',
+    )
 
     # Calculation outputs
     required_qty = models.DecimalField(max_digits=15, decimal_places=2)

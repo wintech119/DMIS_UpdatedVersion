@@ -12,7 +12,10 @@ from masterdata import views
 from masterdata.services.data_access import (
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
+    _guard_inactive_item_forward_write,
+    _is_forward_write_guarded_state,
     _resolve_order_by,
+    check_dependencies,
     check_uniqueness,
     create_record,
     update_record,
@@ -370,6 +373,173 @@ class InventoryGuardLookupTests(SimpleTestCase):
         self.assertFalse(success)
         self.assertIn(INACTIVE_ITEM_FORWARD_WRITE_CODE, warnings)
         self.assertEqual(mock_guard.call_args.kwargs["item_id"], 42)
+
+
+class InactiveForwardWriteMatrixTests(SimpleTestCase):
+    def test_state_matrix_guards_transfer_item_pending(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "transfer_item",
+            "P",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "PENDING")
+
+    def test_state_matrix_skips_transfer_item_dispatched(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "transfer_item",
+            "DISPATCHED",
+        )
+        self.assertFalse(guarded)
+        self.assertEqual(workflow_state, "DISPATCHED")
+
+    def test_state_matrix_guards_needs_list_item_draft_generation(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "needs_list_item",
+            "DRAFT_GENERATION",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "DRAFT_GENERATION")
+
+    def test_state_matrix_guards_donation_item_entered(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "donation_item",
+            "ENTERED",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "ENTERED")
+
+    def test_state_matrix_guards_procurement_item_draft(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "procurement_item",
+            "DRAFT",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "DRAFT")
+
+    def test_state_matrix_guards_reliefpkg_item_draft(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "reliefpkg_item",
+            "DRAFT",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "DRAFT")
+
+    def test_state_matrix_guards_reliefrqst_item_draft(self):
+        guarded, workflow_state = _is_forward_write_guarded_state(
+            "reliefrqst_item",
+            "DRAFT",
+        )
+        self.assertTrue(guarded)
+        self.assertEqual(workflow_state, "DRAFT")
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_guard_blocks_pending_transfer_item_for_inactive_item(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = ("I",)
+
+        allowed, warnings = _guard_inactive_item_forward_write(
+            table_key="transfer_item",
+            item_id=15,
+            workflow_state="PENDING",
+        )
+
+        self.assertFalse(allowed)
+        self.assertIn(INACTIVE_ITEM_FORWARD_WRITE_CODE, warnings)
+        self.assertIn("forward_write_table_transfer_item", warnings)
+        self.assertIn("forward_write_workflow_PENDING", warnings)
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_guard_allows_non_guarded_transfer_state(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        allowed, warnings = _guard_inactive_item_forward_write(
+            table_key="transfer_item",
+            item_id=15,
+            workflow_state="DISPATCHED",
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(warnings, [])
+        mock_connection.cursor.assert_not_called()
+
+
+class ItemInactivationDependencyMatrixTests(SimpleTestCase):
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_items_dependency_check_uses_status_scoped_matrix(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [
+            (0,),  # inventory
+            (0,),  # itembatch
+            (0,),  # item_location
+            (2,),  # transfer_item (blocking)
+            (0,),  # needs_list_item
+            (0,),  # donation_item
+            (0,),  # procurement_item
+            (0,),  # reliefpkg_item
+            (0,),  # reliefrqst_item
+        ]
+
+        blocking, warnings = check_dependencies("items", 15)
+
+        self.assertEqual(blocking, ["Draft/Pending Transfers (2 records)"])
+        self.assertEqual(warnings, [])
+
+        executed = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertEqual(len(executed), 9)
+        self.assertTrue(any("JOIN public.transfer t" in sql for sql in executed))
+        self.assertTrue(all("UPPER(COALESCE(" in sql for sql in executed))
+
+        transfer_call = next(
+            call for call in cursor.execute.call_args_list
+            if "JOIN public.transfer t" in call.args[0]
+        )
+        transfer_params = transfer_call.args[1]
+        self.assertIn(15, transfer_params)
+        self.assertIn("DRAFT", transfer_params)
+        self.assertIn("PENDING", transfer_params)
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_items_dependency_check_covers_all_approved_tables(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [(0,)] * 9
+
+        blocking, warnings = check_dependencies("items", 42)
+
+        self.assertEqual(blocking, [])
+        self.assertEqual(warnings, [])
+
+        executed = [call.args[0] for call in cursor.execute.call_args_list]
+        expected_fragments = [
+            "FROM public.inventory inv",
+            "FROM public.itembatch ib",
+            "FROM public.item_location il",
+            "FROM public.transfer_item ti",
+            "FROM public.needs_list_item nli",
+            "FROM public.donation_item di",
+            "FROM public.procurement_item pi",
+            "FROM public.reliefpkg_item rpi",
+            "FROM public.reliefrqst_item rri",
+        ]
+        for fragment in expected_fragments:
+            self.assertTrue(any(fragment in sql for sql in executed), fragment)
 
 
 class ItemCodeMigrationSchemaTests(SimpleTestCase):

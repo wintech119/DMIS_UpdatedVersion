@@ -24,6 +24,12 @@ export interface MasterFormDialogData {
   pk: string | number | null;
 }
 
+interface InactiveItemForwardWriteGuard {
+  table: string;
+  workflow_state: string;
+  item_ids: number[];
+}
+
 @Component({
   selector: 'dmis-master-form-dialog',
   standalone: true,
@@ -44,6 +50,22 @@ export interface MasterFormDialogData {
 
     <mat-dialog-content>
       <form [formGroup]="form" class="dialog-form">
+        @if (submissionError(); as message) {
+          <div class="form-submit-alert" role="alert" aria-live="assertive">
+            <mat-icon aria-hidden="true">error</mat-icon>
+            <div class="form-submit-alert__content">
+              <p class="form-submit-alert__title">{{ message }}</p>
+              @if (submissionErrorDetails().length > 0) {
+                <ul class="form-submit-alert__details">
+                  @for (detail of submissionErrorDetails(); track detail) {
+                    <li>{{ detail }}</li>
+                  }
+                </ul>
+              }
+            </div>
+          </div>
+        }
+
         @for (field of data.config.formFields; track field.field) {
           @switch (field.type) {
             @case ('textarea') {
@@ -189,6 +211,42 @@ export interface MasterFormDialogData {
       min-width: 380px;
     }
     .full-width { width: 100%; }
+    .form-submit-alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid #fecaca;
+      border-left: 4px solid #dc2626;
+      border-radius: 6px;
+      background: #fef2f2;
+      margin-bottom: 4px;
+    }
+    .form-submit-alert mat-icon {
+      color: #dc2626;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    .form-submit-alert__content {
+      min-width: 0;
+    }
+    .form-submit-alert__title {
+      margin: 0;
+      color: #991b1b;
+      font-size: 0.82rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .form-submit-alert__details {
+      margin: 6px 0 0;
+      padding-left: 16px;
+      color: #7f1d1d;
+      font-size: 0.74rem;
+      line-height: 1.35;
+    }
     .bool-field-wrap {
       margin: 4px 0 8px;
     }
@@ -256,12 +314,15 @@ export class MasterFormDialogComponent implements OnInit {
   isSaving = signal(false);
   isLoadingRecord = signal(false);
   lookups = signal<Record<string, LookupItem[]>>({});
+  submissionError = signal<string | null>(null);
+  submissionErrorDetails = signal<string[]>([]);
   readonly formErrorMessages: Record<string, string> = {
     fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
     expiryRequiresFefo: 'Issuance Order must be FEFO when Can Expire is enabled.',
   };
 
   private versionNbr: number | null = null;
+  private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
 
   ngOnInit(): void {
     this.isEdit.set(this.data.pk != null);
@@ -290,6 +351,14 @@ export class MasterFormDialogComponent implements OnInit {
       this.form.setValidators(validateFefoRequiresExpiry);
       this.form.updateValueAndValidity({ emitEvent: false });
     }
+
+    this.form.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      if (this.submissionError()) {
+        this.clearSubmissionError();
+      }
+    });
   }
 
   private loadLookups(): void {
@@ -320,12 +389,16 @@ export class MasterFormDialogComponent implements OnInit {
         for (const field of this.data.config.formFields) {
           const control = this.form.get(field.field);
           if (control && record[field.field] !== undefined) {
-            control.setValue(record[field.field]);
+            control.setValue(record[field.field], { emitEvent: false });
           }
           if (field.readonlyOnEdit && control) {
             control.disable();
           }
         }
+
+        // Re-run cross-field validators (e.g. FEFO requires expiry) after silent patch
+        this.form.updateValueAndValidity({ emitEvent: false });
+
         this.isLoadingRecord.set(false);
       },
       error: () => {
@@ -336,6 +409,8 @@ export class MasterFormDialogComponent implements OnInit {
   }
 
   onSave(): void {
+    this.clearSubmissionError();
+
     if (!this.form.valid) {
       this.form.markAllAsTouched();
       return;
@@ -379,10 +454,29 @@ export class MasterFormDialogComponent implements OnInit {
               control.markAsTouched();
             }
           }
+          this.notify.showWarning('Please fix the validation errors.');
+          return;
+        }
+
+        const inactiveItemGuard = this.extractInactiveItemForwardWriteGuard(err);
+        if (inactiveItemGuard) {
+          const details = this.buildInactiveItemGuardDetails(inactiveItemGuard);
+          this.setSubmissionError(
+            'Save blocked because the selected item is inactive for forward-looking writes.',
+            details,
+            this.inactiveItemForwardWriteCode,
+          );
+          this.applyInactiveItemControlError(inactiveItemGuard);
+          this.notify.showError('Save blocked by inactive-item forward-write guard.');
+          return;
         } else if (err.status === 409) {
-          this.notify.showError(err.error?.detail || 'Record was modified by another user.');
+          const message = err.error?.detail || 'Record was modified by another user.';
+          this.setSubmissionError(message, [], 'versionConflict');
+          this.notify.showError(message);
         } else {
-          this.notify.showError(err.error?.detail || 'Save failed.');
+          const message = err.error?.detail || 'Save failed.';
+          this.setSubmissionError(message, [], 'submitFailure');
+          this.notify.showError(message);
         }
       },
     });
@@ -398,5 +492,92 @@ export class MasterFormDialogComponent implements OnInit {
     const issuanceTouched = this.form.get('issuance_order')?.touched ?? false;
     const canExpireTouched = this.form.get('can_expire_flag')?.touched ?? false;
     return issuanceTouched || canExpireTouched || this.form.touched;
+  }
+
+  private setSubmissionError(message: string, details: string[], formErrorKey: string): void {
+    this.submissionError.set(message);
+    this.submissionErrorDetails.set(details);
+    this.form.setErrors({
+      ...(this.form.errors || {}),
+      [formErrorKey]: true,
+    });
+  }
+
+  private clearSubmissionError(): void {
+    this.submissionError.set(null);
+    this.submissionErrorDetails.set([]);
+
+    const formErrors = this.form.errors;
+    if (!formErrors) return;
+
+    const nextErrors: Record<string, unknown> = { ...formErrors };
+    delete nextErrors[this.inactiveItemForwardWriteCode];
+    delete nextErrors['versionConflict'];
+    delete nextErrors['submitFailure'];
+    this.form.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
+  }
+
+  private extractInactiveItemForwardWriteGuard(error: unknown): InactiveItemForwardWriteGuard | null {
+    const err = error as {
+      error?: {
+        errors?: Record<string, unknown>;
+      };
+    };
+    const rawGuard = err?.error?.errors?.[this.inactiveItemForwardWriteCode];
+    if (!rawGuard || typeof rawGuard !== 'object') {
+      return null;
+    }
+
+    const guard = rawGuard as Record<string, unknown>;
+    const itemIds = Array.isArray(guard['item_ids'])
+      ? guard['item_ids']
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+      : [];
+
+    return {
+      table: String(guard['table'] || '').trim() || 'unknown',
+      workflow_state: String(guard['workflow_state'] || '').trim() || 'UNKNOWN',
+      item_ids: [...new Set(itemIds)].sort((a, b) => a - b),
+    };
+  }
+
+  private buildInactiveItemGuardDetails(guard: InactiveItemForwardWriteGuard): string[] {
+    const details = [
+      `Table: ${this.humanizeToken(guard.table)}`,
+      `Workflow State: ${this.humanizeToken(guard.workflow_state)}`,
+    ];
+
+    if (guard.item_ids.length > 0) {
+      details.push(`Inactive Item ID(s): ${guard.item_ids.join(', ')}`);
+    }
+
+    return details;
+  }
+
+  private applyInactiveItemControlError(guard: InactiveItemForwardWriteGuard): void {
+    const itemControl = this.form.get('item_id');
+    if (!itemControl) return;
+
+    const message = guard.item_ids.length > 0
+      ? `Inactive item ID(s): ${guard.item_ids.join(', ')}`
+      : 'Selected item is inactive for forward-looking writes.';
+
+    itemControl.setErrors({
+      ...(itemControl.errors || {}),
+      server: message,
+    });
+    itemControl.markAsTouched();
+  }
+
+  private humanizeToken(rawValue: string): string {
+    const normalized = String(rawValue || '').trim();
+    if (!normalized) return 'Unknown';
+
+    return normalized
+      .split('_')
+      .filter(Boolean)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+      .join(' ');
   }
 }

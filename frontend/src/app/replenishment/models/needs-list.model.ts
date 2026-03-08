@@ -1,10 +1,15 @@
 import { EventPhase, SeverityLevel } from '../models/stock-status.model';
 
+export type EffectiveCriticalityLevel = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+export type EffectiveCriticalitySource = 'EVENT_OVERRIDE' | 'HAZARD_TYPE_DEFAULT' | 'ITEM_DEFAULT';
+
 export interface NeedsListItem {
   item_id: number;
   item_name?: string;
   item_code?: string;
   uom_code?: string;
+  effective_criticality_level?: EffectiveCriticalityLevel | string | null;
+  effective_criticality_source?: EffectiveCriticalitySource | string | null;
   warehouse_id?: number;             // NEW for multi-warehouse
   warehouse_name?: string;           // NEW for multi-warehouse
   available_qty: number;
