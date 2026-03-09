@@ -102,7 +102,7 @@ AS $$
 BEGIN
     IF UPPER(COALESCE(NEW.status_code, '')) IN ('C', 'CLOSED')
        AND UPPER(COALESCE(OLD.status_code, '')) NOT IN ('C', 'CLOSED') THEN
-        UPDATE public.event_item_criticality_override
+        UPDATE public.event_item_criticality_override AS eico
         SET
             is_active = FALSE,
             status_code = 'I',
