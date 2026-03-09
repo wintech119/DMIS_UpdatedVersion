@@ -53,6 +53,20 @@ class ApplyItemsCriticalityLayersCommandTests(SimpleTestCase):
         self.assertIn("REFERENCES tenant_a.event(event_id)", executed_sql)
         self.assertIn("REFERENCES tenant_a.item(item_id)", executed_sql)
         self.assertIn(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_hazard_item_criticality_one_approved_row",
+            executed_sql,
+        )
+        self.assertIn(
+            "ON tenant_a.hazard_item_criticality(event_type, item_id)",
+            executed_sql,
+        )
+        self.assertIn(
+            "WHERE approval_status = 'APPROVED'",
+            executed_sql,
+        )
+        self.assertIn("AND is_active = TRUE", executed_sql)
+        self.assertIn("AND effective_to IS NULL", executed_sql)
+        self.assertIn(
             "CREATE OR REPLACE FUNCTION tenant_a.fn_expire_event_item_criticality_override_on_event_close()",
             executed_sql,
         )

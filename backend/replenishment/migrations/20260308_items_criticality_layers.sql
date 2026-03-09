@@ -97,6 +97,12 @@ CREATE INDEX IF NOT EXISTS idx_hazard_item_criticality_approved
     ON {schema}.hazard_item_criticality(event_type, item_id, effective_from DESC)
     WHERE is_active = TRUE AND approval_status = 'APPROVED';
 
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hazard_item_criticality_one_approved_row
+    ON {schema}.hazard_item_criticality(event_type, item_id)
+    WHERE approval_status = 'APPROVED'
+      AND is_active = TRUE
+      AND effective_to IS NULL;
+
 
 CREATE OR REPLACE FUNCTION {schema}.fn_expire_event_item_criticality_override_on_event_close()
 RETURNS trigger
