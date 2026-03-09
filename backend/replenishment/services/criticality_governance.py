@@ -115,6 +115,32 @@ def _serialize_hazard_default_row(row: tuple) -> Dict[str, object]:
     }
 
 
+def _hazard_default_review_state(
+    cursor,
+    *,
+    schema: str,
+    hazard_item_criticality_id: int,
+) -> tuple | None:
+    cursor.execute(
+        f"""
+        SELECT approval_status, submitted_by_id
+        FROM {schema}.hazard_item_criticality
+        WHERE hazard_item_criticality_id = %s
+        LIMIT 1
+        """,
+        [int(hazard_item_criticality_id)],
+    )
+    return cursor.fetchone()
+
+
+def _is_self_review_attempt(state_row: tuple | None, actor_id: str) -> bool:
+    if not state_row:
+        return False
+    approval_status = str(state_row[0] or "").strip().upper()
+    submitted_by_id = str(state_row[1] or "").strip()
+    return approval_status == "PENDING_APPROVAL" and submitted_by_id == str(actor_id or "").strip()
+
+
 def _fetch_event_status(schema: str, event_id: int) -> str | None:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -808,6 +834,7 @@ def approve_hazard_default(
                         version_nbr = version_nbr + 1
                     WHERE hazard_item_criticality_id = %s
                       AND approval_status = 'PENDING_APPROVAL'
+                      AND submitted_by_id IS DISTINCT FROM %s
                     RETURNING
                         hazard_item_criticality_id,
                         event_type,
@@ -832,10 +859,17 @@ def approve_hazard_default(
                         update_dtime,
                         version_nbr
                     """,
-                    [actor, actor, int(hazard_item_criticality_id)],
+                    [actor, actor, int(hazard_item_criticality_id), actor],
                 )
                 row = cursor.fetchone()
                 if not row:
+                    state_row = _hazard_default_review_state(
+                        cursor,
+                        schema=schema,
+                        hazard_item_criticality_id=hazard_item_criticality_id,
+                    )
+                    if _is_self_review_attempt(state_row, actor):
+                        return None, ["criticality_hazard_default_self_approval_forbidden"]
                     return None, ["criticality_hazard_default_approve_invalid_state_or_missing"]
                 return _serialize_hazard_default_row(row), []
     except DatabaseError as exc:
@@ -880,6 +914,7 @@ def reject_hazard_default(
                         version_nbr = version_nbr + 1
                     WHERE hazard_item_criticality_id = %s
                       AND approval_status = 'PENDING_APPROVAL'
+                      AND submitted_by_id IS DISTINCT FROM %s
                     RETURNING
                         hazard_item_criticality_id,
                         event_type,
@@ -904,10 +939,17 @@ def reject_hazard_default(
                         update_dtime,
                         version_nbr
                     """,
-                    [actor, reason, actor, int(hazard_item_criticality_id)],
+                    [actor, reason, actor, int(hazard_item_criticality_id), actor],
                 )
                 row = cursor.fetchone()
                 if not row:
+                    state_row = _hazard_default_review_state(
+                        cursor,
+                        schema=schema,
+                        hazard_item_criticality_id=hazard_item_criticality_id,
+                    )
+                    if _is_self_review_attempt(state_row, actor):
+                        return None, ["criticality_hazard_default_self_rejection_forbidden"]
                     return None, ["criticality_hazard_default_reject_invalid_state_or_missing"]
                 return _serialize_hazard_default_row(row), []
     except DatabaseError as exc:
