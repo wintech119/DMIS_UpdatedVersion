@@ -62,6 +62,13 @@ def _schema_name() -> str:
     return "public"
 
 
+def _safe_rollback() -> None:
+    try:
+        connection.rollback()
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Field descriptor
 # ---------------------------------------------------------------------------
@@ -920,11 +927,8 @@ def _guard_inactive_item_forward_write(
             row = cursor.fetchone()
     except DatabaseError as exc:
         logger.warning("Item status lookup failed for item_id=%s: %s", item_id, exc)
-        try:
-            connection.rollback()
-        except Exception:
-            pass
-        return True, ["item_status_lookup_failed"]
+        _safe_rollback()
+        return False, ["item_status_lookup_failed"]
 
     if not row:
         # FK validation handles missing item IDs separately.
@@ -969,10 +973,7 @@ def _lookup_inventory_item_id(inventory_id: Any) -> Tuple[Any | None, List[str]]
             inventory_id,
             exc,
         )
-        try:
-            connection.rollback()
-        except Exception:
-            pass
+        _safe_rollback()
         return None, ["inventory_item_lookup_failed"]
 
     if not row:
@@ -1093,6 +1094,8 @@ def update_record(
     if table_key == "inventory" and "item_id" not in data:
         guard_item_id, lookup_warnings = _lookup_inventory_item_id(pk_value)
         warnings.extend(lookup_warnings)
+        if "inventory_item_lookup_failed" in lookup_warnings:
+            return False, warnings
 
     workflow_state = str(data.get("workflow_state") or "ALWAYS")
     if table_key == "inventory" or "item_id" in data:
@@ -1455,10 +1458,7 @@ def _check_item_forward_write_dependencies(item_id: Any) -> Tuple[List[str], Lis
                 exc,
             )
             warnings.append(f"dependency_check_failed_{rule['table']}")
-            try:
-                connection.rollback()
-            except Exception:
-                pass
+            _safe_rollback()
 
     return blocking, warnings
 
@@ -1502,6 +1502,7 @@ def check_dependencies(
                 table_key, pk_value, dep.table, exc,
             )
             warnings.append(f"dependency_check_failed_{dep.table}")
+            _safe_rollback()
 
     return blocking, warnings
 

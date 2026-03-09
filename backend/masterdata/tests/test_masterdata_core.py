@@ -2,6 +2,7 @@ import importlib
 from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
+from django.db import DatabaseError
 from django.test import RequestFactory, SimpleTestCase
 from django.test import override_settings
 from rest_framework.request import Request
@@ -347,6 +348,45 @@ class InactiveItemForwardWriteTests(SimpleTestCase):
         self.assertEqual(guard["item_ids"], [9])
 
 
+class InactivationDependencyFailureViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="tester",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_INACTIVATE],
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.inactivate_record")
+    @patch(
+        "masterdata.views.check_dependencies",
+        return_value=([], ["dependency_check_failed_inventory"]),
+    )
+    def test_master_inactivate_returns_500_when_dependency_check_fails(
+        self,
+        _mock_check_dependencies,
+        mock_inactivate_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/items/15/inactivate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_inactivate(request, "items", "15")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.data["detail"],
+            "Failed to validate dependencies before inactivation.",
+        )
+        self.assertEqual(
+            response.data["warnings"],
+            ["dependency_check_failed_inventory"],
+        )
+        mock_inactivate_record.assert_not_called()
+
+
 class InventoryGuardLookupTests(SimpleTestCase):
     @patch(
         "masterdata.services.data_access._guard_inactive_item_forward_write",
@@ -373,6 +413,29 @@ class InventoryGuardLookupTests(SimpleTestCase):
         self.assertFalse(success)
         self.assertIn(INACTIVE_ITEM_FORWARD_WRITE_CODE, warnings)
         self.assertEqual(mock_guard.call_args.kwargs["item_id"], 42)
+
+    @patch("masterdata.services.data_access._guard_inactive_item_forward_write")
+    @patch(
+        "masterdata.services.data_access._lookup_inventory_item_id",
+        return_value=(None, ["inventory_item_lookup_failed"]),
+    )
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_inventory_update_blocks_when_item_lookup_fails(
+        self,
+        _mock_sqlite,
+        _mock_lookup,
+        mock_guard,
+    ):
+        success, warnings = update_record(
+            "inventory",
+            11,
+            {"usable_qty": 5},
+            "tester",
+        )
+
+        self.assertFalse(success)
+        self.assertEqual(warnings, ["inventory_item_lookup_failed"])
+        mock_guard.assert_not_called()
 
 
 class InactiveForwardWriteMatrixTests(SimpleTestCase):
@@ -540,6 +603,47 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         ]
         for fragment in expected_fragments:
             self.assertTrue(any(fragment in sql for sql in executed), fragment)
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_items_dependency_check_rolls_back_and_returns_warning_on_db_error(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = DatabaseError("lookup failed")
+        mock_connection.rollback.side_effect = RuntimeError("rollback failed")
+
+        blocking, warnings = check_dependencies("items", 42)
+
+        self.assertEqual(blocking, [])
+        self.assertEqual(len(warnings), 9)
+        self.assertIn("dependency_check_failed_inventory", warnings)
+        self.assertEqual(mock_connection.rollback.call_count, 9)
+
+
+class InactiveItemLookupFailureTests(SimpleTestCase):
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_guard_blocks_write_when_item_status_lookup_fails(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = DatabaseError("lookup failed")
+        mock_connection.rollback.side_effect = RuntimeError("rollback failed")
+
+        allowed, warnings = _guard_inactive_item_forward_write(
+            table_key="inventory",
+            item_id=15,
+            workflow_state="ALWAYS",
+        )
+
+        self.assertFalse(allowed)
+        self.assertEqual(warnings, ["item_status_lookup_failed"])
+        mock_connection.rollback.assert_called_once()
 
 
 class ItemCodeMigrationSchemaTests(SimpleTestCase):

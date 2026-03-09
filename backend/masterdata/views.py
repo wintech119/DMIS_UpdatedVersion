@@ -531,6 +531,14 @@ def master_inactivate(request, table_key: str, pk: str):
 
     # Check dependencies first
     blocking, dep_warnings = check_dependencies(cfg.key, pk_value)
+    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
+        return Response(
+            {
+                "detail": "Failed to validate dependencies before inactivation.",
+                "warnings": dep_warnings,
+            },
+            status=500,
+        )
     if blocking:
         return Response({
             "detail": "Cannot inactivate: referenced by other records.",
