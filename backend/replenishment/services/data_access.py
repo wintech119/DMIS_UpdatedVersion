@@ -156,6 +156,7 @@ def _table_or_view_exists(schema: str, object_name: str) -> bool:
 def _get_inbound_from_view_by_source(
     warehouse_id: int,
     source_type: str,
+    as_of_dt,
 ) -> Tuple[Dict[int, float], List[str]]:
     warnings: List[str] = []
     normalized_source = str(source_type or "").strip().upper()
@@ -168,6 +169,7 @@ def _get_inbound_from_view_by_source(
     if not _table_or_view_exists(schema, _STRICT_INBOUND_VIEW):
         return {}, ["strict_inbound_workflow_view_missing"]
 
+    normalized_as_of = _normalize_datetime(as_of_dt or timezone.now())
     inbound: Dict[int, float] = {}
     try:
         with connection.cursor() as cursor:
@@ -177,9 +179,11 @@ def _get_inbound_from_view_by_source(
                 FROM {schema}.{_STRICT_INBOUND_VIEW}
                 WHERE warehouse_id = %s
                   AND UPPER(source_type) = %s
+                  AND inbound_start_dtime <= %s
+                  AND (inbound_end_dtime IS NULL OR inbound_end_dtime > %s)
                 GROUP BY item_id
                 """,
-                [warehouse_id, normalized_source],
+                [warehouse_id, normalized_source, normalized_as_of, normalized_as_of],
             )
             for item_id, qty in cursor.fetchall():
                 inbound[int(item_id)] = _to_float(qty)
@@ -282,16 +286,14 @@ def get_available_by_item(
 def get_inbound_donations_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
-    _ = as_of_dt
-    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "DONATION")
+    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "DONATION", as_of_dt)
     return inbound, warnings
 
 
 def get_inbound_transfers_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
-    _ = as_of_dt
-    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "TRANSFER")
+    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "TRANSFER", as_of_dt)
     return inbound, warnings
 
 
