@@ -266,12 +266,13 @@ _taxonomy_lock = threading.Lock()
 def _taxonomy_path_from_settings() -> Path:
     from django.conf import settings
 
-    agent_cfg = getattr(settings, "IFRC_AGENT", {}) or {}
-    path_raw = (
-        agent_cfg.get("TAXONOMY_FILE")
-        or os.environ.get("IFRC_TAXONOMY_FILE")
-        or str(Path(__file__).resolve().parent / "data" / "ifrc_catalogue_taxonomy.md")
-    )
+    default_path = Path(__file__).resolve().parent / "data" / "ifrc_catalogue_taxonomy.md"
+    env_path = os.environ.get("IFRC_TAXONOMY_FILE")
+    path_raw = None
+    if getattr(settings, "configured", False):
+        agent_cfg = getattr(settings, "IFRC_AGENT", {}) or {}
+        path_raw = agent_cfg.get("TAXONOMY_FILE")
+    path_raw = path_raw or env_path or str(default_path)
     return Path(path_raw)
 
 
@@ -298,3 +299,4 @@ def reload_taxonomy() -> IFRCTaxonomy:
         _taxonomy_instance = None
         _taxonomy_path = None
     return get_taxonomy()
+
