@@ -156,6 +156,21 @@ def _fetch_event_status(schema: str, event_id: int) -> str | None:
         return str(row[0]).strip().upper() if row and row[0] else None
 
 
+def _fetch_override_event_id(schema: str, override_id: int) -> int | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT event_id
+            FROM {schema}.event_item_criticality_override
+            WHERE override_id = %s
+            LIMIT 1
+            """,
+            [override_id],
+        )
+        row = cursor.fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+
+
 def list_event_overrides(
     *,
     event_id: int | None = None,
@@ -378,6 +393,14 @@ def update_event_override(
 
     try:
         with transaction.atomic():
+            if bool(updates.get("is_active")):
+                event_id = _fetch_override_event_id(schema, int(override_id))
+                if event_id is None:
+                    return None, ["criticality_event_override_not_found"]
+                event_status = _fetch_event_status(schema, int(event_id))
+                if event_status in {"C", "CLOSED"}:
+                    return None, ["event_closed_override_not_allowed"]
+
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""

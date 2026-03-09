@@ -2500,7 +2500,7 @@ def criticality_event_override_detail(request, override_id: int):
         actor_id=_actor_id(request) or "SYSTEM",
     )
     if updated is None:
-        status_code = 404 if "criticality_event_override_not_found" in warnings else 400
+        status_code = 404 if "criticality_event_override_not_found" in warnings else 409 if "event_closed_override_not_allowed" in warnings else 400
         return Response({"errors": {"criticality": warnings}}, status=status_code)
 
     _log_audit_event(
