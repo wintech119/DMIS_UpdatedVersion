@@ -20,6 +20,11 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCardModule } from '@angular/material/card';
 
 import { MasterColumnConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
+import {
+  IfrcFamilyLookup,
+  IfrcReferenceLookup,
+  ItemCategoryLookup,
+} from '../../models/item-taxonomy.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterFormDialogComponent } from '../master-form-dialog/master-form-dialog.component';
@@ -68,8 +73,20 @@ export class MasterListComponent implements OnInit {
   sortDirection = signal<'asc' | 'desc'>('asc');
   pageSize = signal(25);
   pageIndex = signal(0);
+  itemCategoryFilter = signal<string>('');
+  itemIfrcFamilyFilter = signal<string>('');
+  itemIfrcReferenceFilter = signal<string>('');
+  itemCategoryOptions = signal<ItemCategoryLookup[]>([]);
+  itemIfrcFamilyOptions = signal<IfrcFamilyLookup[]>([]);
+  itemIfrcReferenceOptions = signal<IfrcReferenceLookup[]>([]);
+  itemLookupLoading = signal({
+    categories: false,
+    families: false,
+    references: false,
+  });
 
   private searchSubject = new Subject<string>();
+  readonly isItemList = computed(() => this.config()?.tableKey === 'items');
 
   displayedColumns = computed(() => {
     const cfg = this.config();
@@ -85,6 +102,9 @@ export class MasterListComponent implements OnInit {
     if (this.statusFilter()) count++;
     if (this.searchText()) count++;
     if (this.sortField()) count++;
+    if (this.itemCategoryFilter()) count++;
+    if (this.itemIfrcFamilyFilter()) count++;
+    if (this.itemIfrcReferenceFilter()) count++;
     return count;
   });
 
@@ -107,6 +127,7 @@ export class MasterListComponent implements OnInit {
       const cfg = ALL_TABLE_CONFIGS[routePath];
       if (cfg) {
         this.config.set(cfg);
+        this.resetItemFiltersForConfig(cfg);
         this.loadData();
       }
     });
@@ -124,6 +145,87 @@ export class MasterListComponent implements OnInit {
     });
   }
 
+  private resetItemFiltersForConfig(cfg: MasterTableConfig): void {
+    this.itemCategoryFilter.set('');
+    this.itemIfrcFamilyFilter.set('');
+    this.itemIfrcReferenceFilter.set('');
+    this.itemCategoryOptions.set([]);
+    this.itemIfrcFamilyOptions.set([]);
+    this.itemIfrcReferenceOptions.set([]);
+
+    if (cfg.tableKey !== 'items') {
+      return;
+    }
+
+    this.loadItemCategoryOptions();
+  }
+
+  private loadItemCategoryOptions(): void {
+    this.itemLookupLoading.update((state) => ({ ...state, categories: true }));
+    this.service.lookupItemCategories().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        this.itemCategoryOptions.set(items);
+        this.itemLookupLoading.update((state) => ({ ...state, categories: false }));
+      },
+      error: () => {
+        this.itemCategoryOptions.set([]);
+        this.itemLookupLoading.update((state) => ({ ...state, categories: false }));
+        this.notify.showError('Failed to load item category filters.');
+      },
+    });
+  }
+
+  private loadItemFamilyOptions(categoryId: string): void {
+    if (!categoryId) {
+      this.itemIfrcFamilyOptions.set([]);
+      this.itemLookupLoading.update((state) => ({ ...state, families: false }));
+      return;
+    }
+
+    this.itemLookupLoading.update((state) => ({ ...state, families: true }));
+    this.service.lookupIfrcFamilies({ categoryId }).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        this.itemIfrcFamilyOptions.set(items);
+        this.itemLookupLoading.update((state) => ({ ...state, families: false }));
+      },
+      error: () => {
+        this.itemIfrcFamilyOptions.set([]);
+        this.itemLookupLoading.update((state) => ({ ...state, families: false }));
+        this.notify.showError('Failed to load IFRC family filters.');
+      },
+    });
+  }
+
+  private loadItemReferenceOptions(familyId: string): void {
+    if (!familyId) {
+      this.itemIfrcReferenceOptions.set([]);
+      this.itemLookupLoading.update((state) => ({ ...state, references: false }));
+      return;
+    }
+
+    this.itemLookupLoading.update((state) => ({ ...state, references: true }));
+    this.service.lookupIfrcReferences({
+      ifrcFamilyId: familyId,
+      limit: 100,
+    }).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        this.itemIfrcReferenceOptions.set(items);
+        this.itemLookupLoading.update((state) => ({ ...state, references: false }));
+      },
+      error: () => {
+        this.itemIfrcReferenceOptions.set([]);
+        this.itemLookupLoading.update((state) => ({ ...state, references: false }));
+        this.notify.showError('Failed to load IFRC reference filters.');
+      },
+    });
+  }
+
   toggleFilters(): void {
     this.filtersExpanded.update(v => !v);
   }
@@ -133,7 +235,15 @@ export class MasterListComponent implements OnInit {
     this.statusFilter.set('');
     this.sortField.set('');
     this.sortDirection.set('asc');
+    this.itemCategoryFilter.set('');
+    this.itemIfrcFamilyFilter.set('');
+    this.itemIfrcReferenceFilter.set('');
+    this.itemIfrcFamilyOptions.set([]);
+    this.itemIfrcReferenceOptions.set([]);
     this.searchSubject.next('');
+    if (this.isItemList()) {
+      this.loadItemCategoryOptions();
+    }
     if (!hadSearch) {
       this.pageIndex.set(0);
       this.loadData();
@@ -148,6 +258,33 @@ export class MasterListComponent implements OnInit {
   onStatusFilterChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     this.statusFilter.set(value === 'ALL' ? '' : value);
+    this.pageIndex.set(0);
+    this.loadData();
+  }
+
+  onItemCategoryFilterChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.itemCategoryFilter.set(value);
+    this.itemIfrcFamilyFilter.set('');
+    this.itemIfrcReferenceFilter.set('');
+    this.itemIfrcReferenceOptions.set([]);
+    this.pageIndex.set(0);
+    this.loadItemFamilyOptions(value);
+    this.loadData();
+  }
+
+  onItemIfrcFamilyFilterChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.itemIfrcFamilyFilter.set(value);
+    this.itemIfrcReferenceFilter.set('');
+    this.pageIndex.set(0);
+    this.loadItemReferenceOptions(value);
+    this.loadData();
+  }
+
+  onItemIfrcReferenceFilterChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.itemIfrcReferenceFilter.set(value);
     this.pageIndex.set(0);
     this.loadData();
   }
@@ -187,6 +324,9 @@ export class MasterListComponent implements OnInit {
       orderBy: this.getOrderByParam(cfg),
       limit: this.pageSize(),
       offset: this.pageIndex() * this.pageSize(),
+      categoryId: cfg.tableKey === 'items' ? this.itemCategoryFilter() || undefined : undefined,
+      ifrcFamilyId: cfg.tableKey === 'items' ? this.itemIfrcFamilyFilter() || undefined : undefined,
+      ifrcItemRefId: cfg.tableKey === 'items' ? this.itemIfrcReferenceFilter() || undefined : undefined,
     }).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
@@ -318,6 +458,23 @@ export class MasterListComponent implements OnInit {
   getStatusClass(value: string): string {
     if (value === 'A') return 'status-active';
     return 'status-inactive';
+  }
+
+  getItemCategoryFilterLabel(item: ItemCategoryLookup): string {
+    const code = String(item.category_code ?? '').trim();
+    return code ? `${item.label} (${code})` : item.label;
+  }
+
+  getItemFamilyFilterLabel(item: IfrcFamilyLookup): string {
+    const familyCode = String(item.family_code ?? '').trim();
+    const groupCode = String(item.group_code ?? '').trim();
+    const suffix = [groupCode, familyCode].filter(Boolean).join('-');
+    return suffix ? `${item.label} (${suffix})` : item.label;
+  }
+
+  getItemReferenceFilterLabel(item: IfrcReferenceLookup): string {
+    const ifrcCode = String(item.ifrc_code ?? '').trim();
+    return ifrcCode ? `${item.label} (${ifrcCode})` : item.label;
   }
 
   private openFormDialog(pk: string | number | null): void {

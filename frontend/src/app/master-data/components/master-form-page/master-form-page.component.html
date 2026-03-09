@@ -50,7 +50,167 @@
             <div class="form-grid"
               [class.identity-grid-new]="isItemRecord() && group.label === 'Item Identity'">
 
-              @for (field of group.fields; track field.field) {
+              @if (isItemClassificationGroup(group.label)) {
+                <div class="form-field colspan-2 item-taxonomy-card">
+                  <div class="item-taxonomy-grid">
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>Level 1 DMIS Business Category</mat-label>
+                      <mat-select formControlName="category_id" aria-required="true">
+                        @for (item of itemCategoryOptions(); track item.value) {
+                          <mat-option [value]="item.value">
+                            {{ item.label }}
+                            @if (item.category_code) {
+                              ({{ item.category_code }})
+                            }
+                          </mat-option>
+                        }
+                      </mat-select>
+                      @if (lookupErrors()['item_categories']) {
+                        <mat-error>{{ lookupErrors()['item_categories'] }}</mat-error>
+                      } @else {
+                        <mat-hint>Required. Keep the operational Level 1 business category aligned to the item.</mat-hint>
+                      }
+                      @if (getItemTaxonomyFieldError('category_id'); as error) {
+                        <mat-error>{{ error }}</mat-error>
+                      }
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>Level 2 IFRC Family</mat-label>
+                      <mat-select
+                        formControlName="ifrc_family_id"
+                        [attr.aria-required]="isItemFamilyRequired()">
+                        @for (item of itemIfrcFamilyOptions(); track item.value) {
+                          <mat-option [value]="item.value">{{ getItemFamilyLabel(item) }}</mat-option>
+                        }
+                      </mat-select>
+                      @if (lookupErrors()['ifrc_families']) {
+                        <mat-error>{{ lookupErrors()['ifrc_families'] }}</mat-error>
+                      } @else if (!form.get('category_id')?.value) {
+                        <mat-hint>Select a Level 1 category first.</mat-hint>
+                      } @else {
+                        <mat-hint>
+                          @if (isItemFamilyRequired()) {
+                            Required for new items in governed categories.
+                          } @else {
+                            Optional on edit for legacy items until taxonomy backfill is complete.
+                          }
+                        </mat-hint>
+                      }
+                      @if (getItemTaxonomyFieldError('ifrc_family_id'); as error) {
+                        <mat-error>{{ error }}</mat-error>
+                      }
+                    </mat-form-field>
+
+                    <div class="item-reference-field">
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>Level 3 IFRC Item Reference</mat-label>
+                        <input
+                          matInput
+                          [formControl]="referenceSearchControl"
+                          [matAutocomplete]="ifrcReferenceAuto"
+                          placeholder="Search IFRC description or code" />
+                        @if (referenceSearchControl.value) {
+                          <button
+                            mat-icon-button
+                            matSuffix
+                            type="button"
+                            (click)="onClearIfrcReference()"
+                            aria-label="Clear IFRC reference">
+                            <mat-icon>close</mat-icon>
+                          </button>
+                        }
+                        @if (lookupErrors()['ifrc_references']) {
+                          <mat-error>{{ lookupErrors()['ifrc_references'] }}</mat-error>
+                        } @else if (!form.get('ifrc_family_id')?.value) {
+                          <mat-hint>Select an IFRC family before searching references.</mat-hint>
+                        } @else {
+                          <mat-hint>Optional. Results are ordered by description before IFRC code.</mat-hint>
+                        }
+                        @if (getItemTaxonomyFieldError('ifrc_item_ref_id'); as error) {
+                          <mat-error>{{ error }}</mat-error>
+                        }
+                      </mat-form-field>
+
+                      <mat-autocomplete #ifrcReferenceAuto="matAutocomplete" autoActiveFirstOption>
+                        @for (item of itemIfrcReferenceOptions(); track item.value) {
+                          <mat-option
+                            [value]="getItemReferenceLabel(item)"
+                            (onSelectionChange)="$event.isUserInput && $event.source.selected && onSelectIfrcReference(item)">
+                            <div class="ifrc-reference-option">
+                              <span>{{ item.label }}</span>
+                              @if (item.ifrc_code) {
+                                <small>{{ item.ifrc_code }}</small>
+                              }
+                            </div>
+                          </mat-option>
+                        }
+                      </mat-autocomplete>
+                    </div>
+                  </div>
+
+                  @if (ifrcLoading() || ifrcSuggestion() || ifrcError()) {
+                    <section class="ifrc-suggestion-card" aria-label="IFRC classification assist">
+                      <div class="ifrc-suggestion-card__header">
+                        <div>
+                          <p class="ifrc-suggestion-card__eyebrow">IFRC Classification Assist</p>
+                          @if (getIfrcSuggestionConfidence(); as confidence) {
+                            <p class="ifrc-suggestion-card__confidence">{{ confidence }}</p>
+                          }
+                        </div>
+                        @if (ifrcLoading()) {
+                          <span class="ifrc-suggestion-card__status">Reviewing taxonomy...</span>
+                        }
+                      </div>
+
+                      @if (ifrcError()) {
+                        <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
+                      } @else if (ifrcSuggestion(); as suggestion) {
+                        <dl class="ifrc-suggestion-card__details">
+                          <div>
+                            <dt>Suggested Family</dt>
+                            <dd>{{ getResolvedSuggestionFamilyLabel() }}</dd>
+                          </div>
+                          @if (getResolvedSuggestionReferenceLabel(); as suggestionReference) {
+                            <div>
+                              <dt>Suggested Reference</dt>
+                              <dd>{{ suggestionReference }}</dd>
+                            </div>
+                          }
+                          @if (suggestion.construction_rationale) {
+                            <div class="colspan-2">
+                              <dt>Rationale</dt>
+                              <dd>{{ suggestion.construction_rationale }}</dd>
+                            </div>
+                          }
+                        </dl>
+
+                        @if (ifrcSuggestionResolution()?.warning) {
+                          <p class="ifrc-suggestion-card__message warning">
+                            {{ ifrcSuggestionResolution()?.warning }}
+                          </p>
+                        }
+
+                        <div class="ifrc-suggestion-card__actions">
+                          <button mat-stroked-button type="button" (click)="onRejectIfrcSuggestion()">
+                            Reject
+                          </button>
+                          <button
+                            mat-flat-button
+                            color="primary"
+                            type="button"
+                            [disabled]="!ifrcSuggestionResolution()?.family"
+                            (click)="onAcceptIfrcSuggestion()">
+                            Accept Classification
+                          </button>
+                        </div>
+                      }
+                    </section>
+                  }
+                </div>
+              }
+
+              @for (field of getRenderableFields(group); track field.field) {
                 <div class="form-field"
                   [class.colspan-2]="field.colspan === 2"
                   [attr.data-field]="field.field">
@@ -246,9 +406,7 @@
                           For the item_code field: show "generating" hint while the IFRC
                           agent is running, otherwise fall through to the normal hint.
                         -->
-                        @if (field.field === 'item_code' && ifrcLoading()) {
-                          <mat-hint aria-live="polite">Generating IFRC code…</mat-hint>
-                        } @else if (field.hint) {
+                        @if (field.hint) {
                           <mat-hint>{{ field.hint }}</mat-hint>
                         }
                         @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
@@ -279,9 +437,9 @@
                 <div class="form-field ifrc-hints-cell"
                   [formGroup]="ifrcSpecForm"
                   role="group"
-                  aria-label="IFRC code specification hints (optional)">
+                  aria-label="IFRC classification hints (optional)">
                   <span class="ifrc-spec-label" aria-hidden="true">
-                    IFRC code hints&nbsp;<span class="optional">(optional)</span>
+                    IFRC classification hints&nbsp;<span class="optional">(optional)</span>
                   </span>
                   <div class="ifrc-spec-fields">
                     <mat-form-field appearance="outline" subscriptSizing="dynamic">

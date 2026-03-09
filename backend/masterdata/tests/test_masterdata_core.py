@@ -69,7 +69,7 @@ class PaginationLimitClampTests(SimpleTestCase):
         self.factory = RequestFactory()
         self.cfg = TABLE_REGISTRY["items"]
 
-    @patch("masterdata.views.list_records", return_value=([], 0, []))
+    @patch("masterdata.views.list_item_records", return_value=([], 0, []))
     def test_negative_limit_is_clamped_to_minimum(self, mock_list_records):
         request = Request(self.factory.get(
             "/api/v1/masterdata/items/",
@@ -82,7 +82,7 @@ class PaginationLimitClampTests(SimpleTestCase):
         kwargs = mock_list_records.call_args.kwargs
         self.assertEqual(kwargs["limit"], 1)
 
-    @patch("masterdata.views.list_records", return_value=([], 0, []))
+    @patch("masterdata.views.list_item_records", return_value=([], 0, []))
     def test_excessive_limit_is_clamped_to_maximum(self, mock_list_records):
         request = Request(self.factory.get(
             "/api/v1/masterdata/items/",
@@ -252,9 +252,9 @@ class ItemUpdateValidationContextTests(SimpleTestCase):
     def setUp(self):
         self.cfg = TABLE_REGISTRY["items"]
 
-    @patch("masterdata.views.update_record", return_value=(True, []))
+    @patch("masterdata.views.update_item_record", return_value=(True, []))
     @patch("masterdata.views.validate_record", return_value={})
-    @patch("masterdata.views.get_record")
+    @patch("masterdata.views.get_item_record")
     def test_item_update_passes_existing_record_to_validation(
         self,
         mock_get_record,

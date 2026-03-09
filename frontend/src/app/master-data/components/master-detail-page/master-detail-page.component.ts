@@ -280,18 +280,28 @@ export class MasterDetailPageComponent implements OnInit {
       'Inventory Settings': 'inventory_2',
       'Procurement': 'shopping_cart',
       'Financial': 'payments',
+      'Item Identity': 'label',
+      'Classification': 'category',
+      'Inventory Rules': 'inventory_2',
+      'Tracking & Behaviour': 'track_changes',
+      'Notes & Storage': 'notes',
     };
     return iconMap[groupLabel] || 'folder';
   }
 
   getDisplayValue(field: MasterFieldConfig, value: unknown): string {
-    if (value == null || value === '') return '-';
-    if (field.type === 'boolean') return value ? 'Yes' : 'No';
+    const record = this.record();
+    const displayValue = field.displayField && record
+      ? record[field.displayField]
+      : value;
+
+    if (displayValue == null || displayValue === '') return '-';
+    if (field.type === 'boolean') return displayValue ? 'Yes' : 'No';
     if (field.type === 'select' && field.options) {
-      const opt = field.options.find(o => o.value === value);
-      return opt?.label || String(value);
+      const opt = field.options.find((option) => option.value === displayValue);
+      return opt?.label || String(displayValue);
     }
-    return String(value);
+    return String(displayValue);
   }
 
   getStatusLabel(): string {

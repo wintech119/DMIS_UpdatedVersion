@@ -41,6 +41,16 @@ from masterdata.services.data_access import (
     list_records,
     update_record,
 )
+from masterdata.services.item_master import (
+    create_item_record,
+    get_item_record,
+    list_item_category_lookup,
+    list_ifrc_family_lookup,
+    list_ifrc_reference_lookup,
+    list_item_records,
+    update_item_record,
+    validate_item_payload,
+)
 from masterdata.services.validation import validate_record
 
 logger = logging.getLogger(__name__)
@@ -154,6 +164,9 @@ master_list_create.required_permission = {
 
 
 def _handle_list(request, cfg):
+    if cfg.key == "items":
+        return _handle_item_list(request)
+
     status_filter = request.query_params.get("status")
     search = request.query_params.get("search")
     order_by = request.query_params.get("order_by")
@@ -182,6 +195,9 @@ def _handle_list(request, cfg):
 
 
 def _handle_create(request, cfg):
+    if cfg.key == "items":
+        return _handle_item_create(request, cfg)
+
     data = request.data or {}
     errors = validate_record(cfg, data, is_update=False)
     if errors:
@@ -199,6 +215,85 @@ def _handle_create(request, cfg):
 
     # Fetch the newly created record to return it
     record, _ = get_record(cfg.key, pk_val)
+    _link_ifrc_selection_if_present(
+        request_data=data,
+        actor_id=_actor_id(request),
+        table_key=cfg.key,
+        record=record,
+        warnings=warnings,
+    )
+    return Response({"record": record, "warnings": warnings}, status=201)
+
+
+def _handle_item_list(request):
+    status_filter = request.query_params.get("status")
+    search = request.query_params.get("search")
+    order_by = request.query_params.get("order_by")
+    category_id = request.query_params.get("category_id")
+    ifrc_family_id = request.query_params.get("ifrc_family_id")
+    ifrc_item_ref_id = request.query_params.get("ifrc_item_ref_id")
+    try:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
+        offset = max(int(request.query_params.get("offset", 0)), 0)
+    except (ValueError, TypeError):
+        limit, offset = DEFAULT_PAGE_LIMIT, 0
+
+    rows, total, warnings = list_item_records(
+        status_filter=status_filter,
+        search=search,
+        order_by=order_by,
+        category_id=category_id,
+        ifrc_family_id=ifrc_family_id,
+        ifrc_item_ref_id=ifrc_item_ref_id,
+        limit=limit,
+        offset=offset,
+    )
+    return Response({
+        "results": rows,
+        "count": total,
+        "limit": limit,
+        "offset": offset,
+        "warnings": warnings,
+    })
+
+
+def _handle_item_create(request, cfg):
+    data = request.data or {}
+    errors = validate_record(cfg, data, is_update=False)
+    extra_errors, validation_warnings = validate_item_payload(
+        data,
+        is_update=False,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate item taxonomy.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    pk_val, warnings = create_item_record(data, _actor_id(request))
+    if pk_val is None:
+        guard_response = _inactive_item_guard_response(warnings, cfg.key)
+        if guard_response:
+            return guard_response
+        return Response(
+            {"detail": "Failed to create record.", "warnings": warnings},
+            status=500,
+        )
+
+    record, record_warnings = get_item_record(pk_val)
+    warnings.extend(record_warnings)
+    if record is None:
+        return Response(
+            {"detail": "Failed to load created item.", "warnings": warnings or ["db_error"]},
+            status=500,
+        )
     _link_ifrc_selection_if_present(
         request_data=data,
         actor_id=_actor_id(request),
@@ -245,6 +340,12 @@ def _coerce_pk(cfg, pk_str: str) -> Any:
 
 
 def _handle_detail(cfg, pk_value):
+    if cfg.key == "items":
+        record, warnings = get_item_record(pk_value)
+        if record is None:
+            return Response({"detail": "Not found."}, status=404)
+        return Response({"record": record, "warnings": warnings})
+
     record, warnings = get_record(cfg.key, pk_value)
     if record is None:
         return Response({"detail": "Not found."}, status=404)
@@ -252,6 +353,9 @@ def _handle_detail(cfg, pk_value):
 
 
 def _handle_update(request, cfg, pk_value):
+    if cfg.key == "items":
+        return _handle_item_update(request, cfg, pk_value)
+
     data = request.data or {}
     expected_version = data.pop("version_nbr", None)
     if expected_version is not None:
@@ -300,6 +404,84 @@ def _handle_update(request, cfg, pk_value):
         return Response({"detail": "Update failed.", "warnings": warnings}, status=500)
 
     record, _ = get_record(cfg.key, pk_value)
+    _link_ifrc_selection_if_present(
+        request_data=data,
+        actor_id=_actor_id(request),
+        table_key=cfg.key,
+        record=record,
+        warnings=warnings,
+    )
+    return Response({"record": record, "warnings": warnings})
+
+
+def _handle_item_update(request, cfg, pk_value):
+    data = request.data or {}
+    expected_version = data.pop("version_nbr", None)
+    if expected_version is not None:
+        try:
+            expected_version = int(expected_version)
+        except (ValueError, TypeError):
+            expected_version = None
+
+    existing_record, read_warnings = get_item_record(pk_value)
+    if existing_record is None:
+        if "db_error" in read_warnings:
+            return Response(
+                {"detail": "Failed to load record for validation.", "warnings": read_warnings},
+                status=500,
+            )
+        return Response({"detail": "Not found."}, status=404)
+
+    errors = validate_record(
+        cfg,
+        data,
+        is_update=True,
+        current_pk=pk_value,
+        existing_record=existing_record,
+    )
+    extra_errors, validation_warnings = validate_item_payload(
+        data,
+        is_update=True,
+        existing_record=existing_record,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate item taxonomy.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    success, warnings = update_item_record(
+        pk_value,
+        data,
+        _actor_id(request),
+        expected_version,
+    )
+    if not success:
+        guard_response = _inactive_item_guard_response(warnings, cfg.key)
+        if guard_response:
+            return guard_response
+        if "version_conflict" in warnings:
+            return Response(
+                {"detail": "Record was modified by another user. Please reload.", "warnings": warnings},
+                status=409,
+            )
+        if "not_found" in warnings:
+            return Response({"detail": "Not found."}, status=404)
+        return Response({"detail": "Update failed.", "warnings": warnings}, status=500)
+
+    record, record_warnings = get_item_record(pk_value)
+    warnings.extend(record_warnings)
+    if record is None:
+        return Response(
+            {"detail": "Failed to load updated item.", "warnings": warnings or ["db_error"]},
+            status=500,
+        )
     _link_ifrc_selection_if_present(
         request_data=data,
         actor_id=_actor_id(request),
@@ -392,6 +574,66 @@ def master_lookup(request, table_key: str):
 
 
 master_lookup.required_permission = PERM_MASTERDATA_VIEW
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def item_level1_category_lookup(request):
+    active_only = request.query_params.get("active_only", "true").lower() != "false"
+    items, warnings = list_item_category_lookup(
+        active_only=active_only,
+        include_value=(
+            request.query_params.get("include_value")
+            or request.query_params.get("current_category_id")
+        ),
+    )
+    return Response({"items": items, "warnings": warnings})
+
+
+item_level1_category_lookup.required_permission = PERM_MASTERDATA_VIEW
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def item_ifrc_family_lookup(request):
+    active_only = request.query_params.get("active_only", "true").lower() != "false"
+    items, warnings = list_ifrc_family_lookup(
+        category_id=request.query_params.get("category_id"),
+        search=request.query_params.get("search"),
+        active_only=active_only,
+    )
+    return Response({"items": items, "warnings": warnings})
+
+
+item_ifrc_family_lookup.required_permission = PERM_MASTERDATA_VIEW
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def item_ifrc_reference_lookup(request):
+    active_only = request.query_params.get("active_only", "true").lower() != "false"
+    try:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
+    except (ValueError, TypeError):
+        limit = DEFAULT_PAGE_LIMIT
+
+    items, warnings = list_ifrc_reference_lookup(
+        ifrc_family_id=(
+            request.query_params.get("ifrc_family_id")
+            or request.query_params.get("family_id")
+        ),
+        search=request.query_params.get("search"),
+        active_only=active_only,
+        limit=limit,
+    )
+    return Response({"items": items, "warnings": warnings})
+
+
+item_ifrc_reference_lookup.required_permission = PERM_MASTERDATA_VIEW
 
 
 # ---------------------------------------------------------------------------
@@ -553,9 +795,17 @@ def master_inactivate(request, table_key: str, pk: str):
         except (ValueError, TypeError):
             expected_version = None
 
-    success, warnings = inactivate_record(
-        cfg.key, pk_value, _actor_id(request), expected_version,
-    )
+    if cfg.key == "items":
+        success, warnings = update_item_record(
+            pk_value,
+            {cfg.status_field: cfg.inactive_status},
+            _actor_id(request),
+            expected_version,
+        )
+    else:
+        success, warnings = inactivate_record(
+            cfg.key, pk_value, _actor_id(request), expected_version,
+        )
     if not success:
         if "version_conflict" in warnings:
             return Response(
@@ -564,7 +814,10 @@ def master_inactivate(request, table_key: str, pk: str):
             )
         return Response({"detail": "Inactivation failed.", "warnings": warnings}, status=500)
 
-    record, _ = get_record(cfg.key, pk_value)
+    if cfg.key == "items":
+        record, _ = get_item_record(pk_value)
+    else:
+        record, _ = get_record(cfg.key, pk_value)
     return Response({"record": record, "warnings": warnings})
 
 
@@ -589,9 +842,17 @@ def master_activate(request, table_key: str, pk: str):
         except (ValueError, TypeError):
             expected_version = None
 
-    success, warnings = activate_record(
-        cfg.key, pk_value, _actor_id(request), expected_version,
-    )
+    if cfg.key == "items":
+        success, warnings = update_item_record(
+            pk_value,
+            {cfg.status_field: cfg.active_status},
+            _actor_id(request),
+            expected_version,
+        )
+    else:
+        success, warnings = activate_record(
+            cfg.key, pk_value, _actor_id(request), expected_version,
+        )
     if not success:
         if "version_conflict" in warnings:
             return Response(
@@ -600,7 +861,10 @@ def master_activate(request, table_key: str, pk: str):
             )
         return Response({"detail": "Activation failed.", "warnings": warnings}, status=500)
 
-    record, _ = get_record(cfg.key, pk_value)
+    if cfg.key == "items":
+        record, _ = get_item_record(pk_value)
+    else:
+        record, _ = get_record(cfg.key, pk_value)
     return Response({"record": record, "warnings": warnings})
 
 
@@ -612,6 +876,9 @@ for _view in (
     master_detail_update,
     master_summary,
     master_lookup,
+    item_level1_category_lookup,
+    item_ifrc_family_lookup,
+    item_ifrc_reference_lookup,
     ifrc_suggest,
     ifrc_health,
     master_inactivate,

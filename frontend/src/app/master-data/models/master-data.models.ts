@@ -28,6 +28,8 @@ export interface MasterFieldConfig {
   options?: { value: string; label: string }[];
   /** For 'lookup' type: which table_key to fetch dropdown data from */
   lookupTable?: string;
+  /** Optional read/display field for detail pages */
+  displayField?: string;
   /** For 'boolean' type: default value */
   defaultValue?: unknown;
   /** Readonly on edit (e.g. donor_code) */
@@ -91,14 +93,15 @@ export interface MasterSummaryResponse {
   warnings: string[];
 }
 
-export interface MasterLookupResponse {
-  items: LookupItem[];
+export interface MasterLookupResponse<T = LookupItem> {
+  items: T[];
   warnings: string[];
 }
 
 export interface LookupItem {
   value: string | number;
   label: string;
+  [key: string]: unknown;
 }
 
 export interface MasterValidationErrors {
