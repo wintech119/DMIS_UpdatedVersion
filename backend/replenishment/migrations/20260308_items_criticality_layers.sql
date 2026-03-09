@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS {schema}.hazard_item_criticality (
         CHECK (effective_to IS NULL OR effective_to > effective_from),
     CONSTRAINT c_hazard_item_criticality_event_type
         CHECK (
-            UPPER(event_type) IN (
+            event_type IN (
                 'STORM',
                 'HURRICANE',
                 'TORNADO',
