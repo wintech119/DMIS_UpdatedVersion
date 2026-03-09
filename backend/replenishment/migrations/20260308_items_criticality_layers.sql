@@ -1,12 +1,15 @@
 -- Criticality governance layer tables and event-close auto-expiry.
+-- Template SQL: render with a schema value before execution
+-- via the apply_replenishment_sql_migration management command
+-- or the apply_items_criticality_layers convenience wrapper.
 -- Source of truth: docs/requirements/items-source-of-truth.md (AC-1, AC-2, AC-3, AC-4, AC-10).
 
-CREATE TABLE IF NOT EXISTS public.event_item_criticality_override (
+CREATE TABLE IF NOT EXISTS {schema}.event_item_criticality_override (
     override_id BIGSERIAL PRIMARY KEY,
     event_id INTEGER NOT NULL
-        REFERENCES public.event(event_id),
+        REFERENCES {schema}.event(event_id),
     item_id INTEGER NOT NULL
-        REFERENCES public.item(item_id),
+        REFERENCES {schema}.item(item_id),
     criticality_level VARCHAR(10) NOT NULL,
     reason_text VARCHAR(255),
     effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -27,22 +30,22 @@ CREATE TABLE IF NOT EXISTS public.event_item_criticality_override (
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_item_criticality_event_item
-    ON public.event_item_criticality_override(event_id, item_id);
+    ON {schema}.event_item_criticality_override(event_id, item_id);
 
 CREATE INDEX IF NOT EXISTS idx_event_item_criticality_active
-    ON public.event_item_criticality_override(event_id, item_id, effective_from DESC)
+    ON {schema}.event_item_criticality_override(event_id, item_id, effective_from DESC)
     WHERE is_active = TRUE;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_event_item_criticality_one_open_row
-    ON public.event_item_criticality_override(event_id, item_id)
+    ON {schema}.event_item_criticality_override(event_id, item_id)
     WHERE is_active = TRUE AND effective_to IS NULL;
 
 
-CREATE TABLE IF NOT EXISTS public.hazard_item_criticality (
+CREATE TABLE IF NOT EXISTS {schema}.hazard_item_criticality (
     hazard_item_criticality_id BIGSERIAL PRIMARY KEY,
     event_type VARCHAR(16) NOT NULL,
     item_id INTEGER NOT NULL
-        REFERENCES public.item(item_id),
+        REFERENCES {schema}.item(item_id),
     criticality_level VARCHAR(10) NOT NULL,
     reason_text VARCHAR(255),
     effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -88,21 +91,21 @@ CREATE TABLE IF NOT EXISTS public.hazard_item_criticality (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hazard_item_criticality_event_type_item
-    ON public.hazard_item_criticality(event_type, item_id);
+    ON {schema}.hazard_item_criticality(event_type, item_id);
 
 CREATE INDEX IF NOT EXISTS idx_hazard_item_criticality_approved
-    ON public.hazard_item_criticality(event_type, item_id, effective_from DESC)
+    ON {schema}.hazard_item_criticality(event_type, item_id, effective_from DESC)
     WHERE is_active = TRUE AND approval_status = 'APPROVED';
 
 
-CREATE OR REPLACE FUNCTION public.fn_expire_event_item_criticality_override_on_event_close()
+CREATE OR REPLACE FUNCTION {schema}.fn_expire_event_item_criticality_override_on_event_close()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
     IF UPPER(COALESCE(NEW.status_code, '')) IN ('C', 'CLOSED')
        AND UPPER(COALESCE(OLD.status_code, '')) NOT IN ('C', 'CLOSED') THEN
-        UPDATE public.event_item_criticality_override AS eico
+        UPDATE {schema}.event_item_criticality_override AS eico
         SET
             is_active = FALSE,
             status_code = 'I',
@@ -118,22 +121,23 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS tr_event_close_expire_item_criticality_override ON public.event;
+DROP TRIGGER IF EXISTS tr_event_close_expire_item_criticality_override ON {schema}.event;
 
 CREATE TRIGGER tr_event_close_expire_item_criticality_override
 AFTER UPDATE OF status_code
-ON public.event
+ON {schema}.event
 FOR EACH ROW
-EXECUTE FUNCTION public.fn_expire_event_item_criticality_override_on_event_close();
+EXECUTE FUNCTION {schema}.fn_expire_event_item_criticality_override_on_event_close();
 
-UPDATE public.event_item_criticality_override eico
+UPDATE {schema}.event_item_criticality_override eico
 SET
     is_active = FALSE,
     status_code = 'I',
     effective_to = COALESCE(eico.effective_to, NOW()),
     update_dtime = NOW(),
     version_nbr = eico.version_nbr + 1
-FROM public.event e
+FROM {schema}.event e
 WHERE eico.event_id = e.event_id
   AND eico.is_active = TRUE
   AND UPPER(COALESCE(e.status_code, '')) IN ('C', 'CLOSED');
+
