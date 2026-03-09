@@ -15,6 +15,7 @@ from masterdata.services.data_access import (
     TABLE_REGISTRY,
     _guard_inactive_item_forward_write,
     _is_forward_write_guarded_state,
+    _schema_name,
     _resolve_order_by,
     check_dependencies,
     check_uniqueness,
@@ -535,6 +536,7 @@ class InactiveForwardWriteMatrixTests(SimpleTestCase):
 
 
 class ItemInactivationDependencyMatrixTests(SimpleTestCase):
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")
     def test_items_dependency_check_uses_status_scoped_matrix(
@@ -560,20 +562,22 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         self.assertEqual(blocking, ["Draft/Pending Transfers (2 records)"])
         self.assertEqual(warnings, [])
 
+        schema = _schema_name()
         executed = [call.args[0] for call in cursor.execute.call_args_list]
         self.assertEqual(len(executed), 9)
-        self.assertTrue(any("JOIN public.transfer t" in sql for sql in executed))
+        self.assertTrue(any(f"JOIN {schema}.transfer t" in sql for sql in executed))
         self.assertTrue(all("UPPER(COALESCE(" in sql for sql in executed))
 
         transfer_call = next(
             call for call in cursor.execute.call_args_list
-            if "JOIN public.transfer t" in call.args[0]
+            if f"JOIN {schema}.transfer t" in call.args[0]
         )
         transfer_params = transfer_call.args[1]
         self.assertIn(15, transfer_params)
         self.assertIn("DRAFT", transfer_params)
         self.assertIn("PENDING", transfer_params)
 
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")
     def test_items_dependency_check_covers_all_approved_tables(
@@ -589,17 +593,18 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         self.assertEqual(blocking, [])
         self.assertEqual(warnings, [])
 
+        schema = _schema_name()
         executed = [call.args[0] for call in cursor.execute.call_args_list]
         expected_fragments = [
-            "FROM public.inventory inv",
-            "FROM public.itembatch ib",
-            "FROM public.item_location il",
-            "FROM public.transfer_item ti",
-            "FROM public.needs_list_item nli",
-            "FROM public.donation_item di",
-            "FROM public.procurement_item pi",
-            "FROM public.reliefpkg_item rpi",
-            "FROM public.reliefrqst_item rri",
+            f"FROM {schema}.inventory inv",
+            f"FROM {schema}.itembatch ib",
+            f"FROM {schema}.item_location il",
+            f"FROM {schema}.transfer_item ti",
+            f"FROM {schema}.needs_list_item nli",
+            f"FROM {schema}.donation_item di",
+            f"FROM {schema}.procurement_item pi",
+            f"FROM {schema}.reliefpkg_item rpi",
+            f"FROM {schema}.reliefrqst_item rri",
         ]
         for fragment in expected_fragments:
             self.assertTrue(any(fragment in sql for sql in executed), fragment)
