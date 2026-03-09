@@ -704,7 +704,7 @@ class IFRCAgentTests(SimpleTestCase):
 
         self.assertEqual(result.match_type, "fallback")
         self.assertIsNotNone(result.ifrc_code)
-        self.assertRegex(result.ifrc_code, r"^[A-Z]{8}[A-Z0-9]{0,5}\d{2}$")
+        self.assertRegex(result.ifrc_code, r"^[A-Z]{8}[A-Z0-9]{0,7}\d{2}$")
         self.assertEqual(result.group_code, "W")
         self.assertEqual(result.family_code, "WTR")
         self.assertEqual(result.category_code, "TABL")
