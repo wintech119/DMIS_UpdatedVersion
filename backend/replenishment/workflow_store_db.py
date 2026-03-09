@@ -62,7 +62,6 @@ _IN_PROGRESS_STAGE_ALIASES = {
     "RECEIVED": "RECEIVED",
     "RECEIVE": "RECEIVED",
 }
-_NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY = False
 
 
 def _normalize_actor(value: object) -> str:
@@ -184,105 +183,6 @@ def _workflow_needs_list_table_name() -> str:
         schema_name, _ = metadata_table_name.split(".", 1)
         return f"{schema_name}.{connection.ops.quote_name('needs_list')}"
     return connection.ops.quote_name("needs_list")
-
-
-def _workflow_needs_list_item_table_name() -> str:
-    quoted_table_name = connection.ops.quote_name("needs_list_item")
-    if connection.vendor == "postgresql":
-        quoted_schema_name = connection.ops.quote_name("public")
-        return f"{quoted_schema_name}.{quoted_table_name}"
-    return quoted_table_name
-
-
-def _ensure_needs_list_item_criticality_columns() -> None:
-    global _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY
-    if _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY:
-        return
-
-    table_name = _workflow_needs_list_item_table_name()
-    with connection.cursor() as cursor:
-        if connection.vendor == "postgresql":
-            cursor.execute(
-                f"""
-                ALTER TABLE {table_name}
-                    ADD COLUMN IF NOT EXISTS effective_criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL',
-                    ADD COLUMN IF NOT EXISTS effective_criticality_source VARCHAR(30) NOT NULL DEFAULT 'ITEM_DEFAULT'
-                """
-            )
-            cursor.execute(
-                f"""
-                UPDATE {table_name}
-                SET
-                    effective_criticality_level = CASE
-                        WHEN UPPER(COALESCE(effective_criticality_level, '')) IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW')
-                            THEN UPPER(effective_criticality_level)
-                        ELSE 'NORMAL'
-                    END,
-                    effective_criticality_source = CASE
-                        WHEN UPPER(COALESCE(effective_criticality_source, '')) IN ('EVENT_OVERRIDE', 'HAZARD_TYPE_DEFAULT', 'ITEM_DEFAULT')
-                            THEN UPPER(effective_criticality_source)
-                        ELSE 'ITEM_DEFAULT'
-                    END
-                """
-            )
-            cursor.execute(
-                f"""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM pg_constraint
-                        WHERE conname = 'c_needs_list_item_effective_criticality_level'
-                    ) THEN
-                        ALTER TABLE {table_name}
-                            ADD CONSTRAINT c_needs_list_item_effective_criticality_level
-                            CHECK (effective_criticality_level IN ('CRITICAL', 'HIGH', 'NORMAL', 'LOW'));
-                    END IF;
-                END
-                $$;
-                """
-            )
-            cursor.execute(
-                f"""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM pg_constraint
-                        WHERE conname = 'c_needs_list_item_effective_criticality_source'
-                    ) THEN
-                        ALTER TABLE {table_name}
-                            ADD CONSTRAINT c_needs_list_item_effective_criticality_source
-                            CHECK (effective_criticality_source IN ('EVENT_OVERRIDE', 'HAZARD_TYPE_DEFAULT', 'ITEM_DEFAULT'));
-                    END IF;
-                END
-                $$;
-                """
-            )
-        else:
-            columns = {
-                str(field.name)
-                for field in connection.introspection.get_table_description(
-                    cursor,
-                    "needs_list_item",
-                )
-            }
-            if "effective_criticality_level" not in columns:
-                cursor.execute(
-                    f"""
-                    ALTER TABLE {table_name}
-                    ADD COLUMN effective_criticality_level VARCHAR(10) NOT NULL DEFAULT 'NORMAL'
-                    """
-                )
-            if "effective_criticality_source" not in columns:
-                cursor.execute(
-                    f"""
-                    ALTER TABLE {table_name}
-                    ADD COLUMN effective_criticality_source VARCHAR(30) NOT NULL DEFAULT 'ITEM_DEFAULT'
-                    """
-                )
-
-    _NEEDS_LIST_ITEM_CRITICALITY_SCHEMA_READY = True
 
 
 def _ensure_workflow_metadata_table() -> None:
@@ -724,8 +624,6 @@ def create_draft(
     Returns:
         Dict representation of the created needs list record
     """
-    _ensure_needs_list_item_criticality_columns()
-
     if actor is None:
         actor = 'SYSTEM'
 
@@ -958,8 +856,6 @@ def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
 
     Accepts legacy API status aliases and maps them to database status values.
     """
-    _ensure_needs_list_item_criticality_columns()
-
     queryset = NeedsList.objects.all()
 
     if statuses:
@@ -1017,8 +913,6 @@ def update_record(needs_list_id: str, record: Dict[str, object]) -> None:
         needs_list_id: Primary key of the needs list
         record: Updated record data
     """
-    _ensure_needs_list_item_criticality_columns()
-
     try:
         needs_list = NeedsList.objects.get(needs_list_id=int(needs_list_id))
         metadata = _load_workflow_metadata(needs_list)
@@ -1160,8 +1054,6 @@ def add_line_overrides(
     Returns:
         Tuple of (updated record, list of error messages)
     """
-    _ensure_needs_list_item_criticality_columns()
-
     errors: list[str] = []
     now = _utc_now()
     needs_list_id = record.get('needs_list_id')
@@ -1249,8 +1141,6 @@ def add_line_review_notes(
     Returns:
         Tuple of (updated record, list of error messages)
     """
-    _ensure_needs_list_item_criticality_columns()
-
     errors: list[str] = []
     now = _utc_now()
 
@@ -1325,8 +1215,6 @@ def transition_status(
     Returns:
         Updated record dict
     """
-    _ensure_needs_list_item_criticality_columns()
-
     needs_list_id = record.get('needs_list_id')
     if not needs_list_id:
         raise ValueError('needs_list_id missing')
@@ -1454,7 +1342,7 @@ def store_enabled_or_raise() -> None:
     Kept for backward compatibility with the JSON file version.
     """
     # Database store is always enabled.
-    _ensure_needs_list_item_criticality_columns()
+    return None
 
 
 # =============================================================================

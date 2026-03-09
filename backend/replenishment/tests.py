@@ -416,7 +416,6 @@ def _ensure_legacy_reference_rows() -> None:
 
 
 def setUpModule() -> None:
-    workflow_store_db._ensure_needs_list_item_criticality_columns()
     _ensure_legacy_reference_rows()
 
 class NeedsListServiceTests(SimpleTestCase):
