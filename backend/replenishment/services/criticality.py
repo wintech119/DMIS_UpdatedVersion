@@ -169,11 +169,19 @@ def _load_event_context(schema: str, event_id: int) -> Tuple[str | None, str | N
     if _is_sqlite():
         return None, None, ["db_unavailable_preview_stub"]
 
+    event_columns = _table_columns(schema, "event")
+    event_type_columns = [column for column in _EVENT_TYPE_COLUMNS if column in event_columns]
+    event_type_select = (
+        f"COALESCE({', '.join(event_type_columns)})"
+        if event_type_columns
+        else "NULL"
+    )
+
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT event_type, status_code
+                SELECT {event_type_select} AS event_type, status_code
                 FROM {schema}.event
                 WHERE event_id = %s
                 LIMIT 1
