@@ -66,6 +66,14 @@ def _assert_active_item_for_draft_write(item_id: int, table_key: str, workflow_s
             item_id,
             warnings,
         )
+        raise ProcurementError(
+            (
+                "Inactive-item draft-write guard could not be trusted. "
+                f"table={table_key}, workflow_state={workflow_state}, item_id={item_id}, "
+                f"warnings={warnings}"
+            ),
+            code="inactive_item_guard_untrusted",
+        )
     if item_id in set(inactive_ids):
         raise ProcurementError(
             (
