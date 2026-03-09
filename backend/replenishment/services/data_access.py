@@ -9,9 +9,13 @@ from django.conf import settings
 from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
-from replenishment import rules
+from replenishment.services import criticality as criticality_service
 
 logger = logging.getLogger(__name__)
+
+_STRICT_INBOUND_VIEW = "v_inbound_stock"
+_STRICT_INBOUND_SOURCES = {"TRANSFER", "DONATION"}
+INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
 
 
 def get_warehouse_name(warehouse_id: int) -> str:
@@ -120,6 +124,97 @@ def _schema_name() -> str:
     return "public"
 
 
+def _table_or_view_exists(schema: str, object_name: str) -> bool:
+    if _is_sqlite():
+        return False
+    try:
+        with connection.cursor() as cursor:
+            if connection.vendor == "postgresql":
+                cursor.execute("SELECT to_regclass(%s)", [f"{schema}.{object_name}"])
+                row = cursor.fetchone()
+                return bool(row and row[0])
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = %s
+                  AND table_name = %s
+                LIMIT 1
+                """,
+                [schema, object_name],
+            )
+            return cursor.fetchone() is not None
+    except DatabaseError as exc:
+        logger.warning("Schema object lookup failed for %s.%s: %s", schema, object_name, exc)
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def _get_inbound_from_view_by_source(
+    warehouse_id: int,
+    source_type: str,
+    as_of_dt,
+) -> Tuple[Dict[int, float], List[str]]:
+    warnings: List[str] = []
+    normalized_source = str(source_type or "").strip().upper()
+    if normalized_source not in _STRICT_INBOUND_SOURCES:
+        return {}, ["strict_inbound_source_invalid"]
+    if _is_sqlite():
+        return {}, ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    if not _table_or_view_exists(schema, _STRICT_INBOUND_VIEW):
+        return {}, ["strict_inbound_workflow_view_missing"]
+
+    normalized_as_of = _normalize_datetime(as_of_dt or timezone.now())
+    inbound: Dict[int, float] = {}
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT item_id, SUM(inbound_qty) AS qty
+                FROM {schema}.{_STRICT_INBOUND_VIEW}
+                WHERE warehouse_id = %s
+                  AND UPPER(source_type) = %s
+                  AND inbound_start_dtime <= %s
+                  AND (inbound_end_dtime IS NULL OR inbound_end_dtime > %s)
+                GROUP BY item_id
+                """,
+                [warehouse_id, normalized_source, normalized_as_of, normalized_as_of],
+            )
+            for item_id, qty in cursor.fetchall():
+                inbound[int(item_id)] = _to_float(qty)
+    except DatabaseError as exc:
+        logger.warning(
+            "Inbound workflow query failed for warehouse_id=%s source=%s: %s",
+            warehouse_id,
+            normalized_source,
+            exc,
+        )
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after inbound workflow query error: %s", rollback_exc)
+        return {}, ["db_unavailable_preview_stub"]
+
+    return inbound, warnings
+
+
+def get_effective_criticality_by_item(
+    event_id: int | None,
+    item_ids: List[int],
+    as_of_dt,
+) -> Tuple[Dict[int, Dict[str, str]], List[str]]:
+    return criticality_service.resolve_effective_criticality_by_item(
+        event_id=event_id,
+        item_ids=item_ids,
+        as_of_dt=as_of_dt,
+    )
+
+
 def get_available_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str], object | None]:
@@ -191,54 +286,14 @@ def get_available_by_item(
 def get_inbound_donations_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
-    _ = (warehouse_id, as_of_dt)
-    warnings = ["donation_in_transit_unmodeled"]
-    if _is_sqlite():
-        warnings.append("db_unavailable_preview_stub")
-        return {}, warnings
-
-    return {}, warnings
+    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "DONATION", as_of_dt)
+    return inbound, warnings
 
 
 def get_inbound_transfers_by_item(
     warehouse_id: int, as_of_dt
 ) -> Tuple[Dict[int, float], List[str]]:
-    statuses, warnings = rules.resolve_strict_inbound_transfer_codes()
-    if _is_sqlite():
-        warnings.append("db_unavailable_preview_stub")
-        return {}, warnings
-    if not statuses:
-        return {}, warnings
-
-    as_of_date = _normalize_datetime(as_of_dt).date()
-    schema = _schema_name()
-    inbound: Dict[int, float] = {}
-    try:
-        placeholders = ",".join(["%s"] * len(statuses))
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT ti.item_id, SUM(ti.item_qty) AS qty
-                FROM {schema}.transfer_item ti
-                JOIN {schema}.transfer t ON t.transfer_id = ti.transfer_id
-                WHERE t.to_inventory_id = %s
-                  AND t.status_code IN ({placeholders})
-                  AND t.transfer_date <= %s
-                GROUP BY ti.item_id
-                """,
-                [warehouse_id, *statuses, as_of_date],
-            )
-            for item_id, qty in cursor.fetchall():
-                inbound[int(item_id)] = _to_float(qty)
-    except DatabaseError as exc:
-        logger.warning("Inbound transfers query failed: %s", exc)
-        try:
-            connection.rollback()
-        except Exception as rollback_exc:
-            logger.warning("DB rollback failed after transfers query error: %s", rollback_exc)
-        warnings.append("db_unavailable_preview_stub")
-        return {}, warnings
-
+    inbound, warnings = _get_inbound_from_view_by_source(warehouse_id, "TRANSFER", as_of_dt)
     return inbound, warnings
 
 
@@ -359,6 +414,28 @@ def insert_transfer_items(
     if not items:
         return []
 
+    item_ids: List[int] = []
+    for item in items:
+        raw_item_id = item.get("item_id")
+        try:
+            item_ids.append(int(raw_item_id))
+        except (TypeError, ValueError):
+            continue
+    inactive_item_ids, inactive_item_warnings = get_inactive_item_ids(item_ids)
+    if inactive_item_warnings:
+        return inactive_item_warnings
+    if inactive_item_ids:
+        warnings: List[str] = []
+        for item_id in inactive_item_ids:
+            warnings.extend(
+                _inactive_item_guard_warnings(
+                    item_id=item_id,
+                    table_key="transfer_item",
+                    workflow_state="PENDING",
+                )
+            )
+        return warnings
+
     schema = _schema_name()
     warnings: List[str] = []
     try:
@@ -414,6 +491,28 @@ def create_draft_transfer_with_items(
     """
     if _is_sqlite():
         return None, ["db_unavailable_preview_stub"]
+
+    item_ids: List[int] = []
+    for item in items:
+        raw_item_id = item.get("item_id")
+        try:
+            item_ids.append(int(raw_item_id))
+        except (TypeError, ValueError):
+            continue
+    inactive_item_ids, inactive_item_warnings = get_inactive_item_ids(item_ids)
+    if inactive_item_warnings:
+        return None, inactive_item_warnings
+    if inactive_item_ids:
+        warnings: List[str] = []
+        for item_id in inactive_item_ids:
+            warnings.extend(
+                _inactive_item_guard_warnings(
+                    item_id=item_id,
+                    table_key="transfer_item",
+                    workflow_state="PENDING",
+                )
+            )
+        return None, warnings
 
     schema = _schema_name()
     warnings: List[str] = []
@@ -825,6 +924,57 @@ def get_item_names(item_ids: List[int]) -> Tuple[Dict[int, Dict[str, str | None]
         return {}, warnings
 
     return item_data, warnings
+
+
+def get_inactive_item_ids(item_ids: List[int]) -> Tuple[List[int], List[str]]:
+    if not item_ids:
+        return [], []
+    if _is_sqlite():
+        return [], ["db_unavailable_preview_stub"]
+
+    schema = _schema_name()
+    unique_ids = sorted({int(item_id) for item_id in item_ids if item_id is not None})
+    if not unique_ids:
+        return [], []
+
+    inactive_ids: List[int] = []
+    warnings: List[str] = []
+    try:
+        placeholders = ",".join(["%s"] * len(unique_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT item_id
+                FROM {schema}.item
+                WHERE item_id IN ({placeholders})
+                  AND UPPER(COALESCE(status_code, '')) NOT IN ('A', 'ACTIVE')
+                """,
+                [*unique_ids],
+            )
+            inactive_ids = sorted({int(row[0]) for row in cursor.fetchall() if row and row[0] is not None})
+    except DatabaseError as exc:
+        logger.warning("Inactive item lookup failed for item_ids=%s: %s", unique_ids, exc)
+        try:
+            connection.rollback()
+        except Exception as rollback_exc:
+            logger.warning("DB rollback failed after inactive item lookup error: %s", rollback_exc)
+        warnings.append("inactive_item_lookup_failed")
+        return [], warnings
+
+    return inactive_ids, warnings
+
+
+def _inactive_item_guard_warnings(
+    item_id: int,
+    table_key: str,
+    workflow_state: str,
+) -> List[str]:
+    return [
+        INACTIVE_ITEM_FORWARD_WRITE_CODE,
+        f"inactive_item_id_{item_id}",
+        f"forward_write_table_{table_key}",
+        f"forward_write_workflow_{workflow_state}",
+    ]
 
 
 def get_category_burn_fallback_rates(

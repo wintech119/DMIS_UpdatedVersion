@@ -3,9 +3,11 @@ Unit tests for the IFRC code generator agent (v4).
 Uses a minimal in-memory taxonomy — no file I/O against the real catalogue,
 no Ollama required for keyword-path tests.
 """
+import os
 import textwrap
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
@@ -113,6 +115,41 @@ class TestTaxonomyLoader(TestCase):
                 parse_taxonomy(path)
         finally:
             path.unlink(missing_ok=True)
+
+
+class TestTaxonomyPathResolution(TestCase):
+    def test_uses_django_settings_when_configured(self):
+        import masterdata.ifrc_catalogue_loader as loader
+
+        configured_settings = SimpleNamespace(
+            configured=True,
+            IFRC_AGENT={"TAXONOMY_FILE": "/tmp/settings-taxonomy.md"},
+        )
+        with patch("django.conf.settings", configured_settings):
+            with patch.dict(os.environ, {"IFRC_TAXONOMY_FILE": "/tmp/env-taxonomy.md"}, clear=False):
+                self.assertEqual(
+                    loader._taxonomy_path_from_settings(),
+                    Path("/tmp/settings-taxonomy.md"),
+                )
+
+    def test_uses_env_when_django_settings_not_configured(self):
+        import masterdata.ifrc_catalogue_loader as loader
+
+        with patch("django.conf.settings", SimpleNamespace(configured=False)):
+            with patch.dict(os.environ, {"IFRC_TAXONOMY_FILE": "/tmp/env-taxonomy.md"}, clear=False):
+                self.assertEqual(
+                    loader._taxonomy_path_from_settings(),
+                    Path("/tmp/env-taxonomy.md"),
+                )
+
+    def test_uses_bundled_default_when_settings_not_configured_and_env_missing(self):
+        import masterdata.ifrc_catalogue_loader as loader
+
+        expected = Path(loader.__file__).resolve().parent / "data" / "ifrc_catalogue_taxonomy.md"
+        with patch("django.conf.settings", SimpleNamespace(configured=False)):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("IFRC_TAXONOMY_FILE", None)
+                self.assertEqual(loader._taxonomy_path_from_settings(), expected)
 
 
 class TestKeywordClassifier(TestCase):
@@ -259,3 +296,4 @@ class TestIFRCAgent(TestCase):
             agent  = IFRCAgent()
             result = agent.suggest("blanket", size_weight="medium", material="synthetic")
         self.assertIsNotNone(result.item_code)
+

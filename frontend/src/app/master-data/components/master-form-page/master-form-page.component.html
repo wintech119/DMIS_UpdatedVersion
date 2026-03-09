@@ -19,6 +19,21 @@
       <mat-progress-bar mode="indeterminate" />
     } @else {
       <form [formGroup]="form" (ngSubmit)="onSave()" class="form-page-content">
+        @if (submissionError(); as message) {
+          <div class="form-submit-alert" role="alert" aria-live="assertive">
+            <mat-icon aria-hidden="true">error</mat-icon>
+            <div class="form-submit-alert__content">
+              <p class="form-submit-alert__title">{{ message }}</p>
+              @if (submissionErrorDetails().length > 0) {
+                <ul class="form-submit-alert__details">
+                  @for (detail of submissionErrorDetails(); track detail) {
+                    <li>{{ detail }}</li>
+                  }
+                </ul>
+              }
+            </div>
+          </div>
+        }
 
         @for (group of fieldGroups(); track group.label) {
           <section class="form-section" [attr.aria-label]="group.label + ' section'">
@@ -85,6 +100,9 @@
                         @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) {
                           <mat-error>{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error>
                         }
+                        @if (field.field === 'issuance_order' && isFormErrorVisible('expiryRequiresFefo')) {
+                          <mat-error>{{ getFormErrorMessage('expiryRequiresFefo') }}</mat-error>
+                        }
                       </mat-form-field>
                     }
 
@@ -115,23 +133,32 @@
                     }
 
                     @case ('boolean') {
-                      <div class="toggle-row">
-                        <div class="toggle-row__text">
-                          <span class="toggle-row__label" [id]="field.field + '-label'">
-                            {{ field.label }}
-                          </span>
-                          @if (field.hint) {
-                            <span class="toggle-row__hint" [id]="field.field + '-hint'">
-                              {{ field.hint }}
+                      <div>
+                        <div class="toggle-row">
+                          <div class="toggle-row__text">
+                            <span class="toggle-row__label" [id]="field.field + '-label'">
+                              {{ field.label }}
                             </span>
-                          }
+                            @if (field.hint) {
+                              <span class="toggle-row__hint" [id]="field.field + '-hint'">
+                                {{ field.hint }}
+                              </span>
+                            }
+                          </div>
+                          <mat-slide-toggle
+                            [formControlName]="field.field"
+                            [attr.aria-labelledby]="field.field + '-label'"
+                            [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                            color="primary">
+                          </mat-slide-toggle>
                         </div>
-                        <mat-slide-toggle
-                          [formControlName]="field.field"
-                          [attr.aria-labelledby]="field.field + '-label'"
-                          [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
-                          color="primary">
-                        </mat-slide-toggle>
+
+                        @if (field.field === 'can_expire_flag' && isFormErrorVisible('fefoRequiresExpiry')) {
+                          <p class="toggle-error">{{ getFormErrorMessage('fefoRequiresExpiry') }}</p>
+                        }
+                        @if (field.field === 'can_expire_flag' && isFormErrorVisible('expiryRequiresFefo')) {
+                          <p class="toggle-error">{{ getFormErrorMessage('expiryRequiresFefo') }}</p>
+                        }
                       </div>
                     }
 

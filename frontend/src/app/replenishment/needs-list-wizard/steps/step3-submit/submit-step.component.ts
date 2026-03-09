@@ -507,6 +507,24 @@ export class SubmitStepComponent implements OnInit {
     return adjustment ? adjustment.adjusted_qty : item.gap_qty;
   }
 
+  getEffectiveCriticalityLevel(item: NeedsListItem): string | null {
+    const value = String(item.effective_criticality_level || '').trim().toUpperCase();
+    return value || null;
+  }
+
+  getEffectiveCriticalitySource(item: NeedsListItem): string | null {
+    const value = String(item.effective_criticality_source || '').trim().toUpperCase();
+    if (!value) return null;
+    if (value === 'EVENT_OVERRIDE') return 'Event Override';
+    if (value === 'HAZARD_TYPE_DEFAULT') return 'Hazard Type Default';
+    if (value === 'ITEM_DEFAULT') return 'Item Default';
+    return value.replace(/_/g, ' ');
+  }
+
+  hasEffectiveCriticalityContext(item: NeedsListItem): boolean {
+    return !!(this.getEffectiveCriticalityLevel(item) || this.getEffectiveCriticalitySource(item));
+  }
+
   hasExternalWorkflow(): boolean {
     return this.approvalWorkflows.some(wf => !wf.config.inDmis);
   }

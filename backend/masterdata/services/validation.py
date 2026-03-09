@@ -177,7 +177,7 @@ def _cross_field_validation(
         if status == "A" and data.get("reason_desc"):
             errors["reason_desc"] = "Reason must be empty for active warehouses."
 
-    # Items: FEFO issuance requires expiration tracking.
+    # Items: FEFO/perishable validation is bidirectional.
     if cfg.key == "items":
         def _merged_item_value(field_name: str):
             if field_name in data:
@@ -191,6 +191,10 @@ def _cross_field_validation(
         if issuance_order == "FEFO" and can_expire is not True:
             errors["can_expire_flag"] = (
                 "Can Expire must be enabled when Issuance Order is FEFO."
+            )
+        if can_expire is True and issuance_order and issuance_order != "FEFO":
+            errors["issuance_order"] = (
+                "Issuance Order must be FEFO when Can Expire is enabled."
             )
 
     return errors

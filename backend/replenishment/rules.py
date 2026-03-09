@@ -21,21 +21,6 @@ def _get_str_env(name: str, default: str) -> str:
     return stripped or default
 
 
-def _parse_int_list_env(name: str) -> List[int]:
-    raw = os.getenv(name)
-    if raw is None:
-        return []
-    values: List[int] = []
-    for entry in raw.split(","):
-        trimmed = entry.strip()
-        if not trimmed:
-            continue
-        try:
-            values.append(int(trimmed))
-        except ValueError:
-            continue
-    return values
-
 PHASES = ("SURGE", "STABILIZED", "BASELINE")
 
 WINDOWS_V40_LEGACY: Dict[str, Dict[str, int]] = {
@@ -72,15 +57,6 @@ SAFETY_BUFFER_MULTIPLIERS: Dict[str, float] = {
 
 GOJEP_NOTE_LABEL = "Proceed in GOJEP; update status here"
 GOJEP_URL = _get_str_env("NEEDS_GOJEP_URL", "https://gojep.gov.jm")
-
-PROCUREMENT_INBOUND_ELIGIBLE_STATUSES = {
-    "SHIPPED",
-    "IN_TRANSIT",
-    "PARTIALLY_RECEIVED",
-}
-
-CRITICAL_ITEM_IDS = _parse_int_list_env("NEEDS_CRITICAL_ITEM_IDS")
-CRITICAL_CATEGORY_IDS = _parse_int_list_env("NEEDS_CRITICAL_CATEGORY_IDS")
 
 PROCUREMENT_APPROVAL_RULES: Dict[str, List[Dict[str, object]]] = {
     "goods_services": [
@@ -177,10 +153,6 @@ DEFAULT_PROCUREMENT_CATEGORY = "goods_services"
 
 DEFAULT_WINDOWS_VERSION = "v41"
 
-STRICT_INBOUND_TRANSFER_RULE = "INBOUND_WHEN_DISPATCHED_OR_LATER"
-STRICT_INBOUND_DONATION_RULE = "CONFIRMED_AND_IN_TRANSIT_OR_SHIPPED"
-STRICT_INBOUND_PROCUREMENT_RULE = "APPROVED_AND_SHIPMENT_SHIPPED_OR_IN_TRANSIT"
-
 
 def get_windows_version() -> str:
     return os.getenv("NEEDS_WINDOWS_VERSION", DEFAULT_WINDOWS_VERSION).lower()
@@ -192,53 +164,6 @@ def get_phase_windows(phase: str) -> Dict[str, int]:
     if phase not in windows:
         raise ValueError(f"invalid phase, expected one of: {list(windows.keys())}")
     return windows[phase]
-
-
-def _parse_codes_env(name: str, default: List[str]) -> List[str]:
-    raw = os.getenv(name)
-    if raw is None:
-        return list(default)
-    codes = [code.strip().upper() for code in raw.split(",") if code.strip()]
-    return codes or list(default)
-
-
-def resolve_strict_inbound_transfer_codes() -> Tuple[List[str], List[str]]:
-    codes = _parse_codes_env("TRANSFER_DISPATCHED_CODES", ["D"])
-    warnings: List[str] = []
-    if codes != ["D"]:
-        warnings.append("strict_inbound_mapping_best_effort")
-    return codes, warnings
-
-
-def resolve_strict_inbound_donation_codes() -> Tuple[List[str], List[str]]:
-    warnings: List[str] = []
-    # Prefer NEEDS_* config as the documented primary, but allow explicit override.
-    strict_default = _parse_codes_env("NEEDS_STRICT_INBOUND_DONATION_STATUSES", ["V", "P"])
-    confirmed = _parse_codes_env("DONATION_CONFIRMED_CODES", strict_default)
-    in_transit = _parse_codes_env("DONATION_IN_TRANSIT_CODES", strict_default)
-
-    allowed = {"E", "V", "P"}
-    confirmed_filtered = [code for code in confirmed if code in allowed]
-    in_transit_filtered = [code for code in in_transit if code in allowed]
-
-    if len(confirmed_filtered) != len(confirmed) or len(in_transit_filtered) != len(
-        in_transit
-    ):
-        warnings.append("donation_status_code_invalid_filtered")
-
-    if not confirmed_filtered:
-        confirmed_filtered = ["V"]
-    if not in_transit_filtered:
-        in_transit_filtered = ["V"]
-
-    intersection = [code for code in confirmed_filtered if code in in_transit_filtered]
-    if intersection:
-        codes = intersection
-    else:
-        codes = sorted(set(confirmed_filtered + in_transit_filtered))
-        warnings.append("strict_inbound_mapping_best_effort")
-
-    return codes, warnings
 
 
 def get_procurement_approval(
@@ -293,23 +218,3 @@ def get_procurement_approval(
         "methods_allowed": list(selected["methods"]),
     }
     return approval, warnings
-
-
-def get_critical_item_ids() -> List[int]:
-    return _parse_int_list_env("NEEDS_CRITICAL_ITEM_IDS")
-
-
-def get_critical_category_ids() -> List[int]:
-    return _parse_int_list_env("NEEDS_CRITICAL_CATEGORY_IDS")
-
-
-def has_critical_config() -> bool:
-    return bool(get_critical_item_ids() or get_critical_category_ids())
-
-
-def is_critical(item_id: int, category_id: int | None) -> bool:
-    if item_id in get_critical_item_ids():
-        return True
-    if category_id is None:
-        return False
-    return int(category_id) in get_critical_category_ids()

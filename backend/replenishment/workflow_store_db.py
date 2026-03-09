@@ -470,6 +470,24 @@ def _normalize_snapshot_item(
     item_meta = item_lookup.get(item_id_int, {}) if item_id_int else {}
     item_name = item_data.get("item_name") or item_meta.get("name")
     item_code = item_data.get("item_code") or item_meta.get("code")
+    effective_criticality_level = str(
+        item_data.get("effective_criticality_level")
+        or item_data.get("criticality_level")
+        or "NORMAL"
+    ).strip().upper()
+    if effective_criticality_level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+        effective_criticality_level = "NORMAL"
+    effective_criticality_source = str(
+        item_data.get("effective_criticality_source")
+        or item_data.get("criticality_source")
+        or "ITEM_DEFAULT"
+    ).strip().upper()
+    if effective_criticality_source not in {
+        "EVENT_OVERRIDE",
+        "HAZARD_TYPE_DEFAULT",
+        "ITEM_DEFAULT",
+    }:
+        effective_criticality_source = "ITEM_DEFAULT"
 
     burn_rate_per_hour = item_data.get("burn_rate_per_hour")
     if burn_rate_per_hour is None:
@@ -527,6 +545,10 @@ def _normalize_snapshot_item(
         "item_id": item_id_int,
         "item_name": item_name,
         "item_code": item_code,
+        "effective_criticality_level": effective_criticality_level,
+        "effective_criticality_source": effective_criticality_source,
+        "criticality_level": effective_criticality_level,
+        "criticality_source": effective_criticality_source,
         "warehouse_id": item_data.get("warehouse_id", warehouse_id),
         "warehouse_name": item_data.get("warehouse_name", warehouse_name),
         "uom_code": item_data.get("uom_code", "EA"),
@@ -699,6 +721,7 @@ def create_draft(
         _save_workflow_metadata(needs_list, metadata)
 
     # Create line items
+    created_line_items: list[tuple[NeedsListItem, str, str]] = []
     for item_data in items:
         inbound_strict_qty = _coerce_float(item_data.get("inbound_strict_qty"), 0.0)
         inbound_transfer_qty = item_data.get("inbound_transfer_qty")
@@ -723,6 +746,24 @@ def create_draft(
         horizon_a_qty = _extract_horizon_qty(item_data, "A")
         horizon_b_qty = _extract_horizon_qty(item_data, "B")
         horizon_c_qty = _extract_horizon_qty(item_data, "C")
+        effective_criticality_level = str(
+            item_data.get("effective_criticality_level")
+            or item_data.get("criticality_level")
+            or "NORMAL"
+        ).strip().upper()
+        if effective_criticality_level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+            effective_criticality_level = "NORMAL"
+        effective_criticality_source = str(
+            item_data.get("effective_criticality_source")
+            or item_data.get("criticality_source")
+            or "ITEM_DEFAULT"
+        ).strip().upper()
+        if effective_criticality_source not in {
+            "EVENT_OVERRIDE",
+            "HAZARD_TYPE_DEFAULT",
+            "ITEM_DEFAULT",
+        }:
+            effective_criticality_source = "ITEM_DEFAULT"
 
         create_kwargs = {
             "needs_list": needs_list,
@@ -738,6 +779,8 @@ def create_draft(
             "gap_qty": _coerce_decimal(item_data.get('gap_qty')),
             "time_to_stockout_hours": time_to_stockout,
             "severity_level": item_data.get('severity', 'OK'),
+            "effective_criticality_level": effective_criticality_level,
+            "effective_criticality_source": effective_criticality_source,
             "horizon_a_qty": _coerce_decimal(horizon_a_qty),
             "horizon_b_qty": _coerce_decimal(horizon_b_qty),
             "horizon_c_qty": _coerce_decimal(horizon_c_qty),
@@ -749,8 +792,15 @@ def create_draft(
         if inbound_donation_qty is not None:
             create_kwargs["inbound_donation_qty"] = _coerce_decimal(inbound_donation_qty)
 
-        NeedsListItem.objects.create(
+        created_item = NeedsListItem.objects.create(
             **create_kwargs,
+        )
+        created_line_items.append(
+            (
+                created_item,
+                effective_criticality_level,
+                effective_criticality_source,
+            )
         )
 
     # Create audit log entry
@@ -760,6 +810,18 @@ def create_draft(
         notes_text=f"Created with {len(items)} items. Warnings: {', '.join(warnings_list) if warnings_list else 'None'}",
         actor_user_id=actor,
     )
+    for created_item, criticality_level, criticality_source in created_line_items:
+        NeedsListAudit.objects.create(
+            needs_list=needs_list,
+            needs_list_item=created_item,
+            action_type="CREATED",
+            field_name="criticality_level",
+            old_value=None,
+            new_value=criticality_level,
+            reason_code=criticality_source,
+            notes_text="Effective criticality captured for draft generation.",
+            actor_user_id=actor,
+        )
 
     # Return dict representation matching the old JSON format
     return _needs_list_to_dict(needs_list, items, warnings_list)
@@ -1279,8 +1341,8 @@ def store_enabled_or_raise() -> None:
     In the database version, this always succeeds since we're using Django ORM.
     Kept for backward compatibility with the JSON file version.
     """
-    # Database store is always enabled
-    pass
+    # Database store is always enabled.
+    return None
 
 
 # =============================================================================
@@ -1365,6 +1427,8 @@ def _needs_list_to_dict(
                 "uom_code": item.uom_code,
                 "burn_rate": float(item.burn_rate),
                 "burn_rate_source": item.burn_rate_source,
+                "effective_criticality_level": item.effective_criticality_level,
+                "effective_criticality_source": item.effective_criticality_source,
                 "available_qty": float(item.available_stock),
                 "reserved_qty": float(item.reserved_qty),
                 "inbound_transfer_qty": float(item.inbound_transfer_qty),

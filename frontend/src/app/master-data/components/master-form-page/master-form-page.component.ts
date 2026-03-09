@@ -32,6 +32,12 @@ import { ReplenishmentService } from '../../../replenishment/services/replenishm
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
 
+interface InactiveItemForwardWriteGuard {
+  table: string;
+  workflow_state: string;
+  item_ids: number[];
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -66,6 +72,8 @@ export class MasterFormPageComponent implements OnInit {
   ifrcLoading = signal(false);
   ifrcSuggestion = signal<IFRCSuggestion | null>(null);
   ifrcError = signal<string | null>(null);
+  submissionError = signal<string | null>(null);
+  submissionErrorDetails = signal<string[]>([]);
   pk = signal<string | number | null>(null);
 
   /** IFRC specification hint controls — not saved to DB, used only for code generation */
@@ -78,11 +86,13 @@ export class MasterFormPageComponent implements OnInit {
   private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
     fefoRequiresExpiry: 'Can Expire must be enabled when Issuance Order is FEFO.',
+    expiryRequiresFefo: 'Issuance Order must be FEFO when Can Expire is enabled.',
   };
 
   private versionNbr: number | null = null;
   private ifrcSuggestLogId: string | null = null;
   private itemCodeAutoFilled = false;
+  private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -163,6 +173,14 @@ export class MasterFormPageComponent implements OnInit {
       this.form.setValidators(validateFefoRequiresExpiry);
       this.form.updateValueAndValidity({ emitEvent: false });
     }
+
+    this.form.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      if (this.submissionError()) {
+        this.clearSubmissionError();
+      }
+    });
   }
 
   private setupItemIfrcSuggestion(cfg: MasterTableConfig): void {
@@ -414,6 +432,8 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   onSave(): void {
+    this.clearSubmissionError();
+
     if (!this.form.valid) {
       this.form.markAllAsTouched();
       return;
@@ -446,6 +466,7 @@ export class MasterFormPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (res) => {
+        this.clearSubmissionError();
         this.notify.showSuccess(this.isEdit() ? 'Record updated.' : 'Record created.');
         this.service.clearLookupCache(cfg.tableKey);
         const newPk = res.record?.[cfg.pkField] ?? null;
@@ -470,10 +491,28 @@ export class MasterFormPageComponent implements OnInit {
             }
           }
           this.notify.showWarning('Please fix the validation errors.');
+          return;
+        }
+
+        const inactiveItemGuard = this.extractInactiveItemForwardWriteGuard(err);
+        if (inactiveItemGuard) {
+          const details = this.buildInactiveItemGuardDetails(inactiveItemGuard);
+          this.setSubmissionError(
+            'Save blocked because the selected item is inactive for forward-looking writes.',
+            details,
+            this.inactiveItemForwardWriteCode,
+          );
+          this.applyInactiveItemControlError(inactiveItemGuard);
+          this.notify.showError('Save blocked by inactive-item forward-write guard.');
+          return;
         } else if (err.status === 409) {
-          this.notify.showError(err.error?.detail || 'Record was modified by another user. Please reload.');
+          const message = err.error?.detail || 'Record was modified by another user. Please reload.';
+          this.setSubmissionError(message, [], 'versionConflict');
+          this.notify.showError(message);
         } else {
-          this.notify.showError(err.error?.detail || 'Save failed.');
+          const message = err.error?.detail || 'Save failed.';
+          this.setSubmissionError(message, [], 'submitFailure');
+          this.notify.showError(message);
         }
       },
     });
@@ -644,5 +683,92 @@ export class MasterFormPageComponent implements OnInit {
     const issuanceTouched = this.form.get('issuance_order')?.touched ?? false;
     const canExpireTouched = this.form.get('can_expire_flag')?.touched ?? false;
     return issuanceTouched || canExpireTouched || this.form.touched;
+  }
+
+  private setSubmissionError(message: string, details: string[], formErrorKey: string): void {
+    this.submissionError.set(message);
+    this.submissionErrorDetails.set(details);
+    this.form.setErrors({
+      ...(this.form.errors || {}),
+      [formErrorKey]: true,
+    });
+  }
+
+  private clearSubmissionError(): void {
+    this.submissionError.set(null);
+    this.submissionErrorDetails.set([]);
+
+    const formErrors = this.form.errors;
+    if (!formErrors) return;
+
+    const nextErrors: Record<string, unknown> = { ...formErrors };
+    delete nextErrors[this.inactiveItemForwardWriteCode];
+    delete nextErrors['versionConflict'];
+    delete nextErrors['submitFailure'];
+    this.form.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
+  }
+
+  private extractInactiveItemForwardWriteGuard(error: unknown): InactiveItemForwardWriteGuard | null {
+    const err = error as {
+      error?: {
+        errors?: Record<string, unknown>;
+      };
+    };
+    const rawGuard = err?.error?.errors?.[this.inactiveItemForwardWriteCode];
+    if (!rawGuard || typeof rawGuard !== 'object') {
+      return null;
+    }
+
+    const guard = rawGuard as Record<string, unknown>;
+    const itemIds = Array.isArray(guard['item_ids'])
+      ? guard['item_ids']
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+      : [];
+
+    return {
+      table: String(guard['table'] || '').trim() || 'unknown',
+      workflow_state: String(guard['workflow_state'] || '').trim() || 'UNKNOWN',
+      item_ids: [...new Set(itemIds)].sort((a, b) => a - b),
+    };
+  }
+
+  private buildInactiveItemGuardDetails(guard: InactiveItemForwardWriteGuard): string[] {
+    const details = [
+      `Table: ${this.humanizeToken(guard.table)}`,
+      `Workflow State: ${this.humanizeToken(guard.workflow_state)}`,
+    ];
+
+    if (guard.item_ids.length > 0) {
+      details.push(`Inactive Item ID(s): ${guard.item_ids.join(', ')}`);
+    }
+
+    return details;
+  }
+
+  private applyInactiveItemControlError(guard: InactiveItemForwardWriteGuard): void {
+    const itemControl = this.form.get('item_id');
+    if (!itemControl) return;
+
+    const message = guard.item_ids.length > 0
+      ? `Inactive item ID(s): ${guard.item_ids.join(', ')}`
+      : 'Selected item is inactive for forward-looking writes.';
+
+    itemControl.setErrors({
+      ...(itemControl.errors || {}),
+      server: message,
+    });
+    itemControl.markAsTouched();
+  }
+
+  private humanizeToken(rawValue: string): string {
+    const normalized = String(rawValue || '').trim();
+    if (!normalized) return 'Unknown';
+
+    return normalized
+      .split('_')
+      .filter(Boolean)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+      .join(' ');
   }
 }

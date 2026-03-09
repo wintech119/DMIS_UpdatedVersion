@@ -21,6 +21,11 @@ from api.authentication import LegacyCompatAuthentication
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
     PERM_MASTERDATA_EDIT,
+    PERM_CRITICALITY_OVERRIDE_VIEW,
+    PERM_CRITICALITY_OVERRIDE_MANAGE,
+    PERM_CRITICALITY_HAZARD_VIEW,
+    PERM_CRITICALITY_HAZARD_MANAGE,
+    PERM_CRITICALITY_HAZARD_APPROVE,
     PERM_NEEDS_LIST_CREATE_DRAFT,
     PERM_NEEDS_LIST_EDIT_LINES,
     PERM_NEEDS_LIST_ESCALATE,
@@ -53,6 +58,7 @@ from api.task_engine import TaskRule, resolve_available_tasks
 from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
 from replenishment.models import Procurement
 from replenishment.services import approval as approval_service
+from replenishment.services import criticality_governance
 from replenishment.services import data_access, needs_list, phase_window_policy
 from replenishment.services import location_storage
 from replenishment.services import procurement as procurement_service
@@ -108,6 +114,8 @@ _NEEDS_LIST_EXECUTION_STATUSES = {
     "RECEIVED",
     "IN_PROGRESS",
 }
+INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
+STRICT_INBOUND_VIEW_MISSING_CODE = "strict_inbound_workflow_view_missing"
 
 
 def _record_for_task_context(context: Mapping[str, Any]) -> Dict[str, Any]:
@@ -324,6 +332,40 @@ def _parse_positive_int(value: Any, field_name: str, errors: Dict[str, str]) -> 
     return parsed
 
 
+def _parse_optional_bool(value: Any, field_name: str, errors: Dict[str, str]) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    errors[field_name] = "Must be a boolean."
+    return None
+
+
+def _parse_optional_datetime(
+    value: Any,
+    field_name: str,
+    errors: Dict[str, str],
+):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        parsed = parse_datetime(value.strip())
+        if parsed is None:
+            errors[field_name] = "Must be an ISO datetime."
+            return None
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed
+    errors[field_name] = "Must be an ISO datetime string."
+    return None
+
+
 def _parse_selected_item_keys(
     raw_keys: Any,
     errors: Dict[str, str],
@@ -350,6 +392,23 @@ def _parse_selected_item_keys(
 
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+_DIRECTOR_PEOD_ROLE_CODES = {
+    "DIR_PEOD",
+    "ODPEM_DIR_PEOD",
+    "TST_DIR_PEOD",
+    "DIRECTOR_GENERAL",
+    "ODPEM_DG",
+    "TST_DG",
+    "DG",
+}
+
+
+def _has_director_peod_authority(request) -> bool:
+    roles, _ = resolve_roles_and_permissions(request, request.user)
+    normalized_roles = {str(role).strip().upper() for role in roles}
+    return bool(normalized_roles & _DIRECTOR_PEOD_ROLE_CODES)
 
 
 def _tenant_context(request):
@@ -1006,6 +1065,16 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     transfers_by_item, warnings_transfers = data_access.get_inbound_transfers_by_item(
         warehouse_id, as_of_dt
     )
+    if (
+        STRICT_INBOUND_VIEW_MISSING_CODE in warnings_donations
+        or STRICT_INBOUND_VIEW_MISSING_CODE in warnings_transfers
+    ):
+        return {}, {
+            STRICT_INBOUND_VIEW_MISSING_CODE: (
+                "Strict inbound requires database view public.v_inbound_stock. "
+                "Run replenishment SQL migrations before preview/draft."
+            )
+        }
     burn_by_item, warnings_burn, burn_source, burn_debug = data_access.get_burn_by_item(
         event_id, warehouse_id, demand_window_hours, as_of_dt
     )
@@ -1031,6 +1100,12 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
     # Fetch item names for display
     item_names, warnings_names = data_access.get_item_names(item_ids)
     base_warnings = needs_list.merge_warnings(base_warnings, warnings_names)
+    effective_criticality_by_item, warnings_criticality = data_access.get_effective_criticality_by_item(
+        event_id,
+        item_ids,
+        as_of_dt,
+    )
+    base_warnings = needs_list.merge_warnings(base_warnings, warnings_criticality)
 
     safety_factor = rules.SAFETY_STOCK_FACTOR
     items, item_warnings, fallback_counts = needs_list.build_preview_items(
@@ -1052,6 +1127,7 @@ def _build_preview_response(payload: Dict[str, Any]) -> tuple[Dict[str, Any], Di
         inventory_as_of=inventory_as_of,
         base_warnings=base_warnings,
         item_names=item_names,
+        effective_criticality_by_item=effective_criticality_by_item,
     )
 
     warnings = needs_list.merge_warnings(base_warnings, item_warnings)
@@ -2118,7 +2194,7 @@ def needs_list_bulk_submit(request):
                 exclude_needs_list_id=needs_list_id,
             )
         except DuplicateConflictValidationError:
-            logger.exception(
+            logger.warning(
                 "needs_list_duplicate_validation_failed",
                 extra={
                     "event_type": "VALIDATION_ERROR",
@@ -2302,6 +2378,347 @@ def get_all_warehouses(request):
     return Response({"warehouses": warehouses, "count": len(warehouses)})
 
 
+@api_view(["GET", "POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_event_overrides(request):
+    if request.method == "GET":
+        errors: Dict[str, str] = {}
+        event_id = _parse_positive_int(request.query_params.get("event_id"), "event_id", errors) if request.query_params.get("event_id") else None
+        item_id = _parse_positive_int(request.query_params.get("item_id"), "item_id", errors) if request.query_params.get("item_id") else None
+        active_only = _parse_optional_bool(request.query_params.get("active_only"), "active_only", errors)
+        if active_only is None:
+            active_only = False
+        limit = _parse_positive_int(request.query_params.get("limit"), "limit", errors) if request.query_params.get("limit") else 200
+        if errors:
+            return Response({"errors": errors}, status=400)
+
+        rows, warnings = criticality_governance.list_event_overrides(
+            event_id=event_id,
+            item_id=item_id,
+            active_only=active_only,
+            limit=limit or 200,
+        )
+        return Response({"results": rows, "count": len(rows), "warnings": warnings})
+
+    payload = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+    event_id = _parse_positive_int(payload.get("event_id"), "event_id", errors)
+    item_id = _parse_positive_int(payload.get("item_id"), "item_id", errors)
+    level = str(payload.get("criticality_level") or "").strip().upper()
+    if level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+        errors["criticality_level"] = "Must be one of: CRITICAL, HIGH, NORMAL, LOW."
+    is_active = _parse_optional_bool(payload.get("is_active"), "is_active", errors)
+    if is_active is None:
+        is_active = True
+    effective_from = _parse_optional_datetime(payload.get("effective_from"), "effective_from", errors)
+    effective_to = _parse_optional_datetime(payload.get("effective_to"), "effective_to", errors)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    assert event_id is not None
+    assert item_id is not None
+    actor_id = _actor_id(request) or "SYSTEM"
+    created, warnings = criticality_governance.create_event_override(
+        event_id=event_id,
+        item_id=item_id,
+        criticality_level=level,
+        actor_id=actor_id,
+        reason_text=payload.get("reason_text"),
+        effective_from=effective_from,
+        effective_to=effective_to,
+        is_active=is_active,
+    )
+    if created is None:
+        status_code = 409 if "event_closed_override_not_allowed" in warnings else 400
+        return Response({"errors": {"criticality": warnings or ["criticality_event_override_create_failed"]}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_event_override_create",
+        request,
+        event_type="CREATE",
+        action="CRITICALITY_EVENT_OVERRIDE_CREATE",
+        event_id=event_id,
+        item_id=item_id,
+        override_id=created.get("override_id"),
+        criticality_level=created.get("criticality_level"),
+    )
+    return Response({"override": created, "warnings": warnings}, status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_event_override_detail(request, override_id: int):
+    if request.method == "DELETE":
+        updated, warnings = criticality_governance.update_event_override(
+            override_id=override_id,
+            updates={"is_active": False, "effective_to": timezone.now()},
+            actor_id=_actor_id(request) or "SYSTEM",
+        )
+        if updated is None:
+            status_code = 404 if "criticality_event_override_not_found" in warnings else 400
+            return Response({"errors": {"criticality": warnings}}, status=status_code)
+        _log_audit_event(
+            "criticality_event_override_deactivate",
+            request,
+            event_type="UPDATE",
+            action="CRITICALITY_EVENT_OVERRIDE_DEACTIVATE",
+            override_id=override_id,
+        )
+        return Response({"override": updated, "warnings": warnings})
+
+    payload = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+    updates: Dict[str, object] = {}
+
+    if "criticality_level" in payload:
+        level = str(payload.get("criticality_level") or "").strip().upper()
+        if level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+            errors["criticality_level"] = "Must be one of: CRITICAL, HIGH, NORMAL, LOW."
+        else:
+            updates["criticality_level"] = level
+    if "reason_text" in payload:
+        updates["reason_text"] = payload.get("reason_text")
+    if "effective_from" in payload:
+        updates["effective_from"] = _parse_optional_datetime(payload.get("effective_from"), "effective_from", errors)
+    if "effective_to" in payload:
+        updates["effective_to"] = _parse_optional_datetime(payload.get("effective_to"), "effective_to", errors)
+    if "is_active" in payload:
+        parsed_active = _parse_optional_bool(payload.get("is_active"), "is_active", errors)
+        if parsed_active is not None:
+            updates["is_active"] = parsed_active
+
+    if not updates and not errors:
+        errors["updates"] = "At least one field is required."
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    updated, warnings = criticality_governance.update_event_override(
+        override_id=override_id,
+        updates=updates,
+        actor_id=_actor_id(request) or "SYSTEM",
+    )
+    if updated is None:
+        status_code = 404 if "criticality_event_override_not_found" in warnings else 409 if "event_closed_override_not_allowed" in warnings else 400
+        return Response({"errors": {"criticality": warnings}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_event_override_update",
+        request,
+        event_type="UPDATE",
+        action="CRITICALITY_EVENT_OVERRIDE_UPDATE",
+        override_id=override_id,
+    )
+    return Response({"override": updated, "warnings": warnings})
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_hazard_defaults(request):
+    if request.method == "GET":
+        errors: Dict[str, str] = {}
+        item_id = _parse_positive_int(request.query_params.get("item_id"), "item_id", errors) if request.query_params.get("item_id") else None
+        active_only = _parse_optional_bool(request.query_params.get("active_only"), "active_only", errors)
+        if active_only is None:
+            active_only = False
+        limit = _parse_positive_int(request.query_params.get("limit"), "limit", errors) if request.query_params.get("limit") else 200
+        event_type = request.query_params.get("event_type")
+        approval_status = request.query_params.get("approval_status")
+        if errors:
+            return Response({"errors": errors}, status=400)
+
+        rows, warnings = criticality_governance.list_hazard_defaults(
+            event_type=event_type,
+            item_id=item_id,
+            approval_status=approval_status,
+            active_only=active_only,
+            limit=limit or 200,
+        )
+        return Response({"results": rows, "count": len(rows), "warnings": warnings})
+
+    payload = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+    item_id = _parse_positive_int(payload.get("item_id"), "item_id", errors)
+    event_type = str(payload.get("event_type") or "").strip().upper()
+    if not event_type:
+        errors["event_type"] = "This field is required."
+    level = str(payload.get("criticality_level") or "").strip().upper()
+    if level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+        errors["criticality_level"] = "Must be one of: CRITICAL, HIGH, NORMAL, LOW."
+    is_active = _parse_optional_bool(payload.get("is_active"), "is_active", errors)
+    if is_active is None:
+        is_active = True
+    submit_for_approval = _parse_optional_bool(payload.get("submit_for_approval"), "submit_for_approval", errors)
+    if submit_for_approval is None:
+        submit_for_approval = False
+    effective_from = _parse_optional_datetime(payload.get("effective_from"), "effective_from", errors)
+    effective_to = _parse_optional_datetime(payload.get("effective_to"), "effective_to", errors)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    assert item_id is not None
+    created, warnings = criticality_governance.create_hazard_default(
+        event_type=event_type,
+        item_id=item_id,
+        criticality_level=level,
+        actor_id=_actor_id(request) or "SYSTEM",
+        reason_text=payload.get("reason_text"),
+        effective_from=effective_from,
+        effective_to=effective_to,
+        is_active=is_active,
+        approval_status="PENDING_APPROVAL" if submit_for_approval else "DRAFT",
+    )
+    if created is None:
+        return Response({"errors": {"criticality": warnings or ["criticality_hazard_default_create_failed"]}}, status=400)
+
+    _log_audit_event(
+        "criticality_hazard_default_create",
+        request,
+        event_type="CREATE",
+        action="CRITICALITY_HAZARD_DEFAULT_CREATE",
+        hazard_event_type=event_type,
+        item_id=item_id,
+        hazard_item_criticality_id=created.get("hazard_item_criticality_id"),
+        approval_status=created.get("approval_status"),
+    )
+    return Response({"hazard_default": created, "warnings": warnings}, status=201)
+
+
+@api_view(["PATCH"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_hazard_default_detail(request, hazard_item_criticality_id: int):
+    payload = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+    updates: Dict[str, object] = {}
+
+    if "event_type" in payload:
+        updates["event_type"] = payload.get("event_type")
+    if "item_id" in payload:
+        parsed_item_id = _parse_positive_int(payload.get("item_id"), "item_id", errors)
+        if parsed_item_id is not None:
+            updates["item_id"] = parsed_item_id
+    if "criticality_level" in payload:
+        level = str(payload.get("criticality_level") or "").strip().upper()
+        if level not in {"CRITICAL", "HIGH", "NORMAL", "LOW"}:
+            errors["criticality_level"] = "Must be one of: CRITICAL, HIGH, NORMAL, LOW."
+        else:
+            updates["criticality_level"] = level
+    if "reason_text" in payload:
+        updates["reason_text"] = payload.get("reason_text")
+    if "effective_from" in payload:
+        updates["effective_from"] = _parse_optional_datetime(payload.get("effective_from"), "effective_from", errors)
+    if "effective_to" in payload:
+        updates["effective_to"] = _parse_optional_datetime(payload.get("effective_to"), "effective_to", errors)
+    if "is_active" in payload:
+        parsed_active = _parse_optional_bool(payload.get("is_active"), "is_active", errors)
+        if parsed_active is not None:
+            updates["is_active"] = parsed_active
+
+    if not updates and not errors:
+        errors["updates"] = "At least one field is required."
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    updated, warnings = criticality_governance.update_hazard_default(
+        hazard_item_criticality_id=hazard_item_criticality_id,
+        updates=updates,
+        actor_id=_actor_id(request) or "SYSTEM",
+    )
+    if updated is None:
+        status_code = 404 if "criticality_hazard_default_not_found" in warnings else 400
+        return Response({"errors": {"criticality": warnings}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_hazard_default_update",
+        request,
+        event_type="UPDATE",
+        action="CRITICALITY_HAZARD_DEFAULT_UPDATE",
+        hazard_item_criticality_id=hazard_item_criticality_id,
+        approval_status=updated.get("approval_status"),
+    )
+    return Response({"hazard_default": updated, "warnings": warnings})
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_hazard_default_submit(request, hazard_item_criticality_id: int):
+    submitted, warnings = criticality_governance.submit_hazard_default(
+        hazard_item_criticality_id=hazard_item_criticality_id,
+        actor_id=_actor_id(request) or "SYSTEM",
+    )
+    if submitted is None:
+        status_code = 404 if any("missing" in warning for warning in warnings) else 409
+        return Response({"errors": {"criticality": warnings}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_hazard_default_submit",
+        request,
+        event_type="STATE_CHANGE",
+        action="CRITICALITY_HAZARD_DEFAULT_SUBMIT",
+        hazard_item_criticality_id=hazard_item_criticality_id,
+    )
+    return Response({"hazard_default": submitted, "warnings": warnings})
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_hazard_default_approve(request, hazard_item_criticality_id: int):
+    if not _has_director_peod_authority(request):
+        return Response({"errors": {"approval": "Director PEOD approval is required."}}, status=403)
+
+    approved, warnings = criticality_governance.approve_hazard_default(
+        hazard_item_criticality_id=hazard_item_criticality_id,
+        actor_id=_actor_id(request) or "SYSTEM",
+    )
+    if approved is None:
+        status_code = 404 if any("missing" in warning for warning in warnings) else 409
+        return Response({"errors": {"criticality": warnings}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_hazard_default_approve",
+        request,
+        event_type="STATE_CHANGE",
+        action="CRITICALITY_HAZARD_DEFAULT_APPROVE",
+        hazard_item_criticality_id=hazard_item_criticality_id,
+    )
+    return Response({"hazard_default": approved, "warnings": warnings})
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def criticality_hazard_default_reject(request, hazard_item_criticality_id: int):
+    if not _has_director_peod_authority(request):
+        return Response({"errors": {"approval": "Director PEOD approval is required."}}, status=403)
+
+    payload = request.data if isinstance(request.data, Mapping) else {}
+    reason_text = payload.get("reason_text")
+    rejected, warnings = criticality_governance.reject_hazard_default(
+        hazard_item_criticality_id=hazard_item_criticality_id,
+        actor_id=_actor_id(request) or "SYSTEM",
+        reason_text=reason_text,
+    )
+    if rejected is None:
+        if "criticality_hazard_default_reject_reason_required" in warnings:
+            return Response({"errors": {"reason_text": "Rejection reason is required."}}, status=400)
+        status_code = 404 if any("missing" in warning for warning in warnings) else 409
+        return Response({"errors": {"criticality": warnings}}, status=status_code)
+
+    _log_audit_event(
+        "criticality_hazard_default_reject",
+        request,
+        event_type="STATE_CHANGE",
+        action="CRITICALITY_HAZARD_DEFAULT_REJECT",
+        hazard_item_criticality_id=hazard_item_criticality_id,
+    )
+    return Response({"hazard_default": rejected, "warnings": warnings})
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
@@ -2362,7 +2779,8 @@ def needs_list_preview(request):
     payload = request.data or {}
     response, errors = _build_preview_response(payload)
     if errors:
-        return Response({"errors": errors}, status=400)
+        status_code = 503 if STRICT_INBOUND_VIEW_MISSING_CODE in errors else 400
+        return Response({"errors": errors}, status=status_code)
     scope_error = _require_warehouse_scope(
         request,
         response.get("warehouse_id"),
@@ -2462,6 +2880,14 @@ def needs_list_preview_multi(request):
         response, wh_errors = _build_preview_response(wh_payload)
 
         if wh_errors:
+            if STRICT_INBOUND_VIEW_MISSING_CODE in wh_errors:
+                return Response(
+                    {
+                        "errors": wh_errors,
+                        "warehouse_id": warehouse_id,
+                    },
+                    status=503,
+                )
             # Log error but continue with other warehouses
             logger.warning(
                 "Preview failed for warehouse_id=%s: %s",
@@ -2522,6 +2948,8 @@ def needs_list_preview_multi(request):
 def needs_list_draft(request):
     payload = request.data or {}
     response, errors = _build_preview_response(payload)
+    if errors and STRICT_INBOUND_VIEW_MISSING_CODE in errors:
+        return Response({"errors": errors}, status=503)
     selected_item_keys = _parse_selected_item_keys(payload.get("selected_item_keys"), errors)
     selected_method_raw = payload.get("selected_method")
     selected_method = None
@@ -2567,6 +2995,33 @@ def needs_list_draft(request):
         return Response(
             {"errors": {"items": "At least one selected item is required."}},
             status=400,
+        )
+
+    filtered_item_ids = [
+        item_id
+        for item in filtered_items
+        if (item_id := _to_int_or_none(item.get("item_id"))) is not None
+    ]
+    inactive_item_ids, inactive_item_warnings = data_access.get_inactive_item_ids(filtered_item_ids)
+    if inactive_item_ids:
+        error_payload = {
+            "code": INACTIVE_ITEM_FORWARD_WRITE_CODE,
+            "table": "needs_list_item",
+            "workflow_state": "DRAFT_GENERATION",
+            "item_ids": inactive_item_ids,
+        }
+        return Response(
+            {
+                "detail": "Cannot write forward-looking data for inactive item(s).",
+                "errors": {INACTIVE_ITEM_FORWARD_WRITE_CODE: error_payload},
+                "warnings": inactive_item_warnings,
+            },
+            status=409,
+        )
+    if inactive_item_warnings:
+        response["warnings"] = needs_list.merge_warnings(
+            response.get("warnings", []),
+            inactive_item_warnings,
         )
 
     event_name = (
@@ -2827,7 +3282,7 @@ def needs_list_submit(request, needs_list_id: str):
             exclude_needs_list_id=needs_list_id,
         )
     except DuplicateConflictValidationError:
-        logger.exception(
+        logger.warning(
             "needs_list_duplicate_validation_failed",
             extra={
                 "event_type": "VALIDATION_ERROR",
@@ -3798,7 +4253,7 @@ def needs_list_donations(request, needs_list_id: str):
     return Response({
         "needs_list_id": needs_list_id,
         "lines": horizon_b_lines,
-        "warnings": ["donation_in_transit_unmodeled"],
+        "warnings": [],
     })
 
 
@@ -4005,10 +4460,30 @@ needs_list_donations.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_allocate.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_export.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_procurement_export.required_permission = PERM_NEEDS_LIST_EXECUTE
+criticality_event_overrides.required_permission = {
+    "GET": [PERM_CRITICALITY_OVERRIDE_VIEW, PERM_CRITICALITY_OVERRIDE_MANAGE],
+    "POST": PERM_CRITICALITY_OVERRIDE_MANAGE,
+}
+criticality_event_override_detail.required_permission = PERM_CRITICALITY_OVERRIDE_MANAGE
+criticality_hazard_defaults.required_permission = {
+    "GET": [PERM_CRITICALITY_HAZARD_VIEW, PERM_CRITICALITY_HAZARD_MANAGE, PERM_CRITICALITY_HAZARD_APPROVE],
+    "POST": PERM_CRITICALITY_HAZARD_MANAGE,
+}
+criticality_hazard_default_detail.required_permission = PERM_CRITICALITY_HAZARD_MANAGE
+criticality_hazard_default_submit.required_permission = PERM_CRITICALITY_HAZARD_MANAGE
+criticality_hazard_default_approve.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
+criticality_hazard_default_reject.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
 assign_storage_location.required_permission = [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT]
 
 for view_func in (
     assign_storage_location,
+    criticality_event_overrides,
+    criticality_event_override_detail,
+    criticality_hazard_defaults,
+    criticality_hazard_default_detail,
+    criticality_hazard_default_submit,
+    criticality_hazard_default_approve,
+    criticality_hazard_default_reject,
     needs_list_draft,
     needs_list_get,
     needs_list_edit_lines,
@@ -4352,7 +4827,7 @@ def procurement_cancel(request, procurement_id: int):
         return Response({"errors": {exc.code: exc.message}}, status=status_code)
 
 
-# ── Supplier Views ───────────────────────────────────────────────────────────
+# Supplier Views
 
 
 @api_view(["GET", "POST"])
@@ -4411,7 +4886,7 @@ def supplier_detail(request, supplier_id: int):
         return Response({"errors": {exc.code: exc.message}}, status=status_code)
 
 
-# ── Procurement Permission Assignments ──────────────────────────────────────
+# Procurement Permission Assignments
 
 # Combined-method views use method-specific permission mappings.
 procurement_list_create.required_permission = {
@@ -4454,3 +4929,4 @@ for _pview in (
 ):
     if hasattr(_pview, "cls"):
         _pview.cls.required_permission = _pview.required_permission
+

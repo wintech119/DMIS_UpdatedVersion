@@ -94,6 +94,7 @@ db.sqlite3
 **/database_dump_*.sql
 **/*backup*.sql
 **/DMIS_DATABASE_SCHEMA*.sql
+dmis_schema.sql
 **/attached_assets/*test*.sql
 **/attached_assets/*operational*.sql
 **/attached_assets/*dump*.sql
@@ -139,9 +140,11 @@ db.sqlite3
 !**/fixtures/example*.csv
 
 # Docs attached assets (generated/extracted)
-docs/attached_assets/DMIS_Requirements_Specification_v5_1 Consolidated.docx
+docs/attached_assets/DMIS_Requirements_Specification_v6_0.docx
 docs/attached_assets/__dmis_v51_flat.txt
 docs/attached_assets/__dmis_v51_text.txt
+# Word lock files
+**/~$*
 docs/attached_assets/__document_raw.xml
 docs/attached_assets/__dump_tables.txt
 docs/attached_assets/__live_tables.txt

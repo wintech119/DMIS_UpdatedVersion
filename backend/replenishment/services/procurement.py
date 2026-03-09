@@ -26,6 +26,7 @@ from replenishment.models import (
     ProcurementItem,
     Supplier,
 )
+from replenishment.services import data_access
 
 logger = logging.getLogger("dmis.audit")
 
@@ -53,6 +54,34 @@ class ProcurementError(Exception):
         self.message = message
         self.code = code
         super().__init__(message)
+
+
+def _assert_active_item_for_draft_write(item_id: int, table_key: str, workflow_state: str) -> None:
+    inactive_ids, warnings = data_access.get_inactive_item_ids([item_id])
+    if warnings:
+        logger.warning(
+            "Inactive-item guard lookup warning for %s state=%s item_id=%s warnings=%s",
+            table_key,
+            workflow_state,
+            item_id,
+            warnings,
+        )
+        raise ProcurementError(
+            (
+                "Inactive-item draft-write guard could not be trusted. "
+                f"table={table_key}, workflow_state={workflow_state}, item_id={item_id}, "
+                f"warnings={warnings}"
+            ),
+            code="inactive_item_guard_untrusted",
+        )
+    if item_id in set(inactive_ids):
+        raise ProcurementError(
+            (
+                "Cannot write forward-looking data for inactive item. "
+                f"table={table_key}, workflow_state={workflow_state}, item_id={item_id}"
+            ),
+            code="inactive_item_forward_write_blocked",
+        )
 
 
 def generate_procurement_no() -> str:
@@ -300,6 +329,11 @@ def create_procurement_from_needs_list(
         )
 
     for nli in horizon_c_items:
+        _assert_active_item_for_draft_write(
+            nli.item_id,
+            table_key="procurement_item",
+            workflow_state="DRAFT",
+        )
         ProcurementItem.objects.create(
             procurement=proc,
             item_id=nli.item_id,
@@ -389,6 +423,11 @@ def create_procurement_standalone(
                 f"Invalid item_id for line item: {raw_item_id!r}.",
                 code="invalid_item_id",
             )
+        _assert_active_item_for_draft_write(
+            item_id,
+            table_key="procurement_item",
+            workflow_state="DRAFT",
+        )
 
         unit_price = None
         raw_unit_price = line.get("unit_price")
@@ -541,6 +580,11 @@ def update_procurement_draft(
                     )
                 except ProcurementItem.DoesNotExist:
                     continue
+                _assert_active_item_for_draft_write(
+                    pi.item_id,
+                    table_key="procurement_item",
+                    workflow_state="DRAFT",
+                )
 
                 item_fields = ["update_by_id", "update_dtime"]
                 pi.update_by_id = actor_id
@@ -590,6 +634,11 @@ def update_procurement_draft(
                         f"Invalid item_id for line item: {raw_item_id!r}.",
                         code="invalid_item_id",
                     )
+                _assert_active_item_for_draft_write(
+                    item_id,
+                    table_key="procurement_item",
+                    workflow_state="DRAFT",
+                )
 
                 unit_price = None
                 raw_unit_price = line.get("unit_price")

@@ -20,6 +20,7 @@ No code changes needed.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass, field
@@ -258,25 +259,44 @@ def _build_keyword_index(
 # ─── Thread-safe singleton ────────────────────────────────────────────────────
 
 _taxonomy_instance: IFRCTaxonomy | None = None
+_taxonomy_path: Path | None = None
 _taxonomy_lock = threading.Lock()
+
+
+def _taxonomy_path_from_settings() -> Path:
+    from django.conf import settings
+
+    default_path = Path(__file__).resolve().parent / "data" / "ifrc_catalogue_taxonomy.md"
+    env_path = os.environ.get("IFRC_TAXONOMY_FILE")
+    path_raw = None
+    if getattr(settings, "configured", False):
+        agent_cfg = getattr(settings, "IFRC_AGENT", {}) or {}
+        path_raw = agent_cfg.get("TAXONOMY_FILE")
+    path_raw = path_raw or env_path or str(default_path)
+    return Path(path_raw)
 
 
 def get_taxonomy() -> IFRCTaxonomy:
     """Returns the singleton IFRCTaxonomy, parsing the MD file on first call."""
-    global _taxonomy_instance
-    if _taxonomy_instance is not None:
+    global _taxonomy_instance, _taxonomy_path
+    path = _taxonomy_path_from_settings()
+
+    if _taxonomy_instance is not None and _taxonomy_path == path:
         return _taxonomy_instance
+
     with _taxonomy_lock:
-        if _taxonomy_instance is None:
-            from django.conf import settings
-            path = Path(settings.IFRC_AGENT["TAXONOMY_FILE"])
+        if _taxonomy_instance is None or _taxonomy_path != path:
             _taxonomy_instance = parse_taxonomy(path)
+            _taxonomy_path = path
+
     return _taxonomy_instance
 
 
 def reload_taxonomy() -> IFRCTaxonomy:
     """Force re-parse of the MD file. Thread-safe."""
-    global _taxonomy_instance
+    global _taxonomy_instance, _taxonomy_path
     with _taxonomy_lock:
         _taxonomy_instance = None
+        _taxonomy_path = None
     return get_taxonomy()
+

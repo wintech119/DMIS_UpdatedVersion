@@ -28,6 +28,7 @@ from masterdata.permissions import (
 )
 from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.services.data_access import (
+    INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
     activate_record,
     check_dependencies,
@@ -73,6 +74,37 @@ def _ifrc_cfg() -> dict[str, Any]:
         "OLLAMA_MODEL_ID": str(cfg.get("OLLAMA_MODEL_ID", "qwen3.5:0.8b")),
         "LLM_ENABLED": bool(cfg.get("LLM_ENABLED", False)),
     }
+
+
+def _inactive_item_guard_response(warnings: list[str], fallback_table: str):
+    if INACTIVE_ITEM_FORWARD_WRITE_CODE not in warnings:
+        return None
+
+    item_ids: list[int] = []
+    table_key = fallback_table
+    workflow_state = "UNKNOWN"
+    for warning in warnings:
+        if warning.startswith("inactive_item_id_"):
+            raw_id = warning.removeprefix("inactive_item_id_")
+            try:
+                item_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+        elif warning.startswith("forward_write_table_"):
+            table_key = warning.removeprefix("forward_write_table_") or fallback_table
+        elif warning.startswith("forward_write_workflow_"):
+            workflow_state = warning.removeprefix("forward_write_workflow_") or "UNKNOWN"
+
+    payload = {
+        "code": INACTIVE_ITEM_FORWARD_WRITE_CODE,
+        "table": table_key,
+        "workflow_state": workflow_state,
+        "item_ids": sorted(set(item_ids)),
+    }
+    return Response(
+        {"detail": "Cannot write forward-looking data for inactive item(s).", "errors": {INACTIVE_ITEM_FORWARD_WRITE_CODE: payload}},
+        status=409,
+    )
 
 
 def _ifrc_agent() -> IFRCAgent:
@@ -157,6 +189,9 @@ def _handle_create(request, cfg):
 
     pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
     if pk_val is None:
+        guard_response = _inactive_item_guard_response(warnings, cfg.key)
+        if guard_response:
+            return guard_response
         return Response(
             {"detail": "Failed to create record.", "warnings": warnings},
             status=500,
@@ -252,6 +287,9 @@ def _handle_update(request, cfg, pk_value):
         cfg.key, pk_value, data, _actor_id(request), expected_version,
     )
     if not success:
+        guard_response = _inactive_item_guard_response(warnings, cfg.key)
+        if guard_response:
+            return guard_response
         if "version_conflict" in warnings:
             return Response(
                 {"detail": "Record was modified by another user. Please reload.", "warnings": warnings},
@@ -493,6 +531,14 @@ def master_inactivate(request, table_key: str, pk: str):
 
     # Check dependencies first
     blocking, dep_warnings = check_dependencies(cfg.key, pk_value)
+    if any(w.startswith("dependency_check_failed_") for w in dep_warnings):
+        return Response(
+            {
+                "detail": "Failed to validate dependencies before inactivation.",
+                "warnings": dep_warnings,
+            },
+            status=500,
+        )
     if blocking:
         return Response({
             "detail": "Cannot inactivate: referenced by other records.",
