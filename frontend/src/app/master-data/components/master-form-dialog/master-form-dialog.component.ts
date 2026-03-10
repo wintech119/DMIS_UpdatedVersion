@@ -49,6 +49,9 @@ interface InactiveItemForwardWriteGuard {
     }
 
     <mat-dialog-content>
+      @if (data.config.formDescription) {
+        <p class="form-description">{{ data.config.formDescription }}</p>
+      }
       <form [formGroup]="form" class="dialog-form">
         @if (submissionError(); as message) {
           <div class="form-submit-alert" role="alert" aria-live="assertive">
@@ -69,7 +72,7 @@ interface InactiveItemForwardWriteGuard {
         @for (field of data.config.formFields; track field.field) {
           @switch (field.type) {
             @case ('textarea') {
-              <mat-form-field appearance="outline" class="full-width">
+              <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                 <mat-label>{{ field.label }}</mat-label>
                 <textarea matInput [formControlName]="field.field"
                   [maxlength]="field.maxLength || null"
@@ -81,6 +84,9 @@ interface InactiveItemForwardWriteGuard {
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
                 }
+                @if (field.hint) {
+                  <mat-hint>{{ field.hint }}</mat-hint>
+                }
                 @if (field.maxLength) {
                   <mat-hint align="end">
                     {{ (form.get(field.field)?.value?.length || 0) }} / {{ field.maxLength }}
@@ -89,7 +95,7 @@ interface InactiveItemForwardWriteGuard {
               </mat-form-field>
             }
             @case ('select') {
-              <mat-form-field appearance="outline" class="full-width">
+              <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                 <mat-label>{{ field.label }}</mat-label>
                 <mat-select [formControlName]="field.field"
                   [attr.aria-required]="field.required || null">
@@ -109,10 +115,13 @@ interface InactiveItemForwardWriteGuard {
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
                 }
+                @if (field.hint) {
+                  <mat-hint>{{ field.hint }}</mat-hint>
+                }
               </mat-form-field>
             }
             @case ('lookup') {
-              <mat-form-field appearance="outline" class="full-width">
+              <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                 <mat-label>{{ field.label }}</mat-label>
                 <mat-select [formControlName]="field.field"
                   [attr.aria-required]="field.required || null">
@@ -125,6 +134,9 @@ interface InactiveItemForwardWriteGuard {
                 }
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                }
+                @if (field.hint) {
+                  <mat-hint>{{ field.hint }}</mat-hint>
                 }
               </mat-form-field>
             }
@@ -142,7 +154,7 @@ interface InactiveItemForwardWriteGuard {
               </div>
             }
             @default {
-              <mat-form-field appearance="outline" class="full-width">
+              <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                 <mat-label>{{ field.label }}</mat-label>
                 <input matInput [formControlName]="field.field"
                   [type]="field.type === 'number' ? 'number' : 'text'"
@@ -159,6 +171,9 @@ interface InactiveItemForwardWriteGuard {
                 }
                 @if (form.get(field.field)?.hasError('server')) {
                   <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                }
+                @if (field.hint) {
+                  <mat-hint>{{ field.hint }}</mat-hint>
                 }
               </mat-form-field>
             }
@@ -203,10 +218,20 @@ interface InactiveItemForwardWriteGuard {
       font-weight: 600;
       color: #1a1a1a;
     }
+    .form-description {
+      margin: 12px 0 0;
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: #374151;
+      background: #f0fdfa;
+      border-left: 3px solid #0f766e;
+      border-radius: 4px;
+    }
     .dialog-form {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 12px;
       padding-top: 12px;
       min-width: 380px;
     }

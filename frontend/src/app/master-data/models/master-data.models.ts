@@ -55,6 +55,8 @@ export interface MasterTableConfig {
   readOnly?: boolean;
   /** Table has no status_code column (e.g. donor, custodian, parish) */
   hasStatus?: boolean;
+  /** Instructional text shown at the top of the create/edit form */
+  formDescription?: string;
   /** Columns shown in the list view */
   columns: MasterColumnConfig[];
   /** Fields shown in the create/edit form */
