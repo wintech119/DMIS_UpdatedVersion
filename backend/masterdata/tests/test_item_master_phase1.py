@@ -10,6 +10,12 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from masterdata import views
 from masterdata.item_master_taxonomy import build_ifrc_taxonomy_seed_payload
+from masterdata.services.catalog_governance import (
+    catalog_detail_metadata,
+    suggest_ifrc_family_authoring,
+    suggest_ifrc_reference_authoring,
+    validate_catalog_update,
+)
 from masterdata.services.data_access import TABLE_REGISTRY
 from masterdata.services.item_master import (
     ITEM_CANONICAL_CONFLICT_CODE,
@@ -289,6 +295,88 @@ class ItemMasterConflictTests(SimpleTestCase):
         self.assertEqual(conflict["existing_item"]["item_id"], 91)
 
 
+class CatalogGovernanceServiceTests(SimpleTestCase):
+    def test_validate_catalog_update_rejects_locked_reference_fields(self):
+        errors, warnings = validate_catalog_update(
+            "ifrc_item_references",
+            {"ifrc_code": "WWTRTABLPW99"},
+            {
+                "ifrc_item_ref_id": 77,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "category_code": "TABL",
+                "spec_segment": "TB",
+            },
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertIn("ifrc_code", errors)
+        self.assertIn("locked", errors["ifrc_code"])
+
+    def test_catalog_detail_metadata_exposes_edit_guidance(self):
+        guidance = catalog_detail_metadata("ifrc_families")
+
+        self.assertTrue(guidance["edit_guidance"]["warning_required"])
+        self.assertIn("replacement", guidance["edit_guidance"]["warning_text"])
+        self.assertIn("family_code", guidance["edit_guidance"]["locked_fields"])
+
+    @patch(
+        "masterdata.services.catalog_governance._family_conflicts",
+        return_value=({"exact_code_match": None, "exact_label_match": None, "near_matches": []}, []),
+    )
+    @patch("masterdata.services.catalog_governance._family_ai_candidate", return_value=None)
+    def test_family_authoring_suggestion_is_deterministic_without_ai(
+        self,
+        _mock_ai_candidate,
+        _mock_conflicts,
+    ):
+        payload, errors, warnings = suggest_ifrc_family_authoring({"family_label": "Water Treatment"})
+
+        self.assertEqual(errors, {})
+        self.assertEqual(warnings, [])
+        self.assertEqual(payload["source"], "deterministic")
+        self.assertEqual(payload["normalized"]["group_code"], "W")
+        self.assertEqual(payload["normalized"]["family_code"], "WTR")
+
+    @patch("masterdata.services.catalog_governance._is_sqlite", return_value=False)
+    @patch(
+        "masterdata.services.catalog_governance._reference_conflicts",
+        return_value=({"exact_code_match": None, "exact_desc_match": None, "near_matches": []}, []),
+    )
+    @patch("masterdata.services.catalog_governance._reference_ai_candidate", return_value=None)
+    @patch("masterdata.services.catalog_governance._next_sequence", return_value=(1, "db"))
+    @patch(
+        "masterdata.services.catalog_governance._fetch_ifrc_family",
+        return_value={
+            "ifrc_family_id": 11,
+            "group_code": "W",
+            "family_code": "WTR",
+            "family_label": "Water Treatment",
+        },
+    )
+    def test_reference_authoring_suggestion_falls_back_to_deterministic_logic(
+        self,
+        _mock_family,
+        _mock_sequence,
+        _mock_ai_candidate,
+        _mock_conflicts,
+        _mock_sqlite,
+    ):
+        payload, errors, warnings = suggest_ifrc_reference_authoring(
+            {
+                "ifrc_family_id": 11,
+                "reference_desc": "Water purification tablet",
+                "form": "tablet",
+            }
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(warnings, [])
+        self.assertEqual(payload["source"], "deterministic")
+        self.assertEqual(payload["normalized"]["form"], "TABLET")
+        self.assertTrue(payload["normalized"]["ifrc_code"].endswith("01"))
+
+
 class ItemMasterSeedPayloadTests(SimpleTestCase):
     def test_seed_payload_is_deterministic(self):
         first = build_ifrc_taxonomy_seed_payload()
@@ -475,6 +563,31 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
         "masterdata.views.get_record",
         return_value=(
             {
+                "ifrc_family_id": 11,
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WTR",
+                "family_label": "Water Treatment",
+                "status_code": "A",
+            },
+            [],
+        ),
+    )
+    def test_ifrc_family_detail_exposes_edit_guidance(self, _mock_get_record, _mock_permission):
+        request = self.factory.get("/api/v1/masterdata/ifrc_families/11")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_detail_update(request, "ifrc_families", "11")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["edit_guidance"]["warning_required"])
+        self.assertIn("family_code", response.data["edit_guidance"]["locked_fields"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            {
                 "ifrc_item_ref_id": 77,
                 "ifrc_family_id": 11,
                 "ifrc_code": "WWTRTABLTB01",
@@ -487,12 +600,12 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
             [],
         ),
     )
-    @patch("masterdata.views.create_record", return_value=(77, []))
+    @patch("masterdata.views.create_catalog_record", return_value=(77, []))
     @patch("masterdata.views.validate_record", return_value={})
-    def test_ifrc_reference_create_supports_level3_metadata_fields(
+    def test_ifrc_reference_create_uses_governed_catalog_service(
         self,
         _mock_validate_record,
-        mock_create_record,
+        mock_create_catalog_record,
         _mock_get_record,
         _mock_permission,
     ):
@@ -517,11 +630,84 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
         response = views.master_list_create(request, "ifrc_item_references")
 
         self.assertEqual(response.status_code, 201)
-        forwarded_payload = mock_create_record.call_args.args[1]
+        forwarded_payload = mock_create_catalog_record.call_args.args[1]
         self.assertEqual(forwarded_payload["size_weight"], "500 g")
         self.assertEqual(forwarded_payload["form"], "tablet")
         self.assertEqual(forwarded_payload["material"], "chlorine")
         self.assertEqual(response.data["record"]["ifrc_item_ref_id"], 77)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.validate_record", return_value={})
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            {
+                "ifrc_item_ref_id": 77,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "category_code": "TABL",
+                "spec_segment": "TB",
+                "reference_desc": "Water purification tablet",
+                "status_code": "A",
+            },
+            [],
+        ),
+    )
+    def test_reference_update_rejects_locked_canonical_field_change(
+        self,
+        _mock_get_record,
+        _mock_validate_record,
+        _mock_permission,
+    ):
+        request = self.factory.patch(
+            "/api/v1/masterdata/ifrc_item_references/77",
+            {"ifrc_code": "WWTRTABLPW99"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.master_detail_update(request, "ifrc_item_references", "77")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("ifrc_code", response.data["errors"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.suggest_ifrc_family_authoring",
+        return_value=({"source": "deterministic", "normalized": {"group_code": "W", "family_code": "WTR"}}, {}, []),
+    )
+    def test_family_suggest_endpoint_returns_authoring_payload(self, _mock_suggest, _mock_permission):
+        request = self.factory.post(
+            "/api/v1/masterdata/ifrc-families/suggest",
+            {"family_label": "Water Treatment"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.ifrc_family_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["source"], "deterministic")
+        self.assertEqual(response.data["normalized"]["family_code"], "WTR")
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.create_catalog_replacement",
+        return_value=({"record": {"ifrc_item_ref_id": 91, "ifrc_code": "WWTRTABLTB02"}, "replacement_for_pk": 77, "retire_original_requested": True, "retired_original": False}, []),
+    )
+    def test_reference_replacement_endpoint_returns_created_record(self, _mock_replace, _mock_permission):
+        request = self.factory.post(
+            "/api/v1/masterdata/ifrc-item-references/77/replacement",
+            {"ifrc_code": "WWTRTABLTB02", "retire_original": True},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.ifrc_item_reference_replacement(request, "77")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["record"]["ifrc_item_ref_id"], 91)
+        self.assertEqual(response.data["replacement_for_pk"], 77)
 
 
 class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
@@ -536,6 +722,9 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         )
         cls.migration_0007 = importlib.import_module(
             "masterdata.migrations.0007_ifrc_reference_metadata_phase1"
+        )
+        cls.migration_0008 = importlib.import_module(
+            "masterdata.migrations.0008_catalog_governance_audit"
         )
 
     @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
@@ -583,6 +772,19 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("ADD COLUMN IF NOT EXISTS form", executed_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS material", executed_sql)
         mock_sync.assert_called_once_with(schema_editor.connection, schema="tenant_a")
+
+    def test_0008_forwards_sql_creates_append_only_catalog_audit(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+        with patch.object(self.migration_0008, "_relation_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration_0008._forwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn("CREATE TABLE IF NOT EXISTS tenant_a.catalog_governance_audit", executed_sql)
+        self.assertIn("CREATE TRIGGER trg_catalog_governance_audit_no_mutation", executed_sql)
 
 
 class ItemMasterUomOptionTests(SimpleTestCase):

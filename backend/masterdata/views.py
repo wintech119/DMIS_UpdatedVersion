@@ -44,6 +44,18 @@ from masterdata.services.data_access import (
     list_records,
     update_record,
 )
+from masterdata.services.catalog_governance import (
+    activate_catalog_record,
+    catalog_detail_metadata,
+    create_catalog_record,
+    create_catalog_replacement,
+    inactivate_catalog_record,
+    is_governed_catalog_table,
+    suggest_ifrc_family_authoring,
+    suggest_ifrc_reference_authoring,
+    update_catalog_record,
+    validate_catalog_update,
+)
 from masterdata.services.item_master import (
     create_item_record,
     find_item_canonical_conflict,
@@ -703,7 +715,10 @@ def _handle_create(request, cfg):
     if errors:
         return Response({"errors": errors}, status=400)
 
-    pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
+    if is_governed_catalog_table(cfg.key):
+        pk_val, warnings = create_catalog_record(cfg.key, data, _actor_id(request))
+    else:
+        pk_val, warnings = create_record(cfg.key, data, _actor_id(request))
     if pk_val is None:
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
@@ -713,7 +728,6 @@ def _handle_create(request, cfg):
             status=500,
         )
 
-    # Fetch the newly created record to return it
     record, _ = get_record(cfg.key, pk_val)
     _link_ifrc_selection_if_present(
         request_data=data,
@@ -722,7 +736,9 @@ def _handle_create(request, cfg):
         record=record,
         warnings=warnings,
     )
-    return Response({"record": record, "warnings": warnings}, status=201)
+    payload = {"record": record, "warnings": warnings}
+    payload.update(catalog_detail_metadata(cfg.key))
+    return Response(payload, status=201)
 
 
 def _handle_item_list(request):
@@ -853,7 +869,9 @@ def _handle_detail(cfg, pk_value):
     record, warnings = get_record(cfg.key, pk_value)
     if record is None:
         return Response({"detail": "Not found."}, status=404)
-    return Response({"record": record, "warnings": warnings})
+    payload = {"record": record, "warnings": warnings}
+    payload.update(catalog_detail_metadata(cfg.key))
+    return Response(payload)
 
 
 def _handle_update(request, cfg, pk_value):
@@ -869,9 +887,7 @@ def _handle_update(request, cfg, pk_value):
             expected_version = None
 
     existing_record = None
-    if cfg.key == "items" and (
-        "issuance_order" in data or "can_expire_flag" in data
-    ):
+    if is_governed_catalog_table(cfg.key):
         existing_record, read_warnings = get_record(cfg.key, pk_value)
         if existing_record is None:
             if "db_error" in read_warnings:
@@ -888,12 +904,30 @@ def _handle_update(request, cfg, pk_value):
         current_pk=pk_value,
         existing_record=existing_record,
     )
+    if existing_record is not None:
+        locked_errors, locked_warnings = validate_catalog_update(cfg.key, data, existing_record)
+        errors.update(locked_errors)
+        if locked_warnings:
+            return Response(
+                {"detail": "Failed to validate governed catalog edit.", "warnings": locked_warnings},
+                status=500,
+            )
     if errors:
         return Response({"errors": errors}, status=400)
 
-    success, warnings = update_record(
-        cfg.key, pk_value, data, _actor_id(request), expected_version,
-    )
+    if is_governed_catalog_table(cfg.key):
+        success, warnings = update_catalog_record(
+            cfg.key,
+            pk_value,
+            data,
+            _actor_id(request),
+            expected_version,
+            existing_record=existing_record,
+        )
+    else:
+        success, warnings = update_record(
+            cfg.key, pk_value, data, _actor_id(request), expected_version,
+        )
     if not success:
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
@@ -915,7 +949,9 @@ def _handle_update(request, cfg, pk_value):
         record=record,
         warnings=warnings,
     )
-    return Response({"record": record, "warnings": warnings})
+    payload = {"record": record, "warnings": warnings}
+    payload.update(catalog_detail_metadata(cfg.key))
+    return Response(payload)
 
 
 def _handle_item_update(request, cfg, pk_value):
@@ -1144,6 +1180,86 @@ def item_ifrc_reference_lookup(request):
 item_ifrc_reference_lookup.required_permission = PERM_MASTERDATA_VIEW
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_family_suggest(request):
+    payload, errors, warnings = suggest_ifrc_family_authoring(request.data or {})
+    if errors:
+        return Response({"errors": errors, "warnings": warnings}, status=400)
+    return Response({**(payload or {}), "warnings": warnings})
+
+
+ifrc_family_suggest.required_permission = [PERM_MASTERDATA_CREATE, PERM_MASTERDATA_EDIT]
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_item_reference_suggest(request):
+    payload, errors, warnings = suggest_ifrc_reference_authoring(request.data or {})
+    if errors:
+        return Response({"errors": errors, "warnings": warnings}, status=400)
+    return Response({**(payload or {}), "warnings": warnings})
+
+
+ifrc_item_reference_suggest.required_permission = [PERM_MASTERDATA_CREATE, PERM_MASTERDATA_EDIT]
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_family_replacement(request, pk: str):
+    cfg = TABLE_REGISTRY["ifrc_families"]
+    pk_value = _coerce_pk(cfg, pk)
+    retire_original = str((request.data or {}).get("retire_original") or "").lower() in {"1", "true", "yes"}
+    payload, warnings = create_catalog_replacement(
+        "ifrc_families",
+        pk_value,
+        request.data or {},
+        _actor_id(request),
+        retire_original=retire_original,
+    )
+    if payload is None:
+        if "not_found" in warnings:
+            return Response({"detail": "Not found.", "warnings": warnings}, status=404)
+        return Response({"detail": "Replacement failed.", "warnings": warnings}, status=500)
+    response_payload = dict(payload)
+    response_payload["warnings"] = warnings
+    response_payload.update(catalog_detail_metadata("ifrc_families"))
+    return Response(response_payload, status=201)
+
+
+ifrc_family_replacement.required_permission = [PERM_MASTERDATA_CREATE, PERM_MASTERDATA_EDIT]
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def ifrc_item_reference_replacement(request, pk: str):
+    cfg = TABLE_REGISTRY["ifrc_item_references"]
+    pk_value = _coerce_pk(cfg, pk)
+    retire_original = str((request.data or {}).get("retire_original") or "").lower() in {"1", "true", "yes"}
+    payload, warnings = create_catalog_replacement(
+        "ifrc_item_references",
+        pk_value,
+        request.data or {},
+        _actor_id(request),
+        retire_original=retire_original,
+    )
+    if payload is None:
+        if "not_found" in warnings:
+            return Response({"detail": "Not found.", "warnings": warnings}, status=404)
+        return Response({"detail": "Replacement failed.", "warnings": warnings}, status=500)
+    response_payload = dict(payload)
+    response_payload["warnings"] = warnings
+    response_payload.update(catalog_detail_metadata("ifrc_item_references"))
+    return Response(response_payload, status=201)
+
+
+ifrc_item_reference_replacement.required_permission = [PERM_MASTERDATA_CREATE, PERM_MASTERDATA_EDIT]
+
+
 # ---------------------------------------------------------------------------
 # IFRC Suggest / Health
 # ---------------------------------------------------------------------------
@@ -1316,6 +1432,10 @@ def master_inactivate(request, table_key: str, pk: str):
             _actor_id(request),
             expected_version,
         )
+    elif is_governed_catalog_table(cfg.key):
+        success, warnings = inactivate_catalog_record(
+            cfg.key, pk_value, _actor_id(request), expected_version,
+        )
     else:
         success, warnings = inactivate_record(
             cfg.key, pk_value, _actor_id(request), expected_version,
@@ -1332,7 +1452,9 @@ def master_inactivate(request, table_key: str, pk: str):
         record, _ = get_item_record(pk_value)
     else:
         record, _ = get_record(cfg.key, pk_value)
-    return Response({"record": record, "warnings": warnings})
+    payload = {"record": record, "warnings": warnings}
+    payload.update(catalog_detail_metadata(cfg.key))
+    return Response(payload)
 
 
 master_inactivate.required_permission = PERM_MASTERDATA_INACTIVATE
@@ -1363,6 +1485,10 @@ def master_activate(request, table_key: str, pk: str):
             _actor_id(request),
             expected_version,
         )
+    elif is_governed_catalog_table(cfg.key):
+        success, warnings = activate_catalog_record(
+            cfg.key, pk_value, _actor_id(request), expected_version,
+        )
     else:
         success, warnings = activate_record(
             cfg.key, pk_value, _actor_id(request), expected_version,
@@ -1379,7 +1505,9 @@ def master_activate(request, table_key: str, pk: str):
         record, _ = get_item_record(pk_value)
     else:
         record, _ = get_record(cfg.key, pk_value)
-    return Response({"record": record, "warnings": warnings})
+    payload = {"record": record, "warnings": warnings}
+    payload.update(catalog_detail_metadata(cfg.key))
+    return Response(payload)
 
 
 master_activate.required_permission = PERM_MASTERDATA_EDIT
@@ -1393,6 +1521,10 @@ for _view in (
     item_level1_category_lookup,
     item_ifrc_family_lookup,
     item_ifrc_reference_lookup,
+    ifrc_family_suggest,
+    ifrc_item_reference_suggest,
+    ifrc_family_replacement,
+    ifrc_item_reference_replacement,
     ifrc_suggest,
     ifrc_health,
     master_inactivate,
