@@ -50,6 +50,166 @@
           </div>
         }
 
+        @if (cfg.formDescription) {
+          <section class="form-section form-intro-section" aria-label="Form guidance">
+            <p class="section-description form-intro-section__text">{{ cfg.formDescription }}</p>
+          </section>
+        }
+
+        @if (isGovernedCatalogAuthoringTable()) {
+          <section class="form-section catalog-governance-section" aria-label="Auto-fill and code management tools">
+            <h3 class="section-title catalog-governance__toggle"
+              role="button"
+              tabindex="0"
+              [attr.aria-expanded]="catalogToolsExpanded()"
+              (click)="catalogToolsExpanded.set(!catalogToolsExpanded())"
+              (keydown.enter)="catalogToolsExpanded.set(!catalogToolsExpanded())"
+              (keydown.space)="$event.preventDefault(); catalogToolsExpanded.set(!catalogToolsExpanded())">
+              <mat-icon aria-hidden="true">auto_awesome</mat-icon>
+              Auto-Fill &amp; Code Tools
+              <mat-icon class="catalog-governance__chevron" aria-hidden="true"
+                [class.is-expanded]="catalogToolsExpanded()">
+                expand_more
+              </mat-icon>
+            </h3>
+
+            @if (catalogToolsExpanded()) {
+              @if (getCatalogWarningText(); as warningText) {
+                <p class="catalog-governance__warning">{{ warningText }}</p>
+              }
+              @if (getCatalogLockedFieldLabels().length > 0) {
+                <p class="catalog-governance__locked">
+                  Locked fields: {{ getCatalogLockedFieldLabels().join(', ') }}.
+                </p>
+              }
+
+              @if (getCatalogSuggestionRequirements().length > 0) {
+                <div class="catalog-governance__prereqs" aria-live="polite">
+                  <p class="catalog-governance__prereqs-title">Fill these in first</p>
+                  @if (getCatalogSuggestionReadinessText(); as readinessText) {
+                    <p class="catalog-governance__prereqs-summary">{{ readinessText }}</p>
+                  }
+                  <ul class="catalog-governance__prereqs-list">
+                    @for (requirement of getCatalogSuggestionRequirements(); track requirement.field) {
+                      <li class="catalog-governance__prereqs-item" [class.is-ready]="requirement.ready">
+                        <span class="catalog-governance__prereqs-badge" [class.required]="requirement.required">
+                          {{ requirement.required ? 'Required' : 'Helpful' }}
+                        </span>
+                        <div class="catalog-governance__prereqs-copy">
+                          <span class="catalog-governance__prereqs-label">{{ requirement.label }}</span>
+                          <span class="catalog-governance__prereqs-detail">{{ requirement.detail }}</span>
+                        </div>
+                        <span class="catalog-governance__prereqs-state">
+                          {{ requirement.ready ? 'Done' : (requirement.required ? 'Needed' : 'Optional') }}
+                        </span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              <div class="catalog-governance__actions">
+                <span [matTooltip]="getCatalogSuggestButtonTooltip()">
+                  <button mat-stroked-button type="button"
+                    (click)="onSuggestCatalogValues()"
+                    [disabled]="catalogSuggestionLoading() || !canRequestCatalogSuggestion()">
+                    @if (catalogSuggestionLoading()) {
+                      <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
+                      Suggesting...
+                    } @else {
+                      <mat-icon aria-hidden="true">auto_awesome</mat-icon>
+                      {{ getCatalogSuggestActionLabel() }}
+                    }
+                  </button>
+                </span>
+
+                @if (canCreateReplacement() && !replacementMode()) {
+                  <button mat-flat-button color="primary" type="button" (click)="onStartReplacementDraft()">
+                    <mat-icon aria-hidden="true">content_copy</mat-icon>
+                    Create Replacement
+                  </button>
+                }
+
+                @if (replacementMode()) {
+                  <button mat-stroked-button type="button" (click)="onCancelReplacementDraft()">
+                    <mat-icon aria-hidden="true">undo</mat-icon>
+                    Cancel Replacement Draft
+                  </button>
+                }
+              </div>
+
+              @if (replacementMode()) {
+                <div class="catalog-governance__replacement">
+                  <p class="catalog-governance__replacement-text">
+                    Replacement draft active. Code fields are now editable. Saving will create a new record instead of changing the original.
+                  </p>
+                  <mat-slide-toggle
+                    [checked]="retireOriginalOnReplacement()"
+                    (change)="onRetireOriginalReplacementChange($event.checked)">
+                    Retire the original record after the replacement is saved
+                  </mat-slide-toggle>
+                </div>
+              }
+
+              @if (catalogAssistError(); as assistError) {
+                <p class="catalog-governance__error">{{ assistError }}</p>
+              }
+
+              @if (catalogSuggestion(); as suggestion) {
+                <div class="catalog-suggestion-preview">
+                  <p class="catalog-suggestion-preview__eyebrow">Suggested Values (review before applying)</p>
+                  <p class="catalog-suggestion-preview__source">Source: {{ suggestion.source }}</p>
+
+                  <div class="catalog-suggestion-preview__grid">
+                    @for (entry of getCatalogSuggestionEntries(); track entry.label) {
+                      <div class="catalog-suggestion-preview__entry" [class.locked]="entry.locked">
+                        <span class="catalog-suggestion-preview__label">{{ entry.label }}</span>
+                        <span class="catalog-suggestion-preview__value">{{ entry.value }}</span>
+                        @if (entry.locked) {
+                          <span class="catalog-suggestion-preview__badge">Locked on edit</span>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  @if (getCatalogSuggestionConflictMessages(); as conflictMessages) {
+                    @if (conflictMessages.length > 0) {
+                      <div class="catalog-suggestion-preview__messages warning">
+                        <p>Possible duplicates found</p>
+                        <ul>
+                          @for (message of conflictMessages; track message) {
+                            <li>{{ message }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  }
+
+                  @if (getCatalogSuggestionWarnings(); as suggestionWarnings) {
+                    @if (suggestionWarnings.length > 0) {
+                      <div class="catalog-suggestion-preview__messages info">
+                        <p>Notes</p>
+                        <ul>
+                          @for (warning of suggestionWarnings; track warning) {
+                            <li>{{ warning }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  }
+
+                  <div class="catalog-suggestion-preview__actions">
+                    <button mat-flat-button color="primary" type="button" (click)="onApplyCatalogSuggestion()">
+                      <mat-icon aria-hidden="true">playlist_add_check</mat-icon>
+                      Apply Suggested Values
+                    </button>
+                  </div>
+                </div>
+              }
+            }
+          </section>
+        }
+
         @for (group of fieldGroups(); track group.label) {
           <section class="form-section" [attr.aria-label]="group.label + ' section'">
             <h3 class="section-title">
@@ -286,13 +446,14 @@
               @for (field of getRenderableFields(group); track field.field) {
                 <div class="form-field"
                   [class.colspan-2]="field.colspan === 2"
+                  [class.locked-field]="isGovernedLockedField(field)"
                   [attr.data-field]="field.field">
 
                   @switch (field.type) {
 
                     @case ('textarea') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <textarea matInput
                           cdkTextareaAutosize
                           cdkAutosizeMinRows="3"
@@ -300,6 +461,17 @@
                           [formControlName]="field.field"
                           [maxlength]="field.maxLength || null"
                           [attr.aria-required]="field.required || null"></textarea>
+                        @if (getFieldTooltip(field); as fieldTooltip) {
+                          <button
+                            mat-icon-button
+                            matSuffix
+                            type="button"
+                            class="field-help-button"
+                            [matTooltip]="fieldTooltip"
+                            [attr.aria-label]="'More information about ' + field.label">
+                            <mat-icon>help_outline</mat-icon>
+                          </button>
+                        }
                         @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                           <mat-error>{{ field.label }} is required</mat-error>
                         }
@@ -317,13 +489,24 @@
 
                     @case ('select') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <mat-select [formControlName]="field.field"
                           [attr.aria-required]="field.required || null">
                           @for (opt of field.options; track opt.value) {
                             <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
                           }
                         </mat-select>
+                        @if (getFieldTooltip(field); as fieldTooltip) {
+                          <button
+                            mat-icon-button
+                            matSuffix
+                            type="button"
+                            class="field-help-button"
+                            [matTooltip]="fieldTooltip"
+                            [attr.aria-label]="'More information about ' + field.label">
+                            <mat-icon>help_outline</mat-icon>
+                          </button>
+                        }
                         @if (field.hint) {
                           <mat-hint>{{ field.hint }}</mat-hint>
                         }
@@ -341,13 +524,24 @@
 
                     @case ('lookup') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <mat-select [formControlName]="field.field"
                           [attr.aria-required]="field.required || null">
                           @for (item of lookups()[field.lookupTable!] || []; track item.value) {
                             <mat-option [value]="item.value">{{ item.label }}</mat-option>
                           }
                         </mat-select>
+                        @if (getFieldTooltip(field); as fieldTooltip) {
+                          <button
+                            mat-icon-button
+                            matSuffix
+                            type="button"
+                            class="field-help-button"
+                            [matTooltip]="fieldTooltip"
+                            [attr.aria-label]="'More information about ' + field.label">
+                            <mat-icon>help_outline</mat-icon>
+                          </button>
+                        }
                         @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
                           <mat-hint>No options available.</mat-hint>
                         } @else if (field.hint) {
@@ -370,7 +564,7 @@
                         <div class="toggle-row">
                           <div class="toggle-row__text">
                             <span class="toggle-row__label" [id]="field.field + '-label'">
-                              {{ field.label }}
+                              {{ getRenderedFieldLabel(field) }}
                             </span>
                             @if (field.hint) {
                               <span class="toggle-row__hint" [id]="field.field + '-hint'">
@@ -397,7 +591,7 @@
 
                     @case ('date') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <input matInput [matDatepicker]="picker" [formControlName]="field.field"
                           [attr.aria-required]="field.required || null" />
                         <mat-datepicker-toggle matIconSuffix [for]="picker" />
@@ -414,7 +608,7 @@
 
                     @case ('email') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <mat-icon matPrefix>email</mat-icon>
                         <input matInput type="email" [formControlName]="field.field"
                           [maxlength]="field.maxLength || null"
@@ -434,7 +628,7 @@
 
                     @case ('phone') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <mat-icon matPrefix>phone</mat-icon>
                         <input matInput type="tel" [formControlName]="field.field"
                           [maxlength]="field.maxLength || null"
@@ -455,7 +649,7 @@
 
                     @case ('number') {
                       <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                         <input matInput type="number" [formControlName]="field.field"
                           [attr.aria-required]="field.required || null" />
                         @if (field.hint) { <mat-hint>{{ field.hint }}</mat-hint> }
@@ -471,7 +665,7 @@
                     @default {
                       @if (isManagedItemCodeField(field.field)) {
                         <mat-form-field appearance="outline" class="full-width managed-item-code-field" subscriptSizing="dynamic">
-                          <mat-label>{{ field.label }}</mat-label>
+                          <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                           <input matInput [formControlName]="field.field"
                             [maxlength]="field.maxLength || null"
                             readonly
@@ -495,10 +689,21 @@
                         </mat-form-field>
                       } @else {
                         <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                          <mat-label>{{ field.label }}</mat-label>
+                          <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
                           <input matInput [formControlName]="field.field"
                             [maxlength]="field.maxLength || null"
                             [attr.aria-required]="field.required || null" />
+                          @if (getFieldTooltip(field); as fieldTooltip) {
+                            <button
+                              mat-icon-button
+                              matSuffix
+                              type="button"
+                              class="field-help-button"
+                              [matTooltip]="fieldTooltip"
+                              [attr.aria-label]="'More information about ' + field.label">
+                              <mat-icon>help_outline</mat-icon>
+                            </button>
+                          }
                           @if (field.hint) {
                             <mat-hint>{{ field.hint }}</mat-hint>
                           }
@@ -517,7 +722,10 @@
                         </mat-form-field>
                       }
                     }
+                  }
 
+                  @if (getGovernedFieldAssistText(field); as governedFieldHint) {
+                    <p class="governed-field-note" [class.locked]="isGovernedLockedField(field)">{{ governedFieldHint }}</p>
                   }
                 </div>
               }
@@ -676,8 +884,8 @@
             @if (isSaving()) {
               <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Saving...
             } @else {
-              <mat-icon aria-hidden="true">save</mat-icon>
-              {{ isEdit() ? 'Update' : 'Create' }}
+              <mat-icon aria-hidden="true">{{ getPrimarySaveIcon() }}</mat-icon>
+              {{ getPrimarySaveLabel() }}
             }
           </button>
         </div>
@@ -686,3 +894,16 @@
     }
   </div>
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

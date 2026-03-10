@@ -2,6 +2,7 @@ import { of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { MatDialog } from '@angular/material/dialog';
 
 import { MasterFormPageComponent } from './master-form-page.component';
 import { MasterDataService } from '../../services/master-data.service';
@@ -30,6 +31,47 @@ function buildBaseItemRecord() {
     ifrc_family_id: null,
     ifrc_item_ref_id: null,
     version_nbr: 2,
+  };
+}
+
+function buildIfrcFamilyRecord() {
+  return {
+    ifrc_family_id: 301,
+    category_id: 102,
+    group_code: 'W',
+    group_label: 'WASH',
+    family_code: 'WTR',
+    family_label: 'Water Treatment',
+    source_version: 'IFRC-2024-v3',
+    status_code: 'A',
+    version_nbr: 3,
+  };
+}
+
+function buildIfrcReferenceRecord() {
+  return {
+    ifrc_item_ref_id: 77,
+    ifrc_family_id: 301,
+    ifrc_code: 'WWTRTABLTB01',
+    reference_desc: 'Water purification tablet',
+    category_code: 'TABL',
+    category_label: 'Tablet',
+    spec_segment: 'TB',
+    size_weight: '100 TAB',
+    form: 'TABLET',
+    material: 'CHLORINE',
+    source_version: 'IFRC-2024-v3',
+    status_code: 'A',
+    version_nbr: 5,
+  };
+}
+
+function buildGovernedEditGuidance(lockedFields: string[]) {
+  return {
+    warning_required: true,
+    warning_text: 'Canonical code-bearing fields stay locked; use replacement flow for corrections.',
+    locked_fields: lockedFields,
+    replacement_supported: true,
   };
 }
 
@@ -78,7 +120,7 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
 }
 
 describe('MasterFormPageComponent', () => {
-  function setup(params: Record<string, string> = {}) {
+  function setup(routePath = 'items', params: Record<string, string> = {}) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
       'lookup',
       'lookupItemCategories',
@@ -88,6 +130,9 @@ describe('MasterFormPageComponent', () => {
       'create',
       'update',
       'clearLookupCache',
+      'suggestIfrcFamilyValues',
+      'suggestIfrcReferenceValues',
+      'createCatalogReplacement',
     ]);
     const ifrcSuggestService = jasmine.createSpyObj<IfrcSuggestService>('IfrcSuggestService', ['suggest']);
     const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
@@ -97,10 +142,22 @@ describe('MasterFormPageComponent', () => {
     ]);
     const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', ['assignStorageLocation']);
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
 
     masterDataService.lookup.and.callFake((tableKey: string) => {
       if (tableKey === 'uom') {
         return of([{ value: 'EA', label: 'Each' }]);
+      }
+      if (tableKey === 'item_categories') {
+        return of([
+          { value: 102, label: 'WASH' },
+          { value: 103, label: 'Medical & Health' },
+        ]);
+      }
+      if (tableKey === 'ifrc_families') {
+        return of([
+          { value: 301, label: 'Water Treatment' },
+        ]);
       }
       return of([]);
     });
@@ -151,9 +208,58 @@ describe('MasterFormPageComponent', () => {
           ])
         : of([])
     ));
-    masterDataService.get.and.returnValue(of({ record: buildBaseItemRecord(), warnings: [] }));
+    masterDataService.get.and.callFake((tableKey: string) => {
+      if (tableKey === 'ifrc_families') {
+        return of({
+          record: buildIfrcFamilyRecord(),
+          warnings: [],
+          edit_guidance: buildGovernedEditGuidance(['group_code', 'family_code']),
+        });
+      }
+      if (tableKey === 'ifrc_item_references') {
+        return of({
+          record: buildIfrcReferenceRecord(),
+          warnings: [],
+          edit_guidance: buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+        });
+      }
+      return of({ record: buildBaseItemRecord(), warnings: [] });
+    });
     masterDataService.create.and.returnValue(of({ record: { item_id: 99 }, warnings: [] }));
     masterDataService.update.and.returnValue(of({ record: { item_id: 17 }, warnings: [] }));
+    masterDataService.suggestIfrcFamilyValues.and.returnValue(of({
+      source: 'deterministic',
+      normalized: {
+        category_id: 102,
+        group_code: 'W',
+        group_label: 'WASH',
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+      },
+      conflicts: { exact_code_match: null, exact_label_match: null, near_matches: [] },
+      warnings: [],
+    }));
+    masterDataService.suggestIfrcReferenceValues.and.returnValue(of({
+      source: 'deterministic',
+      normalized: {
+        ifrc_family_id: 301,
+        ifrc_code: 'WWTRTABLTB02',
+        reference_desc: 'Water purification tablet plus',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'TB2',
+        size_weight: '120 TAB',
+        form: 'TABLET',
+        material: 'CHLORINE',
+      },
+      conflicts: { exact_code_match: null, exact_desc_match: null, near_matches: [] },
+      warnings: [],
+    }));
+    masterDataService.createCatalogReplacement.and.returnValue(of({
+      record: { ifrc_item_ref_id: 91 },
+      replacement_for_pk: 77,
+      warnings: [],
+    }));
     ifrcSuggestService.suggest.and.returnValue(of(null));
     replenishmentService.assignStorageLocation.and.returnValue(of({
       created: true,
@@ -163,12 +269,14 @@ describe('MasterFormPageComponent', () => {
       location_id: 2,
       batch_id: null,
     }));
+    dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
 
     TestBed.configureTestingModule({
       imports: [MasterFormPageComponent, NoopAnimationsModule],
       providers: [
-        { provide: ActivatedRoute, useValue: { data: of({ routePath: 'items' }), params: of(params) } },
+        { provide: ActivatedRoute, useValue: { data: of({ routePath }), params: of(params) } },
         { provide: Router, useValue: router },
+        { provide: MatDialog, useValue: dialog },
         { provide: MasterDataService, useValue: masterDataService },
         { provide: IfrcSuggestService, useValue: ifrcSuggestService },
         { provide: DmisNotificationService, useValue: notificationService },
@@ -185,6 +293,7 @@ describe('MasterFormPageComponent', () => {
       masterDataService,
       notificationService,
       router,
+      dialog,
     };
   }
 
@@ -243,7 +352,6 @@ describe('MasterFormPageComponent', () => {
     expect(component.ifrcSpecForm.contains('material')).toBeTrue();
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
   });
-
 
   it('accepts exact resolved IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
@@ -474,7 +582,7 @@ describe('MasterFormPageComponent', () => {
   });
 
   it('keeps legacy edit records with null IFRC fields editable and preserves the existing item code display', () => {
-    const { component } = setup({ pk: '17' });
+    const { component } = setup('items', { pk: '17' });
 
     expect(component.isEdit()).toBeTrue();
     expect(component.form.get('item_code')?.value).toBe('LOC-001');
@@ -533,4 +641,125 @@ describe('MasterFormPageComponent', () => {
 
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'items', 25]);
   });
+
+  it('loads governed edit warning state and locks canonical IFRC reference fields on edit', () => {
+    const { component } = setup('ifrc-item-references', { pk: '77' });
+
+    expect(component.getCatalogWarningText()).toContain('Canonical code-bearing fields stay locked');
+    expect(component.getCatalogLockedFieldLabels()).toEqual(jasmine.arrayContaining([
+      'IFRC Family',
+      'IFRC Code',
+      'Category Code',
+      'Spec Segment',
+    ]));
+    expect(component.form.get('ifrc_family_id')?.disabled).toBeTrue();
+    expect(component.form.get('ifrc_code')?.disabled).toBeTrue();
+    expect(component.form.get('category_code')?.disabled).toBeTrue();
+    expect(component.form.get('spec_segment')?.disabled).toBeTrue();
+    expect(component.form.get('reference_desc')?.disabled).toBeFalse();
+  });
+
+  it('applies suggested IFRC family values during governed family creation', () => {
+    const { component, masterDataService, notificationService } = setup('ifrc-families');
+
+    component.form.patchValue({
+      family_label: 'Water Treatment',
+      status_code: 'A',
+    }, { emitEvent: false });
+
+    component.onSuggestCatalogValues();
+
+    expect(masterDataService.suggestIfrcFamilyValues).toHaveBeenCalled();
+    expect(component.catalogSuggestion()?.normalized['family_code']).toBe('WTR');
+
+    component.onApplyCatalogSuggestion();
+
+    expect(component.form.get('category_id')?.value).toBe(102);
+    expect(component.form.get('group_code')?.value).toBe('W');
+    expect(component.form.get('family_code')?.value).toBe('WTR');
+    expect(notificationService.showSuccess).toHaveBeenCalledWith('Suggested values applied to the form.');
+  });
+
+  it('keeps locked canonical fields unchanged when applying suggestions during normal IFRC reference edits', () => {
+    const { component, notificationService } = setup('ifrc-item-references', { pk: '77' });
+
+    component.onSuggestCatalogValues();
+    component.onApplyCatalogSuggestion();
+
+    expect(component.form.get('ifrc_code')?.value).toBe('WWTRTABLTB01');
+    expect(component.form.get('reference_desc')?.value).toBe('Water purification tablet plus');
+    expect(component.catalogAssistError()).toContain('Locked canonical fields were not applied');
+    expect(notificationService.showWarning).toHaveBeenCalledWith('Suggested values were applied to editable fields only.');
+  });
+
+  it('blocks family suggestions until the primary prerequisite field is filled', () => {
+    const { component, fixture, masterDataService, notificationService } = setup('ifrc-families');
+
+    expect(component.canRequestCatalogSuggestion()).toBeFalse();
+    expect(component.getCatalogSuggestionReadinessText()).toBe('Complete Family Label before generating suggestions.');
+    expect(fixture.nativeElement.textContent).toContain('Fill these in first');
+
+    component.onSuggestCatalogValues();
+
+    expect(masterDataService.suggestIfrcFamilyValues).not.toHaveBeenCalled();
+    expect(notificationService.showWarning).toHaveBeenCalledWith('Complete Family Label before requesting suggestions.');
+
+    component.form.patchValue({ family_label: 'Water Treatment' }, { emitEvent: false });
+
+    expect(component.canRequestCatalogSuggestion()).toBeTrue();
+  });
+
+  it('requires family and description before reference suggestions can run', () => {
+    const { component, masterDataService, notificationService } = setup('ifrc-item-references');
+
+    expect(component.canRequestCatalogSuggestion()).toBeFalse();
+    expect(component.getCatalogSuggestionReadinessText()).toBe('Complete IFRC Family and Reference Description before generating suggestions.');
+
+    component.form.patchValue({ ifrc_family_id: 301 }, { emitEvent: false });
+    expect(component.canRequestCatalogSuggestion()).toBeFalse();
+
+    component.onSuggestCatalogValues();
+
+    expect(masterDataService.suggestIfrcReferenceValues).not.toHaveBeenCalled();
+    expect(notificationService.showWarning).toHaveBeenCalledWith('Complete Reference Description before requesting suggestions.');
+
+    component.form.patchValue({ reference_desc: 'Water purification tablet' }, { emitEvent: false });
+    expect(component.canRequestCatalogSuggestion()).toBeTrue();
+  });
+
+  it('marks required governed fields clearly and provides tooltip help text', () => {
+    const { component } = setup('ifrc-item-references');
+
+    const requiredField = component.config()?.formFields.find((field) => field.field === 'reference_desc');
+    expect(requiredField).toBeDefined();
+    expect(component.getRenderedFieldLabel(requiredField!)).toBe('Reference Description (required)');
+    expect(component.getFieldTooltip(requiredField!)).toContain('description to propose codes');
+  });
+  it('creates a governed replacement record for IFRC references instead of patching the original record', () => {
+    const { component, masterDataService, router } = setup('ifrc-item-references', { pk: '77' });
+
+    component.onStartReplacementDraft();
+    component.form.patchValue({
+      ifrc_code: 'WWTRTABLTB02',
+      spec_segment: 'TB2',
+      reference_desc: 'Water purification tablet plus',
+    }, { emitEvent: false });
+    component.form.markAsDirty();
+    component.onRetireOriginalReplacementChange(true);
+
+    component.onSave();
+
+    expect(masterDataService.createCatalogReplacement).toHaveBeenCalledWith(
+      'ifrc_item_references',
+      '77',
+      jasmine.objectContaining({
+        ifrc_code: 'WWTRTABLTB02',
+        spec_segment: 'TB2',
+      }),
+      true,
+    );
+    expect(masterDataService.update).not.toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', 91]);
+  });
 });
+

@@ -1,13 +1,9 @@
-// ---------------------------------------------------------------------------
-// Master Form Page - Compact, structured layout
-// ---------------------------------------------------------------------------
 
 :host {
   display: block;
   font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 
-// Page container
 .form-page-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -15,7 +11,6 @@
   color: var(--dmis-text-primary, #1a1a1a);
 }
 
-// Header
 .form-page-header {
   display: flex;
   align-items: center;
@@ -45,7 +40,6 @@
   }
 }
 
-// Form content
 .form-page-content {
   display: flex;
   flex-direction: column;
@@ -102,7 +96,6 @@
   font-weight: 600;
 }
 
-// Form sections
 .form-section {
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -136,9 +129,6 @@
   line-height: 1.4;
 }
 
-// Form grid (default 2-column)
-// align-items: start ensures short fields (dropdowns) don't stretch to match
-// tall neighbours (textareas).
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -155,12 +145,6 @@
 
 .full-width { width: 100%; }
 
-// Identity grid: new item (IFRC hints + SKU share the second row)
-
-// Row 1: Item Code | Item Name
-
-// Row 2: IFRC hints | SKU Code
-
 .identity-grid-new {
   grid-template-areas:
     "item-code  item-name"
@@ -172,7 +156,6 @@
   > .ifrc-hints-cell          { grid-area: ifrc-hints; }
 }
 
-// IFRC code hints cell
 .ifrc-hints-cell {
   padding: 8px 10px;
   background: #f8fafc;
@@ -407,6 +390,307 @@
   gap: 10px;
 }
 
+.catalog-governance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 3px solid #0f766e;
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.75), rgba(255, 255, 255, 0.98));
+}
+
+.catalog-governance__toggle {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &:hover {
+    color: #0f766e;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+.catalog-governance__chevron {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+
+  &.is-expanded {
+    transform: rotate(180deg);
+  }
+}
+
+.catalog-governance__warning,
+.catalog-governance__locked,
+.catalog-governance__error,
+.catalog-governance__replacement-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.catalog-governance__warning {
+  color: #134e4a;
+}
+
+.catalog-governance__locked {
+  color: #475569;
+}
+
+.catalog-governance__prereqs {
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.88);
+}
+
+.catalog-governance__prereqs-title {
+  margin: 0 0 4px;
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.catalog-governance__prereqs-summary {
+  margin: 0 0 10px;
+  color: #334155;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.catalog-governance__prereqs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.catalog-governance__prereqs-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.catalog-governance__prereqs-item.is-ready {
+  border-color: #99f6e4;
+  background: rgba(240, 253, 250, 0.92);
+}
+
+.catalog-governance__prereqs-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.catalog-governance__prereqs-badge.required {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.catalog-governance__prereqs-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.catalog-governance__prereqs-label {
+  color: #0f172a;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.catalog-governance__prereqs-detail,
+.catalog-governance__prereqs-state {
+  color: #475569;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.catalog-governance__prereqs-state {
+  font-weight: 600;
+  text-align: right;
+}
+
+.catalog-governance__actions,
+.catalog-suggestion-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.catalog-governance__replacement {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+  background: rgba(255, 251, 235, 0.92);
+}
+
+.catalog-governance__error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.catalog-suggestion-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.catalog-suggestion-preview__eyebrow,
+.catalog-suggestion-preview__source {
+  margin: 0;
+}
+
+.catalog-suggestion-preview__eyebrow {
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.catalog-suggestion-preview__source {
+  color: #475569;
+  font-size: 0.8rem;
+}
+
+.catalog-suggestion-preview__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.catalog-suggestion-preview__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.catalog-suggestion-preview__entry.locked {
+  border-style: dashed;
+}
+
+.catalog-suggestion-preview__label {
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.catalog-suggestion-preview__value {
+  color: #0f172a;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.catalog-suggestion-preview__badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.catalog-suggestion-preview__messages {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.catalog-suggestion-preview__messages p,
+.catalog-suggestion-preview__messages ul {
+  margin: 0;
+}
+
+.catalog-suggestion-preview__messages ul {
+  padding-left: 18px;
+  margin-top: 6px;
+}
+
+.catalog-suggestion-preview__messages.warning {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.catalog-suggestion-preview__messages.info {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.field-help-button {
+  color: #475569;
+}
+
+.field-help-button:focus-visible {
+  outline: 2px solid #1565c0;
+  outline-offset: 2px;
+}
+
+.locked-field {
+  position: relative;
+}
+
+.locked-field::before {
+  content: '';
+  position: absolute;
+  inset: 6px auto 6px 0;
+  width: 4px;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.governed-field-note {
+  margin: 6px 2px 0;
+  color: #475569;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.governed-field-note.locked {
+  color: #92400e;
+}
 
 .toggle-row {
   display: flex;
@@ -447,7 +731,6 @@
   line-height: 1.2;
 }
 
-
 .location-assignment-section {
   border-left: 3px solid #0ea5e9;
   .section-title mat-icon { color: #0ea5e9; }
@@ -481,7 +764,6 @@
   button { min-height: 36px; border-radius: 6px; }
 }
 
-
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -512,14 +794,12 @@
   }
 }
 
-
 .spin { animation: spin 1s linear infinite; }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
-
 
 @media (max-width: 768px) {
   .form-page-container { padding: 8px; }
@@ -537,11 +817,18 @@
 
   .ifrc-spec-fields { grid-template-columns: 1fr 1fr; }
   .item-taxonomy-grid,
-  .ifrc-suggestion-card__details {
+  .ifrc-suggestion-card__details,
+  .catalog-suggestion-preview__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-governance__prereqs-item {
     grid-template-columns: 1fr;
   }
 
   .ifrc-suggestion-card__actions,
+  .catalog-governance__actions,
+  .catalog-suggestion-preview__actions,
   .form-submit-alert__actions {
     flex-direction: column-reverse;
 
@@ -566,3 +853,4 @@
   .ifrc-spec-fields { grid-template-columns: 1fr; }
   .item-taxonomy-card { padding: 10px; }
 }
+

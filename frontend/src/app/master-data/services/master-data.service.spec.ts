@@ -74,4 +74,35 @@ describe('MasterDataService', () => {
     expect(referenceRequest.request.method).toBe('GET');
     referenceRequest.flush({ items: [], warnings: [] });
   });
+
+  it('posts to the governed IFRC authoring-assist endpoints', () => {
+    service.suggestIfrcFamilyValues({ family_label: 'Water Treatment' }).subscribe();
+    service.suggestIfrcReferenceValues({ ifrc_family_id: 11, reference_desc: 'Water purification tablet' }).subscribe();
+
+    const familySuggestRequest = httpMock.expectOne('/api/v1/masterdata/ifrc-families/suggest');
+    expect(familySuggestRequest.request.method).toBe('POST');
+    expect(familySuggestRequest.request.body).toEqual({ family_label: 'Water Treatment' });
+    familySuggestRequest.flush({ source: 'deterministic', normalized: {}, warnings: [] });
+
+    const referenceSuggestRequest = httpMock.expectOne('/api/v1/masterdata/ifrc-item-references/suggest');
+    expect(referenceSuggestRequest.request.method).toBe('POST');
+    expect(referenceSuggestRequest.request.body).toEqual({ ifrc_family_id: 11, reference_desc: 'Water purification tablet' });
+    referenceSuggestRequest.flush({ source: 'deterministic', normalized: {}, warnings: [] });
+  });
+
+  it('posts governed replacement payloads to the replacement endpoint', () => {
+    service.createCatalogReplacement('ifrc_item_references', 77, { ifrc_code: 'WWTRTABLTB02' }, true).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/masterdata/ifrc-item-references/77/replacement');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      ifrc_code: 'WWTRTABLTB02',
+      retire_original: true,
+    });
+    request.flush({
+      record: { ifrc_item_ref_id: 91 },
+      replacement_for_pk: 77,
+      warnings: [],
+    });
+  });
 });

@@ -388,3 +388,4 @@ export class MasterDetailPageComponent implements OnInit {
     }
   }
 }
+

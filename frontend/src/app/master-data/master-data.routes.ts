@@ -22,20 +22,17 @@ function dialogRoutes(routePath: string): Routes {
 }
 
 export const MASTER_DATA_ROUTES: Routes = [
-  // Master Data domain landing page
   { path: '', component: MasterHomeComponent, pathMatch: 'full' },
 
-  // Dialog-mode tables (simple)
   ...dialogRoutes('item-categories'),
-  ...dialogRoutes('ifrc-families'),
-  ...dialogRoutes('ifrc-item-references'),
   ...dialogRoutes('uom'),
   ...dialogRoutes('countries'),
   ...dialogRoutes('currencies'),
   ...dialogRoutes('parishes'),
 
-  // Page-mode tables (complex)
   ...pageRoutes('items'),
+  ...pageRoutes('ifrc-families'),
+  ...pageRoutes('ifrc-item-references'),
   ...pageRoutes('inventory'),
   ...pageRoutes('locations'),
   ...pageRoutes('warehouses'),

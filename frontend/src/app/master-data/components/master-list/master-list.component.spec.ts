@@ -77,6 +77,7 @@ describe('MasterListComponent', () => {
       component: fixture.componentInstance,
       masterDataService,
       dialog,
+      router,
     };
   }
 
@@ -116,8 +117,21 @@ describe('MasterListComponent', () => {
     }));
   }));
 
-  it('opens the create dialog when a dialog-mode catalog list handles a pending create request', () => {
-    const { component } = setup('ifrc-families');
+  it('routes IFRC family create actions to page-mode /new routes', () => {
+    const { component, router } = setup('ifrc-families');
+
+    component.onAdd();
+
+    expect(component.config()).toEqual(jasmine.objectContaining({
+      routePath: 'ifrc-families',
+      tableKey: 'ifrc_families',
+      formMode: 'page',
+    }));
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-families', 'new']);
+  });
+
+  it('still opens the create dialog when a dialog-mode catalog list handles a pending create request', () => {
+    const { component } = setup('item-categories');
     const listHarness = component as never as {
       pendingDialogQueryAction: 'new' | null;
       handleDialogQueryAction: () => void;
@@ -126,8 +140,8 @@ describe('MasterListComponent', () => {
     const openFormDialogSpy = spyOn(listHarness, 'openFormDialog');
 
     expect(component.config()).toEqual(jasmine.objectContaining({
-      routePath: 'ifrc-families',
-      tableKey: 'ifrc_families',
+      routePath: 'item-categories',
+      tableKey: 'item_categories',
       formMode: 'dialog',
     }));
 

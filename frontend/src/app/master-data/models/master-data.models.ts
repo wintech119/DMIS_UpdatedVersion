@@ -42,6 +42,8 @@ export interface MasterFieldConfig {
   colspan?: 1 | 2;
   /** Optional help text rendered below the field */
   hint?: string;
+  /** Optional tooltip text rendered from an inline help affordance */
+  tooltip?: string;
 }
 
 export interface MasterTableConfig {
@@ -84,6 +86,7 @@ export interface MasterListResponse<T = MasterRecord> {
 export interface MasterDetailResponse<T = MasterRecord> {
   record: T;
   warnings: string[];
+  edit_guidance?: CatalogEditGuidance;
 }
 
 export interface MasterSummaryResponse {
@@ -98,6 +101,27 @@ export interface MasterSummaryResponse {
 export interface MasterLookupResponse<T = LookupItem> {
   items: T[];
   warnings: string[];
+}
+
+export interface CatalogEditGuidance {
+  warning_required: boolean;
+  warning_text: string;
+  locked_fields: string[];
+  replacement_supported: boolean;
+}
+
+export interface CatalogAuthoringSuggestionResponse {
+  source: string;
+  normalized: MasterRecord;
+  conflicts?: Record<string, unknown>;
+  warnings: string[];
+  edit_guidance?: CatalogEditGuidance;
+}
+
+export interface CatalogReplacementResponse<T = MasterRecord> extends MasterDetailResponse<T> {
+  replacement_for_pk: string | number;
+  retire_original_requested?: boolean;
+  retired_original?: boolean;
 }
 
 export interface LookupItem {
@@ -115,3 +139,5 @@ export interface MasterInactivateBlockedResponse {
   blocking: string[];
   warnings: string[];
 }
+
+

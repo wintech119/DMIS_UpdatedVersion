@@ -6,13 +6,12 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
   icon: 'account_tree',
   pkField: 'ifrc_family_id',
   routePath: 'ifrc-families',
-  formMode: 'dialog',
+  formMode: 'page',
   formDescription:
-    'IFRC Families are Level 2 product groupings within a Level 1 category. ' +
-    'Each family has a short Group Code (the broad area, e.g. "F" for Food) and a ' +
-    'Family Code (the specific sub-group, e.g. "GRAIN"). Items are classified under ' +
-    'a family before selecting a Level 3 reference.',
-  searchPlaceholder: 'Search by group, family code, or family label...',
+    'An IFRC Family groups similar products together under a business category. ' +
+    'Fill in the Family Label, then use "Suggest Family Values" to auto-fill the codes. ' +
+    'Once saved, codes are locked. Use "Create Replacement" if a code needs to change.',
+  searchPlaceholder: 'Search by group, family code, or label...',
   columns: [
     { field: 'ifrc_family_id', header: 'ID', type: 'number', sortable: true, hideMobile: true },
     { field: 'group_code', header: 'Group Code', type: 'text', sortable: true },
@@ -23,12 +22,24 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
   ],
   formFields: [
     {
+      field: 'family_label',
+      label: 'Family Label',
+      type: 'text',
+      required: true,
+      maxLength: 160,
+      group: 'Start Here',
+      hint: 'The name users will see in dropdowns. Up to 160 characters. E.g. "Water Purification", "Grains and Cereals".',
+      tooltip: 'Enter this first — the suggest tool uses it to generate codes automatically.',
+    },
+    {
       field: 'category_id',
       label: 'Level 1 Category',
       type: 'lookup',
       required: true,
       lookupTable: 'item_categories',
-      hint: 'The DMIS business category this family belongs to (e.g. Medical Supplies, Food).',
+      group: 'Start Here',
+      hint: 'Which business category does this family belong to? E.g. Medical Supplies, Food and Water.',
+      tooltip: 'Setting this before suggesting helps narrow the results to the right branch.',
     },
     {
       field: 'group_code',
@@ -37,15 +48,10 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       required: true,
       maxLength: 4,
       uppercase: true,
-      hint: 'Short 1-4 letter code for the broad product area. Examples: F (Food), W (Water), M (Medical), S (Shelter).',
-    },
-    {
-      field: 'group_label',
-      label: 'Group Label',
-      type: 'text',
-      required: true,
-      maxLength: 120,
-      hint: 'Human-readable name for the group. Examples: "Food and Nutrition", "Water and Sanitation".',
+      readonlyOnEdit: true,
+      group: 'Codes',
+      hint: '1-4 letters. The broad product area. E.g. F (Food), W (Water), M (Medical), S (Shelter).',
+      tooltip: 'Locked after creation. Use "Suggest Family Values" to auto-fill, or enter manually if you know the IFRC code.',
     },
     {
       field: 'family_code',
@@ -54,22 +60,29 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       required: true,
       maxLength: 6,
       uppercase: true,
-      hint: 'Short code for this specific family within the group. Examples: GRAIN, DAIRY, WTRPUR, TARP.',
+      readonlyOnEdit: true,
+      group: 'Codes',
+      hint: '1-6 letters. Identifies this family within the group. E.g. GRAIN, DAIRY, WTRPUR, TARP.',
+      tooltip: 'Locked after creation. This becomes part of every item code linked to this family.',
     },
     {
-      field: 'family_label',
-      label: 'Family Label',
+      field: 'group_label',
+      label: 'Group Label',
       type: 'text',
       required: true,
-      maxLength: 160,
-      hint: 'Descriptive name shown in dropdowns. Examples: "Grains and Cereals", "Water Purification".',
+      maxLength: 120,
+      group: 'Details',
+      hint: 'Full name for the group. Up to 120 characters. E.g. "Food and Nutrition", "Water and Sanitation".',
+      tooltip: 'Should match the Group Code. Can be updated after creation.',
     },
     {
       field: 'source_version',
       label: 'Source Version',
       type: 'text',
       maxLength: 80,
-      hint: 'Optional. The IFRC catalog version this entry was sourced from (e.g. "IFRC-2024-v3").',
+      group: 'Details',
+      hint: 'Optional. Up to 80 characters. E.g. "IFRC-2024-v3", "ODPEM-2025-Q1".',
+      tooltip: 'Tracks which catalog version this entry came from. Leave blank if not applicable.',
     },
     {
       field: 'status_code',
@@ -77,11 +90,13 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       type: 'select',
       required: true,
       defaultValue: 'A',
+      group: 'Status',
       options: [
         { value: 'A', label: 'Active' },
         { value: 'I', label: 'Inactive' },
       ],
-      hint: 'Set to Inactive to hide from item classification dropdowns without deleting.',
+      hint: 'Active families appear in item dropdowns. Set to Inactive to hide without deleting.',
+      tooltip: 'Inactive records are kept for audit history. Items already linked to this family are not affected.',
     },
   ],
 };

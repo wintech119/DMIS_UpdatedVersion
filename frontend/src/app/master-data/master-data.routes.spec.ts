@@ -23,6 +23,12 @@ describe('MASTER_DATA_ROUTES', () => {
 
     expect(routePaths).toContain('item-categories');
     expect(routePaths).toContain('ifrc-families');
+    expect(routePaths).toContain('ifrc-families/new');
+    expect(routePaths).toContain('ifrc-families/:pk');
+    expect(routePaths).toContain('ifrc-families/:pk/edit');
     expect(routePaths).toContain('ifrc-item-references');
+    expect(routePaths).toContain('ifrc-item-references/new');
+    expect(routePaths).toContain('ifrc-item-references/:pk');
+    expect(routePaths).toContain('ifrc-item-references/:pk/edit');
   });
 });

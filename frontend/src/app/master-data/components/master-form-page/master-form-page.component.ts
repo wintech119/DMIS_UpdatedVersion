@@ -30,8 +30,16 @@ import { MatNativeDateModule } from '@angular/material/core';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatCardModule } from '@angular/material/card';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 
-import { LookupItem, MasterFieldConfig, MasterTableConfig } from '../../models/master-data.models';
+import {
+  CatalogAuthoringSuggestionResponse,
+  CatalogEditGuidance,
+  LookupItem,
+  MasterFieldConfig,
+  MasterRecord,
+  MasterTableConfig,
+} from '../../models/master-data.models';
 import {
   IfrcFamilyLookup,
   IfrcReferenceLookup,
@@ -43,6 +51,7 @@ import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
+import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import {
   IFRCSuggestion,
   IFRCSuggestionCandidate,
@@ -85,6 +94,14 @@ interface DuplicateCanonicalItemConflict {
   } | null;
 }
 
+interface CatalogSuggestionRequirement {
+  field: string;
+  label: string;
+  required: boolean;
+  detail: string;
+  ready: boolean;
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -94,7 +111,7 @@ interface DuplicateCanonicalItemConflict {
     MatAutocompleteModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
     MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
-    MatProgressBarModule, MatCardModule, MatTooltipModule,
+    MatProgressBarModule, MatCardModule, MatTooltipModule, MatDialogModule,
   ],
   templateUrl: './master-form-page.component.html',
   styleUrl: './master-form-page.component.scss',
@@ -104,6 +121,7 @@ export class MasterFormPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private service = inject(MasterDataService);
+  private dialog = inject(MatDialog);
   private ifrcSuggestService = inject(IfrcSuggestService);
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
@@ -118,6 +136,13 @@ export class MasterFormPageComponent implements OnInit {
   lookups = signal<Record<string, LookupItem[]>>({});
   lookupLoading = signal<Record<string, boolean>>({});
   lookupErrors = signal<Record<string, string>>({});
+  catalogEditGuidance = signal<CatalogEditGuidance | null>(null);
+  catalogSuggestion = signal<CatalogAuthoringSuggestionResponse | null>(null);
+  catalogSuggestionLoading = signal(false);
+  catalogAssistError = signal<string | null>(null);
+  catalogToolsExpanded = signal(true);
+  replacementMode = signal(false);
+  retireOriginalOnReplacement = signal(false);
   ifrcLoading = signal(false);
   ifrcSuggestion = signal<IFRCSuggestion | null>(null);
   ifrcSuggestionResolution = signal<ResolvedIfrcSuggestion | null>(null);
@@ -149,6 +174,8 @@ export class MasterFormPageComponent implements OnInit {
   private itemCodeFallbackValue: string | null = null;
   private legacyItemCodeValue: string | null = null;
   private itemHadMappedClassificationOnLoad = false;
+  private loadedRecordSnapshot: MasterRecord | null = null;
+  private promptedGovernedEditWarning = false;
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   locationForm = new FormGroup({
@@ -746,6 +773,13 @@ export class MasterFormPageComponent implements OnInit {
     this.lookupErrors.set({});
 
     for (const [tableKey, label] of lookupTables.entries()) {
+      // For the IFRC Item Reference form, load families with group context
+      // so users can see which product group each family belongs to.
+      if (tableKey === 'ifrc_families' && cfg.tableKey === 'ifrc_item_references') {
+        this.loadIfrcFamilyLookupWithGroupContext();
+        continue;
+      }
+
       this.setLookupLoading(tableKey, true);
       this.service.lookup(tableKey).pipe(
         takeUntilDestroyed(this.destroyRef),
@@ -762,6 +796,28 @@ export class MasterFormPageComponent implements OnInit {
         },
       });
     }
+  }
+
+  private loadIfrcFamilyLookupWithGroupContext(): void {
+    this.setLookupLoading('ifrc_families', true);
+    this.service.lookupIfrcFamilies().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (items) => {
+        const enriched: LookupItem[] = items.map((item) => ({
+          ...item,
+          label: `${item.label} (${item['group_code']} — ${item['group_label']})`,
+        }));
+        this.writeLookup('ifrc_families', enriched);
+        this.setLookupLoading('ifrc_families', false);
+        this.setLookupError('ifrc_families', null);
+      },
+      error: () => {
+        this.writeLookup('ifrc_families', []);
+        this.setLookupLoading('ifrc_families', false);
+        this.setLookupError('ifrc_families', 'Failed to load IFRC Family options.');
+      },
+    });
   }
 
   private loadItemCategoryOptions(includeValue?: string | number | null): void {
@@ -1018,6 +1074,12 @@ export class MasterFormPageComponent implements OnInit {
         this.versionNbr = typeof record['version_nbr'] === 'number'
           ? record['version_nbr']
           : null;
+        this.catalogEditGuidance.set(res.edit_guidance ?? this.getDefaultCatalogEditGuidance(cfg.tableKey));
+        this.catalogSuggestion.set(null);
+        this.catalogAssistError.set(null);
+        this.replacementMode.set(false);
+        this.retireOriginalOnReplacement.set(false);
+        this.loadedRecordSnapshot = { ...record };
         this.itemCodeFallbackValue = String(record['item_code'] ?? '').trim() || null;
         this.legacyItemCodeValue = String(record['legacy_item_code'] ?? '').trim() || null;
 
@@ -1025,9 +1087,6 @@ export class MasterFormPageComponent implements OnInit {
           const control = this.form.get(field.field);
           if (control && record[field.field] !== undefined) {
             control.setValue(record[field.field], { emitEvent: false });
-          }
-          if (field.readonlyOnEdit && this.isEdit() && control) {
-            control.disable();
           }
         }
 
@@ -1067,10 +1126,13 @@ export class MasterFormPageComponent implements OnInit {
           this.syncDisplayedItemCode();
         }
 
+        this.applyGovernedCatalogFieldState();
         this.updateItemTaxonomyControlState();
         this.form.updateValueAndValidity({ emitEvent: false });
+        this.form.markAsPristine();
 
         this.isLoading.set(false);
+        this.maybePromptGovernedEditWarning();
       },
       error: () => {
         this.notify.showError('Failed to load record.');
@@ -1090,39 +1152,57 @@ export class MasterFormPageComponent implements OnInit {
     const cfg = this.config();
     if (!cfg) return;
 
+    const replacementTableKey = this.getReplacementTableKey();
+    const isReplacementSave = replacementTableKey != null
+      && this.replacementMode()
+      && this.isEdit()
+      && this.pk() != null;
+
+    if (isReplacementSave && !this.form.dirty) {
+      this.notify.showWarning('Update the replacement fields before saving the replacement draft.');
+      return;
+    }
+
     this.isSaving.set(true);
-    const rawData = this.form.getRawValue();
+    const rawData = this.buildPreparedFormPayload(cfg);
 
-    if (cfg.tableKey === 'items') {
-      delete rawData['item_code'];
-      delete rawData['legacy_item_code'];
-    }
-
-    // Apply uppercase transforms
-    for (const field of cfg.formFields) {
-      if (field.uppercase && typeof rawData[field.field] === 'string') {
-        rawData[field.field] = rawData[field.field].trim().toUpperCase();
-      }
-    }
-    if (cfg.tableKey === 'items' && this.acceptedIfrcSuggestLogId) {
-      rawData['ifrc_suggest_log_id'] = this.acceptedIfrcSuggestLogId;
-    }
-
-    const obs$ = this.isEdit()
-      ? this.service.update(cfg.tableKey, this.pk()!, {
-          ...rawData,
-          ...(this.versionNbr != null ? { version_nbr: this.versionNbr } : {}),
-        })
-      : this.service.create(cfg.tableKey, rawData);
+    const obs$ = isReplacementSave
+      ? this.service.createCatalogReplacement(
+          replacementTableKey,
+          this.pk()!,
+          rawData,
+          this.retireOriginalOnReplacement(),
+        )
+      : this.isEdit()
+        ? this.service.update(cfg.tableKey, this.pk()!, {
+            ...rawData,
+            ...(this.versionNbr != null ? { version_nbr: this.versionNbr } : {}),
+          })
+        : this.service.create(cfg.tableKey, rawData);
 
     obs$.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (res) => {
         this.clearSubmissionError();
-        this.notify.showSuccess(this.isEdit() ? 'Record updated.' : 'Record created.');
         this.service.clearLookupCache(cfg.tableKey);
+
         const newPk = res.record?.[cfg.pkField] ?? null;
+        if (isReplacementSave) {
+          this.replacementMode.set(false);
+          this.retireOriginalOnReplacement.set(false);
+          this.notify.showSuccess('Replacement record created.');
+          this.showCatalogWarnings(res.warnings);
+          if (newPk != null && newPk !== '') {
+            this.router.navigate(['/master-data', cfg.routePath, newPk]);
+          } else {
+            this.notify.showWarning('Replacement saved, but no primary key was returned.');
+            this.navigateBack();
+          }
+          return;
+        }
+
+        this.notify.showSuccess(this.isEdit() ? 'Record updated.' : 'Record created.');
         if (this.isEdit()) {
           this.navigateBack();
         } else if (newPk != null && newPk !== '') {
@@ -1136,13 +1216,8 @@ export class MasterFormPageComponent implements OnInit {
         this.isSaving.set(false);
         if (err.status === 400 && err.error?.errors) {
           const errors = err.error.errors as Record<string, string>;
-          for (const [field, msg] of Object.entries(errors)) {
-            const control = this.form.get(field);
-            if (control) {
-              control.setErrors({ server: msg });
-              control.markAsTouched();
-            }
-          }
+          this.applyServerErrors(errors);
+
           const classificationErrorFields = ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id', 'item_code'];
           const classificationDetails = Object.entries(errors)
             .filter(([field]) => classificationErrorFields.includes(field))
@@ -1151,6 +1226,14 @@ export class MasterFormPageComponent implements OnInit {
             this.setSubmissionError(
               'Please review the item classification and canonical item code details.',
               classificationDetails,
+              'submitFailure',
+            );
+          } else if (this.isGovernedCatalogAuthoringTable()) {
+            this.setSubmissionError(
+              isReplacementSave
+                ? 'Please review the governed replacement draft before saving.'
+                : 'Please review the governed catalog fields before saving.',
+              Object.values(errors),
               'submitFailure',
             );
           }
@@ -1195,6 +1278,656 @@ export class MasterFormPageComponent implements OnInit {
         }
       },
     });
+  }
+
+  onSuggestCatalogValues(): void {
+    const cfg = this.config();
+    if (!cfg || !this.isGovernedCatalogAuthoringTable()) {
+      return;
+    }
+
+    const missingRequirements = this.getMissingCatalogSuggestionRequirementLabels();
+    if (missingRequirements.length > 0) {
+      this.markCatalogSuggestionRequirementControlsTouched();
+      const message = `Complete ${this.joinHumanList(missingRequirements)} before requesting suggestions.`;
+      this.catalogAssistError.set(message);
+      this.notify.showWarning(message);
+      return;
+    }
+
+    this.catalogSuggestionLoading.set(true);
+    this.catalogSuggestion.set(null);
+    this.catalogAssistError.set(null);
+
+    const request$ = cfg.tableKey === 'ifrc_families'
+      ? this.service.suggestIfrcFamilyValues(this.buildPreparedFormPayload(cfg))
+      : this.service.suggestIfrcReferenceValues(this.buildPreparedFormPayload(cfg));
+
+    request$.pipe(
+      finalize(() => this.catalogSuggestionLoading.set(false)),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (response) => {
+        this.catalogSuggestion.set(response);
+        if (response.edit_guidance) {
+          this.catalogEditGuidance.set(response.edit_guidance);
+        }
+        this.catalogAssistError.set(null);
+        this.showCatalogWarnings(response.warnings);
+        this.notify.showSuccess('Suggested values are ready for review.');
+      },
+      error: (err) => {
+        if (err.status === 400 && err.error?.errors) {
+          const errors = err.error.errors as Record<string, string>;
+          this.applyServerErrors(errors);
+          const messages = Object.values(errors);
+          this.catalogAssistError.set(messages[0] ?? 'Please fix the required fields before requesting suggestions.');
+          this.notify.showWarning('Please fix the required fields before requesting suggestions.');
+          return;
+        }
+
+        const message = err.error?.detail || 'Failed to load authoring suggestions.';
+        this.catalogAssistError.set(message);
+        this.notify.showError(message);
+      },
+    });
+  }
+
+  onApplyCatalogSuggestion(): void {
+    const cfg = this.config();
+    const suggestion = this.catalogSuggestion();
+    if (!cfg || !suggestion) {
+      return;
+    }
+
+    const skippedLockedFields: string[] = [];
+    for (const field of cfg.formFields) {
+      if (!(field.field in suggestion.normalized)) {
+        continue;
+      }
+
+      const control = this.form.get(field.field);
+      if (!control) {
+        continue;
+      }
+
+      if (this.isGovernedLockedField(field) && !this.replacementMode()) {
+        skippedLockedFields.push(field.label);
+        continue;
+      }
+
+      let nextValue = suggestion.normalized[field.field];
+      if (field.uppercase && typeof nextValue === 'string') {
+        nextValue = nextValue.trim().toUpperCase();
+      }
+      control.setValue(nextValue, { emitEvent: false });
+    }
+
+    this.applyGovernedCatalogFieldState();
+    this.form.updateValueAndValidity({ emitEvent: false });
+    this.form.markAsDirty();
+
+    if (skippedLockedFields.length > 0) {
+      this.catalogAssistError.set(
+        'Locked canonical fields were not applied: '
+        + skippedLockedFields.join(', ')
+        + '. Use Create Replacement to change them.',
+      );
+      this.notify.showWarning('Suggested values were applied to editable fields only.');
+      return;
+    }
+
+    this.catalogAssistError.set(null);
+    this.notify.showSuccess('Suggested values applied to the form.');
+  }
+
+  onStartReplacementDraft(): void {
+    if (!this.canCreateReplacement()) {
+      return;
+    }
+
+    this.replacementMode.set(true);
+    this.retireOriginalOnReplacement.set(false);
+    this.catalogAssistError.set(null);
+    this.applyGovernedCatalogFieldState();
+    this.form.markAsPristine();
+    this.notify.showWarning('Replacement draft started. Saving will create a new governed record instead of overwriting the current one.');
+  }
+
+  onCancelReplacementDraft(): void {
+    if (!this.replacementMode()) {
+      return;
+    }
+
+    this.restoreLoadedRecordSnapshot();
+    this.replacementMode.set(false);
+    this.retireOriginalOnReplacement.set(false);
+    this.catalogAssistError.set(null);
+    this.applyGovernedCatalogFieldState();
+    this.form.updateValueAndValidity({ emitEvent: false });
+    this.form.markAsPristine();
+  }
+
+  isGovernedCatalogAuthoringTable(): boolean {
+    const tableKey = this.config()?.tableKey;
+    return tableKey === 'ifrc_families' || tableKey === 'ifrc_item_references';
+  }
+
+  canCreateReplacement(): boolean {
+    return this.isEdit()
+      && this.isGovernedCatalogAuthoringTable()
+      && this.catalogEditGuidance()?.replacement_supported === true;
+  }
+
+  isGovernedLockedField(field: MasterFieldConfig): boolean {
+    return this.isEdit()
+      && this.isGovernedCatalogAuthoringTable()
+      && !this.replacementMode()
+      && this.getLockedCatalogFieldNames().has(field.field);
+  }
+
+  getGovernedFieldAssistText(field: MasterFieldConfig): string | null {
+    if (!this.isGovernedCatalogAuthoringTable() || !this.getLockedCatalogFieldNames().has(field.field)) {
+      return null;
+    }
+
+    if (this.replacementMode()) {
+      return 'Replacement draft active. This field is editable because saving will create a new record.';
+    }
+
+    if (this.isEdit()) {
+      return 'This field is locked. Use "Create Replacement" if the code needs to change.';
+    }
+
+    return null;
+  }
+
+  getCatalogWarningText(): string | null {
+    return this.catalogEditGuidance()?.warning_text
+      ?? this.getDefaultCatalogEditGuidance(this.config()?.tableKey ?? '')?.warning_text
+      ?? null;
+  }
+
+  getCatalogLockedFieldLabels(): string[] {
+    const cfg = this.config();
+    if (!cfg) {
+      return [];
+    }
+
+    const lockedFieldNames = this.getLockedCatalogFieldNames();
+    return cfg.formFields
+      .filter((field) => lockedFieldNames.has(field.field))
+      .map((field) => field.label);
+  }
+
+  getCatalogSuggestActionLabel(): string {
+    return this.config()?.tableKey === 'ifrc_families'
+      ? 'Suggest Family Values'
+      : 'Suggest Reference Values';
+  }
+
+  getCatalogSuggestionRequirements(): CatalogSuggestionRequirement[] {
+    const isReady = (fieldName: string) => this.hasFormValue(fieldName);
+
+    switch (this.config()?.tableKey) {
+      case 'ifrc_families':
+        return [
+          {
+            field: 'family_label',
+            label: 'Family Label',
+            required: true,
+            detail: 'Primary input used to normalize the governed Level 2 family name.',
+            ready: isReady('family_label'),
+          },
+          {
+            field: 'category_id',
+            label: 'Level 1 Category',
+            required: false,
+            detail: 'Recommended when known so the proposed family stays in the correct DMIS branch.',
+            ready: isReady('category_id'),
+          },
+          {
+            field: 'group_code',
+            label: 'Group Code',
+            required: false,
+            detail: 'Optional starting hint if the official IFRC group code is already known.',
+            ready: isReady('group_code'),
+          },
+          {
+            field: 'group_label',
+            label: 'Group Label',
+            required: false,
+            detail: 'Optional human-readable group context when you know the branch but not the code.',
+            ready: isReady('group_label'),
+          },
+        ];
+      case 'ifrc_item_references':
+        return [
+          {
+            field: 'ifrc_family_id',
+            label: 'IFRC Family',
+            required: true,
+            detail: 'Sets the governed Level 2 branch and provides the code prefix.',
+            ready: isReady('ifrc_family_id'),
+          },
+          {
+            field: 'reference_desc',
+            label: 'Reference Description',
+            required: true,
+            detail: 'Primary input used to normalize the Level 3 reference.',
+            ready: isReady('reference_desc'),
+          },
+          {
+            field: 'size_weight',
+            label: 'Size or Weight',
+            required: false,
+            detail: 'Recommended when pack size, weight, or volume distinguishes the variant.',
+            ready: isReady('size_weight'),
+          },
+          {
+            field: 'form',
+            label: 'Form',
+            required: false,
+            detail: 'Recommended when presentation changes the governed variant.',
+            ready: isReady('form'),
+          },
+          {
+            field: 'material',
+            label: 'Material',
+            required: false,
+            detail: 'Recommended when composition is part of the distinguishing specification.',
+            ready: isReady('material'),
+          },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  canRequestCatalogSuggestion(): boolean {
+    return this.getMissingCatalogSuggestionRequirementLabels().length === 0;
+  }
+
+  getCatalogSuggestionReadinessText(): string | null {
+    if (!this.isGovernedCatalogAuthoringTable()) {
+      return null;
+    }
+
+    const missing = this.getMissingCatalogSuggestionRequirementLabels();
+    if (missing.length === 0) {
+      return 'Ready to suggest. Click the button below to auto-fill the code fields.';
+    }
+
+    return `Complete ${this.joinHumanList(missing)} before generating suggestions.`;
+  }
+
+  getCatalogSuggestButtonTooltip(): string {
+    if (!this.canRequestCatalogSuggestion()) {
+      return this.getCatalogSuggestionReadinessText() ?? 'Complete the required fields before generating suggestions.';
+    }
+
+    return this.config()?.tableKey === 'ifrc_families'
+      ? 'Auto-fill the code fields based on the family label you entered.'
+      : 'Auto-fill the code fields based on the family, description, and attributes you entered.';
+  }
+
+  getRenderedFieldLabel(field: MasterFieldConfig): string {
+    return field.required ? `${field.label} (required)` : field.label;
+  }
+
+  getFieldTooltip(field: MasterFieldConfig): string | null {
+    const tooltip = String(field.tooltip ?? '').trim();
+    return tooltip || null;
+  }
+
+  getPrimarySaveLabel(): string {
+    if (this.replacementMode()) {
+      return 'Create Replacement';
+    }
+    return this.isEdit() ? 'Update' : 'Create';
+  }
+
+  getPrimarySaveIcon(): string {
+    return this.replacementMode() ? 'content_copy' : 'save';
+  }
+
+  getCatalogSuggestionEntries(): { label: string; value: string; locked: boolean }[] {
+    const cfg = this.config();
+    const suggestion = this.catalogSuggestion();
+    if (!cfg || !suggestion) {
+      return [];
+    }
+
+    const lockedFieldNames = this.getLockedCatalogFieldNames();
+    return cfg.formFields
+      .filter((field) => {
+        const value = suggestion.normalized[field.field];
+        return value !== undefined && value !== null && value !== '';
+      })
+      .map((field) => ({
+        label: field.label,
+        value: this.formatCatalogSuggestionValue(field, suggestion.normalized[field.field]),
+        locked: lockedFieldNames.has(field.field),
+      }));
+  }
+
+  getCatalogSuggestionConflictMessages(): string[] {
+    const conflicts = this.catalogSuggestion()?.conflicts;
+    if (!conflicts || typeof conflicts !== 'object') {
+      return [];
+    }
+
+    const conflictMap = conflicts as Record<string, unknown>;
+    const messages: string[] = [];
+    const exactCodeMatch = conflictMap['exact_code_match'];
+    const exactLabelMatch = conflictMap['exact_label_match'];
+    const exactDescriptionMatch = conflictMap['exact_desc_match'];
+    const nearMatches = Array.isArray(conflictMap['near_matches']) ? conflictMap['near_matches'] : [];
+
+    if (exactCodeMatch && typeof exactCodeMatch === 'object') {
+      messages.push('Exact code match already exists: ' + this.describeCatalogConflict(exactCodeMatch as Record<string, unknown>));
+    }
+    if (exactLabelMatch && typeof exactLabelMatch === 'object') {
+      messages.push('Exact family label match already exists: ' + this.describeCatalogConflict(exactLabelMatch as Record<string, unknown>));
+    }
+    if (exactDescriptionMatch && typeof exactDescriptionMatch === 'object') {
+      messages.push('Exact reference description match already exists: ' + this.describeCatalogConflict(exactDescriptionMatch as Record<string, unknown>));
+    }
+    if (nearMatches.length > 0) {
+      const preview = nearMatches
+        .slice(0, 3)
+        .map((match) => this.describeCatalogConflict(match as Record<string, unknown>))
+        .filter((value) => value.length > 0)
+        .join('; ');
+      if (preview) {
+        messages.push('Near matches: ' + preview);
+      }
+    }
+
+    return messages;
+  }
+
+  getCatalogSuggestionWarnings(): string[] {
+    return this.getCatalogWarningMessages(this.catalogSuggestion()?.warnings);
+  }
+
+  onRetireOriginalReplacementChange(checked: boolean): void {
+    this.retireOriginalOnReplacement.set(checked);
+  }
+
+  private buildPreparedFormPayload(cfg: MasterTableConfig): MasterRecord {
+    const rawData = { ...this.form.getRawValue() } as MasterRecord;
+
+    if (cfg.tableKey === 'items') {
+      delete rawData['item_code'];
+      delete rawData['legacy_item_code'];
+    }
+
+    for (const field of cfg.formFields) {
+      if (field.uppercase && typeof rawData[field.field] === 'string') {
+        const currentValue = rawData[field.field] as string;
+        rawData[field.field] = currentValue.trim().toUpperCase();
+      }
+    }
+
+    if (cfg.tableKey === 'items' && this.acceptedIfrcSuggestLogId) {
+      rawData['ifrc_suggest_log_id'] = this.acceptedIfrcSuggestLogId;
+    }
+
+    return rawData;
+  }
+
+  private applyServerErrors(errors: Record<string, string>): void {
+    for (const [field, msg] of Object.entries(errors)) {
+      const control = this.form.get(field);
+      if (control) {
+        control.setErrors({ server: msg });
+        control.markAsTouched();
+      }
+    }
+  }
+
+  private getMissingCatalogSuggestionRequirementLabels(): string[] {
+    return this.getCatalogSuggestionRequirements()
+      .filter((requirement) => requirement.required && !requirement.ready)
+      .map((requirement) => requirement.label);
+  }
+
+  private markCatalogSuggestionRequirementControlsTouched(): void {
+    for (const requirement of this.getCatalogSuggestionRequirements().filter((entry) => entry.required)) {
+      this.form.get(requirement.field)?.markAsTouched();
+    }
+  }
+
+  private hasFormValue(fieldName: string): boolean {
+    const value = this.form.get(fieldName)?.value;
+    if (typeof value === 'string') {
+      return value.trim().length > 0;
+    }
+    return value !== null && value !== undefined && value !== '';
+  }
+
+  private joinHumanList(values: string[]): string {
+    if (values.length <= 1) {
+      return values[0] ?? '';
+    }
+    if (values.length === 2) {
+      return `${values[0]} and ${values[1]}`;
+    }
+    return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+  }
+
+  private getReplacementTableKey(): 'ifrc_families' | 'ifrc_item_references' | null {
+    const tableKey = this.config()?.tableKey;
+    if (tableKey === 'ifrc_families' || tableKey === 'ifrc_item_references') {
+      return tableKey;
+    }
+    return null;
+  }
+
+  private getLockedCatalogFieldNames(): Set<string> {
+    const guidanceFields = this.catalogEditGuidance()?.locked_fields ?? [];
+    if (guidanceFields.length > 0) {
+      return new Set(guidanceFields);
+    }
+
+    const cfg = this.config();
+    return new Set((cfg?.formFields ?? [])
+      .filter((field) => field.readonlyOnEdit)
+      .map((field) => field.field));
+  }
+
+  private applyGovernedCatalogFieldState(): void {
+    const cfg = this.config();
+    if (!cfg) {
+      return;
+    }
+
+    for (const field of cfg.formFields) {
+      if (cfg.tableKey === 'items' && ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'].includes(field.field)) {
+        continue;
+      }
+
+      const control = this.form.get(field.field);
+      if (!control) {
+        continue;
+      }
+
+      const shouldDisable = this.shouldDisableField(field);
+      if (shouldDisable) {
+        control.disable({ emitEvent: false });
+      } else {
+        control.enable({ emitEvent: false });
+      }
+    }
+  }
+
+  private shouldDisableField(field: MasterFieldConfig): boolean {
+    if (this.isManagedItemCodeField(field.field)) {
+      return false;
+    }
+
+    if (!this.isEdit()) {
+      return false;
+    }
+
+    if (this.isGovernedCatalogAuthoringTable() && !this.replacementMode() && this.getLockedCatalogFieldNames().has(field.field)) {
+      return true;
+    }
+
+    return field.readonlyOnEdit === true;
+  }
+
+  private getDefaultCatalogEditGuidance(tableKey: string): CatalogEditGuidance | null {
+    if (tableKey === 'ifrc_families') {
+      return {
+        warning_required: true,
+        warning_text: 'You are editing an IFRC Family. Code fields are locked after creation. To change a code, use "Create Replacement" to make a new version.',
+        locked_fields: ['group_code', 'family_code'],
+        replacement_supported: true,
+      };
+    }
+
+    if (tableKey === 'ifrc_item_references') {
+      return {
+        warning_required: true,
+        warning_text: 'You are editing an IFRC Item Reference. Code fields are locked after creation. To change a code, use "Create Replacement" to make a new version.',
+        locked_fields: ['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment'],
+        replacement_supported: true,
+      };
+    }
+
+    return null;
+  }
+
+  private maybePromptGovernedEditWarning(): void {
+    if (
+      !this.isEdit()
+      || !this.isGovernedCatalogAuthoringTable()
+      || this.promptedGovernedEditWarning
+      || this.catalogEditGuidance()?.warning_required === false
+    ) {
+      return;
+    }
+
+    const cfg = this.config();
+    const warningText = this.getCatalogWarningText();
+    if (!cfg || !warningText) {
+      return;
+    }
+
+    this.promptedGovernedEditWarning = true;
+    const lockedFieldPreview = this.getCatalogLockedFieldLabels().slice(0, 4).join(', ');
+    const details = lockedFieldPreview
+      ? [{ label: 'Locked Fields', value: lockedFieldPreview, icon: 'lock' }]
+      : [];
+
+    const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
+      data: {
+        title: 'Governed Catalog Edit',
+        message: warningText,
+        confirmLabel: 'Continue to Edit',
+        cancelLabel: 'Cancel',
+        icon: 'warning_amber',
+        iconColor: '#d97706',
+        details,
+      } as ConfirmDialogData,
+      width: '460px',
+    });
+
+    dialogRef.afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((confirmed) => {
+      if (!confirmed) {
+        this.router.navigate(['/master-data', cfg.routePath, this.pk()]);
+      }
+    });
+  }
+
+  private restoreLoadedRecordSnapshot(): void {
+    const cfg = this.config();
+    if (!cfg || !this.loadedRecordSnapshot) {
+      return;
+    }
+
+    for (const field of cfg.formFields) {
+      const control = this.form.get(field.field);
+      if (!control) {
+        continue;
+      }
+
+      const nextValue = this.loadedRecordSnapshot[field.field] ?? null;
+      control.setValue(nextValue, { emitEvent: false });
+    }
+  }
+
+  private formatCatalogSuggestionValue(field: MasterFieldConfig, value: unknown): string {
+    if (field.type === 'lookup' && field.lookupTable) {
+      const lookupValue = this.findLookupByValue(this.readLookup(field.lookupTable), value);
+      if (lookupValue) {
+        return String(lookupValue.label ?? lookupValue.value ?? value);
+      }
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+
+    return String(value);
+  }
+
+  private describeCatalogConflict(conflict: Record<string, unknown>): string {
+    const ifrcCode = String(conflict['ifrc_code'] ?? '').trim();
+    const referenceDesc = String(conflict['reference_desc'] ?? '').trim();
+    if (ifrcCode) {
+      return referenceDesc ? `${referenceDesc} (${ifrcCode})` : ifrcCode;
+    }
+
+    const familyLabel = String(conflict['family_label'] ?? '').trim();
+    const familyCode = String(conflict['family_code'] ?? '').trim();
+    const groupCode = String(conflict['group_code'] ?? '').trim();
+    const familySuffix = [groupCode, familyCode].filter(Boolean).join('-');
+    if (familyLabel) {
+      return familySuffix ? `${familyLabel} (${familySuffix})` : familyLabel;
+    }
+
+    const categoryDesc = String(conflict['category_desc'] ?? '').trim();
+    const categoryCode = String(conflict['category_code'] ?? '').trim();
+    if (categoryDesc) {
+      return categoryCode ? `${categoryDesc} (${categoryCode})` : categoryDesc;
+    }
+
+    return familySuffix || categoryCode || 'Existing catalog record';
+  }
+
+  private showCatalogWarnings(warnings: string[] | undefined): void {
+    const warningMessages = this.getCatalogWarningMessages(warnings);
+    if (warningMessages.length > 0) {
+      this.notify.showWarning(warningMessages[0]);
+    }
+  }
+
+  private getCatalogWarningMessages(warnings: string[] | undefined): string[] {
+    return (warnings ?? [])
+      .map((warning) => this.formatCatalogWarning(warning))
+      .filter((warning): warning is string => warning.length > 0);
+  }
+
+  private formatCatalogWarning(warning: string): string {
+    switch (warning) {
+      case 'replacement_original_retire_blocked':
+        return 'Replacement created, but the original record could not be retired because it is still referenced.';
+      case 'reference_sequence_lookup_failed':
+        return 'The suggested IFRC sequence could not be verified. Review the proposed code carefully before saving.';
+      case 'db_unavailable':
+        return 'Catalog authoring assistance is temporarily unavailable.';
+      case 'db_error':
+        return 'The catalog governance service could not complete the request.';
+      case 'not_found':
+        return 'The original governed record could not be found.';
+      default:
+        return this.humanizeToken(warning);
+    }
   }
 
   getRenderableFields(group: { label: string; fields: MasterFieldConfig[] }): MasterFieldConfig[] {
@@ -1541,6 +2274,13 @@ export class MasterFormPageComponent implements OnInit {
       'Financial': 'payments',
       'Item Identity': 'label',
       'Classification': 'category',
+      'Hierarchy': 'account_tree',
+      'Canonical Identity': 'lock',
+      'Metadata': 'tune',
+      'Start Here': 'play_arrow',
+      'Codes': 'key',
+      'Generated Codes': 'auto_awesome',
+      'Product Attributes': 'straighten',
       'Inventory Rules': 'inventory_2',
       'Tracking & Behaviour': 'track_changes',
       'Notes & Storage': 'notes',
@@ -1781,3 +2521,13 @@ export class MasterFormPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
+
+
+
+
+
+
+
+
