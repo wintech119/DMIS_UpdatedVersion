@@ -29,7 +29,7 @@ _BASE_IFRC_SETTINGS = {
     "OLLAMA_BASE_URL": "http://localhost:11434",
     "OLLAMA_MODEL_ID": "qwen3.5:0.8b",
     "OLLAMA_TIMEOUT_SECONDS": 8,
-    "AUTO_FILL_CONFIDENCE_THRESHOLD": 0.80,
+    "AUTO_FILL_CONFIDENCE_THRESHOLD": 0.85,
     "MIN_INPUT_LENGTH": 3,
     "MAX_INPUT_LENGTH": 120,
     "CB_FAILURE_THRESHOLD": 5,
@@ -296,4 +296,5 @@ class TestIFRCAgent(TestCase):
             agent  = IFRCAgent()
             result = agent.suggest("blanket", size_weight="medium", material="synthetic")
         self.assertIsNotNone(result.item_code)
+
 

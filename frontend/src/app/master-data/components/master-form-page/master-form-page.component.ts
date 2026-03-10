@@ -13,7 +13,7 @@ import {
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Observable, of, Subject } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import {
   catchError, debounceTime, distinctUntilChanged, finalize, map, pairwise, startWith, switchMap,
 } from 'rxjs/operators';
@@ -43,7 +43,11 @@ import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
-import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
+import {
+  IFRCSuggestion,
+  IFRCSuggestionCandidate,
+  IFRCSuggestionResolutionStatus,
+} from '../../models/ifrc-suggest.models';
 
 interface InactiveItemForwardWriteGuard {
   table: string;
@@ -51,10 +55,23 @@ interface InactiveItemForwardWriteGuard {
   item_ids: number[];
 }
 
+interface SuggestedIfrcCandidate {
+  reference: IfrcReferenceLookup;
+  rank: number;
+  score: number;
+  autoHighlight: boolean;
+  matchReasons: string[];
+}
+
 interface ResolvedIfrcSuggestion {
+  status: IFRCSuggestionResolutionStatus;
   family: IfrcFamilyLookup | null;
   reference: IfrcReferenceLookup | null;
+  candidates: SuggestedIfrcCandidate[];
   warning: string | null;
+  explanation: string | null;
+  directAcceptAllowed: boolean;
+  autoHighlightCandidateId: string | number | null;
 }
 
 interface DuplicateCanonicalItemConflict {
@@ -104,6 +121,7 @@ export class MasterFormPageComponent implements OnInit {
   ifrcLoading = signal(false);
   ifrcSuggestion = signal<IFRCSuggestion | null>(null);
   ifrcSuggestionResolution = signal<ResolvedIfrcSuggestion | null>(null);
+  selectedSuggestionCandidateId = signal<string | number | null>(null);
   ifrcError = signal<string | null>(null);
   submissionError = signal<string | null>(null);
   submissionErrorDetails = signal<string[]>([]);
@@ -458,8 +476,15 @@ export class MasterFormPageComponent implements OnInit {
   onAcceptIfrcSuggestion(): void {
     const suggestion = this.ifrcSuggestion();
     const resolved = this.ifrcSuggestionResolution();
-    if (!suggestion || !resolved?.family || !resolved.reference) {
-      this.notify.showError('Resolve the suggested IFRC reference before applying it.');
+    const reference = this.getAcceptedSuggestionReference();
+    if (!suggestion || !resolved?.family || !reference) {
+      const status = resolved?.status;
+      const message = status === 'ambiguous'
+        ? 'Select one suggested IFRC candidate before applying the classification.'
+        : status === 'unresolved'
+          ? 'No governed IFRC reference is available to apply from this suggestion.'
+          : 'Resolve the suggested IFRC reference before applying it.';
+      this.notify.showError(message);
       return;
     }
 
@@ -472,7 +497,6 @@ export class MasterFormPageComponent implements OnInit {
 
     this.applyingTaxonomyPatch = true;
     const family = resolved.family;
-    const reference = resolved.reference;
 
     categoryControl.patchValue(family.category_id ?? null, { emitEvent: false });
     familyControl.patchValue(family.value, { emitEvent: false });
@@ -508,6 +532,10 @@ export class MasterFormPageComponent implements OnInit {
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
     this.notify.showSuccess('Suggested IFRC classification applied.');
+  }
+
+  onSelectSuggestionCandidate(candidate: SuggestedIfrcCandidate): void {
+    this.selectedSuggestionCandidateId.set(this.toRecordIdentifier(candidate.reference.value));
   }
 
   onRejectIfrcSuggestion(): void {
@@ -851,90 +879,118 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private resolveIfrcSuggestion(suggestion: IFRCSuggestion): void {
-    const familySearch = String(suggestion.family_code ?? '').trim();
+    const candidateRows = suggestion.candidates ?? [];
+    const familySearch = String(
+      suggestion.family_code
+      ?? candidateRows[0]?.family_code
+      ?? '',
+    ).trim();
+    const fallbackResolution = this.buildSuggestionResolutionState(suggestion, null);
+    this.selectedSuggestionCandidateId.set(null);
+
     if (!familySearch) {
       this.ifrcSuggestionResolution.set({
-        family: null,
-        reference: null,
+        ...fallbackResolution,
         warning: 'Suggestion did not include a resolvable IFRC family.',
       });
       return;
     }
 
     this.service.lookupIfrcFamilies({ search: familySearch }).pipe(
-      switchMap((families) => {
-        const family = this.findMatchingSuggestedFamily(suggestion, families);
-        if (!family) {
-          return of({
-            family: null,
-            reference: null,
-            warning: 'Suggestion could not be matched to an active IFRC family.',
-          } satisfies ResolvedIfrcSuggestion);
+      map((families) => {
+        const family = this.findMatchingSuggestedFamily(suggestion, families, candidateRows);
+        const resolved = this.buildSuggestionResolutionState(suggestion, family);
+        if (family) {
+          return resolved;
         }
 
-        return this.resolveSuggestedReference(suggestion, family).pipe(
-          map((reference) => ({
-            family,
-            reference,
-            warning: suggestion.ifrc_code && !reference
-              ? 'Suggested IFRC reference could not be matched to an active catalog entry.'
-              : null,
-          })),
-        );
+        return {
+          ...resolved,
+          warning: 'Suggestion could not be matched to an active IFRC family.',
+        } satisfies ResolvedIfrcSuggestion;
       }),
       catchError(() => of({
-        family: null,
-        reference: null,
+        ...fallbackResolution,
         warning: 'Failed to resolve the IFRC suggestion against the active taxonomy.',
-      })),
+      } satisfies ResolvedIfrcSuggestion)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((resolved) => this.ifrcSuggestionResolution.set(resolved));
   }
 
-  private resolveSuggestedReference(
+  private buildSuggestionResolutionState(
     suggestion: IFRCSuggestion,
-    family: IfrcFamilyLookup,
-  ): Observable<IfrcReferenceLookup | null> {
-    const primarySearch = String(suggestion.ifrc_code ?? '').trim()
-      || String(suggestion.ifrc_description ?? '').trim();
-    if (!primarySearch) {
-      return of<IfrcReferenceLookup | null>(null);
-    }
+    family: IfrcFamilyLookup | null,
+  ): ResolvedIfrcSuggestion {
+    const candidates = this.mapSuggestionCandidates(suggestion.candidates ?? []);
+    const resolutionStatus = suggestion.resolution_status
+      ?? (suggestion.resolved_ifrc_item_ref_id != null
+        ? 'resolved'
+        : (suggestion.candidate_count ?? 0) > 0
+          ? 'ambiguous'
+          : 'unresolved');
+    const resolvedReferenceId = this.toRecordIdentifier(suggestion.resolved_ifrc_item_ref_id);
+    const resolvedReference = resolvedReferenceId != null
+      ? candidates.find((candidate) => this.sameValue(candidate.reference.value, resolvedReferenceId))?.reference ?? null
+      : resolutionStatus === 'resolved' && candidates.length === 1
+        ? candidates[0].reference
+        : null;
+    const explanation = String(suggestion.resolution_explanation ?? '').trim() || null;
 
-    return this.service.lookupIfrcReferences({
-      ifrcFamilyId: family.value,
-      search: primarySearch,
-      limit: 25,
-    }).pipe(
-      map((references) => this.findMatchingSuggestedReference(suggestion, references)),
-      switchMap((reference) => {
-        if (reference) {
-          return of(reference);
-        }
+    return {
+      status: resolutionStatus,
+      family,
+      reference: resolvedReference,
+      candidates,
+      warning: null,
+      explanation,
+      directAcceptAllowed: suggestion.direct_accept_allowed === true && resolvedReference != null,
+      autoHighlightCandidateId: this.toRecordIdentifier(suggestion.auto_highlight_candidate_id),
+    };
+  }
 
-        const fallbackSearch = String(suggestion.ifrc_description ?? '').trim();
-        if (!fallbackSearch || fallbackSearch === primarySearch) {
-          return of<IfrcReferenceLookup | null>(null);
-        }
+  private mapSuggestionCandidates(candidateRows: IFRCSuggestionCandidate[]): SuggestedIfrcCandidate[] {
+    return candidateRows
+      .map((candidate) => ({
+        reference: this.toSuggestedReferenceLookup(candidate),
+        rank: Number(candidate.rank ?? 0) || 0,
+        score: Number(candidate.score ?? 0) || 0,
+        autoHighlight: candidate.auto_highlight === true,
+        matchReasons: candidate.match_reasons ?? [],
+      }))
+      .sort((left, right) => left.rank - right.rank);
+  }
 
-        return this.service.lookupIfrcReferences({
-          ifrcFamilyId: family.value,
-          search: fallbackSearch,
-          limit: 25,
-        }).pipe(
-          map((references) => this.findMatchingSuggestedReference(suggestion, references)),
-        );
-      }),
-      catchError(() => of<IfrcReferenceLookup | null>(null)),
-    );
+  private toSuggestedReferenceLookup(candidate: IFRCSuggestionCandidate): IfrcReferenceLookup {
+    return {
+      value: candidate.ifrc_item_ref_id,
+      label: candidate.reference_desc,
+      ifrc_code: candidate.ifrc_code,
+      ifrc_family_id: candidate.ifrc_family_id,
+      family_code: candidate.family_code,
+      family_label: candidate.family_label,
+      category_code: candidate.category_code,
+      category_label: candidate.category_label,
+      spec_segment: candidate.spec_segment ?? '',
+    };
   }
 
   private findMatchingSuggestedFamily(
     suggestion: IFRCSuggestion,
     families: IfrcFamilyLookup[],
+    candidateRows: IFRCSuggestionCandidate[],
   ): IfrcFamilyLookup | null {
-    const familyCode = String(suggestion.family_code ?? '').trim().toUpperCase();
-    const groupCode = String(suggestion.group_code ?? '').trim().toUpperCase();
+    const suggestionFamilyId = this.toRecordIdentifier(
+      suggestion.ifrc_family_id ?? candidateRows[0]?.ifrc_family_id,
+    );
+    if (suggestionFamilyId != null) {
+      const exactFamilyIdMatch = families.find((family) => this.sameValue(family.value, suggestionFamilyId));
+      if (exactFamilyIdMatch) {
+        return exactFamilyIdMatch;
+      }
+    }
+
+    const familyCode = String(suggestion.family_code ?? candidateRows[0]?.family_code ?? '').trim().toUpperCase();
+    const groupCode = String(suggestion.group_code ?? candidateRows[0]?.group_code ?? '').trim().toUpperCase();
 
     return families.find((family) => {
       const sameFamilyCode = String(family.family_code ?? '').trim().toUpperCase() === familyCode;
@@ -944,33 +1000,9 @@ export class MasterFormPageComponent implements OnInit {
     }) ?? null;
   }
 
-  private findMatchingSuggestedReference(
-    suggestion: IFRCSuggestion,
-    references: IfrcReferenceLookup[],
-  ): IfrcReferenceLookup | null {
-    const ifrcCode = String(suggestion.ifrc_code ?? '').trim().toUpperCase();
-    const description = String(suggestion.ifrc_description ?? '').trim().toUpperCase();
-
-    if (ifrcCode) {
-      const exactCodeMatch = references.find((reference) => (
-        String(reference.ifrc_code ?? '').trim().toUpperCase() === ifrcCode
-      ));
-      if (exactCodeMatch) {
-        return exactCodeMatch;
-      }
-    }
-
-    if (!description) {
-      return null;
-    }
-
-    return references.find((reference) => (
-      String(reference.label ?? '').trim().toUpperCase() === description
-    )) ?? null;
-  }
-
   private clearAcceptedSuggestion(): void {
     this.acceptedIfrcSuggestLogId = null;
+    this.selectedSuggestionCandidateId.set(null);
   }
 
   private loadRecord(): void {
@@ -1191,7 +1223,82 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   canAcceptResolvedIfrcSuggestion(): boolean {
-    return this.ifrcSuggestionResolution()?.reference != null;
+    const resolved = this.ifrcSuggestionResolution();
+    if (!resolved?.family) {
+      return false;
+    }
+
+    return this.getAcceptedSuggestionReference() != null;
+  }
+
+  getIfrcSuggestionPrimaryActionLabel(): string {
+    return this.ifrcSuggestionResolution()?.directAcceptAllowed
+      ? 'Accept Suggested Match'
+      : 'Use Selected Candidate';
+  }
+
+  hasSuggestionCandidates(): boolean {
+    return (this.ifrcSuggestionResolution()?.candidates.length ?? 0) > 0;
+  }
+
+  shouldShowSuggestionCandidates(): boolean {
+    const resolved = this.ifrcSuggestionResolution();
+    return resolved?.status === 'ambiguous' && (resolved.candidates.length ?? 0) > 0;
+  }
+
+  getSuggestionCandidates(): SuggestedIfrcCandidate[] {
+    return this.ifrcSuggestionResolution()?.candidates ?? [];
+  }
+
+  isSuggestionCandidateSelected(candidate: SuggestedIfrcCandidate): boolean {
+    const selectedCandidateId = this.selectedSuggestionCandidateId();
+    return selectedCandidateId != null && this.sameValue(selectedCandidateId, candidate.reference.value);
+  }
+
+  isSuggestionCandidateAutoHighlighted(candidate: SuggestedIfrcCandidate): boolean {
+    const autoHighlightCandidateId = this.ifrcSuggestionResolution()?.autoHighlightCandidateId;
+    return candidate.autoHighlight || (
+      autoHighlightCandidateId != null && this.sameValue(autoHighlightCandidateId, candidate.reference.value)
+    );
+  }
+
+  getSuggestionCandidateScore(candidate: SuggestedIfrcCandidate): string {
+    const score = Math.max(0, Math.min(1, Number(candidate.score ?? 0)));
+    return `${Math.round(score * 100)}% match`;
+  }
+
+  getSuggestionCandidateReasonSummary(candidate: SuggestedIfrcCandidate): string | null {
+    const reasons = candidate.matchReasons
+      .map((reason) => this.humanizeSuggestionMatchReason(reason))
+      .filter((reason) => reason.length > 0);
+    return reasons.length > 0 ? reasons.join(', ') : null;
+  }
+
+  getIfrcSuggestionStatusText(): string | null {
+    const resolution = this.ifrcSuggestionResolution();
+    if (!resolution) {
+      return null;
+    }
+
+    switch (resolution.status) {
+      case 'resolved':
+        return 'Exactly one active governed match found';
+      case 'ambiguous':
+        return `${resolution.candidates.length || 0} ranked candidate${resolution.candidates.length === 1 ? '' : 's'} require review`;
+      case 'unresolved':
+        return 'No active governed match found';
+      default:
+        return null;
+    }
+  }
+
+  getIfrcSuggestionExplanation(): string | null {
+    return this.ifrcSuggestionResolution()?.explanation ?? null;
+  }
+
+  getSuggestedIfrcCode(): string | null {
+    const ifrcCode = String(this.ifrcSuggestion()?.ifrc_code ?? '').trim();
+    return ifrcCode || null;
   }
 
   getLegacyItemCode(): string | null {
@@ -1281,18 +1388,11 @@ export class MasterFormPageComponent implements OnInit {
 
   getResolvedSuggestionReferenceLabel(): string | null {
     const resolved = this.ifrcSuggestionResolution();
-    const suggestion = this.ifrcSuggestion();
     if (resolved?.reference) {
       return this.getItemReferenceLabel(resolved.reference);
     }
 
-    const description = String(suggestion?.ifrc_description ?? '').trim();
-    const code = String(suggestion?.ifrc_code ?? '').trim();
-    if (!description && !code) {
-      return null;
-    }
-
-    return code ? `${description || 'Suggested reference'} (${code})` : description;
+    return null;
   }
 
   getIfrcSuggestionConfidence(): string | null {
@@ -1307,6 +1407,51 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     return `${Math.round(confidence * 100)}% confidence`;
+  }
+
+  private getSelectedSuggestionCandidate(): SuggestedIfrcCandidate | null {
+    const selectedCandidateId = this.selectedSuggestionCandidateId();
+    if (selectedCandidateId == null) {
+      return null;
+    }
+
+    return this.getSuggestionCandidates().find((candidate) => (
+      this.sameValue(candidate.reference.value, selectedCandidateId)
+    )) ?? null;
+  }
+
+  private getAcceptedSuggestionReference(): IfrcReferenceLookup | null {
+    const resolved = this.ifrcSuggestionResolution();
+    if (!resolved) {
+      return null;
+    }
+
+    if (resolved.directAcceptAllowed && resolved.reference) {
+      return resolved.reference;
+    }
+
+    return this.getSelectedSuggestionCandidate()?.reference ?? null;
+  }
+
+  private humanizeSuggestionMatchReason(reason: string): string {
+    const normalizedReason = String(reason ?? '').trim();
+    if (!normalizedReason) {
+      return '';
+    }
+
+    if (normalizedReason.startsWith('desc_overlap:')) {
+      const terms = normalizedReason.slice('desc_overlap:'.length).split(',').filter(Boolean).join(', ');
+      return terms ? `Description overlap: ${terms}` : 'Description overlap';
+    }
+
+    const words = normalizedReason.split('_').filter(Boolean);
+    if (words.length === 0) {
+      return normalizedReason;
+    }
+
+    return words
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 
   onAssignStorageLocation(): void {

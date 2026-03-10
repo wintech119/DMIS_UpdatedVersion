@@ -13,6 +13,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError, connection
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
@@ -30,6 +31,8 @@ from masterdata.serializers import IFRCSuggestionResponseSerializer
 from masterdata.services.data_access import (
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
+    _safe_rollback,
+    _schema_name,
     activate_record,
     check_dependencies,
     create_record,
@@ -61,6 +64,9 @@ MIN_PAGE_LIMIT = 1
 MAX_PAGE_LIMIT = 500
 _SAFE_INPUT_RE = re.compile(r"[^a-zA-Z0-9\s\-\'\(\)/]")
 _IFRC_AGENT_SINGLETON: IFRCAgent | None = None
+_IFRC_RESOLVED_CANDIDATE_MIN = 0.55
+_IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
+_IFRC_RESPONSE_CANDIDATE_LIMIT = 5
 
 
 def _actor_id(request) -> str:
@@ -81,7 +87,7 @@ def _ifrc_cfg() -> dict[str, Any]:
         "MIN_INPUT_LENGTH": int(cfg.get("MIN_INPUT_LENGTH", 3)),
         "MAX_INPUT_LENGTH": int(cfg.get("MAX_INPUT_LENGTH", 120)),
         "RATE_LIMIT_PER_MINUTE": int(cfg.get("RATE_LIMIT_PER_MINUTE", 30)),
-        "AUTO_FILL_CONFIDENCE_THRESHOLD": float(cfg.get("AUTO_FILL_CONFIDENCE_THRESHOLD", 0.80)),
+        "AUTO_FILL_CONFIDENCE_THRESHOLD": float(cfg.get("AUTO_FILL_CONFIDENCE_THRESHOLD", 0.85)),
         "OLLAMA_MODEL_ID": str(cfg.get("OLLAMA_MODEL_ID", "qwen3.5:0.8b")),
         "LLM_ENABLED": bool(cfg.get("LLM_ENABLED", False)),
     }
@@ -160,6 +166,468 @@ def _allow_ifrc_request(user_id: str, per_minute: int) -> bool:
     return int(current) <= int(per_minute)
 
 
+
+def _tokenize_ifrc_terms(*parts: Any) -> set[str]:
+    tokens: set[str] = set()
+    for part in parts:
+        for token in re.findall(r"[A-Z0-9]{2,}", str(part or "").upper()):
+            tokens.add(token)
+    return tokens
+
+
+def _spec_from_ifrc_code(
+    ifrc_code: str | None,
+    *,
+    group_code: str | None,
+    family_code: str | None,
+    category_code: str | None,
+) -> str:
+    normalized = str(ifrc_code or "").strip().upper()
+    prefix_len = len(f"{group_code or ''}{family_code or ''}{category_code or ''}")
+    if len(normalized) <= prefix_len + 2:
+        return ""
+    return normalized[prefix_len:-2]
+
+
+def _build_ifrc_search_keys(suggestion: IFRCCodeSuggestion) -> list[dict[str, Any]]:
+    raw_keys: list[dict[str, Any]] = [
+        {
+            "source": "primary",
+            "group_code": str(suggestion.grp or "").upper(),
+            "family_code": str(suggestion.fam or "").upper(),
+            "category_code": str(suggestion.cat or "").upper(),
+            "ifrc_code": str(suggestion.item_code or "").upper(),
+            "spec_segment": str(suggestion.spec_seg or "").upper(),
+        }
+    ]
+    for alternative in suggestion.alternatives or []:
+        group_code = str(alternative.get("grp") or "").upper()
+        family_code = str(alternative.get("fam") or "").upper()
+        category_code = str(alternative.get("cat") or "").upper()
+        ifrc_code = str(alternative.get("item_code") or "").upper()
+        spec_segment = str(alternative.get("spec_seg") or "").upper()
+        if not spec_segment:
+            spec_segment = _spec_from_ifrc_code(
+                ifrc_code,
+                group_code=group_code,
+                family_code=family_code,
+                category_code=category_code,
+            )
+        raw_keys.append(
+            {
+                "source": "alternative",
+                "group_code": group_code,
+                "family_code": family_code,
+                "category_code": category_code,
+                "ifrc_code": ifrc_code,
+                "spec_segment": spec_segment,
+            }
+        )
+
+    search_keys: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for entry in raw_keys:
+        dedupe_key = (
+            str(entry["group_code"]),
+            str(entry["family_code"]),
+            str(entry["category_code"]),
+            str(entry["ifrc_code"]),
+            str(entry["spec_segment"]),
+        )
+        if not all(dedupe_key[:3]) or dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        search_keys.append(entry)
+    return search_keys
+
+
+def _candidate_dict_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "ifrc_item_ref_id": int(row[0]),
+        "ifrc_family_id": int(row[1]),
+        "ifrc_code": str(row[2] or ""),
+        "reference_desc": str(row[3] or ""),
+        "category_code": str(row[4] or ""),
+        "category_label": str(row[5] or ""),
+        "spec_segment": str(row[6] or ""),
+        "group_code": str(row[7] or ""),
+        "group_label": str(row[8] or ""),
+        "family_code": str(row[9] or ""),
+        "family_label": str(row[10] or ""),
+    }
+
+
+def _fetch_ifrc_family_id(schema: str, group_code: str, family_code: str) -> int | None:
+    if not group_code or not family_code:
+        return None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT ifrc_family_id
+            FROM {schema}.ifrc_family
+            WHERE group_code = %s
+              AND family_code = %s
+              AND status_code = 'A'
+            LIMIT 1
+            """,
+            [group_code, family_code],
+        )
+        row = cursor.fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
+def _fetch_ifrc_reference_by_code(
+    schema: str,
+    ifrc_code: str,
+    *,
+    active_only: bool | None,
+) -> dict[str, Any] | None:
+    if not ifrc_code:
+        return None
+
+    status_filter = ""
+    if active_only is True:
+        status_filter = "AND r.status_code = 'A' AND f.status_code = 'A'"
+    elif active_only is False:
+        status_filter = "AND (r.status_code <> 'A' OR f.status_code <> 'A')"
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT
+                r.ifrc_item_ref_id,
+                r.ifrc_family_id,
+                r.ifrc_code,
+                r.reference_desc,
+                r.category_code,
+                r.category_label,
+                COALESCE(r.spec_segment, ''),
+                f.group_code,
+                f.group_label,
+                f.family_code,
+                f.family_label
+            FROM {schema}.ifrc_item_reference r
+            JOIN {schema}.ifrc_family f
+              ON f.ifrc_family_id = r.ifrc_family_id
+            WHERE r.ifrc_code = %s
+              {status_filter}
+            LIMIT 1
+            """,
+            [ifrc_code],
+        )
+        row = cursor.fetchone()
+    return _candidate_dict_from_row(row) if row else None
+
+
+def _load_ifrc_reference_candidates(
+    schema: str,
+    search_keys: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates_by_id: dict[int, dict[str, Any]] = {}
+    with connection.cursor() as cursor:
+        for search_key in search_keys:
+            cursor.execute(
+                f"""
+                SELECT
+                    r.ifrc_item_ref_id,
+                    r.ifrc_family_id,
+                    r.ifrc_code,
+                    r.reference_desc,
+                    r.category_code,
+                    r.category_label,
+                    COALESCE(r.spec_segment, ''),
+                    f.group_code,
+                    f.group_label,
+                    f.family_code,
+                    f.family_label
+                FROM {schema}.ifrc_item_reference r
+                JOIN {schema}.ifrc_family f
+                  ON f.ifrc_family_id = r.ifrc_family_id
+                WHERE r.status_code = 'A'
+                  AND f.status_code = 'A'
+                  AND f.group_code = %s
+                  AND f.family_code = %s
+                  AND r.category_code = %s
+                ORDER BY r.reference_desc, r.ifrc_code
+                """,
+                [
+                    search_key["group_code"],
+                    search_key["family_code"],
+                    search_key["category_code"],
+                ],
+            )
+            for row in cursor.fetchall():
+                candidate = _candidate_dict_from_row(row)
+                candidates_by_id[candidate["ifrc_item_ref_id"]] = candidate
+    return list(candidates_by_id.values())
+
+
+def _score_ifrc_candidate(
+    candidate: dict[str, Any],
+    search_key: dict[str, Any],
+    *,
+    item_tokens: set[str],
+    size_tokens: set[str],
+    form_tokens: set[str],
+    material_tokens: set[str],
+) -> tuple[float, list[str]]:
+    score = 0.0
+    reasons: list[str] = []
+    candidate_code = str(candidate.get("ifrc_code") or "").upper()
+    candidate_spec = str(candidate.get("spec_segment") or "").upper()
+    generated_code = str(search_key.get("ifrc_code") or "").upper()
+    generated_spec = str(search_key.get("spec_segment") or "").upper()
+
+    if search_key.get("source") == "primary":
+        score += 0.15
+        reasons.append("primary_classification")
+    else:
+        score += 0.05
+        reasons.append("alternative_classification")
+
+    if generated_code and candidate_code == generated_code:
+        score += 0.70 if search_key.get("source") == "primary" else 0.60
+        reasons.append("exact_generated_code_match")
+    elif generated_code and len(generated_code) > 2 and candidate_code.startswith(generated_code[:-2]):
+        score += 0.35
+        reasons.append("generated_prefix_match")
+
+    if generated_spec and candidate_spec == generated_spec:
+        score += 0.25
+        reasons.append("exact_spec_match")
+    elif generated_spec and candidate_spec and (
+        candidate_spec.startswith(generated_spec) or generated_spec.startswith(candidate_spec)
+    ):
+        score += 0.15
+        reasons.append("partial_spec_match")
+
+    candidate_tokens = _tokenize_ifrc_terms(
+        candidate.get("reference_desc"),
+        candidate.get("category_label"),
+        candidate.get("family_label"),
+        candidate_spec,
+        candidate_code,
+    )
+    overlap = sorted(item_tokens & candidate_tokens)
+    if overlap:
+        score += min(0.20, 0.04 * len(overlap))
+        reasons.append(f"desc_overlap:{','.join(overlap[:3])}")
+
+    for tokens, label, bonus in (
+        (size_tokens, "size_weight", 0.12),
+        (form_tokens, "form", 0.10),
+        (material_tokens, "material", 0.10),
+    ):
+        if tokens and tokens & candidate_tokens:
+            score += bonus
+            reasons.append(f"{label}_match")
+
+    return min(score, 1.0), reasons
+
+
+def _rank_ifrc_reference_candidates(
+    candidate_rows: list[dict[str, Any]],
+    search_keys: list[dict[str, Any]],
+    *,
+    item_name: str,
+    ifrc_description: str,
+    size_weight: str,
+    form: str,
+    material: str,
+    auto_fill_threshold: float,
+) -> list[dict[str, Any]]:
+    item_tokens = _tokenize_ifrc_terms(item_name, ifrc_description)
+    size_tokens = _tokenize_ifrc_terms(size_weight)
+    form_tokens = _tokenize_ifrc_terms(form)
+    material_tokens = _tokenize_ifrc_terms(material)
+
+    ranked: list[dict[str, Any]] = []
+    for candidate in candidate_rows:
+        best_score = -1.0
+        best_reasons: list[str] = []
+        for search_key in search_keys:
+            if (
+                candidate.get("group_code") != search_key.get("group_code")
+                or candidate.get("family_code") != search_key.get("family_code")
+                or candidate.get("category_code") != search_key.get("category_code")
+            ):
+                continue
+            score, reasons = _score_ifrc_candidate(
+                candidate,
+                search_key,
+                item_tokens=item_tokens,
+                size_tokens=size_tokens,
+                form_tokens=form_tokens,
+                material_tokens=material_tokens,
+            )
+            if score > best_score:
+                best_score = score
+                best_reasons = reasons
+        if best_score < 0:
+            continue
+        ranked.append(
+            {
+                **candidate,
+                "score": round(best_score, 2),
+                "match_reasons": best_reasons,
+            }
+        )
+
+    ranked.sort(key=lambda row: (-row["score"], row["reference_desc"], row["ifrc_code"]))
+    for rank, candidate in enumerate(ranked, start=1):
+        candidate["rank"] = rank
+        candidate["auto_highlight"] = False
+
+    if ranked and ranked[0]["score"] >= auto_fill_threshold:
+        ranked[0]["auto_highlight"] = True
+    return ranked
+
+
+def _resolve_ifrc_suggestion(
+    suggestion: IFRCCodeSuggestion,
+    *,
+    item_name: str,
+    size_weight: str,
+    form: str,
+    material: str,
+    auto_fill_threshold: float,
+) -> dict[str, Any]:
+    resolution_payload: dict[str, Any] = {
+        "resolution_status": "unresolved",
+        "resolution_explanation": "Generated suggestion did not resolve to an active governed IFRC reference.",
+        "ifrc_family_id": None,
+        "resolved_ifrc_item_ref_id": None,
+        "candidate_count": 0,
+        "auto_highlight_candidate_id": None,
+        "direct_accept_allowed": False,
+        "candidates": [],
+    }
+
+    if not any([suggestion.item_code, suggestion.grp, suggestion.fam, suggestion.cat]):
+        return resolution_payload
+
+    schema = _schema_name()
+    search_keys = _build_ifrc_search_keys(suggestion)
+    try:
+        primary_family_id = _fetch_ifrc_family_id(
+            schema,
+            str(suggestion.grp or "").upper(),
+            str(suggestion.fam or "").upper(),
+        )
+        exact_active = _fetch_ifrc_reference_by_code(
+            schema,
+            str(suggestion.item_code or "").upper(),
+            active_only=True,
+        )
+        exact_inactive = None
+        if exact_active is None and suggestion.item_code:
+            exact_inactive = _fetch_ifrc_reference_by_code(
+                schema,
+                str(suggestion.item_code or "").upper(),
+                active_only=False,
+            )
+        candidate_rows = _load_ifrc_reference_candidates(schema, search_keys) if search_keys else []
+    except DatabaseError as exc:
+        _safe_rollback()
+        logger.warning(
+            "IFRC reference resolution lookup failed for code %s: %s",
+            suggestion.item_code,
+            exc,
+        )
+        resolution_payload["resolution_explanation"] = (
+            "Active IFRC reference resolution failed; manual review is required."
+        )
+        return resolution_payload
+
+    if exact_active is not None:
+        exact_candidate = {
+            **exact_active,
+            "rank": 1,
+            "score": 1.0,
+            "auto_highlight": bool(suggestion.confidence >= auto_fill_threshold),
+            "match_reasons": ["exact_generated_code_match"],
+        }
+        return {
+            "resolution_status": "resolved",
+            "resolution_explanation": (
+                "Generated suggestion resolved to exactly one active governed IFRC reference."
+            ),
+            "ifrc_family_id": exact_candidate["ifrc_family_id"],
+            "resolved_ifrc_item_ref_id": exact_candidate["ifrc_item_ref_id"],
+            "candidate_count": 1,
+            "auto_highlight_candidate_id": (
+                exact_candidate["ifrc_item_ref_id"] if exact_candidate["auto_highlight"] else None
+            ),
+            "direct_accept_allowed": True,
+            "candidates": [exact_candidate],
+        }
+
+    ranked_candidates = _rank_ifrc_reference_candidates(
+        candidate_rows,
+        search_keys,
+        item_name=item_name,
+        ifrc_description=str(suggestion.standardised_name or ""),
+        size_weight=size_weight,
+        form=form,
+        material=material,
+        auto_fill_threshold=auto_fill_threshold,
+    )
+    plausible_candidates = [
+        candidate
+        for candidate in ranked_candidates
+        if candidate["score"] >= _IFRC_PLAUSIBLE_CANDIDATE_MIN
+    ]
+
+    if len(plausible_candidates) == 1 and plausible_candidates[0]["score"] >= _IFRC_RESOLVED_CANDIDATE_MIN:
+        winner = plausible_candidates[0]
+        return {
+            "resolution_status": "resolved",
+            "resolution_explanation": (
+                "Generated suggestion resolved to exactly one active governed IFRC reference after ranking candidates."
+            ),
+            "ifrc_family_id": winner["ifrc_family_id"],
+            "resolved_ifrc_item_ref_id": winner["ifrc_item_ref_id"],
+            "candidate_count": 1,
+            "auto_highlight_candidate_id": (
+                winner["ifrc_item_ref_id"] if winner["auto_highlight"] else None
+            ),
+            "direct_accept_allowed": True,
+            "candidates": [winner],
+        }
+
+    if plausible_candidates:
+        visible_candidates = plausible_candidates[:_IFRC_RESPONSE_CANDIDATE_LIMIT]
+        auto_highlight_candidate_id = next(
+            (candidate["ifrc_item_ref_id"] for candidate in visible_candidates if candidate["auto_highlight"]),
+            None,
+        )
+        return {
+            "resolution_status": "ambiguous",
+            "resolution_explanation": (
+                "Multiple active governed IFRC references are plausible; explicit user selection is required."
+            ),
+            "ifrc_family_id": visible_candidates[0]["ifrc_family_id"],
+            "resolved_ifrc_item_ref_id": None,
+            "candidate_count": len(plausible_candidates),
+            "auto_highlight_candidate_id": auto_highlight_candidate_id,
+            "direct_accept_allowed": False,
+            "candidates": visible_candidates,
+        }
+
+    resolution_payload["ifrc_family_id"] = primary_family_id
+    if exact_inactive is not None:
+        resolution_payload["resolution_explanation"] = (
+            "Generated suggestion matched an inactive governed IFRC reference and cannot be accepted."
+        )
+    elif ranked_candidates:
+        resolution_payload["resolution_explanation"] = (
+            "Generated suggestion did not resolve strongly enough to a single active governed IFRC reference."
+        )
+    elif primary_family_id is not None:
+        resolution_payload["resolution_explanation"] = (
+            "No active governed IFRC item reference matched the generated classification."
+        )
+    return resolution_payload
 # ---------------------------------------------------------------------------
 # List + Create
 # ---------------------------------------------------------------------------
@@ -697,28 +1165,33 @@ def ifrc_suggest(request):
     if not sanitized_name:
         return Response({"error": "Input contains no usable characters."}, status=400)
 
-    # Optional hint params: fold into item name for v4 agent's single-input pipeline
     size_weight = _SAFE_INPUT_RE.sub("", str(request.query_params.get("size_weight", ""))).strip()[:20]
     form = _SAFE_INPUT_RE.sub("", str(request.query_params.get("form", ""))).strip()[:20]
     material = _SAFE_INPUT_RE.sub("", str(request.query_params.get("material", ""))).strip()[:30]
 
-    # Build combined input (v4 classify from name alone; extra hints improve results)
-    combined_name = sanitized_name
-    for hint in (size_weight, form, material):
-        if hint:
-            combined_name = f"{combined_name} {hint}"
-    combined_name = combined_name.strip()
-
-    suggestion = _ifrc_agent().generate(combined_name)
+    suggestion = _ifrc_agent().generate(
+        sanitized_name,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+    )
     suggestion_id = _write_ifrc_audit_log(
         item_name_input=sanitized_name,
         suggestion=suggestion,
         user_id=user_id,
     )
+    resolution_payload = _resolve_ifrc_suggestion(
+        suggestion,
+        item_name=sanitized_name,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+        auto_fill_threshold=cfg["AUTO_FILL_CONFIDENCE_THRESHOLD"],
+    )
 
     response_payload = {
         "suggestion_id": str(suggestion_id) if suggestion_id is not None else None,
-        # Map v4 field names to existing API field names for backward compatibility
+        # Map v4 field names to existing API field names for backward compatibility.
         "ifrc_code": suggestion.item_code,
         "ifrc_description": suggestion.standardised_name,
         "confidence": suggestion.confidence,
@@ -730,6 +1203,7 @@ def ifrc_suggest(request):
         "spec_segment": suggestion.spec_seg or "",
         "sequence": suggestion.seq or 0,
         "auto_fill_threshold": cfg["AUTO_FILL_CONFIDENCE_THRESHOLD"],
+        **resolution_payload,
     }
 
     serializer = IFRCSuggestionResponseSerializer(response_payload)
@@ -914,3 +1388,8 @@ for _view in (
 ):
     if hasattr(_view, "cls"):
         _view.cls.required_permission = _view.required_permission
+
+
+
+
+

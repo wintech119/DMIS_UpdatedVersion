@@ -8,6 +8,7 @@ import { MasterDataService } from '../../services/master-data.service';
 import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
+import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
 
 function buildBaseItemRecord() {
   return {
@@ -29,6 +30,50 @@ function buildBaseItemRecord() {
     ifrc_family_id: null,
     ifrc_item_ref_id: null,
     version_nbr: 2,
+  };
+}
+
+function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCSuggestion {
+  return {
+    suggestion_id: 'suggest-1',
+    ifrc_code: 'WWTRTABLTB01',
+    ifrc_description: 'Water purification tablet',
+    confidence: 0.92,
+    match_type: 'generated',
+    construction_rationale: 'Name and spec hints matched the IFRC catalogue.',
+    group_code: 'W',
+    family_code: 'WTR',
+    category_code: 'TABL',
+    spec_segment: 'TB',
+    sequence: 1,
+    auto_fill_threshold: 0.85,
+    resolution_status: 'resolved',
+    resolution_explanation: 'Generated suggestion resolved to exactly one active governed IFRC reference.',
+    ifrc_family_id: 301,
+    resolved_ifrc_item_ref_id: 401,
+    candidate_count: 1,
+    auto_highlight_candidate_id: 401,
+    direct_accept_allowed: true,
+    candidates: [
+      {
+        ifrc_item_ref_id: 401,
+        ifrc_family_id: 301,
+        ifrc_code: 'WWTRTABLTB01',
+        reference_desc: 'Water purification tablet',
+        group_code: 'W',
+        group_label: 'WASH',
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'TB',
+        rank: 1,
+        score: 1,
+        auto_highlight: true,
+        match_reasons: ['exact_generated_code_match'],
+      },
+    ],
+    ...overrides,
   };
 }
 
@@ -62,14 +107,48 @@ describe('MasterFormPageComponent', () => {
     masterDataService.lookupItemCategories.and.returnValue(of([
       { value: 102, label: 'WASH', category_code: 'WASH' },
     ]));
-    masterDataService.lookupIfrcFamilies.and.callFake((options?: { categoryId?: string | number | null }) => (
-      options?.categoryId === 102
-        ? of([{ value: 301, label: 'Water Treatment', family_code: 'WTR', group_code: 'W', category_id: 102, category_desc: 'WASH', category_code: 'WASH' }])
-        : of([])
-    ));
+    masterDataService.lookupIfrcFamilies.and.callFake((options?: { categoryId?: string | number | null; search?: string }) => {
+      if (options?.categoryId === 102 || options?.search === 'WTR') {
+        return of([
+          {
+            value: 301,
+            label: 'Water Treatment',
+            family_code: 'WTR',
+            group_code: 'W',
+            category_id: 102,
+            category_desc: 'WASH',
+            category_code: 'WASH',
+          },
+        ]);
+      }
+      return of([]);
+    });
     masterDataService.lookupIfrcReferences.and.callFake((options?: { ifrcFamilyId?: string | number | null }) => (
       options?.ifrcFamilyId === 301
-        ? of([{ value: 401, label: 'Water purification tablet', ifrc_code: 'WWTRTABL01', ifrc_family_id: 301 }])
+        ? of([
+            {
+              value: 401,
+              label: 'Water purification tablet',
+              ifrc_code: 'WWTRTABLTB01',
+              ifrc_family_id: 301,
+              family_code: 'WTR',
+              family_label: 'Water Treatment',
+              category_code: 'TABL',
+              category_label: 'Tablet',
+              spec_segment: 'TB',
+            },
+            {
+              value: 402,
+              label: 'Water purification powder',
+              ifrc_code: 'WWTRTABLPW01',
+              ifrc_family_id: 301,
+              family_code: 'WTR',
+              family_label: 'Water Treatment',
+              category_code: 'TABL',
+              category_label: 'Tablet',
+              spec_segment: 'PW',
+            },
+          ])
         : of([])
     ));
     masterDataService.get.and.returnValue(of({ record: buildBaseItemRecord(), warnings: [] }));
@@ -123,8 +202,13 @@ describe('MasterFormPageComponent', () => {
     component.onSelectIfrcReference({
       value: 401,
       label: 'Water purification tablet',
-      ifrc_code: 'WWTRTABL01',
+      ifrc_code: 'WWTRTABLTB01',
       ifrc_family_id: 301,
+      family_code: 'WTR',
+      family_label: 'Water Treatment',
+      category_code: 'TABL',
+      category_label: 'Tablet',
+      spec_segment: 'TB',
     });
   }
 
@@ -148,8 +232,9 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.hasError('ifrcReferenceRequired')).toBeTrue();
   });
 
-  it('accepts IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
+  it('accepts exact resolved IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
+    const suggestion = buildResolvedSuggestion();
 
     component.form.patchValue({
       item_name: 'Water Tabs',
@@ -159,21 +244,9 @@ describe('MasterFormPageComponent', () => {
       issuance_order: 'FIFO',
       status_code: 'A',
     }, { emitEvent: false });
-    component.ifrcSuggestion.set({
-      suggestion_id: 'suggest-1',
-      ifrc_code: 'WWTRTABL01',
-      ifrc_description: 'Water purification tablet',
-      confidence: 0.92,
-      match_type: 'generated',
-      construction_rationale: 'Name and spec hints matched the IFRC catalogue.',
-      group_code: 'W',
-      family_code: 'WTR',
-      category_code: 'WTAB',
-      spec_segment: '01',
-      sequence: 1,
-      auto_fill_threshold: 0.7,
-    });
+    component.ifrcSuggestion.set(suggestion);
     component.ifrcSuggestionResolution.set({
+      status: 'resolved',
       family: {
         value: 301,
         label: 'Water Treatment',
@@ -186,19 +259,196 @@ describe('MasterFormPageComponent', () => {
       reference: {
         value: 401,
         label: 'Water purification tablet',
-        ifrc_code: 'WWTRTABL01',
+        ifrc_code: 'WWTRTABLTB01',
         ifrc_family_id: 301,
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'TB',
       },
+      candidates: [
+        {
+          reference: {
+            value: 401,
+            label: 'Water purification tablet',
+            ifrc_code: 'WWTRTABLTB01',
+            ifrc_family_id: 301,
+            family_code: 'WTR',
+            family_label: 'Water Treatment',
+            category_code: 'TABL',
+            category_label: 'Tablet',
+            spec_segment: 'TB',
+          },
+          rank: 1,
+          score: 1,
+          autoHighlight: true,
+          matchReasons: ['exact_generated_code_match'],
+        },
+      ],
       warning: null,
+      explanation: suggestion.resolution_explanation ?? null,
+      directAcceptAllowed: true,
+      autoHighlightCandidateId: 401,
     });
 
     component.onAcceptIfrcSuggestion();
 
-    expect(component.form.get('item_code')?.value).toBe('WWTRTABL01');
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB01');
     expect(component.form.get('category_id')?.value).toBe(102);
     expect(component.form.get('ifrc_family_id')?.value).toBe(301);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
     expect(notificationService.showSuccess).toHaveBeenCalled();
+  });
+
+  it('requires explicit candidate selection before accepting an ambiguous IFRC suggestion', () => {
+    const { component, notificationService } = setup();
+    const suggestion = buildResolvedSuggestion({
+      ifrc_code: 'WWTRTABLXX01',
+      resolution_status: 'ambiguous',
+      resolution_explanation: 'Multiple active governed IFRC references are plausible; explicit user selection is required.',
+      resolved_ifrc_item_ref_id: null,
+      candidate_count: 2,
+      auto_highlight_candidate_id: 401,
+      direct_accept_allowed: false,
+      candidates: [
+        {
+          ifrc_item_ref_id: 401,
+          ifrc_family_id: 301,
+          ifrc_code: 'WWTRTABLTB01',
+          reference_desc: 'Water purification tablet',
+          group_code: 'W',
+          group_label: 'WASH',
+          family_code: 'WTR',
+          family_label: 'Water Treatment',
+          category_code: 'TABL',
+          category_label: 'Tablet',
+          spec_segment: 'TB',
+          rank: 1,
+          score: 0.91,
+          auto_highlight: true,
+          match_reasons: ['exact_spec_match'],
+        },
+        {
+          ifrc_item_ref_id: 402,
+          ifrc_family_id: 301,
+          ifrc_code: 'WWTRTABLPW01',
+          reference_desc: 'Water purification powder',
+          group_code: 'W',
+          group_label: 'WASH',
+          family_code: 'WTR',
+          family_label: 'Water Treatment',
+          category_code: 'TABL',
+          category_label: 'Tablet',
+          spec_segment: 'PW',
+          rank: 2,
+          score: 0.74,
+          auto_highlight: false,
+          match_reasons: ['desc_overlap:WATER,PURIFICATION'],
+        },
+      ],
+    });
+    const firstCandidate = {
+      reference: {
+        value: 401,
+        label: 'Water purification tablet',
+        ifrc_code: 'WWTRTABLTB01',
+        ifrc_family_id: 301,
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'TB',
+      },
+      rank: 1,
+      score: 0.91,
+      autoHighlight: true,
+      matchReasons: ['exact_spec_match'],
+    };
+
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set({
+      status: 'ambiguous',
+      family: {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
+      reference: null,
+      candidates: [
+        firstCandidate,
+        {
+          reference: {
+            value: 402,
+            label: 'Water purification powder',
+            ifrc_code: 'WWTRTABLPW01',
+            ifrc_family_id: 301,
+            family_code: 'WTR',
+            family_label: 'Water Treatment',
+            category_code: 'TABL',
+            category_label: 'Tablet',
+            spec_segment: 'PW',
+          },
+          rank: 2,
+          score: 0.74,
+          autoHighlight: false,
+          matchReasons: ['desc_overlap:WATER,PURIFICATION'],
+        },
+      ],
+      warning: null,
+      explanation: suggestion.resolution_explanation ?? null,
+      directAcceptAllowed: false,
+      autoHighlightCandidateId: 401,
+    });
+
+    expect(component.canAcceptResolvedIfrcSuggestion()).toBeFalse();
+
+    component.onSelectSuggestionCandidate(firstCandidate);
+
+    expect(component.canAcceptResolvedIfrcSuggestion()).toBeTrue();
+    component.onAcceptIfrcSuggestion();
+
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB01');
+    expect(notificationService.showSuccess).toHaveBeenCalled();
+  });
+
+  it('blocks unresolved suggestions from acceptance', () => {
+    const { component, notificationService } = setup();
+    const suggestion = buildResolvedSuggestion({
+      resolution_status: 'unresolved',
+      resolution_explanation: 'Generated suggestion did not resolve to an active governed IFRC reference.',
+      ifrc_family_id: null,
+      resolved_ifrc_item_ref_id: null,
+      candidate_count: 0,
+      auto_highlight_candidate_id: null,
+      direct_accept_allowed: false,
+      candidates: [],
+    });
+
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set({
+      status: 'unresolved',
+      family: null,
+      reference: null,
+      candidates: [],
+      warning: suggestion.resolution_explanation ?? null,
+      explanation: suggestion.resolution_explanation ?? null,
+      directAcceptAllowed: false,
+      autoHighlightCandidateId: null,
+    });
+
+    expect(component.canAcceptResolvedIfrcSuggestion()).toBeFalse();
+
+    component.onAcceptIfrcSuggestion();
+
+    expect(notificationService.showError).toHaveBeenCalledWith(
+      'No governed IFRC reference is available to apply from this suggestion.',
+    );
   });
 
   it('renders the item code field as readonly and backend-managed', () => {
@@ -249,11 +499,11 @@ describe('MasterFormPageComponent', () => {
           duplicate_canonical_item_code: {
             code: 'duplicate_canonical_item_code',
             ifrc_item_ref_id: 401,
-            item_code: 'WWTRTABL01',
+            item_code: 'WWTRTABLTB01',
             existing_item: {
               item_id: 25,
               item_name: 'Water purification tablet',
-              item_code: 'WWTRTABL01',
+              item_code: 'WWTRTABLTB01',
             },
           },
         },

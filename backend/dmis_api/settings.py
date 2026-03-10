@@ -306,7 +306,7 @@ IFRC_AGENT = {
     "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
     "OLLAMA_MODEL_ID": os.getenv("OLLAMA_MODEL_ID", "qwen3.5:0.8b"),
     "OLLAMA_TIMEOUT_SECONDS": _get_int_env("OLLAMA_TIMEOUT_SECONDS", 10) or 10,
-    "AUTO_FILL_CONFIDENCE_THRESHOLD": _get_float_env("IFRC_AUTO_FILL_THRESHOLD", 0.80),
+    "AUTO_FILL_CONFIDENCE_THRESHOLD": _get_float_env("IFRC_AUTO_FILL_THRESHOLD", 0.85),
     "MIN_INPUT_LENGTH": _get_int_env("IFRC_MIN_INPUT_LENGTH", 3) or 3,
     "MAX_INPUT_LENGTH": _get_int_env("IFRC_MAX_INPUT_LENGTH", 120) or 120,
     "CB_FAILURE_THRESHOLD": _get_int_env("IFRC_CB_FAILURE_THRESHOLD", 5) or 5,
@@ -314,3 +314,4 @@ IFRC_AGENT = {
     "CB_REDIS_KEY": os.getenv("IFRC_CB_REDIS_KEY", "ifrc:circuit_breaker"),
     "RATE_LIMIT_PER_MINUTE": _get_int_env("IFRC_RATE_LIMIT_PER_MINUTE", 30) or 30,
 }
+

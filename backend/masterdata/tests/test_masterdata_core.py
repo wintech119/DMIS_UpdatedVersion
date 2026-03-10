@@ -747,18 +747,8 @@ class IFRCSuggestViewTests(SimpleTestCase):
             permissions=[views.PERM_MASTERDATA_VIEW],
         )
 
-    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
-    @patch("masterdata.views._allow_ifrc_request", return_value=True)
-    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
-    @patch("masterdata.views._ifrc_agent")
-    def test_ifrc_suggest_success(
-        self,
-        mock_ifrc_agent,
-        _mock_write_log,
-        _mock_rate_limit,
-        _mock_permission,
-    ):
-        suggestion = IFRCCodeSuggestion(
+    def _build_suggestion(self):
+        return IFRCCodeSuggestion(
             item_code="WWTRTABLTB01",
             standardised_name="WATER PURIFICATION TABLET",
             confidence=0.88,
@@ -771,10 +761,61 @@ class IFRCSuggestViewTests(SimpleTestCase):
             spec_seg="TB",
             seq=1,
         )
-        mock_ifrc_agent.return_value.generate.return_value = suggestion
-        mock_ifrc_agent.return_value.suggest.return_value = suggestion
 
-        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water tabs"})
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch(
+        "masterdata.views._resolve_ifrc_suggestion",
+        return_value={
+            "resolution_status": "resolved",
+            "resolution_explanation": "Generated suggestion resolved to exactly one active governed IFRC reference.",
+            "ifrc_family_id": 11,
+            "resolved_ifrc_item_ref_id": 77,
+            "candidate_count": 1,
+            "auto_highlight_candidate_id": 77,
+            "direct_accept_allowed": True,
+            "candidates": [
+                {
+                    "ifrc_item_ref_id": 77,
+                    "ifrc_family_id": 11,
+                    "ifrc_code": "WWTRTABLTB01",
+                    "reference_desc": "WATER PURIFICATION TABLET",
+                    "group_code": "W",
+                    "group_label": "WASH",
+                    "family_code": "WTR",
+                    "family_label": "Water Treatment",
+                    "category_code": "TABL",
+                    "category_label": "Tablet",
+                    "spec_segment": "TB",
+                    "rank": 1,
+                    "score": 1.0,
+                    "auto_highlight": True,
+                    "match_reasons": ["exact_generated_code_match"],
+                }
+            ],
+        },
+    )
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_success_returns_resolved_payload_and_passes_hints(
+        self,
+        mock_ifrc_agent,
+        _mock_resolve,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_ifrc_agent.return_value.generate.return_value = self._build_suggestion()
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {
+                "name": "water tabs",
+                "size_weight": "500g",
+                "form": "tablet",
+                "material": "chlorine",
+            },
+        )
         force_authenticate(request, user=self.user)
         response = views.ifrc_suggest(request)
 
@@ -782,6 +823,128 @@ class IFRCSuggestViewTests(SimpleTestCase):
         self.assertEqual(response.data["ifrc_code"], "WWTRTABLTB01")
         self.assertEqual(response.data["suggestion_id"], "123")
         self.assertEqual(response.data["match_type"], "generated")
+        self.assertEqual(response.data["resolution_status"], "resolved")
+        self.assertEqual(response.data["resolved_ifrc_item_ref_id"], 77)
+        self.assertEqual(response.data["candidate_count"], 1)
+        self.assertTrue(response.data["direct_accept_allowed"])
+        self.assertEqual(response.data["auto_fill_threshold"], 0.85)
+        mock_ifrc_agent.return_value.generate.assert_called_once_with(
+            "water tabs",
+            size_weight="500g",
+            form="tablet",
+            material="chlorine",
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch(
+        "masterdata.views._resolve_ifrc_suggestion",
+        return_value={
+            "resolution_status": "ambiguous",
+            "resolution_explanation": "Multiple active governed IFRC references are plausible; explicit user selection is required.",
+            "ifrc_family_id": 11,
+            "resolved_ifrc_item_ref_id": None,
+            "candidate_count": 2,
+            "auto_highlight_candidate_id": 88,
+            "direct_accept_allowed": False,
+            "candidates": [
+                {
+                    "ifrc_item_ref_id": 88,
+                    "ifrc_family_id": 11,
+                    "ifrc_code": "WWTRTABLTB01",
+                    "reference_desc": "WATER PURIFICATION TABLET",
+                    "group_code": "W",
+                    "group_label": "WASH",
+                    "family_code": "WTR",
+                    "family_label": "Water Treatment",
+                    "category_code": "TABL",
+                    "category_label": "Tablet",
+                    "spec_segment": "TB",
+                    "rank": 1,
+                    "score": 0.91,
+                    "auto_highlight": True,
+                    "match_reasons": ["exact_spec_match"],
+                },
+                {
+                    "ifrc_item_ref_id": 89,
+                    "ifrc_family_id": 11,
+                    "ifrc_code": "WWTRTABLPW01",
+                    "reference_desc": "WATER PURIFICATION POWDER",
+                    "group_code": "W",
+                    "group_label": "WASH",
+                    "family_code": "WTR",
+                    "family_label": "Water Treatment",
+                    "category_code": "TABL",
+                    "category_label": "Tablet",
+                    "spec_segment": "PW",
+                    "rank": 2,
+                    "score": 0.74,
+                    "auto_highlight": False,
+                    "match_reasons": ["desc_overlap:WATER,PURIFICATION"],
+                },
+            ],
+        },
+    )
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_returns_ambiguous_candidate_payload(
+        self,
+        mock_ifrc_agent,
+        _mock_resolve,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_ifrc_agent.return_value.generate.return_value = self._build_suggestion()
+
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water tabs"})
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "ambiguous")
+        self.assertEqual(response.data["candidate_count"], 2)
+        self.assertIsNone(response.data["resolved_ifrc_item_ref_id"])
+        self.assertEqual(response.data["auto_highlight_candidate_id"], 88)
+        self.assertFalse(response.data["direct_accept_allowed"])
+        self.assertEqual(len(response.data["candidates"]), 2)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch(
+        "masterdata.views._resolve_ifrc_suggestion",
+        return_value={
+            "resolution_status": "unresolved",
+            "resolution_explanation": "Generated suggestion did not resolve to an active governed IFRC reference.",
+            "ifrc_family_id": None,
+            "resolved_ifrc_item_ref_id": None,
+            "candidate_count": 0,
+            "auto_highlight_candidate_id": None,
+            "direct_accept_allowed": False,
+            "candidates": [],
+        },
+    )
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_returns_unresolved_payload(
+        self,
+        mock_ifrc_agent,
+        _mock_resolve,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_ifrc_agent.return_value.generate.return_value = self._build_suggestion()
+
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water tabs"})
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "unresolved")
+        self.assertEqual(response.data["candidate_count"], 0)
+        self.assertEqual(response.data["candidates"], [])
+        self.assertFalse(response.data["direct_accept_allowed"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views._allow_ifrc_request", return_value=False)
@@ -791,3 +954,60 @@ class IFRCSuggestViewTests(SimpleTestCase):
         response = views.ifrc_suggest(request)
 
         self.assertEqual(response.status_code, 429)
+
+
+class IFRCSuggestionResolutionTests(SimpleTestCase):
+    def test_rank_ifrc_reference_candidates_uses_form_hint_for_disambiguation(self):
+        search_keys = [
+            {
+                "source": "primary",
+                "group_code": "W",
+                "family_code": "WTR",
+                "category_code": "TABL",
+                "ifrc_code": "",
+                "spec_segment": "",
+            }
+        ]
+        candidate_rows = [
+            {
+                "ifrc_item_ref_id": 1,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "reference_desc": "WATER PURIFICATION TABLET",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "TB",
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WTR",
+                "family_label": "Water Treatment",
+            },
+            {
+                "ifrc_item_ref_id": 2,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLPW01",
+                "reference_desc": "WATER PURIFICATION POWDER",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "PW",
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WTR",
+                "family_label": "Water Treatment",
+            },
+        ]
+
+        ranked = views._rank_ifrc_reference_candidates(
+            candidate_rows,
+            search_keys,
+            item_name="water purification",
+            ifrc_description="WATER PURIFICATION",
+            size_weight="",
+            form="powder",
+            material="",
+            auto_fill_threshold=0.85,
+        )
+
+        self.assertEqual(ranked[0]["ifrc_item_ref_id"], 2)
+        self.assertIn("form_match", ranked[0]["match_reasons"])
+        self.assertFalse(ranked[0]["auto_highlight"])

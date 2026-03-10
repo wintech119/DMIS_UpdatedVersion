@@ -182,6 +182,8 @@
                         </div>
                         @if (ifrcLoading()) {
                           <span class="ifrc-suggestion-card__status">Reviewing taxonomy...</span>
+                        } @else if (getIfrcSuggestionStatusText(); as suggestionStatus) {
+                          <span class="ifrc-suggestion-card__status">{{ suggestionStatus }}</span>
                         }
                       </div>
 
@@ -193,9 +195,15 @@
                             <dt>Suggested Family</dt>
                             <dd>{{ getResolvedSuggestionFamilyLabel() }}</dd>
                           </div>
+                          @if (getSuggestedIfrcCode(); as suggestedCode) {
+                            <div>
+                              <dt>Generated IFRC Code</dt>
+                              <dd>{{ suggestedCode }}</dd>
+                            </div>
+                          }
                           @if (getResolvedSuggestionReferenceLabel(); as suggestionReference) {
                             <div>
-                              <dt>Suggested Reference</dt>
+                              <dt>Resolved Reference</dt>
                               <dd>{{ suggestionReference }}</dd>
                             </div>
                           }
@@ -206,6 +214,49 @@
                             </div>
                           }
                         </dl>
+
+                        @if (getIfrcSuggestionExplanation(); as explanation) {
+                          <p class="ifrc-suggestion-card__message info">{{ explanation }}</p>
+                        }
+
+                        @if (shouldShowSuggestionCandidates()) {
+                          <div class="ifrc-suggestion-card__candidate-list" aria-label="Suggested IFRC candidates">
+                            @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
+                              <button
+                                class="ifrc-suggestion-candidate"
+                                type="button"
+                                [class.is-selected]="isSuggestionCandidateSelected(candidate)"
+                                [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)"
+                                [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                                (click)="onSelectSuggestionCandidate(candidate)">
+                                <div class="ifrc-suggestion-candidate__header">
+                                  <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
+                                  <span class="ifrc-suggestion-candidate__score">{{ getSuggestionCandidateScore(candidate) }}</span>
+                                </div>
+                                @if (candidate.reference.ifrc_code) {
+                                  <p class="ifrc-suggestion-candidate__code">{{ candidate.reference.ifrc_code }}</p>
+                                }
+                                <div class="ifrc-suggestion-candidate__meta">
+                                  <span>{{ candidate.reference.family_label || getResolvedSuggestionFamilyLabel() }}</span>
+                                  @if (candidate.reference.spec_segment) {
+                                    <span>Spec: {{ candidate.reference.spec_segment }}</span>
+                                  }
+                                </div>
+                                @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) {
+                                  <p class="ifrc-suggestion-candidate__reason">{{ reasonSummary }}</p>
+                                }
+                                <div class="ifrc-suggestion-candidate__badges">
+                                  @if (isSuggestionCandidateAutoHighlighted(candidate)) {
+                                    <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span>
+                                  }
+                                  @if (isSuggestionCandidateSelected(candidate)) {
+                                    <span class="ifrc-suggestion-candidate__badge selected">Selected</span>
+                                  }
+                                </div>
+                              </button>
+                            }
+                          </div>
+                        }
 
                         @if (ifrcSuggestionResolution()?.warning) {
                           <p class="ifrc-suggestion-card__message warning">
@@ -223,7 +274,7 @@
                             type="button"
                             [disabled]="!canAcceptResolvedIfrcSuggestion()"
                             (click)="onAcceptIfrcSuggestion()">
-                            Accept Classification
+                            {{ getIfrcSuggestionPrimaryActionLabel() }}
                           </button>
                         </div>
                       }
