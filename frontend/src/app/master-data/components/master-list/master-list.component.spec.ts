@@ -1,6 +1,6 @@
 import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatDialog } from '@angular/material/dialog';
 import { BreakpointObserver } from '@angular/cdk/layout';
@@ -10,7 +10,7 @@ import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
 describe('MasterListComponent', () => {
-  function setup() {
+  function setup(routePath = 'items', queryParams: Record<string, string> = {}) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
       'list',
       'lookupItemCategories',
@@ -43,17 +43,24 @@ describe('MasterListComponent', () => {
       { value: 301, label: 'Water Treatment', family_code: 'WTR', group_code: 'W', category_id: 102 },
     ]));
     masterDataService.lookupIfrcReferences.and.returnValue(of([
-      { value: 401, label: 'Water purification tablet', ifrc_code: 'WWTRTABL01', ifrc_family_id: 301 },
+      { value: 401, label: 'Water purification tablet', ifrc_code: 'WWTRTABLTB01', ifrc_family_id: 301 },
     ]));
     breakpointObserver.observe.and.returnValue(of({
       matches: false,
       breakpoints: {},
     }));
+    dialog.open.and.returnValue({ afterClosed: () => of(false) } as never);
 
     TestBed.configureTestingModule({
       imports: [MasterListComponent, NoopAnimationsModule],
       providers: [
-        { provide: ActivatedRoute, useValue: { data: of({ routePath: 'items' }) } },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            data: of({ routePath }),
+            queryParamMap: of(convertToParamMap(queryParams)),
+          },
+        },
         { provide: Router, useValue: router },
         { provide: MatDialog, useValue: dialog },
         { provide: BreakpointObserver, useValue: breakpointObserver },
@@ -69,6 +76,7 @@ describe('MasterListComponent', () => {
       fixture,
       component: fixture.componentInstance,
       masterDataService,
+      dialog,
     };
   }
 
@@ -107,4 +115,25 @@ describe('MasterListComponent', () => {
       search: 'water tabs',
     }));
   }));
+
+  it('opens the create dialog when a dialog-mode catalog list handles a pending create request', () => {
+    const { component } = setup('ifrc-families');
+    const listHarness = component as never as {
+      pendingDialogQueryAction: 'new' | null;
+      handleDialogQueryAction: () => void;
+      openFormDialog: (pk: string | number | null) => void;
+    };
+    const openFormDialogSpy = spyOn(listHarness, 'openFormDialog');
+
+    expect(component.config()).toEqual(jasmine.objectContaining({
+      routePath: 'ifrc-families',
+      tableKey: 'ifrc_families',
+      formMode: 'dialog',
+    }));
+
+    listHarness.pendingDialogQueryAction = 'new';
+    listHarness.handleDialogQueryAction();
+
+    expect(openFormDialogSpy).toHaveBeenCalledWith(null);
+  });
 });

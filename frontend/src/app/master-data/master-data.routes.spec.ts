@@ -17,4 +17,12 @@ describe('MASTER_DATA_ROUTES', () => {
     expect(routePaths).toContain('items/:pk');
     expect(routePaths).toContain('items/:pk/edit');
   });
+
+  it('exposes Level 1, Level 2, and Level 3 catalog maintenance routes under /master-data', () => {
+    const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
+
+    expect(routePaths).toContain('item-categories');
+    expect(routePaths).toContain('ifrc-families');
+    expect(routePaths).toContain('ifrc-item-references');
+  });
 });

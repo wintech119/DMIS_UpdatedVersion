@@ -523,18 +523,21 @@
               }
 
               <!--
-                IFRC spec hints - rendered as a direct grid child (not inside the
-                item_code cell) so CSS grid-area can position it independently.
-                Shown on the Items form in both create and edit mode.
+                Secondary helper panel for optional IFRC match hints. These inputs
+                support suggestion/search only and are not persisted as item identity.
+                They only narrow the governed catalog during match review.
               -->
               @if (isItemRecord() && group.label === 'Item Identity') {
                 <div class="form-field ifrc-hints-cell"
                   [formGroup]="ifrcSpecForm"
                   role="group"
-                  aria-label="IFRC classification hints (optional)">
+                  aria-label="Find IFRC Match helper inputs (optional)">
                   <span class="ifrc-spec-label" aria-hidden="true">
-                    IFRC classification hints&nbsp;<span class="optional">(optional)</span>
+                    Find IFRC Match&nbsp;<span class="optional">(optional)</span>
                   </span>
+                  <p class="ifrc-spec-helper">
+                    Search hints only. These values help narrow governed IFRC references and are not saved as item identity fields.
+                  </p>
                   <div class="ifrc-spec-fields">
                     <mat-form-field appearance="outline" subscriptSizing="dynamic">
                       <mat-label>Size / Weight</mat-label>

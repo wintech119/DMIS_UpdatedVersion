@@ -1,4 +1,5 @@
 import importlib
+from decimal import Decimal
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -13,6 +14,7 @@ from masterdata.services.data_access import TABLE_REGISTRY
 from masterdata.services.item_master import (
     ITEM_CANONICAL_CONFLICT_CODE,
     _build_item_write_payload,
+    _normalize_item_uom_options,
     find_item_canonical_conflict,
     list_item_records,
     validate_item_payload,
@@ -581,6 +583,49 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("ADD COLUMN IF NOT EXISTS form", executed_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS material", executed_sql)
         mock_sync.assert_called_once_with(schema_editor.connection, schema="tenant_a")
+
+
+class ItemMasterUomOptionTests(SimpleTestCase):
+    def test_normalize_ensures_default_row_when_list_provided(self):
+        options, errors = _normalize_item_uom_options(
+            [{"uom_code": "BOX", "conversion_factor": 12}],
+            default_uom_code="EA",
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(len(options), 2)
+        default_row = next(o for o in options if o["uom_code"] == "EA")
+        self.assertTrue(default_row["is_default"])
+        self.assertEqual(default_row["conversion_factor"], Decimal("1"))
+        box_row = next(o for o in options if o["uom_code"] == "BOX")
+        self.assertFalse(box_row["is_default"])
+
+    def test_normalize_rejects_duplicate_uom_codes(self):
+        options, errors = _normalize_item_uom_options(
+            [
+                {"uom_code": "EA", "conversion_factor": 1},
+                {"uom_code": "EA", "conversion_factor": 1},
+            ],
+            default_uom_code="EA",
+        )
+
+        self.assertIsNone(options)
+        self.assertIn("Duplicate UOM options", errors["uom_options"])
+
+    def test_normalize_rejects_zero_conversion_factor(self):
+        options, errors = _normalize_item_uom_options(
+            [{"uom_code": "BOX", "conversion_factor": 0}],
+            default_uom_code="EA",
+        )
+
+        self.assertIsNone(options)
+        self.assertIn("greater than zero", errors["uom_options"])
+
+    def test_normalize_returns_none_for_null_input(self):
+        options, errors = _normalize_item_uom_options(None, default_uom_code="EA")
+
+        self.assertIsNone(options)
+        self.assertEqual(errors, {})
 
 
 class SyncItemMasterTaxonomyCommandTests(SimpleTestCase):

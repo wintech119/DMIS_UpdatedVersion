@@ -33,7 +33,7 @@ import { DmisEmptyStateComponent } from '../../../replenishment/shared/dmis-empt
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
-import { Subject, debounceTime, distinctUntilChanged, tap } from 'rxjs';
+import { Subject, combineLatest, debounceTime, distinctUntilChanged, tap } from 'rxjs';
 
 @Component({
   selector: 'dmis-master-list',
@@ -58,6 +58,7 @@ export class MasterListComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private breakpointObserver = inject(BreakpointObserver);
   private latestLoadRequestId = 0;
+  private pendingDialogQueryAction: 'new' | null = null;
 
   config = signal<MasterTableConfig | null>(null);
   rows = signal<MasterRecord[]>([]);
@@ -120,15 +121,17 @@ export class MasterListComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(result => this.isMobile.set(result.matches));
 
-    this.route.data.pipe(
+    combineLatest([this.route.data, this.route.queryParamMap]).pipe(
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe(data => {
+    ).subscribe(([data, queryParams]) => {
       const routePath = data['routePath'] as string;
       const cfg = ALL_TABLE_CONFIGS[routePath];
+      this.pendingDialogQueryAction = queryParams.get('open') === 'new' ? 'new' : null;
       if (cfg) {
         this.config.set(cfg);
         this.resetItemFiltersForConfig(cfg);
         this.loadData();
+        this.handleDialogQueryAction();
       }
     });
 
@@ -475,6 +478,22 @@ export class MasterListComponent implements OnInit {
   getItemReferenceFilterLabel(item: IfrcReferenceLookup): string {
     const ifrcCode = String(item.ifrc_code ?? '').trim();
     return ifrcCode ? `${item.label} (${ifrcCode})` : item.label;
+  }
+
+  private handleDialogQueryAction(): void {
+    const cfg = this.config();
+    if (this.pendingDialogQueryAction !== 'new' || cfg?.formMode !== 'dialog') {
+      return;
+    }
+
+    this.pendingDialogQueryAction = null;
+    this.openFormDialog(null);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { open: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   private openFormDialog(pk: string | number | null): void {

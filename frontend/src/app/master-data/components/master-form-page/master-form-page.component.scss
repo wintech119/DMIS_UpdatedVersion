@@ -197,6 +197,13 @@
   }
 }
 
+.ifrc-spec-helper {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #64748b;
+}
+
 .ifrc-spec-fields {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

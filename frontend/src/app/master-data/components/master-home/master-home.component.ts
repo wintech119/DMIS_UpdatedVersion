@@ -61,6 +61,9 @@ export class MasterHomeComponent {
   selectedDomain = signal<MasterDomainId>('catalogs');
 
   private readonly tableNotes: Record<string, string> = {
+    'item-categories': 'Govern the Level 1 DMIS business categories used by item classification and reporting.',
+    'ifrc-families': 'Maintain Level 2 IFRC families and keep each family aligned to one Level 1 category.',
+    'ifrc-item-references': 'Maintain Level 3 IFRC references, including spec attributes used during match review.',
     inventory: 'Read-only for now. Manage source transactions and policies via operational workflows.',
     locations: 'No locations found yet. Create locations before running item-location assignment tests.',
   };
@@ -148,6 +151,14 @@ export class MasterHomeComponent {
   }
 
   create(routePath: string): void {
+    const config = ALL_TABLE_CONFIGS[routePath];
+    if (config?.formMode === 'dialog') {
+      this.router.navigate(['/master-data', routePath], {
+        queryParams: { open: 'new' },
+      });
+      return;
+    }
+
     this.router.navigate(['/master-data', routePath, 'new']);
   }
 

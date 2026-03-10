@@ -27,6 +27,8 @@ export const MASTER_DATA_ROUTES: Routes = [
 
   // Dialog-mode tables (simple)
   ...dialogRoutes('item-categories'),
+  ...dialogRoutes('ifrc-families'),
+  ...dialogRoutes('ifrc-item-references'),
   ...dialogRoutes('uom'),
   ...dialogRoutes('countries'),
   ...dialogRoutes('currencies'),

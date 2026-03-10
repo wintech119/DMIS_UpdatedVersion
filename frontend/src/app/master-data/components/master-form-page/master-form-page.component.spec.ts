@@ -232,6 +232,19 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.hasError('ifrcReferenceRequired')).toBeTrue();
   });
 
+  it('keeps size, form, and material in the helper panel instead of the persisted item form', () => {
+    const { component, fixture } = setup();
+
+    expect(component.form.contains('size_weight')).toBeFalse();
+    expect(component.form.contains('form')).toBeFalse();
+    expect(component.form.contains('material')).toBeFalse();
+    expect(component.ifrcSpecForm.contains('size_weight')).toBeTrue();
+    expect(component.ifrcSpecForm.contains('form')).toBeTrue();
+    expect(component.ifrcSpecForm.contains('material')).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
+  });
+
+
   it('accepts exact resolved IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
     const suggestion = buildResolvedSuggestion();
