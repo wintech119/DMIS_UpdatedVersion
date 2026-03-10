@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 ITEM_LIST_SELECT = """
     i.item_id,
     i.item_code,
+    i.legacy_item_code,
     i.item_name,
     i.sku_code,
     i.category_id,
@@ -64,6 +65,7 @@ ITEM_LIST_SELECT = """
 ITEM_LIST_COLUMN_NAMES = [
     "item_id",
     "item_code",
+    "legacy_item_code",
     "item_name",
     "sku_code",
     "category_id",
@@ -102,7 +104,10 @@ ITEM_LIST_COLUMN_NAMES = [
     "version_nbr",
 ]
 
+ITEM_CANONICAL_CONFLICT_CODE = "duplicate_canonical_item_code"
+
 ITEM_AUDIT_STATE_FIELDS = [
+    "identity",
     "category",
     "ifrc_family",
     "ifrc_item_reference",
@@ -149,6 +154,7 @@ def list_item_records(
         where_clauses.append(
             "("
             "UPPER(i.item_code) LIKE %s OR "
+            "UPPER(COALESCE(i.legacy_item_code, '')) LIKE %s OR "
             "UPPER(i.item_name) LIKE %s OR "
             "UPPER(COALESCE(i.sku_code, '')) LIKE %s OR "
             "UPPER(CAST(i.item_desc AS TEXT)) LIKE %s OR "
@@ -158,7 +164,7 @@ def list_item_records(
             "UPPER(COALESCE(r.ifrc_code, '')) LIKE %s"
             ")"
         )
-        params.extend([token] * 8)
+        params.extend([token] * 9)
 
     where_sql = ""
     if where_clauses:
@@ -462,11 +468,6 @@ def validate_item_payload(
             if reference_id not in (None, "")
             else None
         )
-        category_has_families = (
-            _category_has_active_families(schema, category_id)
-            if category_id not in (None, "")
-            else False
-        )
         if normalized_uom_options is not None:
             missing_uoms = _missing_uom_codes(
                 schema,
@@ -482,10 +483,22 @@ def validate_item_payload(
         warnings.append("item_taxonomy_validation_failed")
         return errors, warnings
 
-    if not is_update and family_id in (None, "") and category_has_families:
-        errors["ifrc_family_id"] = (
-            "IFRC Family is required for categories with governed Level 2 classifications."
-        )
+    existing_reference_id = existing_record.get("ifrc_item_ref_id") if existing_record else None
+
+    if not is_update:
+        if family_id in (None, ""):
+            errors["ifrc_family_id"] = "IFRC Family is required for new items."
+        if reference_id in (None, ""):
+            errors["ifrc_item_ref_id"] = "IFRC Item Reference is required for new items."
+    elif existing_reference_id not in (None, ""):
+        if family_id in (None, ""):
+            errors["ifrc_family_id"] = "Mapped items must retain an IFRC Family."
+        if reference_id in (None, ""):
+            errors["ifrc_item_ref_id"] = "Mapped items must retain an IFRC Item Reference."
+    elif family_id not in (None, "") and reference_id in (None, "") and (
+        "ifrc_family_id" in data or "ifrc_item_ref_id" in data
+    ):
+        errors["ifrc_item_ref_id"] = "IFRC Item Reference is required when selecting an IFRC Family."
 
     if family_id not in (None, "") and family_row is None:
         errors["ifrc_family_id"] = "Selected IFRC Family does not exist."
@@ -519,7 +532,7 @@ def create_item_record(
         return None, ["db_unavailable"]
 
     schema = _schema_name()
-    base_data = _item_column_payload(data)
+    base_data, _ = _build_item_write_payload(data, is_update=False)
     default_uom_code = str(base_data.get("default_uom_code") or "").strip().upper()
     normalized_uom_options, _ = _normalize_item_uom_options(
         data.get("uom_options"),
@@ -584,7 +597,11 @@ def update_item_record(
                 return False, before_warnings or ["not_found"]
 
             before_state = _tracked_item_state(before_record)
-            base_data = _item_column_payload(data)
+            base_data, _ = _build_item_write_payload(
+                data,
+                is_update=True,
+                existing_record=before_record,
+            )
             success, warnings = update_record(
                 "items",
                 item_id,
@@ -644,9 +661,122 @@ def update_item_record(
         return False, ["db_error"]
 
 
+def find_item_canonical_conflict(
+    data: dict[str, Any],
+    *,
+    existing_record: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if _is_sqlite():
+        return None
+
+    schema = _schema_name()
+    merged_reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
+    if merged_reference_id in (None, ""):
+        return None
+
+    reference_row = _fetch_ifrc_reference(schema, merged_reference_id)
+    if reference_row is None:
+        return None
+
+    exclude_item_id = existing_record.get("item_id") if existing_record else None
+    canonical_code = _normalize_item_code(reference_row.get("ifrc_code"))
+    duplicate_item_id = _find_duplicate_item_id(
+        schema,
+        ifrc_item_ref_id=reference_row["ifrc_item_ref_id"],
+        item_code=canonical_code,
+        exclude_item_id=exclude_item_id,
+    )
+    if duplicate_item_id is None:
+        return None
+
+    conflict_record, _ = get_item_record(duplicate_item_id)
+    return {
+        "code": ITEM_CANONICAL_CONFLICT_CODE,
+        "ifrc_item_ref_id": reference_row["ifrc_item_ref_id"],
+        "item_code": canonical_code,
+        "existing_item": conflict_record,
+    }
+
+
+def _find_duplicate_item_id(
+    schema: str,
+    *,
+    ifrc_item_ref_id: Any,
+    item_code: str | None,
+    exclude_item_id: Any | None = None,
+) -> Any | None:
+    where_clauses: list[str] = []
+    params: list[Any] = []
+
+    if ifrc_item_ref_id not in (None, ""):
+        where_clauses.append("ifrc_item_ref_id = %s")
+        params.append(ifrc_item_ref_id)
+    if item_code:
+        where_clauses.append("UPPER(item_code) = UPPER(%s)")
+        params.append(item_code)
+    if not where_clauses:
+        return None
+
+    sql = [
+        f"SELECT item_id FROM {schema}.item",
+        "WHERE (" + " OR ".join(where_clauses) + ")",
+    ]
+    if exclude_item_id not in (None, ""):
+        sql.append("AND item_id <> %s")
+        params.append(exclude_item_id)
+    sql.append("ORDER BY item_id ASC LIMIT 1")
+
+    with connection.cursor() as cursor:
+        cursor.execute("\n".join(sql), params)
+        row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _build_item_write_payload(
+    data: dict[str, Any],
+    *,
+    is_update: bool,
+    existing_record: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    schema = _schema_name()
+    base_data = _item_column_payload(data)
+    base_data.pop("item_code", None)
+    base_data.pop("legacy_item_code", None)
+
+    merged_reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
+    reference_row = (
+        _fetch_ifrc_reference(schema, merged_reference_id)
+        if merged_reference_id not in (None, "")
+        else None
+    )
+    if reference_row is None:
+        return base_data, None
+
+    canonical_code = _normalize_item_code(reference_row.get("ifrc_code"))
+    base_data["item_code"] = canonical_code
+
+    existing_item_code = _normalize_item_code(
+        existing_record.get("item_code") if existing_record else None
+    )
+    existing_legacy_code = _normalize_item_code(
+        existing_record.get("legacy_item_code") if existing_record else None
+    )
+    provided_item_code = _normalize_item_code(data.get("item_code"))
+
+    if existing_legacy_code:
+        base_data["legacy_item_code"] = existing_legacy_code
+    elif is_update and existing_item_code and existing_item_code != canonical_code:
+        base_data["legacy_item_code"] = existing_item_code
+    elif (not is_update) and provided_item_code and provided_item_code != canonical_code:
+        base_data["legacy_item_code"] = provided_item_code
+
+    return base_data, reference_row
+
+
 def _resolve_item_order_by(requested_order_by: str | None, warnings: list[str]) -> str:
     allowed_columns = {
         "item_code": "i.item_code",
+        "legacy_item_code": "i.legacy_item_code",
         "item_name": "i.item_name",
         "sku_code": "i.sku_code",
         "category_desc": "category_desc",
@@ -765,6 +895,13 @@ def _category_has_active_families(schema: str, category_id: Any) -> bool:
         )
         row = cursor.fetchone()
     return bool(row and int(row[0] or 0) > 0)
+
+
+def _normalize_item_code(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().upper()
+    return normalized or None
 
 
 def _missing_uom_codes(schema: str, uom_codes: list[str]) -> list[str]:
@@ -978,6 +1115,10 @@ def _item_column_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _tracked_item_state(record: dict[str, Any]) -> dict[str, Any]:
     return {
+        "identity": {
+            "item_code": record.get("item_code"),
+            "legacy_item_code": record.get("legacy_item_code"),
+        },
         "category": {
             "category_id": record.get("category_id"),
             "category_code": record.get("category_code"),
@@ -1104,3 +1245,4 @@ def _merged_value(
     if existing_record is not None:
         return existing_record.get(field_name)
     return None
+

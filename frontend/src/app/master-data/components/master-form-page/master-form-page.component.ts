@@ -57,6 +57,17 @@ interface ResolvedIfrcSuggestion {
   warning: string | null;
 }
 
+interface DuplicateCanonicalItemConflict {
+  code: string;
+  ifrc_item_ref_id: string | number | null;
+  item_code: string;
+  existing_item: {
+    item_id: string | number | null;
+    item_name: string;
+    item_code: string;
+  } | null;
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -96,10 +107,11 @@ export class MasterFormPageComponent implements OnInit {
   ifrcError = signal<string | null>(null);
   submissionError = signal<string | null>(null);
   submissionErrorDetails = signal<string[]>([]);
+  duplicateCanonicalConflict = signal<DuplicateCanonicalItemConflict | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
 
-  /** IFRC specification hint controls — not saved to DB, used only for code generation */
+  /** IFRC specification hint controls used only to improve suggestion quality */
   ifrcSpecForm = new FormGroup({
     size_weight: new FormControl<string>(''),
     form: new FormControl<string>(''),
@@ -116,6 +128,10 @@ export class MasterFormPageComponent implements OnInit {
   private acceptedIfrcSuggestLogId: string | null = null;
   private applyingTaxonomyPatch = false;
   private selectedReferenceOption: IfrcReferenceLookup | null = null;
+  private itemCodeFallbackValue: string | null = null;
+  private legacyItemCodeValue: string | null = null;
+  private itemHadMappedClassificationOnLoad = false;
+  private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
@@ -241,6 +257,7 @@ export class MasterFormPageComponent implements OnInit {
         this.selectedReferenceOption = null;
         this.referenceSearchControl.setValue('', { emitEvent: false });
         this.clearAcceptedSuggestion();
+        this.syncDisplayedItemCode();
       }
 
       this.writeLookup('ifrc_families', []);
@@ -264,6 +281,7 @@ export class MasterFormPageComponent implements OnInit {
         this.selectedReferenceOption = null;
         this.referenceSearchControl.setValue('', { emitEvent: false });
         this.clearAcceptedSuggestion();
+        this.syncDisplayedItemCode();
       }
 
       this.writeLookup('ifrc_references', []);
@@ -289,6 +307,7 @@ export class MasterFormPageComponent implements OnInit {
         this.clearAcceptedSuggestion();
       }
 
+      this.syncDisplayedItemCode();
       this.updateItemTaxonomyControlState();
       this.form.updateValueAndValidity({ emitEvent: false });
     });
@@ -313,6 +332,7 @@ export class MasterFormPageComponent implements OnInit {
           referenceControl.patchValue(null, { emitEvent: false });
           this.selectedReferenceOption = null;
           this.clearAcceptedSuggestion();
+          this.syncDisplayedItemCode();
           this.form.updateValueAndValidity({ emitEvent: false });
         }
       }
@@ -331,8 +351,9 @@ export class MasterFormPageComponent implements OnInit {
     const familyId = control.get('ifrc_family_id')?.value;
     const referenceId = control.get('ifrc_item_ref_id')?.value;
     const errors: ValidationErrors = {};
+    const requiresMappedClassification = !this.isEdit() || this.itemHadMappedClassificationOnLoad;
 
-    if (!this.isEdit() && categoryId && this.itemIfrcFamilyOptions().length > 0 && !familyId) {
+    if (categoryId && requiresMappedClassification && !familyId) {
       errors['ifrcFamilyRequired'] = true;
     }
 
@@ -345,7 +366,11 @@ export class MasterFormPageComponent implements OnInit {
       ?? this.findLookupByValue(this.itemIfrcReferenceOptions(), referenceId);
     if (referenceId && !familyId) {
       errors['ifrcFamilyForReferenceRequired'] = true;
-    } else if (
+    }
+    if (familyId && !referenceId) {
+      errors['ifrcReferenceRequired'] = true;
+    }
+    if (
       selectedReference
       && familyId
       && !this.sameValue(selectedReference.ifrc_family_id, familyId)
@@ -367,7 +392,7 @@ export class MasterFormPageComponent implements OnInit {
     const itemNameControl = this.form.get('item_name');
     if (!itemNameControl) return;
 
-    // Item name changes → push to trigger stream (debounced + deduplicated)
+    // Item name changes -> push to trigger stream (debounced + deduplicated)
     itemNameControl.valueChanges.pipe(
       map((v) => (typeof v === 'string' ? v.trim() : '')),
       debounceTime(600),
@@ -378,7 +403,7 @@ export class MasterFormPageComponent implements OnInit {
       this.ifrcTrigger$.next(name);
     });
 
-    // Spec hint changes → re-trigger with current item name
+    // Spec hint changes -> re-trigger with current item name
     this.ifrcSpecForm.valueChanges.pipe(
       debounceTime(400),
       takeUntilDestroyed(this.destroyRef),
@@ -433,8 +458,8 @@ export class MasterFormPageComponent implements OnInit {
   onAcceptIfrcSuggestion(): void {
     const suggestion = this.ifrcSuggestion();
     const resolved = this.ifrcSuggestionResolution();
-    if (!suggestion || !resolved?.family) {
-      this.notify.showError('Unable to apply the suggested IFRC classification.');
+    if (!suggestion || !resolved?.family || !resolved.reference) {
+      this.notify.showError('Resolve the suggested IFRC reference before applying it.');
       return;
     }
 
@@ -451,12 +476,11 @@ export class MasterFormPageComponent implements OnInit {
 
     categoryControl.patchValue(family.category_id ?? null, { emitEvent: false });
     familyControl.patchValue(family.value, { emitEvent: false });
-    referenceControl.patchValue(reference?.value ?? null, { emitEvent: false });
+    referenceControl.patchValue(reference.value, { emitEvent: false });
     this.selectedReferenceOption = reference;
-    this.referenceSearchControl.setValue(
-      reference ? this.getItemReferenceLabel(reference) : '',
-      { emitEvent: false },
-    );
+    this.referenceSearchControl.setValue(this.getItemReferenceLabel(reference), {
+      emitEvent: false,
+    });
 
     this.writeLookup(
       'item_categories',
@@ -469,16 +493,17 @@ export class MasterFormPageComponent implements OnInit {
     this.writeLookup('ifrc_families', this.ensureLookupItem(this.itemIfrcFamilyOptions(), family));
     this.writeLookup(
       'ifrc_references',
-      reference ? this.ensureLookupItem(this.itemIfrcReferenceOptions(), reference) : [],
+      this.ensureLookupItem(this.itemIfrcReferenceOptions(), reference),
     );
 
     this.applyingTaxonomyPatch = false;
     this.acceptedIfrcSuggestLogId = suggestion.suggestion_id ?? null;
+    this.syncDisplayedItemCode(reference);
     this.loadItemFamilyOptions(family.category_id, family.value);
     this.loadItemReferenceOptions(
       family.value,
-      String(reference?.ifrc_code ?? reference?.label ?? ''),
-      reference?.value ?? null,
+      String(reference.ifrc_code ?? reference.label ?? ''),
+      reference.value,
     );
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
@@ -507,6 +532,7 @@ export class MasterFormPageComponent implements OnInit {
     this.writeLookup('ifrc_references', this.ensureLookupItem(this.itemIfrcReferenceOptions(), reference));
     this.applyingTaxonomyPatch = false;
     this.clearAcceptedSuggestion();
+    this.syncDisplayedItemCode(reference);
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
   }
@@ -523,6 +549,7 @@ export class MasterFormPageComponent implements OnInit {
     this.selectedReferenceOption = null;
     this.applyingTaxonomyPatch = false;
     this.clearAcceptedSuggestion();
+    this.syncDisplayedItemCode();
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
   }
@@ -611,6 +638,31 @@ export class MasterFormPageComponent implements OnInit {
       return items;
     }
     return [item, ...items];
+  }
+
+  private syncDisplayedItemCode(reference: IfrcReferenceLookup | null = this.selectedReferenceOption): void {
+    const referenceCode = String(reference?.ifrc_code ?? '').trim().toUpperCase();
+    if (referenceCode) {
+      this.setDisplayedItemCode(referenceCode);
+      return;
+    }
+
+    if (this.isEdit() && this.itemCodeFallbackValue) {
+      this.setDisplayedItemCode(this.itemCodeFallbackValue);
+      return;
+    }
+
+    this.setDisplayedItemCode(null);
+  }
+
+  private setDisplayedItemCode(itemCode: string | null): void {
+    const itemCodeControl = this.form.get('item_code');
+    if (!itemCodeControl) {
+      return;
+    }
+
+    const normalizedValue = String(itemCode ?? '').trim().toUpperCase();
+    itemCodeControl.setValue(normalizedValue || null, { emitEvent: false });
   }
 
   private updateItemTaxonomyControlState(): void {
@@ -785,6 +837,7 @@ export class MasterFormPageComponent implements OnInit {
         if (selectedReference) {
           this.selectedReferenceOption = selectedReference;
         }
+        this.syncDisplayedItemCode(selectedReference ?? this.selectedReferenceOption);
         this.updateItemTaxonomyControlState();
         this.form.updateValueAndValidity({ emitEvent: false });
       },
@@ -933,6 +986,8 @@ export class MasterFormPageComponent implements OnInit {
         this.versionNbr = typeof record['version_nbr'] === 'number'
           ? record['version_nbr']
           : null;
+        this.itemCodeFallbackValue = String(record['item_code'] ?? '').trim() || null;
+        this.legacyItemCodeValue = String(record['legacy_item_code'] ?? '').trim() || null;
 
         for (const field of cfg.formFields) {
           const control = this.form.get(field.field);
@@ -948,6 +1003,7 @@ export class MasterFormPageComponent implements OnInit {
           const categoryId = record['category_id'] as string | number | null | undefined;
           const familyId = record['ifrc_family_id'] as string | number | null | undefined;
           const referenceId = record['ifrc_item_ref_id'] as string | number | null | undefined;
+          this.itemHadMappedClassificationOnLoad = referenceId != null && referenceId !== '';
 
           this.loadItemCategoryOptions(categoryId);
           this.loadItemFamilyOptions(categoryId, familyId ?? null);
@@ -976,6 +1032,7 @@ export class MasterFormPageComponent implements OnInit {
             this.selectedReferenceOption = null;
             this.referenceSearchControl.setValue('', { emitEvent: false });
           }
+          this.syncDisplayedItemCode();
         }
 
         this.updateItemTaxonomyControlState();
@@ -1003,6 +1060,11 @@ export class MasterFormPageComponent implements OnInit {
 
     this.isSaving.set(true);
     const rawData = this.form.getRawValue();
+
+    if (cfg.tableKey === 'items') {
+      delete rawData['item_code'];
+      delete rawData['legacy_item_code'];
+    }
 
     // Apply uppercase transforms
     for (const field of cfg.formFields) {
@@ -1055,7 +1117,7 @@ export class MasterFormPageComponent implements OnInit {
             .map(([, message]) => message);
           if (classificationDetails.length > 0) {
             this.setSubmissionError(
-              'Please review the item classification and local item code fields.',
+              'Please review the item classification and canonical item code details.',
               classificationDetails,
               'submitFailure',
             );
@@ -1075,7 +1137,22 @@ export class MasterFormPageComponent implements OnInit {
           this.applyInactiveItemControlError(inactiveItemGuard);
           this.notify.showError('Save blocked by inactive-item forward-write guard.');
           return;
-        } else if (err.status === 409) {
+        }
+
+        const duplicateConflict = this.extractDuplicateCanonicalItemConflict(err);
+        if (duplicateConflict) {
+          const message = err.error?.detail || 'That IFRC reference is already mapped to an existing item.';
+          this.duplicateCanonicalConflict.set(duplicateConflict);
+          this.setSubmissionError(
+            message,
+            this.buildDuplicateCanonicalConflictDetails(duplicateConflict),
+            this.duplicateCanonicalItemCodeError,
+          );
+          this.notify.showError('Save blocked by canonical item code conflict.');
+          return;
+        }
+
+        if (err.status === 409) {
           const message = err.error?.detail || 'Record was modified by another user. Please reload.';
           this.setSubmissionError(message, [], 'versionConflict');
           this.notify.showError(message);
@@ -1101,9 +1178,24 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   isItemFamilyRequired(): boolean {
-    return !this.isEdit()
-      && !!this.form.get('category_id')?.value
-      && this.itemIfrcFamilyOptions().length > 0;
+    return !!this.form.get('category_id')?.value
+      && (!this.isEdit() || this.itemHadMappedClassificationOnLoad);
+  }
+
+  isItemReferenceRequired(): boolean {
+    return !!this.form.get('ifrc_family_id')?.value;
+  }
+
+  isManagedItemCodeField(fieldName: string): boolean {
+    return this.isItemRecord() && fieldName === 'item_code';
+  }
+
+  canAcceptResolvedIfrcSuggestion(): boolean {
+    return this.ifrcSuggestionResolution()?.reference != null;
+  }
+
+  getLegacyItemCode(): string | null {
+    return this.legacyItemCodeValue;
   }
 
   isLookupLoading(lookupKey: string): boolean {
@@ -1133,7 +1225,9 @@ export class MasterFormPageComponent implements OnInit {
 
     if (fieldName === 'ifrc_family_id') {
       if (this.form.hasError('ifrcFamilyRequired')) {
-        return 'IFRC Family is required for new items in governed categories.';
+        return this.itemHadMappedClassificationOnLoad
+          ? 'Mapped items must keep an IFRC Family.'
+          : 'IFRC Family is required for new items.';
       }
       if (this.form.hasError('ifrcFamilyOutsideCategory')) {
         return 'Selected IFRC Family does not belong to the chosen Level 1 category.';
@@ -1143,8 +1237,18 @@ export class MasterFormPageComponent implements OnInit {
       }
     }
 
-    if (fieldName === 'ifrc_item_ref_id' && this.form.hasError('ifrcReferenceOutsideFamily')) {
-      return 'Selected IFRC reference does not belong to the chosen IFRC Family.';
+    if (fieldName === 'ifrc_item_ref_id') {
+      if (this.form.hasError('ifrcReferenceRequired')) {
+        if (this.itemHadMappedClassificationOnLoad) {
+          return 'Mapped items must keep an IFRC item reference.';
+        }
+        return this.isEdit()
+          ? 'Select an IFRC item reference to complete the mapping.'
+          : 'IFRC Item Reference is required for new items.';
+      }
+      if (this.form.hasError('ifrcReferenceOutsideFamily')) {
+        return 'Selected IFRC reference does not belong to the chosen IFRC Family.';
+      }
     }
 
     return null;
@@ -1300,6 +1404,22 @@ export class MasterFormPageComponent implements OnInit {
     return iconMap[groupLabel] || 'folder';
   }
 
+  onOpenDuplicateExistingItem(): void {
+    const cfg = this.config();
+    const existingItemId = this.duplicateCanonicalConflict()?.existing_item?.item_id;
+    if (!cfg || existingItemId == null || existingItemId === '') {
+      return;
+    }
+
+    this.router.navigate(['/master-data', cfg.routePath, existingItemId]);
+  }
+
+  onChooseDifferentReference(): void {
+    this.clearSubmissionError();
+    this.onClearIfrcReference();
+    this.form.get('ifrc_item_ref_id')?.markAsTouched();
+  }
+
   onCancel(): void {
     this.navigateBack();
   }
@@ -1325,6 +1445,16 @@ export class MasterFormPageComponent implements OnInit {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
     return parsed;
+  }
+
+  private toRecordIdentifier(value: unknown): string | number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    return null;
   }
 
   private clearLocationServerErrors(): void {
@@ -1384,17 +1514,64 @@ export class MasterFormPageComponent implements OnInit {
   private clearSubmissionError(): void {
     this.submissionError.set(null);
     this.submissionErrorDetails.set([]);
+    this.duplicateCanonicalConflict.set(null);
 
     const formErrors = this.form.errors;
     if (!formErrors) return;
 
     const nextErrors: Record<string, unknown> = { ...formErrors };
     delete nextErrors[this.inactiveItemForwardWriteCode];
+    delete nextErrors[this.duplicateCanonicalItemCodeError];
     delete nextErrors['versionConflict'];
     delete nextErrors['submitFailure'];
     this.form.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
   }
 
+  private extractDuplicateCanonicalItemConflict(error: unknown): DuplicateCanonicalItemConflict | null {
+    const err = error as {
+      error?: {
+        errors?: Record<string, unknown>;
+      };
+    };
+    const rawConflict = err?.error?.errors?.[this.duplicateCanonicalItemCodeError];
+    if (!rawConflict || typeof rawConflict !== 'object') {
+      return null;
+    }
+
+    const conflict = rawConflict as Record<string, unknown>;
+    const existingItemRaw = conflict['existing_item'];
+    const existingItem = existingItemRaw && typeof existingItemRaw === 'object'
+      ? {
+          item_id: this.toRecordIdentifier((existingItemRaw as Record<string, unknown>)['item_id']),
+          item_name: String((existingItemRaw as Record<string, unknown>)['item_name'] ?? '').trim(),
+          item_code: String((existingItemRaw as Record<string, unknown>)['item_code'] ?? '').trim(),
+        }
+      : null;
+
+    return {
+      code: String(conflict['code'] ?? '').trim(),
+      ifrc_item_ref_id: this.toRecordIdentifier(conflict['ifrc_item_ref_id']),
+      item_code: String(conflict['item_code'] ?? '').trim(),
+      existing_item: existingItem,
+    };
+  }
+
+  private buildDuplicateCanonicalConflictDetails(conflict: DuplicateCanonicalItemConflict): string[] {
+    const details: string[] = [];
+    if (conflict.item_code) {
+      details.push(`Canonical IFRC Code: ${conflict.item_code}`);
+    }
+    if (conflict.existing_item?.item_name) {
+      const existingItemSummary = conflict.existing_item.item_id != null && conflict.existing_item.item_id !== ''
+        ? `${conflict.existing_item.item_name} (#${conflict.existing_item.item_id})`
+        : conflict.existing_item.item_name;
+      details.push(`Existing Item: ${existingItemSummary}`);
+    }
+    if (conflict.existing_item?.item_code) {
+      details.push(`Existing Item Code: ${conflict.existing_item.item_code}`);
+    }
+    return details;
+  }
   private extractInactiveItemForwardWriteGuard(error: unknown): InactiveItemForwardWriteGuard | null {
     const err = error as {
       error?: {

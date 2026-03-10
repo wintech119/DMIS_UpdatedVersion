@@ -1,7 +1,7 @@
 @if (config(); as cfg) {
   <div class="form-page-container">
 
-    <!-- ── Header ── -->
+    <!-- Header -->
     <div class="form-page-header">
       <button mat-icon-button class="back-btn" (click)="onCancel()" matTooltip="Back to list"
         aria-label="Back to list">
@@ -30,6 +30,21 @@
                     <li>{{ detail }}</li>
                   }
                 </ul>
+              }
+              @if (duplicateCanonicalConflict(); as duplicateConflict) {
+                <div class="form-submit-alert__actions">
+                  @if (duplicateConflict.existing_item?.item_id !== null && duplicateConflict.existing_item?.item_id !== undefined && duplicateConflict.existing_item?.item_id !== '') {
+                    <button mat-stroked-button type="button" (click)="onOpenDuplicateExistingItem()">
+                      Open Existing Item
+                    </button>
+                  }
+                  <button mat-stroked-button type="button" (click)="onChooseDifferentReference()">
+                    Choose Different Reference
+                  </button>
+                  <button mat-flat-button color="primary" type="button" (click)="onCancel()">
+                    Cancel
+                  </button>
+                </div>
               }
             </div>
           </div>
@@ -91,9 +106,9 @@
                       } @else {
                         <mat-hint>
                           @if (isItemFamilyRequired()) {
-                            Required for new items in governed categories.
+                            Required for new items and retained for already-mapped items.
                           } @else {
-                            Optional on edit for legacy items until taxonomy backfill is complete.
+                            Optional on edit only for legacy unmapped items during migration.
                           }
                         </mat-hint>
                       }
@@ -109,6 +124,7 @@
                           matInput
                           [formControl]="referenceSearchControl"
                           [matAutocomplete]="ifrcReferenceAuto"
+                          [attr.aria-required]="isItemReferenceRequired()"
                           placeholder="Search IFRC description or code" />
                         @if (referenceSearchControl.value) {
                           <button
@@ -125,7 +141,13 @@
                         } @else if (!form.get('ifrc_family_id')?.value) {
                           <mat-hint>Select an IFRC family before searching references.</mat-hint>
                         } @else {
-                          <mat-hint>Optional. Results are ordered by description before IFRC code.</mat-hint>
+                          <mat-hint>
+                            @if (isItemReferenceRequired()) {
+                              Required before saving a new or newly mapped item. Results are ordered by description before IFRC code.
+                            } @else {
+                              Legacy unmapped items may remain blank until they are mapped. Results are ordered by description before IFRC code.
+                            }
+                          </mat-hint>
                         }
                         @if (getItemTaxonomyFieldError('ifrc_item_ref_id'); as error) {
                           <mat-error>{{ error }}</mat-error>
@@ -199,7 +221,7 @@
                             mat-flat-button
                             color="primary"
                             type="button"
-                            [disabled]="!ifrcSuggestionResolution()?.family"
+                            [disabled]="!canAcceptResolvedIfrcSuggestion()"
                             (click)="onAcceptIfrcSuggestion()">
                             Accept Classification
                           </button>
@@ -396,32 +418,53 @@
                     }
 
                     @default {
-                      <!-- Text input -->
-                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                        <mat-label>{{ field.label }}</mat-label>
-                        <input matInput [formControlName]="field.field"
-                          [maxlength]="field.maxLength || null"
-                          [attr.aria-required]="field.required || null" />
-                        <!--
-                          For the item_code field: show "generating" hint while the IFRC
-                          agent is running, otherwise fall through to the normal hint.
-                        -->
-                        @if (field.hint) {
-                          <mat-hint>{{ field.hint }}</mat-hint>
-                        }
-                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
-                          <mat-error>{{ field.label }} is required</mat-error>
-                        }
-                        @if (form.get(field.field)?.hasError('maxlength')) {
-                          <mat-error>Max {{ field.maxLength }} characters</mat-error>
-                        }
-                        @if (form.get(field.field)?.hasError('pattern')) {
-                          <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
-                        }
-                        @if (form.get(field.field)?.hasError('server')) {
-                          <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
-                        }
-                      </mat-form-field>
+                      @if (isManagedItemCodeField(field.field)) {
+                        <mat-form-field appearance="outline" class="full-width managed-item-code-field" subscriptSizing="dynamic">
+                          <mat-label>{{ field.label }}</mat-label>
+                          <input matInput [formControlName]="field.field"
+                            [maxlength]="field.maxLength || null"
+                            readonly
+                            aria-readonly="true" />
+                          <mat-icon matSuffix aria-hidden="true">lock</mat-icon>
+                          @if (field.hint) {
+                            <mat-hint>{{ field.hint }}</mat-hint>
+                          }
+                          @if (getLegacyItemCode(); as legacyItemCode) {
+                            <mat-hint align="end">Legacy code: {{ legacyItemCode }}</mat-hint>
+                          }
+                          @if (form.get(field.field)?.hasError('maxlength')) {
+                            <mat-error>Max {{ field.maxLength }} characters</mat-error>
+                          }
+                          @if (form.get(field.field)?.hasError('pattern')) {
+                            <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
+                          }
+                          @if (form.get(field.field)?.hasError('server')) {
+                            <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                          }
+                        </mat-form-field>
+                      } @else {
+                        <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                          <mat-label>{{ field.label }}</mat-label>
+                          <input matInput [formControlName]="field.field"
+                            [maxlength]="field.maxLength || null"
+                            [attr.aria-required]="field.required || null" />
+                          @if (field.hint) {
+                            <mat-hint>{{ field.hint }}</mat-hint>
+                          }
+                          @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                            <mat-error>{{ field.label }} is required</mat-error>
+                          }
+                          @if (form.get(field.field)?.hasError('maxlength')) {
+                            <mat-error>Max {{ field.maxLength }} characters</mat-error>
+                          }
+                          @if (form.get(field.field)?.hasError('pattern')) {
+                            <mat-error>{{ field.patternMessage || 'Invalid format' }}</mat-error>
+                          }
+                          @if (form.get(field.field)?.hasError('server')) {
+                            <mat-error>{{ form.get(field.field)?.getError('server') }}</mat-error>
+                          }
+                        </mat-form-field>
+                      }
                     }
 
                   }
@@ -429,7 +472,7 @@
               }
 
               <!--
-                IFRC spec hints — rendered as a direct grid child (not inside the
+                IFRC spec hints - rendered as a direct grid child (not inside the
                 item_code cell) so CSS grid-area can position it independently.
                 Shown on the Items form in both create and edit mode.
               -->
@@ -452,7 +495,7 @@
                     <mat-form-field appearance="outline" subscriptSizing="dynamic">
                       <mat-label>Form</mat-label>
                       <mat-select formControlName="form" aria-label="Item presentation form">
-                        <mat-option value="">— None —</mat-option>
+                        <mat-option value="">-- None --</mat-option>
                         <mat-option value="tablet">Tablet</mat-option>
                         <mat-option value="capsule">Capsule</mat-option>
                         <mat-option value="liquid">Liquid</mat-option>
@@ -490,7 +533,7 @@
           </section>
         }
 
-        <!-- ── Storage Location Assignment (edit mode only) ── -->
+        <!-- Storage Location Assignment (edit mode only) -->
         @if (canAssignLocation()) {
           <section class="form-section location-assignment-section"
             aria-label="Storage location assignment section">
@@ -513,7 +556,7 @@
                   <mat-label>Inventory ID</mat-label>
                   <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help">
                     @for (item of lookups()['inventory'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} – {{ item.label }}</mat-option>
+                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
                     }
                   </mat-select>
                   @if ((lookups()['inventory'] || []).length === 0) {
@@ -530,11 +573,11 @@
                   <mat-label>Location ID</mat-label>
                   <mat-select formControlName="location_id">
                     @for (item of lookups()['locations'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} – {{ item.label }}</mat-option>
+                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
                     }
                   </mat-select>
                   @if ((lookups()['locations'] || []).length === 0) {
-                    <mat-hint>No locations found. Create one in Master Data › Locations.</mat-hint>
+                    <mat-hint>No locations found. Create one in Master Data > Locations.</mat-hint>
                   }
                   @if (getLocationFieldError('location_id'); as error) {
                     <mat-error>{{ error }}</mat-error>
@@ -558,7 +601,7 @@
                   (click)="onAssignStorageLocation()">
                   @if (assigningLocation()) {
                     <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
-                    Assigning…
+                    Assigning...
                   } @else {
                     <mat-icon aria-hidden="true">add_location_alt</mat-icon>
                     Assign Location
@@ -569,7 +612,7 @@
           </section>
         }
 
-        <!-- ── Action Bar ── -->
+        <!-- Action Bar -->
         <div class="form-actions" role="toolbar" aria-label="Form actions">
           <button mat-stroked-button type="button" class="cancel-btn" (click)="onCancel()">
             Cancel
@@ -577,7 +620,7 @@
           <button mat-flat-button color="primary" type="submit" class="save-btn"
             [disabled]="isSaving() || form.invalid">
             @if (isSaving()) {
-              <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Saving…
+              <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Saving...
             } @else {
               <mat-icon aria-hidden="true">save</mat-icon>
               {{ isEdit() ? 'Update' : 'Create' }}

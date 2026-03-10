@@ -43,6 +43,7 @@ from masterdata.services.data_access import (
 )
 from masterdata.services.item_master import (
     create_item_record,
+    find_item_canonical_conflict,
     get_item_record,
     list_item_category_lookup,
     list_ifrc_family_lookup,
@@ -84,6 +85,25 @@ def _ifrc_cfg() -> dict[str, Any]:
         "OLLAMA_MODEL_ID": str(cfg.get("OLLAMA_MODEL_ID", "qwen3.5:0.8b")),
         "LLM_ENABLED": bool(cfg.get("LLM_ENABLED", False)),
     }
+
+
+def _item_validation_payload(data: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(data)
+    payload.pop("item_code", None)
+    payload.pop("legacy_item_code", None)
+    return payload
+
+
+def _item_conflict_response(conflict: dict[str, Any]):
+    return Response(
+        {
+            "detail": "An item already exists for the selected IFRC reference.",
+            "errors": {
+                conflict["code"]: conflict,
+            },
+        },
+        status=409,
+    )
 
 
 def _inactive_item_guard_response(warnings: list[str], fallback_table: str):
@@ -260,7 +280,7 @@ def _handle_item_list(request):
 
 def _handle_item_create(request, cfg):
     data = request.data or {}
-    errors = validate_record(cfg, data, is_update=False)
+    errors = validate_record(cfg, _item_validation_payload(data), is_update=False)
     extra_errors, validation_warnings = validate_item_payload(
         data,
         is_update=False,
@@ -276,6 +296,10 @@ def _handle_item_create(request, cfg):
         )
     if errors:
         return Response({"errors": errors}, status=400)
+
+    conflict = find_item_canonical_conflict(data)
+    if conflict is not None:
+        return _item_conflict_response(conflict)
 
     pk_val, warnings = create_item_record(data, _actor_id(request))
     if pk_val is None:
@@ -379,7 +403,7 @@ def _handle_update(request, cfg, pk_value):
 
     errors = validate_record(
         cfg,
-        data,
+        _item_validation_payload(data),
         is_update=True,
         current_pk=pk_value,
         existing_record=existing_record,
@@ -434,7 +458,7 @@ def _handle_item_update(request, cfg, pk_value):
 
     errors = validate_record(
         cfg,
-        data,
+        _item_validation_payload(data),
         is_update=True,
         current_pk=pk_value,
         existing_record=existing_record,
@@ -455,6 +479,10 @@ def _handle_item_update(request, cfg, pk_value):
         )
     if errors:
         return Response({"errors": errors}, status=400)
+
+    conflict = find_item_canonical_conflict(data, existing_record=existing_record)
+    if conflict is not None:
+        return _item_conflict_response(conflict)
 
     success, warnings = update_item_record(
         pk_value,

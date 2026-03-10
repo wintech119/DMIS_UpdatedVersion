@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Master Form Page – Compact, structured layout
+// Master Form Page - Compact, structured layout
 // ---------------------------------------------------------------------------
 
 :host {
@@ -7,7 +7,7 @@
   font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
 }
 
-// ── Page container ────────────────────────────────────────────────────────────
+// Page container
 .form-page-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -15,7 +15,7 @@
   color: var(--dmis-text-primary, #1a1a1a);
 }
 
-// ── Header ────────────────────────────────────────────────────────────────────
+// Header
 .form-page-header {
   display: flex;
   align-items: center;
@@ -45,7 +45,7 @@
   }
 }
 
-// ── Form content ──────────────────────────────────────────────────────────────
+// Form content
 .form-page-content {
   display: flex;
   flex-direction: column;
@@ -91,7 +91,18 @@
   line-height: 1.35;
 }
 
-// ── Form sections ─────────────────────────────────────────────────────────────
+.form-submit-alert__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.managed-item-code-field input[readonly] {
+  font-weight: 600;
+}
+
+// Form sections
 .form-section {
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -125,7 +136,7 @@
   line-height: 1.4;
 }
 
-// ── Form grid (default 2-column) ──────────────────────────────────────────────
+// Form grid (default 2-column)
 // align-items: start ensures short fields (dropdowns) don't stretch to match
 // tall neighbours (textareas).
 .form-grid {
@@ -144,12 +155,12 @@
 
 .full-width { width: 100%; }
 
-// ── Identity grid – new item (IFRC hints + SKU share the second row) ──────────
-//   ┌─────────────────┬─────────────────┐
-//   │   Item Code     │   Item Name     │  row 1
-//   ├─────────────────┼─────────────────┤
-//   │   IFRC hints    │   SKU Code      │  row 2
-//   └─────────────────┴─────────────────┘
+// Identity grid: new item (IFRC hints + SKU share the second row)
+
+// Row 1: Item Code | Item Name
+
+// Row 2: IFRC hints | SKU Code
+
 .identity-grid-new {
   grid-template-areas:
     "item-code  item-name"
@@ -161,7 +172,7 @@
   > .ifrc-hints-cell          { grid-area: ifrc-hints; }
 }
 
-// ── IFRC code hints cell ──────────────────────────────────────────────────────
+// IFRC code hints cell
 .ifrc-hints-cell {
   padding: 8px 10px;
   background: #f8fafc;
@@ -310,7 +321,7 @@
   gap: 10px;
 }
 
-// ── Toggle rows (boolean fields) ──────────────────────────────────────────────
+
 .toggle-row {
   display: flex;
   align-items: flex-start;
@@ -350,7 +361,7 @@
   line-height: 1.2;
 }
 
-// ── Location assignment section ───────────────────────────────────────────────
+
 .location-assignment-section {
   border-left: 3px solid #0ea5e9;
   .section-title mat-icon { color: #0ea5e9; }
@@ -384,7 +395,7 @@
   button { min-height: 36px; border-radius: 6px; }
 }
 
-// ── Sticky action bar ─────────────────────────────────────────────────────────
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -415,7 +426,7 @@
   }
 }
 
-// ── Saving animation ──────────────────────────────────────────────────────────
+
 .spin { animation: spin 1s linear infinite; }
 
 @keyframes spin {
@@ -423,7 +434,7 @@
   to   { transform: rotate(360deg); }
 }
 
-// ── Responsive ────────────────────────────────────────────────────────────────
+
 @media (max-width: 768px) {
   .form-page-container { padding: 8px; }
 
@@ -444,7 +455,8 @@
     grid-template-columns: 1fr;
   }
 
-  .ifrc-suggestion-card__actions {
+  .ifrc-suggestion-card__actions,
+  .form-submit-alert__actions {
     flex-direction: column-reverse;
 
     button {

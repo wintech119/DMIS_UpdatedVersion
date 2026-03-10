@@ -1,4 +1,4 @@
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -13,6 +13,7 @@ function buildBaseItemRecord() {
   return {
     item_id: 17,
     item_code: 'LOC-001',
+    legacy_item_code: 'LOC-001',
     item_name: 'Water Tabs',
     sku_code: 'SKU-001',
     category_id: 102,
@@ -72,6 +73,8 @@ describe('MasterFormPageComponent', () => {
         : of([])
     ));
     masterDataService.get.and.returnValue(of({ record: buildBaseItemRecord(), warnings: [] }));
+    masterDataService.create.and.returnValue(of({ record: { item_id: 99 }, warnings: [] }));
+    masterDataService.update.and.returnValue(of({ record: { item_id: 17 }, warnings: [] }));
     ifrcSuggestService.suggest.and.returnValue(of(null));
     replenishmentService.assignStorageLocation.and.returnValue(of({
       created: true,
@@ -102,10 +105,30 @@ describe('MasterFormPageComponent', () => {
       component: fixture.componentInstance,
       masterDataService,
       notificationService,
+      router,
     };
   }
 
-  it('requires an IFRC family for new items when the selected category has governed families', () => {
+  function populateRequiredCreateFields(component: MasterFormPageComponent): void {
+    component.form.patchValue({
+      item_name: 'Water Tabs',
+      item_desc: 'Water purification tablets',
+      default_uom_code: 'EA',
+      reorder_qty: 10,
+      issuance_order: 'FIFO',
+      status_code: 'A',
+      category_id: 102,
+      ifrc_family_id: 301,
+    }, { emitEvent: false });
+    component.onSelectIfrcReference({
+      value: 401,
+      label: 'Water purification tablet',
+      ifrc_code: 'WWTRTABL01',
+      ifrc_family_id: 301,
+    });
+  }
+
+  it('requires an IFRC family for new items when a category is selected', () => {
     const { component } = setup();
 
     component.form.get('category_id')?.setValue(102);
@@ -113,11 +136,22 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.hasError('ifrcFamilyRequired')).toBeTrue();
   });
 
-  it('accepts IFRC suggestions by filling classification fields without overwriting the local item code', () => {
+  it('requires an IFRC reference for new items once a family is selected', () => {
+    const { component } = setup();
+
+    component.form.patchValue({
+      category_id: 102,
+      ifrc_family_id: 301,
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    expect(component.form.hasError('ifrcReferenceRequired')).toBeTrue();
+  });
+
+  it('accepts IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
 
     component.form.patchValue({
-      item_code: 'LOC-001',
       item_name: 'Water Tabs',
       item_desc: 'Water purification tablets',
       default_uom_code: 'EA',
@@ -160,49 +194,80 @@ describe('MasterFormPageComponent', () => {
 
     component.onAcceptIfrcSuggestion();
 
-    expect(component.form.get('item_code')?.value).toBe('LOC-001');
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABL01');
     expect(component.form.get('category_id')?.value).toBe(102);
     expect(component.form.get('ifrc_family_id')?.value).toBe(301);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
 
-  it('rejects IFRC suggestions without clearing local user-entered fields', () => {
-    const { component } = setup();
+  it('renders the item code field as readonly and backend-managed', () => {
+    const { fixture } = setup();
 
-    component.form.patchValue({
-      item_code: 'LOC-777',
-      item_name: 'Legacy Bucket',
-    }, { emitEvent: false });
-    component.ifrcSuggestion.set({
-      suggestion_id: 'suggest-2',
-      ifrc_code: 'WSHLBUKT01',
-      ifrc_description: 'Bucket',
-      confidence: 0.61,
-      match_type: 'fallback',
-      construction_rationale: 'Best available category match.',
-      group_code: 'W',
-      family_code: 'WSH',
-      category_code: 'BUKT',
-      spec_segment: '01',
-      sequence: 1,
-      auto_fill_threshold: 0.7,
-    });
+    const itemCodeInput = fixture.nativeElement.querySelector('.managed-item-code-field input') as HTMLInputElement | null;
 
-    component.onRejectIfrcSuggestion();
-
-    expect(component.form.get('item_code')?.value).toBe('LOC-777');
-    expect(component.form.get('item_name')?.value).toBe('Legacy Bucket');
-    expect(component.ifrcSuggestion()).toBeNull();
+    expect(itemCodeInput).not.toBeNull();
+    expect(itemCodeInput?.readOnly).toBeTrue();
   });
 
-  it('keeps legacy edit records with null IFRC fields editable even when the category has governed families', () => {
+  it('keeps legacy edit records with null IFRC fields editable and preserves the existing item code display', () => {
     const { component } = setup({ pk: '17' });
 
     expect(component.isEdit()).toBeTrue();
+    expect(component.form.get('item_code')?.value).toBe('LOC-001');
     expect(component.form.get('ifrc_family_id')?.value).toBeNull();
     expect(component.form.get('ifrc_item_ref_id')?.value).toBeNull();
     expect(component.form.hasError('ifrcFamilyRequired')).toBeFalse();
+    expect(component.form.hasError('ifrcReferenceRequired')).toBeFalse();
     expect(component.form.valid).toBeTrue();
+  });
+
+  it('omits managed item_code from create payloads', () => {
+    const { component, masterDataService } = setup();
+
+    populateRequiredCreateFields(component);
+    component.form.patchValue({
+      item_code: 'USER-TYPED',
+    }, { emitEvent: false });
+
+    component.onSave();
+
+    expect(masterDataService.create).toHaveBeenCalled();
+    expect(masterDataService.create.calls.mostRecent().args[1]).not.toEqual(jasmine.objectContaining({
+      item_code: 'USER-TYPED',
+    }));
+  });
+
+  it('handles duplicate canonical item-code conflicts as a blocking flow', () => {
+    const { component, masterDataService, router } = setup();
+
+    masterDataService.create.and.returnValue(throwError(() => ({
+      status: 409,
+      error: {
+        detail: 'That IFRC reference is already mapped to an existing item.',
+        errors: {
+          duplicate_canonical_item_code: {
+            code: 'duplicate_canonical_item_code',
+            ifrc_item_ref_id: 401,
+            item_code: 'WWTRTABL01',
+            existing_item: {
+              item_id: 25,
+              item_name: 'Water purification tablet',
+              item_code: 'WWTRTABL01',
+            },
+          },
+        },
+      },
+    })));
+
+    populateRequiredCreateFields(component);
+    component.onSave();
+
+    expect(component.duplicateCanonicalConflict()?.existing_item?.item_id).toBe(25);
+    expect(component.submissionError()).toContain('already mapped');
+
+    component.onOpenDuplicateExistingItem();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'items', 25]);
   });
 });

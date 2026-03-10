@@ -29,9 +29,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
   pkField: 'item_id',
   routePath: 'items',
   formMode: 'page',
-  searchPlaceholder: 'Search by local code, name, SKU, category, IFRC family, description, or IFRC code...',
+  searchPlaceholder: 'Search by item code, legacy code, name, SKU, category, IFRC family, description, or IFRC code...',
   columns: [
-    { field: 'item_code', header: 'Local Code', type: 'text', sortable: true },
+    { field: 'item_code', header: 'Item Code', type: 'text', sortable: true },
     { field: 'item_name', header: 'Item Name', type: 'text', sortable: true },
     { field: 'sku_code', header: 'SKU', type: 'text', sortable: true, hideMobile: true },
     { field: 'category_desc', header: 'Level 1 Category', type: 'text', sortable: true, hideMobile: true },
@@ -44,15 +44,14 @@ export const ITEM_CONFIG: MasterTableConfig = {
   formFields: [
     {
       field: 'item_code',
-      label: 'Local Item Code',
+      label: 'Item Code',
       type: 'text',
-      required: true,
       maxLength: 30,
       uppercase: true,
       pattern: '^[A-Z0-9\\-_\\.]+$',
       patternMessage: 'Only uppercase letters, digits, hyphens, underscores, and dots are allowed.',
       group: 'Item Identity',
-      hint: 'Keep the local DMIS code. IFRC suggestions do not overwrite this field.',
+      hint: 'Backend-managed canonical IFRC code. Select a Level 3 IFRC reference to preview the derived code.',
     },
     {
       field: 'item_name',
@@ -91,7 +90,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_families',
       displayField: 'ifrc_family_label',
       group: 'Classification',
-      hint: 'Required on create when the chosen Level 1 category has governed IFRC families.',
+      hint: 'Required for new items. Existing unmapped legacy items may remain blank until they are mapped.',
     },
     {
       field: 'ifrc_item_ref_id',
@@ -100,7 +99,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_references',
       displayField: 'ifrc_reference_desc',
       group: 'Classification',
-      hint: 'Optional. Search by description first, then confirm the IFRC code.',
+      hint: 'Required for new items. Search by description first, then confirm the IFRC code.',
     },
     {
       field: 'item_desc',

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Generic raw-SQL CRUD for legacy master-data tables.
 
 Each table is described by a registry entry so that views, validation and
@@ -221,7 +221,7 @@ def _register(cfg: TableConfig) -> TableConfig:
     return cfg
 
 
-# â”€â”€ Item Categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Item Categories ───────────────────────────────────────────────────────
 _register(TableConfig(
     key="item_categories",
     db_table="itemcatg",
@@ -245,7 +245,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Units of Measure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Units of Measure ─────────────────────────────────────────────────────
 _register(TableConfig(
     key="uom",
     db_table="unitofmeasure",
@@ -267,7 +267,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Items ─────────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="items",
     db_table="item",
@@ -276,10 +276,15 @@ _register(TableConfig(
     default_order="item_name",
     fields=[
         FieldDef("item_id", pk=True, auto_pk=True, db_type="int", label="ID"),
-        FieldDef("item_code", required=True, unique=True, uppercase=True,
+        FieldDef("item_code", required=False, unique=True, uppercase=True,
                  max_length=30, searchable=True, label="Item Code",
                  pattern=r"^[A-Z0-9\-_\.]+$",
                  pattern_message="Only uppercase letters, digits, hyphens, underscores, dots"),
+        FieldDef("legacy_item_code", required=False, uppercase=True,
+                 max_length=30, searchable=True, label="Legacy Item Code",
+                 pattern=r"^[A-Z0-9\-_\.]+$",
+                 pattern_message="Only uppercase letters, digits, hyphens, underscores, dots",
+                 empty_as_null=True),
         FieldDef("item_name", required=True, unique=True, uppercase=True,
                  max_length=60, searchable=True, label="Item Name"),
         FieldDef("sku_code", required=False, unique=True, uppercase=True,
@@ -375,7 +380,7 @@ _register(TableConfig(
         DependencyDef("batchlocation", "location_id", "Batch-Location Assignments"),
     ],
 ))
-# â”€â”€ Warehouses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Warehouses ────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="warehouses",
     db_table="warehouse",
@@ -414,7 +419,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Agencies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Agencies ──────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="agencies",
     db_table="agency",
@@ -452,7 +457,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Custodians â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Custodians ────────────────────────────────────────────────────────────
 # NOTE: custodian table has NO status_code column in the live DB.
 _register(TableConfig(
     key="custodians",
@@ -483,7 +488,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Donors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Donors ────────────────────────────────────────────────────────────────
 # NOTE: donor table has NO status_code column in the live DB.
 _register(TableConfig(
     key="donors",
@@ -515,7 +520,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Events ────────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="events",
     db_table="event",
@@ -552,7 +557,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Countries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Countries ─────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="countries",
     db_table="country",
@@ -573,7 +578,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Currencies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Currencies ────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="currencies",
     db_table="currency",
@@ -594,7 +599,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Parishes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Parishes ──────────────────────────────────────────────────────────────
 # NOTE: parish table only has parish_code and parish_name. No status, audit, or version.
 _register(TableConfig(
     key="parishes",
@@ -618,7 +623,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Suppliers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Suppliers ─────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="suppliers",
     db_table="supplier",
@@ -1578,4 +1583,7 @@ def check_fk_exists(
     except DatabaseError as exc:
         logger.warning("check_fk_exists(%s.%s=%s) failed: %s", fk_table, fk_pk, value, exc)
         return True, ["db_error"]
+
+
+
 
