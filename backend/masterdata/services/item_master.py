@@ -55,6 +55,9 @@ ITEM_LIST_SELECT = """
     r.category_code AS ifrc_reference_category_code,
     r.category_label AS ifrc_reference_category_label,
     r.spec_segment AS ifrc_reference_spec_segment,
+    r.size_weight AS ifrc_reference_size_weight,
+    r.form AS ifrc_reference_form,
+    r.material AS ifrc_reference_material,
     i.create_by_id,
     i.create_dtime,
     i.update_by_id,
@@ -97,6 +100,9 @@ ITEM_LIST_COLUMN_NAMES = [
     "ifrc_reference_category_code",
     "ifrc_reference_category_label",
     "ifrc_reference_spec_segment",
+    "ifrc_reference_size_weight",
+    "ifrc_reference_form",
+    "ifrc_reference_material",
     "create_by_id",
     "create_dtime",
     "update_by_id",
@@ -381,10 +387,17 @@ def list_ifrc_reference_lookup(
         where_clauses.append("r.status_code = 'A'")
     if search:
         where_clauses.append(
-            "(UPPER(r.reference_desc) LIKE %s OR UPPER(r.ifrc_code) LIKE %s OR UPPER(r.category_label) LIKE %s)"
+            "(" 
+            "UPPER(r.reference_desc) LIKE %s OR "
+            "UPPER(r.ifrc_code) LIKE %s OR "
+            "UPPER(r.category_label) LIKE %s OR "
+            "UPPER(COALESCE(r.size_weight, '')) LIKE %s OR "
+            "UPPER(COALESCE(r.form, '')) LIKE %s OR "
+            "UPPER(COALESCE(r.material, '')) LIKE %s"
+            ")"
         )
         token = f"%{str(search).upper()}%"
-        params.extend([token, token, token])
+        params.extend([token, token, token, token, token, token])
 
     where_sql = ""
     if where_clauses:
@@ -403,7 +416,10 @@ def list_ifrc_reference_lookup(
                     f.family_label,
                     r.category_code,
                     r.category_label,
-                    r.spec_segment
+                    r.spec_segment,
+                    r.size_weight,
+                    r.form,
+                    r.material
                 FROM {schema}.ifrc_item_reference r
                 JOIN {schema}.ifrc_family f
                     ON f.ifrc_family_id = r.ifrc_family_id
@@ -424,6 +440,9 @@ def list_ifrc_reference_lookup(
                     "category_code": row[6],
                     "category_label": row[7],
                     "spec_segment": row[8],
+                    "size_weight": row[9],
+                    "form": row[10],
+                    "material": row[11],
                 }
                 for row in cursor.fetchall()
             ], []
@@ -863,6 +882,9 @@ def _fetch_ifrc_reference(schema: str, reference_id: Any) -> dict[str, Any] | No
                 ifrc_family_id,
                 ifrc_code,
                 reference_desc,
+                size_weight,
+                form,
+                material,
                 status_code
             FROM {schema}.ifrc_item_reference
             WHERE ifrc_item_ref_id = %s
@@ -878,7 +900,10 @@ def _fetch_ifrc_reference(schema: str, reference_id: Any) -> dict[str, Any] | No
         "ifrc_family_id": row[1],
         "ifrc_code": row[2],
         "reference_desc": row[3],
-        "status_code": row[4],
+        "size_weight": row[4],
+        "form": row[5],
+        "material": row[6],
+        "status_code": row[7],
     }
 
 
@@ -1145,6 +1170,9 @@ def _tracked_item_state(record: dict[str, Any]) -> dict[str, Any]:
                 "category_code": record.get("ifrc_reference_category_code"),
                 "category_label": record.get("ifrc_reference_category_label"),
                 "spec_segment": record.get("ifrc_reference_spec_segment"),
+                "size_weight": record.get("ifrc_reference_size_weight"),
+                "form": record.get("ifrc_reference_form"),
+                "material": record.get("ifrc_reference_material"),
             }
         ),
         "uom_options": [

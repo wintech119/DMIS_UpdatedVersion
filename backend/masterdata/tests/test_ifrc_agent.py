@@ -20,6 +20,7 @@ from masterdata.ifrc_code_agent import (
     _extract_vrnt_segment,
     _keyword_classify,
     _standardise_description,
+    extract_reference_metadata,
 )
 
 _BASE_IFRC_SETTINGS = {
@@ -199,6 +200,13 @@ class TestSegmentExtraction(TestCase):
     def test_vrnt_medium_thermal(self):
         # "medium thermal" should beat plain "medium"
         self.assertEqual(_extract_vrnt_segment("blanket synthetic medium thermal"), "MT")
+
+    def test_extract_reference_metadata_from_description(self):
+        metadata = extract_reference_metadata("water purification tablet 500 g plastic")
+
+        self.assertEqual(metadata["form"], "TABLET")
+        self.assertEqual(metadata["material"], "PLASTIC")
+        self.assertEqual(metadata["size_weight"], "500 G")
 
 
 class TestIFRCAgent(TestCase):

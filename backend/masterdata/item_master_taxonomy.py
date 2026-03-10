@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from masterdata.ifrc_catalogue_loader import IFRCTaxonomy, get_taxonomy
-from masterdata.ifrc_code_agent import _encode_spec
+from masterdata.ifrc_code_agent import _encode_spec, extract_reference_metadata
 
 SCHEMA_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SOURCE_VERSION_RE = re.compile(r"^#\s+Version:\s*(.+)$")
@@ -126,6 +126,7 @@ def build_ifrc_taxonomy_seed_payload(
                     prefix = f"{group_code}{family_code}{reference_category_code}{spec_segment}".upper()
                     next_seq = prefix_sequence.get(prefix, 0) + 1
                     prefix_sequence[prefix] = next_seq
+                    reference_metadata = extract_reference_metadata(reference_desc)
                     references.append(
                         {
                             "group_code": group_code,
@@ -135,6 +136,9 @@ def build_ifrc_taxonomy_seed_payload(
                             "category_code": reference_category_code,
                             "category_label": reference_category.label,
                             "spec_segment": spec_segment,
+                            "size_weight": reference_metadata["size_weight"],
+                            "form": reference_metadata["form"],
+                            "material": reference_metadata["material"],
                             "source_version": source_version,
                         }
                     )
@@ -400,7 +404,7 @@ def _sync_references(
     family_id_by_key: dict[tuple[str, str], int],
     actor_id: str,
 ) -> None:
-    values_sql = ", ".join(["(%s, %s, %s, %s, %s, %s)"] * len(references))
+    values_sql = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(references))
     params: list[Any] = []
     for reference in references:
         family_id = family_id_by_key[(reference["group_code"], reference["family_code"])]
@@ -412,6 +416,9 @@ def _sync_references(
                 reference["category_code"],
                 reference["category_label"],
                 reference["spec_segment"],
+                reference["size_weight"],
+                reference["form"],
+                reference["material"],
             ]
         )
 
@@ -424,7 +431,10 @@ def _sync_references(
             reference_desc,
             category_code,
             category_label,
-            spec_segment
+            spec_segment,
+            size_weight,
+            form,
+            material
         ) AS (
             VALUES {values_sql}
         )
@@ -435,6 +445,9 @@ def _sync_references(
             category_code,
             category_label,
             spec_segment,
+            size_weight,
+            form,
+            material,
             source_version,
             status_code,
             create_by_id,
@@ -450,6 +463,9 @@ def _sync_references(
             category_code,
             category_label,
             spec_segment,
+            NULLIF(size_weight, ''),
+            NULLIF(form, ''),
+            NULLIF(material, ''),
             %s,
             'A',
             %s,
@@ -465,6 +481,9 @@ def _sync_references(
             category_code = EXCLUDED.category_code,
             category_label = EXCLUDED.category_label,
             spec_segment = EXCLUDED.spec_segment,
+            size_weight = EXCLUDED.size_weight,
+            form = EXCLUDED.form,
+            material = EXCLUDED.material,
             source_version = EXCLUDED.source_version,
             status_code = 'A',
             update_by_id = EXCLUDED.update_by_id,

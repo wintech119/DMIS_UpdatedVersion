@@ -27,6 +27,18 @@ class ItemMasterRegistryTests(SimpleTestCase):
         self.assertIn("legacy_item_code", field_map)
         self.assertFalse(field_map["item_code"].required)
 
+    def test_catalog_registry_includes_governed_family_and_reference_tables(self):
+        self.assertIn("ifrc_families", TABLE_REGISTRY)
+        self.assertIn("ifrc_item_references", TABLE_REGISTRY)
+        family_fields = {field.name for field in TABLE_REGISTRY["ifrc_families"].fields}
+        reference_fields = {field.name for field in TABLE_REGISTRY["ifrc_item_references"].fields}
+
+        self.assertIn("group_code", family_fields)
+        self.assertIn("family_code", family_fields)
+        self.assertIn("size_weight", reference_fields)
+        self.assertIn("form", reference_fields)
+        self.assertIn("material", reference_fields)
+
 
 class ItemMasterSearchSqlTests(SimpleTestCase):
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
@@ -284,6 +296,9 @@ class ItemMasterSeedPayloadTests(SimpleTestCase):
         self.assertEqual(len(first["categories"]), 14)
         self.assertGreater(len(first["families"]), 0)
         self.assertGreater(len(first["references"]), len(first["families"]))
+        self.assertIn("size_weight", first["references"][0])
+        self.assertIn("form", first["references"][0])
+        self.assertIn("material", first["references"][0])
 
 
 class ItemMasterViewDispatchTests(SimpleTestCase):
@@ -371,6 +386,142 @@ class ItemMasterLookupViewTests(SimpleTestCase):
         self.assertEqual(response.data["items"][0]["status_code"], "I")
 
 
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.list_ifrc_reference_lookup",
+        return_value=(
+            [
+                {
+                    "value": 77,
+                    "label": "Water purification tablet",
+                    "ifrc_code": "WWTRTABLTB01",
+                    "ifrc_family_id": 11,
+                    "family_code": "WTR",
+                    "family_label": "Water Treatment",
+                    "category_code": "TABL",
+                    "category_label": "Tablet",
+                    "spec_segment": "TB",
+                    "size_weight": "500 G",
+                    "form": "TABLET",
+                    "material": "CHLORINE",
+                }
+            ],
+            [],
+        ),
+    )
+    def test_reference_lookup_returns_level3_metadata(self, _mock_lookup, _mock_permission):
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-references/lookup",
+            {"ifrc_family_id": "11", "search": "tablet"},
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.item_ifrc_reference_lookup(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["items"][0]["size_weight"], "500 G")
+        self.assertEqual(response.data["items"][0]["form"], "TABLET")
+        self.assertEqual(response.data["items"][0]["material"], "CHLORINE")
+
+
+class CatalogMaintenanceViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="catalog-admin",
+            roles=[],
+            permissions=[
+                views.PERM_MASTERDATA_VIEW,
+                views.PERM_MASTERDATA_CREATE,
+                views.PERM_MASTERDATA_EDIT,
+            ],
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.list_records",
+        return_value=(
+            [{"ifrc_family_id": 11, "family_label": "Water Treatment", "status_code": "A"}],
+            1,
+            [],
+        ),
+    )
+    def test_ifrc_family_list_is_exposed_via_generic_masterdata_endpoint(
+        self,
+        mock_list_records,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/ifrc_families/")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "ifrc_families")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["results"][0]["family_label"], "Water Treatment")
+        mock_list_records.assert_called_once_with(
+            "ifrc_families",
+            status_filter=None,
+            search=None,
+            order_by=None,
+            limit=views.DEFAULT_PAGE_LIMIT,
+            offset=0,
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            {
+                "ifrc_item_ref_id": 77,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "reference_desc": "Water purification tablet",
+                "size_weight": "500 G",
+                "form": "TABLET",
+                "material": "CHLORINE",
+                "status_code": "A",
+            },
+            [],
+        ),
+    )
+    @patch("masterdata.views.create_record", return_value=(77, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_ifrc_reference_create_supports_level3_metadata_fields(
+        self,
+        _mock_validate_record,
+        mock_create_record,
+        _mock_get_record,
+        _mock_permission,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/ifrc_item_references/",
+            {
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "reference_desc": "Water purification tablet",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "TB",
+                "size_weight": "500 g",
+                "form": "tablet",
+                "material": "chlorine",
+                "status_code": "A",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "ifrc_item_references")
+
+        self.assertEqual(response.status_code, 201)
+        forwarded_payload = mock_create_record.call_args.args[1]
+        self.assertEqual(forwarded_payload["size_weight"], "500 g")
+        self.assertEqual(forwarded_payload["form"], "tablet")
+        self.assertEqual(forwarded_payload["material"], "chlorine")
+        self.assertEqual(response.data["record"]["ifrc_item_ref_id"], 77)
+
+
 class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
     @classmethod
     def setUpClass(cls):
@@ -380,6 +531,9 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         )
         cls.migration_0006 = importlib.import_module(
             "masterdata.migrations.0006_canonical_item_code_phase1"
+        )
+        cls.migration_0007 = importlib.import_module(
+            "masterdata.migrations.0007_ifrc_reference_metadata_phase1"
         )
 
     @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
@@ -411,6 +565,23 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS ux_item_ifrc_item_ref_id_unique", executed_sql)
         self.assertIn("UPDATE tenant_a.item AS item", executed_sql)
 
+    @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
+    def test_0007_forwards_sql_adds_reference_metadata_columns(self, mock_sync):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+        with patch.object(self.migration_0007, "_relation_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration_0007._forwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn("ALTER TABLE tenant_a.ifrc_item_reference", executed_sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS size_weight", executed_sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS form", executed_sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS material", executed_sql)
+        mock_sync.assert_called_once_with(schema_editor.connection, schema="tenant_a")
+
 
 class SyncItemMasterTaxonomyCommandTests(SimpleTestCase):
     def test_dry_run_reports_seed_counts(self):
@@ -423,3 +594,4 @@ class SyncItemMasterTaxonomyCommandTests(SimpleTestCase):
         self.assertIn("Level 1 categories: 14", output)
         self.assertIn("IFRC families:", output)
         self.assertIn("IFRC item references:", output)
+

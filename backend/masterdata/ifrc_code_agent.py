@@ -467,6 +467,125 @@ def _encode_size(text: str) -> str:
     return ""
 
 
+_FORM_LABELS: dict[str, str] = {
+    "TB": "TABLET",
+    "LQ": "LIQUID",
+    "SL": "SOLUTION",
+    "PW": "POWDER",
+    "CN": "CAN",
+    "BR": "BAR",
+    "SC": "SACHET",
+    "CP": "CAPSULE",
+    "CR": "CREAM",
+    "RL": "ROLL",
+    "SH": "SHEET",
+    "KT": "KIT",
+    "PK": "PACK",
+    "BT": "BOTTLE",
+    "BG": "BAG",
+    "BX": "BOX",
+    "TU": "TUBE",
+    "GL": "GEL",
+    "SP": "SPRAY",
+    "SY": "SYRUP",
+    "IN": "INJECTION",
+    "IF": "INFUSION",
+    "LO": "LOTION",
+}
+
+_MATERIAL_LABELS: dict[str, str] = {
+    "AL": "ALUMINIZED",
+    "CT": "COTTON",
+    "PE": "POLYETHYLENE",
+    "PP": "POLYPROPYLENE",
+    "PL": "PLASTIC",
+    "RB": "RUBBER",
+    "NY": "NYLON",
+    "SY": "SYNTHETIC",
+    "SS": "STAINLESS",
+    "LX": "LATEX",
+    "WO": "WOOL",
+    "FL": "FLEECE",
+    "NI": "NITRILE",
+}
+
+
+def _extract_form_metadata(item_name: str, *, form: str = "") -> str:
+    explicit = (form or "").strip().lower()
+    if explicit:
+        for kw, code in _FORM_CODES.items():
+            if re.search(r"\b" + re.escape(kw) + r"\b", explicit):
+                return _FORM_LABELS.get(code, kw.upper())
+
+    normalized = (item_name or "").strip().lower()
+    for kw, code in _FORM_CODES.items():
+        if re.search(r"\b" + re.escape(kw) + r"\b", normalized):
+            return _FORM_LABELS.get(code, kw.upper())
+    return ""
+
+
+def _extract_material_metadata(item_name: str, *, material: str = "") -> str:
+    explicit = (material or "").strip().lower()
+    if explicit:
+        for kw, code in _MATERIAL_CODES.items():
+            if kw in explicit:
+                return _MATERIAL_LABELS.get(code, kw.upper())
+
+    normalized = (item_name or "").strip().lower()
+    for kw, code in _MATERIAL_CODES.items():
+        if kw in normalized:
+            return _MATERIAL_LABELS.get(code, kw.upper())
+    return ""
+
+
+def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> str:
+    source = (size_weight or item_name or "").strip().lower()
+    match = _SIZE_RE.search(source)
+    if not match:
+        return ""
+
+    raw_value = str(match.group(1) or "").strip()
+    raw_unit = str(match.group(2) or "").strip().lower()
+    unit_map = {
+        "kg": "KG",
+        "mg": "MG",
+        "g": "G",
+        "l": "L",
+        "lt": "L",
+        "liter": "L",
+        "litre": "L",
+        "ml": "ML",
+        "kva": "KVA",
+        "kw": "KW",
+        "cm": "CM",
+        "mm": "MM",
+    }
+    unit = unit_map.get(raw_unit, raw_unit.upper())
+    try:
+        value = Decimal(raw_value)
+        if value == value.to_integral():
+            value_text = str(value.quantize(Decimal("1")))
+        else:
+            value_text = format(value.normalize(), "f").rstrip("0").rstrip(".")
+    except (InvalidOperation, ValueError):
+        value_text = raw_value
+    return f"{value_text} {unit}".strip().upper()
+
+
+def extract_reference_metadata(
+    item_name: str,
+    *,
+    size_weight: str = "",
+    form: str = "",
+    material: str = "",
+) -> dict[str, str]:
+    return {
+        "size_weight": _extract_size_weight_metadata(item_name, size_weight=size_weight),
+        "form": _extract_form_metadata(item_name, form=form),
+        "material": _extract_material_metadata(item_name, material=material),
+    }
+
+
 def _encode_spec(
     item_name: str,
     form: str = "",
@@ -483,21 +602,18 @@ def _encode_spec(
     size_text = (size_weight or "").strip().lower()
     parts: list[str] = []
 
-    # Explicit form parameter takes priority over parsing item_name.
     if form_text:
         for kw, code in _FORM_CODES.items():
             if re.search(r"\b" + re.escape(kw) + r"\b", form_text):
                 parts.append(code)
                 break
 
-    # Fall back to form terms found in item_name.
     if not parts:
         for kw, code in _FORM_CODES.items():
             if re.search(r"\b" + re.escape(kw) + r"\b", n):
                 parts.append(code)
                 break
 
-    # Material code when no form matched, using explicit material first.
     if not parts:
         if material_text:
             for kw, code in _MATERIAL_CODES.items():
@@ -510,7 +626,6 @@ def _encode_spec(
                 parts.append(code)
                 break
 
-    # Size appended after form/material; explicit size hint takes precedence.
     size = _encode_size(size_text) if size_text else ""
     if not size:
         size = _encode_size(item_name)
@@ -518,7 +633,6 @@ def _encode_spec(
         parts.append(size)
 
     return "".join(parts)[:7]
-
 
 # ─── Collision check ──────────────────────────────────────────────────────────
 
@@ -924,4 +1038,5 @@ class IFRCAgent:
         if not _cfg("LLM_ENABLED") and result.match_type == "generated":
             result.match_type = "fallback"
         return result
+
 

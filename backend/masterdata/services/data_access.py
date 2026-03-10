@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.db import DatabaseError, connection, transaction
 
+from masterdata.item_master_taxonomy import taxonomy_source_version
+
 logger = logging.getLogger(__name__)
 
 _ORDER_BY_PATTERN = re.compile(
@@ -242,6 +244,73 @@ _register(TableConfig(
     ],
     dependencies=[
         DependencyDef("item", "category_id", "Items"),
+    ],
+))
+
+# -- IFRC Families -----------------------------------------------------------
+_register(TableConfig(
+    key="ifrc_families",
+    db_table="ifrc_family",
+    pk_field="ifrc_family_id",
+    display_name="IFRC Families",
+    default_order="family_label",
+    fields=[
+        FieldDef("ifrc_family_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("category_id", required=True, db_type="int", label="Level 1 Category",
+                 fk_table="itemcatg", fk_pk="category_id", fk_label="category_desc"),
+        FieldDef("group_code", required=True, uppercase=True, max_length=4,
+                 searchable=True, label="Group Code"),
+        FieldDef("group_label", required=True, max_length=120,
+                 searchable=True, label="Group Label"),
+        FieldDef("family_code", required=True, uppercase=True, max_length=6,
+                 searchable=True, label="Family Code"),
+        FieldDef("family_label", required=True, max_length=160,
+                 searchable=True, label="Family Label"),
+        FieldDef("source_version", required=False, max_length=80,
+                 default=taxonomy_source_version(), label="Source Version"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("item", "ifrc_family_id", "Items"),
+        DependencyDef("ifrc_item_reference", "ifrc_family_id", "IFRC Item References"),
+    ],
+))
+
+# -- IFRC Item References ----------------------------------------------------
+_register(TableConfig(
+    key="ifrc_item_references",
+    db_table="ifrc_item_reference",
+    pk_field="ifrc_item_ref_id",
+    display_name="IFRC Item References",
+    default_order="reference_desc",
+    fields=[
+        FieldDef("ifrc_item_ref_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("ifrc_family_id", required=True, db_type="int", label="IFRC Family",
+                 fk_table="ifrc_family", fk_pk="ifrc_family_id", fk_label="family_label"),
+        FieldDef("ifrc_code", required=True, unique=True, uppercase=True,
+                 max_length=30, searchable=True, label="IFRC Code"),
+        FieldDef("reference_desc", required=True, max_length=255,
+                 searchable=True, label="Reference Description"),
+        FieldDef("category_code", required=True, uppercase=True, max_length=6,
+                 searchable=True, label="Reference Category Code"),
+        FieldDef("category_label", required=True, max_length=160,
+                 searchable=True, label="Reference Category Label"),
+        FieldDef("spec_segment", required=False, uppercase=True, max_length=7,
+                 searchable=True, empty_as_null=True, label="Spec Segment"),
+        FieldDef("size_weight", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Size or Weight"),
+        FieldDef("form", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Form"),
+        FieldDef("material", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Material"),
+        FieldDef("source_version", required=False, max_length=80,
+                 default=taxonomy_source_version(), label="Source Version"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("item", "ifrc_item_ref_id", "Items"),
     ],
 ))
 
