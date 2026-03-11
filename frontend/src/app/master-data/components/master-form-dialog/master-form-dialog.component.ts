@@ -52,6 +52,17 @@ interface InactiveItemForwardWriteGuard {
       @if (data.config.formDescription) {
         <p class="form-description">{{ data.config.formDescription }}</p>
       }
+      @if (data.config.governanceNoteBody) {
+        <div class="governance-inline-note" role="note">
+          <mat-icon aria-hidden="true">info</mat-icon>
+          <div>
+            @if (data.config.governanceNoteTitle) {
+              <p class="governance-inline-note__title">{{ data.config.governanceNoteTitle }}</p>
+            }
+            <p class="governance-inline-note__body">{{ data.config.governanceNoteBody }}</p>
+          </div>
+        </div>
+      }
       <form [formGroup]="form" class="dialog-form">
         @if (submissionError(); as message) {
           <div class="form-submit-alert" role="alert" aria-live="assertive">
@@ -218,7 +229,7 @@ interface InactiveItemForwardWriteGuard {
       font-weight: 600;
       color: #1a1a1a;
     }
-    .form-description {
+        .form-description {
       margin: 12px 0 0;
       padding: 10px 14px;
       font-size: 0.82rem;
@@ -227,6 +238,36 @@ interface InactiveItemForwardWriteGuard {
       background: #f0fdfa;
       border-left: 3px solid #0f766e;
       border-radius: 4px;
+    }
+    .governance-inline-note {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      margin: 12px 0 0;
+      padding: 10px 12px;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      background: #eff6ff;
+    }
+    .governance-inline-note mat-icon {
+      color: #1d4ed8;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+    }
+    .governance-inline-note__title {
+      margin: 0 0 4px;
+      color: #0f172a;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    .governance-inline-note__body {
+      margin: 0;
+      color: #334155;
+      font-size: 0.8rem;
+      line-height: 1.4;
     }
     .dialog-form {
       display: flex;
@@ -606,3 +647,4 @@ export class MasterFormDialogComponent implements OnInit {
       .join(' ');
   }
 }
+

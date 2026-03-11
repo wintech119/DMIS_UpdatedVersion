@@ -117,21 +117,21 @@ describe('MasterListComponent', () => {
     }));
   }));
 
-  it('routes IFRC family create actions to page-mode /new routes', () => {
-    const { component, router } = setup('ifrc-families');
+  it('routes page-mode catalog create actions to /new routes', () => {
+    const { component, router } = setup('item-categories');
 
     component.onAdd();
 
     expect(component.config()).toEqual(jasmine.objectContaining({
-      routePath: 'ifrc-families',
-      tableKey: 'ifrc_families',
+      routePath: 'item-categories',
+      tableKey: 'item_categories',
       formMode: 'page',
     }));
-    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-families', 'new']);
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'item-categories', 'new']);
   });
 
   it('still opens the create dialog when a dialog-mode catalog list handles a pending create request', () => {
-    const { component } = setup('item-categories');
+    const { component } = setup('uom');
     const listHarness = component as never as {
       pendingDialogQueryAction: 'new' | null;
       handleDialogQueryAction: () => void;
@@ -140,8 +140,8 @@ describe('MasterListComponent', () => {
     const openFormDialogSpy = spyOn(listHarness, 'openFormDialog');
 
     expect(component.config()).toEqual(jasmine.objectContaining({
-      routePath: 'item-categories',
-      tableKey: 'item_categories',
+      routePath: 'uom',
+      tableKey: 'uom',
       formMode: 'dialog',
     }));
 

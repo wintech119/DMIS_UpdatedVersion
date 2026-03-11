@@ -502,7 +502,10 @@ def validate_item_payload(
         warnings.append("item_taxonomy_validation_failed")
         return errors, warnings
 
+    existing_family_id = existing_record.get("ifrc_family_id") if existing_record else None
     existing_reference_id = existing_record.get("ifrc_item_ref_id") if existing_record else None
+    family_selection_changed = not _same_identifier(existing_family_id, family_id)
+    reference_selection_changed = not _same_identifier(existing_reference_id, reference_id)
 
     if not is_update:
         if family_id in (None, ""):
@@ -523,6 +526,14 @@ def validate_item_payload(
         errors["ifrc_family_id"] = "Selected IFRC Family does not exist."
     if reference_id not in (None, "") and reference_row is None:
         errors["ifrc_item_ref_id"] = "Selected IFRC Item Reference does not exist."
+
+    if family_row and str(family_row.get("status_code") or "").upper() != "A":
+        if not is_update or family_selection_changed or existing_family_id in (None, ""):
+            errors["ifrc_family_id"] = "Selected IFRC Family is inactive."
+
+    if reference_row and str(reference_row.get("status_code") or "").upper() != "A":
+        if not is_update or reference_selection_changed or existing_reference_id in (None, ""):
+            errors["ifrc_item_ref_id"] = "Selected IFRC Item Reference is inactive."
 
     if family_row and category_id not in (None, ""):
         if int(family_row["category_id"]) != int(category_id):
@@ -927,6 +938,12 @@ def _normalize_item_code(value: Any) -> str | None:
         return None
     normalized = str(value).strip().upper()
     return normalized or None
+
+
+def _same_identifier(left: Any, right: Any) -> bool:
+    if left in (None, '') and right in (None, ''):
+        return True
+    return str(left).strip() == str(right).strip()
 
 
 def _missing_uom_codes(schema: str, uom_codes: list[str]) -> list[str]:

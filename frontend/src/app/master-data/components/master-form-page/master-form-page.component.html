@@ -50,6 +50,25 @@
           </div>
         }
 
+        @if (cfg.governanceNoteBody) {
+          <section class="form-section governance-note-section"
+            [class.governance-note-section--compact]="cfg.governanceNoteCompact"
+            aria-label="Policy guidance">
+            @if (cfg.governanceNoteTitle && !cfg.governanceNoteCompact) {
+              <p class="governance-note-section__title">{{ cfg.governanceNoteTitle }}</p>
+            }
+            <div class="governance-note-section__body" role="note">
+              <mat-icon aria-hidden="true">policy</mat-icon>
+              <p>
+                @if (cfg.governanceNoteTitle && cfg.governanceNoteCompact) {
+                  <strong>{{ cfg.governanceNoteTitle }}:</strong>{{ ' ' }}
+                }
+                {{ cfg.governanceNoteBody }}
+              </p>
+            </div>
+          </section>
+        }
+
         @if (cfg.formDescription) {
           <section class="form-section form-intro-section" aria-label="Form guidance">
             <p class="section-description form-intro-section__text">{{ cfg.formDescription }}</p>
@@ -221,6 +240,12 @@
 
               @if (isItemClassificationGroup(group.label)) {
                 <div class="form-field colspan-2 item-taxonomy-card">
+                  <div class="item-taxonomy-governance-note" id="item-taxonomy-governance-note" role="note">
+                    <mat-icon aria-hidden="true">policy</mat-icon>
+                    <p>
+                      Governance note: Category aligns to the selected IFRC Family. IFRC size, form, and material classify the reference; UOM is the operational issue or counting unit and may differ from IFRC form.
+                    </p>
+                  </div>
                   <div class="item-taxonomy-grid">
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
                       <mat-label>Level 1 DMIS Business Category</mat-label>
@@ -239,14 +264,14 @@
                         matSuffix
                         type="button"
                         class="field-help-button"
-                        matTooltip='Used for stock-health reporting and burn-rate fallbacks.'
+                        matTooltip='This is a policy-aligned field, not a free choice once the IFRC Family or IFRC Item Reference is selected.'
                         aria-label="More information about Level 1 DMIS Business Category">
                         <mat-icon>help_outline</mat-icon>
                       </button>
                       @if (lookupErrors()['item_categories']) {
                         <mat-error>{{ lookupErrors()['item_categories'] }}</mat-error>
                       } @else {
-                        <mat-hint>e.g. "Food" for corn beef or rice / "Shelter" for tarpaulins or blankets / "WASH" for water tablets</mat-hint>
+                        <mat-hint>Governed Level 1 business category used for reporting and burn-rate fallback. It must align with the selected IFRC Family.</mat-hint>
                       }
                       @if (getItemTaxonomyFieldError('category_id'); as error) {
                         <mat-error>{{ error }}</mat-error>
@@ -267,22 +292,16 @@
                         matSuffix
                         type="button"
                         class="field-help-button"
-                        matTooltip='Required for new items. Existing unmapped legacy items may remain blank until mapped.'
+                        matTooltip='Select the family that governs this item. The family drives category alignment and the list of valid IFRC references.'
                         aria-label="More information about Level 2 IFRC Family">
                         <mat-icon>help_outline</mat-icon>
                       </button>
                       @if (lookupErrors()['ifrc_families']) {
                         <mat-error>{{ lookupErrors()['ifrc_families'] }}</mat-error>
                       } @else if (!form.get('category_id')?.value) {
-                        <mat-hint>Select a Level 1 category first.</mat-hint>
+                        <mat-hint>Governed Level 2 family under the chosen Level 1 category. Select a Level 1 category first.</mat-hint>
                       } @else {
-                        <mat-hint>
-                          @if (isItemFamilyRequired()) {
-                            e.g. Under Food: "Canned Goods", "Dry Staples" / Under Shelter: "Tarpaulins", "Blankets"
-                          } @else {
-                            Optional for legacy items. e.g. Under Food: "Canned Goods" / Under Shelter: "Tarpaulins"
-                          }
-                        </mat-hint>
+                        <mat-hint>Governed Level 2 family under the chosen Level 1 category. The family determines which references are valid.</mat-hint>
                       }
                       @if (getItemTaxonomyFieldError('ifrc_family_id'); as error) {
                         <mat-error>{{ error }}</mat-error>
@@ -303,7 +322,7 @@
                           matSuffix
                           type="button"
                           class="field-help-button"
-                          matTooltip='Required for new items. If no exact match, choose the closest and note the difference in Description.'
+                          matTooltip='Search by IFRC description or code. Choose the closest governed reference and record any local difference in Description.'
                           aria-label="More information about Level 3 IFRC Item Reference">
                           <mat-icon>help_outline</mat-icon>
                         </button>
@@ -320,15 +339,9 @@
                         @if (lookupErrors()['ifrc_references']) {
                           <mat-error>{{ lookupErrors()['ifrc_references'] }}</mat-error>
                         } @else if (!form.get('ifrc_family_id')?.value) {
-                          <mat-hint>Select an IFRC family first, then type to search. e.g. "corn" or "tarpaulin 10"</mat-hint>
+                          <mat-hint>Governed Level 3 reference. Selecting it assigns the canonical item code and anchors category and UOM review. Select an IFRC Family first.</mat-hint>
                         } @else {
-                          <mat-hint>
-                            @if (isItemReferenceRequired()) {
-                              Type to search. e.g. "corn" or "tarpaulin 10". IFRC code is auto-assigned on selection.
-                            } @else {
-                              Optional for legacy items. Type to search. e.g. "corn" or "tarpaulin 10"
-                            }
-                          </mat-hint>
+                          <mat-hint>Governed Level 3 reference. Selecting it assigns the canonical item code and anchors category and UOM review.</mat-hint>
                         }
                         @if (getItemTaxonomyFieldError('ifrc_item_ref_id'); as error) {
                           <mat-error>{{ error }}</mat-error>
@@ -352,23 +365,52 @@
                     </div>
                   </div>
 
-                  @if (ifrcLoading() || ifrcSuggestion() || ifrcError()) {
-                    <section class="ifrc-suggestion-card" aria-label="IFRC classification assist">
+                  @if (shouldShowIfrcHelperPanel()) {
+                    <section class="ifrc-suggestion-card" aria-label="Find IFRC Match">
                       <div class="ifrc-suggestion-card__header">
                         <div>
-                          <p class="ifrc-suggestion-card__eyebrow">IFRC Classification Assist</p>
+                          <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
+                          <p class="ifrc-suggestion-card__intro">
+                            Use size, form, and material only to improve governed IFRC matching. These helper hints do not save as item identity fields.
+                          </p>
+                        </div>
+                        <div class="ifrc-suggestion-card__status-block">
                           @if (getIfrcSuggestionConfidence(); as confidence) {
                             <p class="ifrc-suggestion-card__confidence">{{ confidence }}</p>
                           }
+                          @if (ifrcLoading()) {
+                            <span class="ifrc-suggestion-card__status">Reviewing taxonomy...</span>
+                          } @else if (getIfrcSuggestionStatusText(); as suggestionStatus) {
+                            <span class="ifrc-suggestion-card__status">{{ suggestionStatus }}</span>
+                          }
                         </div>
-                        @if (ifrcLoading()) {
-                          <span class="ifrc-suggestion-card__status">Reviewing taxonomy...</span>
-                        } @else if (getIfrcSuggestionStatusText(); as suggestionStatus) {
-                          <span class="ifrc-suggestion-card__status">{{ suggestionStatus }}</span>
-                        }
                       </div>
 
-                      @if (ifrcError()) {
+                      <div class="ifrc-suggestion-card__helper-grid" [formGroup]="ifrcSpecForm">
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Size or Weight Hint</mat-label>
+                          <input matInput formControlName="size_weight" placeholder="e.g. 100 TAB or 10 KG" />
+                          <mat-hint>Optional helper hint only. This does not persist as the item identity.</mat-hint>
+                        </mat-form-field>
+
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Form Hint</mat-label>
+                          <input matInput formControlName="form" placeholder="e.g. TABLET, BAG, KIT" />
+                          <mat-hint>Optional IFRC classification hint. This is not the same as the operational UOM.</mat-hint>
+                        </mat-form-field>
+
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Material Hint</mat-label>
+                          <input matInput formControlName="material" placeholder="e.g. CHLORINE or COTTON" />
+                          <mat-hint>Optional helper hint for governed matching only.</mat-hint>
+                        </mat-form-field>
+                      </div>
+
+                      @if (!hasIfrcSuggestionActivity()) {
+                        <p class="ifrc-suggestion-card__message neutral">
+                          Start with Item Name, then add optional IFRC size, form, or material hints only if you need help narrowing the governed reference.
+                        </p>
+                      } @else if (ifrcError()) {
                         <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
                       } @else if (ifrcSuggestion(); as suggestion) {
                         <dl class="ifrc-suggestion-card__details">
@@ -930,16 +972,4 @@
     }
   </div>
 }
-
-
-
-
-
-
-
-
-
-
-
-
 

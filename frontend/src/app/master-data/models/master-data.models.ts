@@ -61,6 +61,12 @@ export interface MasterTableConfig {
   hasStatus?: boolean;
   /** Instructional text shown at the top of the create/edit form */
   formDescription?: string;
+  /** Optional always-visible governance guidance shown above the form */
+  governanceNoteTitle?: string;
+  /** Optional always-visible governance guidance copy shown above the form */
+  governanceNoteBody?: string;
+  /** Render governance guidance in a more compact layout when space is limited */
+  governanceNoteCompact?: boolean;
   /** Columns shown in the list view */
   columns: MasterColumnConfig[];
   /** Fields shown in the create/edit form */
@@ -141,5 +147,4 @@ export interface MasterInactivateBlockedResponse {
   blocking: string[];
   warnings: string[];
 }
-
 

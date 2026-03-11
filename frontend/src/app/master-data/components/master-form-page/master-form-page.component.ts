@@ -244,6 +244,10 @@ export class MasterFormPageComponent implements OnInit {
         this.setupItemTaxonomyState(cfg);
         this.setupItemIfrcSuggestion(cfg);
         this.loadLookups(cfg);
+        if (this.pk()) {
+          this.primeGovernedEditState();
+          this.loadRecord();
+        }
       }
     });
 
@@ -254,6 +258,7 @@ export class MasterFormPageComponent implements OnInit {
       if (pkParam && pkParam !== 'new') {
         this.pk.set(pkParam);
         this.isEdit.set(true);
+        this.primeGovernedEditState();
         this.loadRecord();
       }
     });
@@ -1809,7 +1814,7 @@ export class MasterFormPageComponent implements OnInit {
     if (tableKey === 'ifrc_families') {
       return {
         warning_required: true,
-        warning_text: 'You are editing an IFRC Family. Code fields are locked after creation. To change a code, use "Create Replacement" to make a new version.',
+        warning_text: 'You are modifying governed IFRC Family data. Changes may affect classification, search, and future item selection. Canonical code-bearing fields stay locked, and code corrections must use replacement instead of overwrite.',
         locked_fields: ['group_code', 'family_code'],
         replacement_supported: true,
       };
@@ -1818,7 +1823,7 @@ export class MasterFormPageComponent implements OnInit {
     if (tableKey === 'ifrc_item_references') {
       return {
         warning_required: true,
-        warning_text: 'You are editing an IFRC Item Reference. Code fields are locked after creation. To change a code, use "Create Replacement" to make a new version.',
+        warning_text: 'You are modifying governed IFRC Item Reference data. Changes may affect classification, search, and future item selection. Canonical code-bearing fields stay locked, and code corrections must use replacement instead of overwrite.',
         locked_fields: ['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment'],
         replacement_supported: true,
       };
@@ -1845,9 +1850,25 @@ export class MasterFormPageComponent implements OnInit {
 
     this.promptedGovernedEditWarning = true;
     const lockedFieldPreview = this.getCatalogLockedFieldLabels().slice(0, 4).join(', ');
-    const details = lockedFieldPreview
-      ? [{ label: 'Locked Fields', value: lockedFieldPreview, icon: 'lock' }]
-      : [];
+    const details = [
+      {
+        label: 'Impact',
+        value: 'Changes may affect classification, search, and future item selection.',
+        icon: 'policy',
+      },
+      {
+        label: 'Code Corrections',
+        value: 'Use Create Replacement instead of overwriting canonical fields.',
+        icon: 'content_copy',
+      },
+    ];
+    if (lockedFieldPreview) {
+      details.splice(1, 0, {
+        label: 'Locked Fields',
+        value: lockedFieldPreview,
+        icon: 'lock',
+      });
+    }
 
     const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
       data: {
@@ -1871,6 +1892,19 @@ export class MasterFormPageComponent implements OnInit {
     });
   }
 
+  private primeGovernedEditState(): void {
+    const cfg = this.config();
+    if (!cfg || !this.isEdit() || !this.isGovernedCatalogAuthoringTable()) {
+      return;
+    }
+
+    if (!this.catalogEditGuidance()) {
+      this.catalogEditGuidance.set(this.getDefaultCatalogEditGuidance(cfg.tableKey));
+    }
+
+    this.applyGovernedCatalogFieldState();
+    this.maybePromptGovernedEditWarning();
+  }
   private restoreLoadedRecordSnapshot(): void {
     const cfg = this.config();
     if (!cfg || !this.loadedRecordSnapshot) {
@@ -1978,6 +2012,16 @@ export class MasterFormPageComponent implements OnInit {
     return !!this.form.get('ifrc_family_id')?.value;
   }
 
+  shouldShowIfrcHelperPanel(): boolean {
+    return this.isItemRecord() && (
+      !this.isEdit()
+      || this.hasIfrcSuggestionActivity()
+    );
+  }
+
+  hasIfrcSuggestionActivity(): boolean {
+    return this.ifrcLoading() || this.ifrcSuggestion() != null || this.ifrcError() != null;
+  }
   isManagedItemCodeField(fieldName: string): boolean {
     return this.isItemRecord() && fieldName === 'item_code';
   }
@@ -2312,6 +2356,7 @@ export class MasterFormPageComponent implements OnInit {
       'Tracking & Behaviour': 'track_changes',
       'Notes & Storage': 'notes',
       'Notes': 'notes',
+      'Category Details': 'folder_open',
     };
     return iconMap[groupLabel] || 'folder';
   }

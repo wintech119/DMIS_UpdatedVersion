@@ -8,9 +8,9 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
   routePath: 'ifrc-families',
   formMode: 'page',
   formDescription:
-    'An IFRC Family groups similar products together under a business category. ' +
-    'Fill in the Family Label, then use "Suggest Family Values" to auto-fill the codes. ' +
-    'Once saved, codes are locked. Use "Create Replacement" if a code needs to change.',
+    'An IFRC Family groups similar products together under a governed Level 1 category. ' +
+    'Fill in the Family Label, then use "Suggest Family Values" to auto-fill the IFRC codes. ' +
+    'Group label helps users read the taxonomy, but category alignment is governed at the family level. Once saved, codes are locked.',
   searchPlaceholder: 'Search by group, family code, or label...',
   columns: [
     { field: 'ifrc_family_id', header: 'ID', type: 'number', sortable: true, hideMobile: true },
@@ -38,8 +38,8 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       required: true,
       lookupTable: 'item_categories',
       group: 'Start Here',
-      hint: 'Which business category does this family belong to? E.g. Medical Supplies, Food and Water.',
-      tooltip: 'Setting this before suggesting helps narrow the results to the right branch.',
+      hint: 'Governed Level 1 DMIS category inherited by items classified under this family.',
+      tooltip: 'Choose the approved business category for this family. Group label alone does not determine the Level 1 category.',
     },
     {
       field: 'group_code',
@@ -50,7 +50,7 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       uppercase: true,
       readonlyOnEdit: true,
       group: 'Codes',
-      hint: '1-4 letters. The broad product area. E.g. F (Food), W (Water), M (Medical), S (Shelter).',
+      hint: '1-4 letters. Broad IFRC product area. This helps form the IFRC code but does not by itself set the Level 1 DMIS category.',
       tooltip: 'Locked after creation. Use "Suggest Family Values" to auto-fill, or enter manually if you know the IFRC code.',
     },
     {
@@ -73,7 +73,7 @@ export const IFRC_FAMILY_CONFIG: MasterTableConfig = {
       maxLength: 120,
       group: 'Details',
       hint: 'Full name for the group. Up to 120 characters. E.g. "Food and Nutrition", "Water and Sanitation".',
-      tooltip: 'Should match the Group Code. Can be updated after creation.',
+      tooltip: 'Display label for the IFRC group. Useful for users, but Level 1 category is governed from the family-category mapping.',
     },
     {
       field: 'source_version',

@@ -8,9 +8,9 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
   routePath: 'ifrc-item-references',
   formMode: 'page',
   formDescription:
-    'An IFRC Item Reference is a specific product type within a family. ' +
-    'Pick the IFRC Family and enter a description, then use "Suggest Reference Values" to auto-fill the codes. ' +
-    'Adding size, form, or material improves the suggestion. Once saved, code fields are locked.',
+    'An IFRC Item Reference is a specific governed product type within a family. ' +
+    'Pick the IFRC Family and enter a description, then use "Suggest Reference Values" to auto-fill the IFRC classification codes. ' +
+    'The reference inherits its Level 1 category through the family. Size, form, and material improve classification, but they do not define the item\'s operational UOM.',
   searchPlaceholder: 'Search by IFRC code, description, or spec attributes...',
   columns: [
     { field: 'ifrc_item_ref_id', header: 'ID', type: 'number', sortable: true, hideMobile: true },
@@ -29,8 +29,8 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_families',
       readonlyOnEdit: true,
       group: 'Start Here',
-      hint: 'Which product family does this reference belong to? E.g. "Water Purification", "Grains and Cereals".',
-      tooltip: 'Pick the family first — the suggest tool needs it to build the correct code prefix.',
+      hint: 'Which governed IFRC family does this reference belong to? The reference inherits its Level 1 category through that family.',
+      tooltip: 'Pick the family first because it controls the code prefix and the Level 1 category this reference rolls up to.',
     },
     {
       field: 'reference_desc',
@@ -60,7 +60,7 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       uppercase: true,
       group: 'Product Attributes',
       hint: 'Optional. Up to 40 characters. E.g. TABLET, POWDER, LIQUID, BAG, KIT, BOTTLE, CANNED.',
-      tooltip: 'Describes how the product is packaged or presented. Improves the suggested spec segment.',
+      tooltip: 'Classification attribute only. It improves the suggested IFRC spec segment, but it is not the same as the item master UOM.',
     },
     {
       field: 'material',
@@ -81,8 +81,8 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       uppercase: true,
       readonlyOnEdit: true,
       group: 'Generated Codes',
-      hint: 'The full product code. Up to 30 characters. E.g. FGRARICE01, WWTRTABL01. Auto-filled by suggestions.',
-      tooltip: 'Locked after creation. Built from family + category + spec + sequence. Use "Create Replacement" if it needs to change.',
+      hint: 'The full governed product code. Up to 30 characters. Auto-filled by suggestions and later used as the mapped item\'s canonical code.',
+      tooltip: 'Locked after creation. Built from family + category + spec + sequence. When an item maps to this reference, the item master uses this code canonically.',
     },
     {
       field: 'category_code',
@@ -93,7 +93,7 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       uppercase: true,
       readonlyOnEdit: true,
       group: 'Generated Codes',
-      hint: 'Short product type within the family. Up to 6 characters. E.g. RICE, TABL, BLNK, TARP.',
+      hint: 'Short governed IFRC product type within the family. This is not the same as the Level 1 DMIS business category.',
       tooltip: 'Locked after creation. Auto-filled by the suggest tool based on the description.',
     },
     {
@@ -103,8 +103,8 @@ export const IFRC_ITEM_REFERENCE_CONFIG: MasterTableConfig = {
       required: true,
       maxLength: 160,
       group: 'Generated Codes',
-      hint: 'Readable name matching the category code. Up to 160 characters. E.g. "Rice", "Tablet", "Blanket".',
-      tooltip: 'Can be edited after creation. Keep it consistent with the category code.',
+      hint: 'Readable label matching the IFRC category code within the family. This is separate from the Level 1 DMIS business category.',
+      tooltip: 'Can be edited after creation. Keep it consistent with the IFRC category code used inside this family.',
     },
     {
       field: 'spec_segment',

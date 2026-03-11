@@ -219,6 +219,97 @@ class ItemMasterValidationTests(SimpleTestCase):
             "Selected IFRC Item Reference does not belong to the chosen IFRC Family.",
         )
 
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "A"},
+    )
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_family",
+        return_value={"ifrc_family_id": 11, "category_id": 102, "group_code": "W", "family_code": "WTR", "family_label": "Water Treatment", "status_code": "I"},
+    )
+    def test_validate_item_payload_rejects_inactive_family_for_new_mapping(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "ifrc_family_id": 11,
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors["ifrc_family_id"], "Selected IFRC Family is inactive.")
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "I"},
+    )
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_family",
+        return_value={"ifrc_family_id": 11, "category_id": 102, "group_code": "W", "family_code": "WTR", "family_label": "Water Treatment", "status_code": "A"},
+    )
+    def test_validate_item_payload_rejects_inactive_reference_for_new_mapping(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "ifrc_family_id": 11,
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors["ifrc_item_ref_id"], "Selected IFRC Item Reference is inactive.")
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "I"},
+    )
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_family",
+        return_value={"ifrc_family_id": 11, "category_id": 102, "group_code": "W", "family_code": "WTR", "family_label": "Water Treatment", "status_code": "I"},
+    )
+    def test_validate_item_payload_allows_unchanged_inactive_mapping_on_existing_item_update(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {"item_name": "UPDATED WATER TABS"},
+            is_update=True,
+            existing_record={
+                "category_id": 102,
+                "ifrc_family_id": 11,
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors, {})
+
 
 class ItemMasterWritePayloadTests(SimpleTestCase):
     @patch(

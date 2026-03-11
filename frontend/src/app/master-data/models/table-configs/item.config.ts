@@ -29,6 +29,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
   pkField: 'item_id',
   routePath: 'items',
   formMode: 'page',
+  formDescription:
+    'Items are governed by the selected IFRC Family and IFRC Item Reference. ' +
+    'The Level 1 category must stay aligned to that governed classification, and the Default UOM should follow the approved operational issue or counting unit for the selected item.',
   searchPlaceholder: 'Search by item code, legacy code, name, SKU, category, IFRC family, description, or IFRC code...',
   columns: [
     { field: 'item_code', header: 'Item Code', type: 'text', sortable: true },
@@ -51,8 +54,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       pattern: '^[A-Z0-9\\-_\\.]+$',
       patternMessage: 'Only uppercase letters, digits, hyphens, underscores, and dots are allowed.',
       group: 'Item Identity',
-      hint: 'Backend-managed canonical IFRC code. Select a Level 3 IFRC reference to preview the derived code.',
-      tooltip: 'Auto-generated from your Level 3 IFRC Item Reference selection. e.g. HFOO.COR.CAN, HSHE.TAR.10X12',
+      hint: 'Canonical code derived from the selected Level 3 IFRC reference. This is governed and not typed manually.',
+      tooltip: 'Auto-generated from the selected IFRC reference. If the reference changes, the canonical item code changes with it.',
     },
     {
       field: 'item_name',
@@ -86,8 +89,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'item_categories',
       displayField: 'category_desc',
       group: 'Classification',
-      hint: 'Required. Keep the operational Level 1 business category aligned to the item.',
-      tooltip: 'Used for stock-health reporting and burn-rate fallbacks. e.g. "Food" for corn beef / "Shelter" for tarpaulins / "WASH" for water tablets',
+      hint: 'Governed Level 1 business category used for reporting and burn-rate fallback. It must align with the selected IFRC Family.',
+      tooltip: 'This is a policy-aligned field, not a free choice once the IFRC Family or IFRC Item Reference is selected.',
     },
     {
       field: 'ifrc_family_id',
@@ -96,8 +99,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_families',
       displayField: 'ifrc_family_label',
       group: 'Classification',
-      hint: 'Product family within the selected category.',
-      tooltip: 'Required for new items. Existing unmapped legacy items may remain blank until mapped. e.g. Under Food: "Canned Goods", "Dry Staples" / Under Shelter: "Tarpaulins", "Blankets"',
+      hint: 'Governed Level 2 family under the chosen Level 1 category. The family determines which references are valid.',
+      tooltip: 'Select the family that governs this item. The family drives category alignment and the list of valid IFRC references.',
     },
     {
       field: 'ifrc_item_ref_id',
@@ -106,8 +109,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_references',
       displayField: 'ifrc_reference_desc',
       group: 'Classification',
-      hint: 'Type part of the name to search. IFRC code is auto-assigned once selected.',
-      tooltip: 'Required for new items. If no exact match, choose the closest and note the difference in Description. e.g. "corn" or "tarpaulin 10"',
+      hint: 'Governed Level 3 reference. Selecting it assigns the canonical item code and anchors category and UOM review.',
+      tooltip: 'Search by IFRC description or code. Choose the closest governed reference and record any local difference in Description.',
     },
     {
       field: 'item_desc',
@@ -115,7 +118,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'textarea',
       required: true,
       group: 'Classification',
-      hint: 'Include size, weight, packaging, and any spec that distinguishes this item from similar ones.',
+      hint: 'Include size, weight, packaging, and any local spec that distinguishes this item from the governed IFRC reference.',
       placeholder: 'e.g. Corned beef, 340g tin, shelf-stable',
       tooltip: 'e.g. "Corned beef in 340g tin, shelf-stable, halal certified" or "Heavy-duty tarpaulin, 10ft x 12ft, blue/white, reinforced grommets"',
     },
@@ -127,8 +130,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       required: true,
       lookupTable: 'uom',
       group: 'Inventory Rules',
-      hint: 'Smallest countable unit used when issuing this item.',
-      tooltip: 'e.g. EA (each) for individual tins / CS (case) for boxes of 24 / KG for bulk rice / PK (pack) for kits',
+      hint: 'Operational issue or counting unit for this item. It should follow the approved unit for the selected IFRC reference or local policy.',
+      tooltip: 'UOM is not always the same as IFRC form. A reference may classify as BAG, BOTTLE, or TABLET while stock is counted as EA, CS, KG, or L.',
     },
     {
       field: 'reorder_qty',

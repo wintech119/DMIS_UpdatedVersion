@@ -47,8 +47,11 @@ describe('MasterHomeComponent', () => {
     expect(routePaths).toContain('ifrc-item-references');
   });
 
-  it('routes IFRC family and item-reference create actions through page-mode /new flows', () => {
+  it('routes governed catalog create actions through page-mode /new flows', () => {
     const { component, router } = setup();
+
+    component.create('item-categories');
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'item-categories', 'new']);
 
     component.create('ifrc-families');
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-families', 'new']);
@@ -60,9 +63,9 @@ describe('MasterHomeComponent', () => {
   it('keeps dialog-mode create actions on the list screen for simple masters', () => {
     const { component, router } = setup();
 
-    component.create('item-categories');
+    component.create('uom');
 
-    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'item-categories'], {
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'uom'], {
       queryParams: { open: 'new' },
     });
   });

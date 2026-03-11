@@ -24,7 +24,7 @@ function dialogRoutes(routePath: string): Routes {
 export const MASTER_DATA_ROUTES: Routes = [
   { path: '', component: MasterHomeComponent, pathMatch: 'full' },
 
-  ...dialogRoutes('item-categories'),
+  ...pageRoutes('item-categories'),
   ...dialogRoutes('uom'),
   ...dialogRoutes('countries'),
   ...dialogRoutes('currencies'),
@@ -42,3 +42,4 @@ export const MASTER_DATA_ROUTES: Routes = [
   ...pageRoutes('events'),
   ...pageRoutes('suppliers'),
 ];
+

@@ -10,6 +10,9 @@ import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { IFRCSuggestion } from '../../models/ifrc-suggest.models';
+import { ITEM_CONFIG } from '../../models/table-configs/item.config';
+import { IFRC_FAMILY_CONFIG } from '../../models/table-configs/ifrc-family.config';
+import { IFRC_ITEM_REFERENCE_CONFIG } from '../../models/table-configs/ifrc-item-reference.config';
 
 function buildBaseItemRecord() {
   return {
@@ -581,6 +584,48 @@ describe('MasterFormPageComponent', () => {
     expect(itemCodeInput?.readOnly).toBeTrue();
   });
 
+  it('shows a visible governance note beside the item classification controls', () => {
+    const { fixture } = setup();
+
+    const note = fixture.nativeElement.querySelector('#item-taxonomy-governance-note') as HTMLElement | null;
+
+    expect(note).not.toBeNull();
+    expect(note?.textContent).toContain('Category aligns to the selected IFRC Family.');
+    expect(note?.textContent).toContain('UOM is the operational issue or counting unit and may differ from IFRC form.');
+  });
+
+  it('shows the approved Item Categories governance panel on the page form', () => {
+    const { fixture } = setup('item-categories');
+
+    const governancePanel = fixture.nativeElement.querySelector('.governance-note-section') as HTMLElement | null;
+
+    expect(governancePanel).not.toBeNull();
+    expect(governancePanel?.textContent).toContain('Why this matters');
+    expect(governancePanel?.textContent).toContain('This category is used for reporting and stock-planning rules.');
+  });
+
+  it('uses the approved Item Master governance copy in the config', () => {
+    const itemCodeField = ITEM_CONFIG.formFields.find((field) => field.field === 'item_code');
+    const uomField = ITEM_CONFIG.formFields.find((field) => field.field === 'default_uom_code');
+
+    expect(ITEM_CONFIG.formDescription).toContain('Items are governed by the selected IFRC Family and IFRC Item Reference.');
+    expect(itemCodeField?.hint).toBe('Canonical code derived from the selected Level 3 IFRC reference. This is governed and not typed manually.');
+    expect(itemCodeField?.tooltip).toContain('the canonical item code changes with it');
+    expect(uomField?.tooltip).toContain('UOM is not always the same as IFRC form.');
+  });
+
+  it('uses the approved governed catalog copy in the IFRC family and reference configs', () => {
+    const familyCategoryField = IFRC_FAMILY_CONFIG.formFields.find((field) => field.field === 'category_id');
+    const referenceFormField = IFRC_ITEM_REFERENCE_CONFIG.formFields.find((field) => field.field === 'form');
+    const referenceCodeField = IFRC_ITEM_REFERENCE_CONFIG.formFields.find((field) => field.field === 'ifrc_code');
+
+    expect(IFRC_FAMILY_CONFIG.formDescription).toContain('under a governed Level 1 category');
+    expect(familyCategoryField?.tooltip).toContain('Group label alone does not determine the Level 1 category.');
+    expect(IFRC_ITEM_REFERENCE_CONFIG.formDescription).toContain("they do not define the item's operational UOM");
+    expect(referenceFormField?.tooltip).toContain('it is not the same as the item master UOM.');
+    expect(referenceCodeField?.hint).toContain("used as the mapped item's canonical code");
+  });
+
   it('keeps legacy edit records with null IFRC fields editable and preserves the existing item code display', () => {
     const { component } = setup('items', { pk: '17' });
 
@@ -659,6 +704,38 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('reference_desc')?.disabled).toBeFalse();
   });
 
+  it('opens the governed edit warning dialog with the required actions and impact guidance', () => {
+    const { component } = setup('ifrc-item-references', { pk: '77' });
+    const dialogOpen = jasmine.createSpy('open').and.returnValue({ afterClosed: () => of(true) } as never);
+    const internalComponent = component as unknown as {
+      dialog: { open: typeof dialogOpen };
+      promptedGovernedEditWarning: boolean;
+      maybePromptGovernedEditWarning: () => void;
+    };
+
+    internalComponent.dialog = { open: dialogOpen };
+    component.isEdit.set(true);
+    component.catalogEditGuidance.set(
+      buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+    );
+    internalComponent.promptedGovernedEditWarning = false;
+    internalComponent.maybePromptGovernedEditWarning();
+
+    expect(dialogOpen).toHaveBeenCalled();
+
+    const openArgs = dialogOpen.calls.mostRecent().args;
+    const dialogData = openArgs[1]?.data as {
+      confirmLabel?: string;
+      cancelLabel?: string;
+      details?: Array<{ value?: string }>;
+    };
+
+    expect(dialogData.confirmLabel).toBe('Continue to Edit');
+    expect(dialogData.cancelLabel).toBe('Cancel');
+    expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('classification, search, and future item selection'))).toBeTrue();
+    expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('Create Replacement'))).toBeTrue();
+  });
+
   it('applies suggested IFRC family values during governed family creation', () => {
     const { component, masterDataService, notificationService } = setup('ifrc-families');
 
@@ -682,6 +759,17 @@ describe('MasterFormPageComponent', () => {
 
   it('keeps locked canonical fields unchanged when applying suggestions during normal IFRC reference edits', () => {
     const { component, notificationService } = setup('ifrc-item-references', { pk: '77' });
+    const internalComponent = component as unknown as {
+      applyGovernedCatalogFieldState: () => void;
+    };
+
+    component.isEdit.set(true);
+    component.pk.set('77');
+    component.catalogEditGuidance.set(
+      buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+    );
+    component.form.patchValue(buildIfrcReferenceRecord(), { emitEvent: false });
+    internalComponent.applyGovernedCatalogFieldState();
 
     component.onSuggestCatalogValues();
     component.onApplyCatalogSuggestion();
@@ -732,11 +820,23 @@ describe('MasterFormPageComponent', () => {
 
     const requiredField = component.config()?.formFields.find((field) => field.field === 'reference_desc');
     expect(requiredField).toBeDefined();
-    expect(component.getRenderedFieldLabel(requiredField!)).toBe('Reference Description (required)');
+    expect(requiredField?.required).toBeTrue();
+    expect(component.getRenderedFieldLabel(requiredField!)).toBe('Reference Description');
     expect(component.getFieldTooltip(requiredField!)).toContain('description to propose codes');
   });
   it('creates a governed replacement record for IFRC references instead of patching the original record', () => {
     const { component, masterDataService, router } = setup('ifrc-item-references', { pk: '77' });
+    const internalComponent = component as unknown as {
+      applyGovernedCatalogFieldState: () => void;
+    };
+
+    component.isEdit.set(true);
+    component.pk.set('77');
+    component.catalogEditGuidance.set(
+      buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+    );
+    component.form.patchValue(buildIfrcReferenceRecord(), { emitEvent: false });
+    internalComponent.applyGovernedCatalogFieldState();
 
     component.onStartReplacementDraft();
     component.form.patchValue({

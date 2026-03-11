@@ -22,6 +22,9 @@ describe('MASTER_DATA_ROUTES', () => {
     const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
 
     expect(routePaths).toContain('item-categories');
+    expect(routePaths).toContain('item-categories/new');
+    expect(routePaths).toContain('item-categories/:pk');
+    expect(routePaths).toContain('item-categories/:pk/edit');
     expect(routePaths).toContain('ifrc-families');
     expect(routePaths).toContain('ifrc-families/new');
     expect(routePaths).toContain('ifrc-families/:pk');
@@ -30,5 +33,14 @@ describe('MASTER_DATA_ROUTES', () => {
     expect(routePaths).toContain('ifrc-item-references/new');
     expect(routePaths).toContain('ifrc-item-references/:pk');
     expect(routePaths).toContain('ifrc-item-references/:pk/edit');
+  });
+
+  it('keeps UOM on list-only routing while it remains a dialog-sized maintenance form', () => {
+    const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
+
+    expect(routePaths).toContain('uom');
+    expect(routePaths).not.toContain('uom/new');
+    expect(routePaths).not.toContain('uom/:pk');
+    expect(routePaths).not.toContain('uom/:pk/edit');
   });
 });
