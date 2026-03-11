@@ -208,6 +208,23 @@ export class MasterFormPageComponent implements OnInit {
     return groups;
   });
 
+  /** True when the last field group is a single Status select — collapse into action bar */
+  lastGroupIsSingleStatus = computed(() => {
+    const groups = this.fieldGroups();
+    if (groups.length === 0) return false;
+    const last = groups[groups.length - 1];
+    return last.label === 'Status' && last.fields.length === 1 && last.fields[0].type === 'select';
+  });
+
+  /** Returns the groups to render as section cards (excludes collapsed status group) */
+  renderableFieldGroups = computed(() => {
+    const groups = this.fieldGroups();
+    if (this.lastGroupIsSingleStatus()) {
+      return groups.slice(0, -1);
+    }
+    return groups;
+  });
+
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
   isBatchedItem = computed(() => Boolean(this.form.get('is_batched_flag')?.value));
   canAssignLocation = computed(() => this.isItemRecord() && this.isEdit() && this.toPositiveInt(this.pk()) != null);
@@ -1572,7 +1589,17 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getRenderedFieldLabel(field: MasterFieldConfig): string {
-    return field.required ? `${field.label} (required)` : field.label;
+    return field.label;
+  }
+
+  getStatusField(): MasterFieldConfig | null {
+    if (!this.lastGroupIsSingleStatus()) return null;
+    const groups = this.fieldGroups();
+    return groups[groups.length - 1].fields[0];
+  }
+
+  getStatusOptions(): { value: string; label: string }[] {
+    return this.getStatusField()?.options ?? [];
   }
 
   getFieldTooltip(field: MasterFieldConfig): string | null {

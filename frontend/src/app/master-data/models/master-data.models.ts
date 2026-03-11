@@ -44,6 +44,8 @@ export interface MasterFieldConfig {
   hint?: string;
   /** Optional tooltip text rendered from an inline help affordance */
   tooltip?: string;
+  /** Optional placeholder text shown inside the input when empty */
+  placeholder?: string;
 }
 
 export interface MasterTableConfig {

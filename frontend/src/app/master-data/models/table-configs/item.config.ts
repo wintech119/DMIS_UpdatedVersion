@@ -52,6 +52,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       patternMessage: 'Only uppercase letters, digits, hyphens, underscores, and dots are allowed.',
       group: 'Item Identity',
       hint: 'Backend-managed canonical IFRC code. Select a Level 3 IFRC reference to preview the derived code.',
+      tooltip: 'Auto-generated from your Level 3 IFRC Item Reference selection. e.g. HFOO.COR.CAN, HSHE.TAR.10X12',
     },
     {
       field: 'item_name',
@@ -61,7 +62,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
       maxLength: 60,
       uppercase: true,
       group: 'Item Identity',
-      hint: 'Display name shown across dashboards and reports.',
+      hint: 'Display name shown across dashboards and reports. Use common name + key spec.',
+      placeholder: 'e.g. CORN BEEF, CANNED',
+      tooltip: 'Enter the common name followed by key specification details separated by commas. e.g. CORN BEEF, CANNED / TARPAULIN, 10 X 12 / RICE, WHITE, 5 KG BAG',
     },
     {
       field: 'sku_code',
@@ -71,6 +74,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       uppercase: true,
       group: 'Item Identity',
       hint: 'Inventory or procurement system reference, if one exists.',
+      placeholder: 'e.g. SKU-2401-CB12',
+      tooltip: 'Use the vendor or procurement SKU if available. Leave blank if no external reference exists. e.g. SKU-2401-CB12, WH-TARP-1012, INV-00345',
     },
 
     {
@@ -81,7 +86,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'item_categories',
       displayField: 'category_desc',
       group: 'Classification',
-      hint: 'Required. Used for stock-health reporting and burn-rate fallbacks.',
+      hint: 'Required. Keep the operational Level 1 business category aligned to the item.',
+      tooltip: 'Used for stock-health reporting and burn-rate fallbacks. e.g. "Food" for corn beef / "Shelter" for tarpaulins / "WASH" for water tablets',
     },
     {
       field: 'ifrc_family_id',
@@ -90,7 +96,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_families',
       displayField: 'ifrc_family_label',
       group: 'Classification',
-      hint: 'Required for new items. Existing unmapped legacy items may remain blank until they are mapped.',
+      hint: 'Product family within the selected category.',
+      tooltip: 'Required for new items. Existing unmapped legacy items may remain blank until mapped. e.g. Under Food: "Canned Goods", "Dry Staples" / Under Shelter: "Tarpaulins", "Blankets"',
     },
     {
       field: 'ifrc_item_ref_id',
@@ -99,7 +106,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       lookupTable: 'ifrc_references',
       displayField: 'ifrc_reference_desc',
       group: 'Classification',
-      hint: 'Required for new items. Search by description first, then confirm the IFRC code.',
+      hint: 'Type part of the name to search. IFRC code is auto-assigned once selected.',
+      tooltip: 'Required for new items. If no exact match, choose the closest and note the difference in Description. e.g. "corn" or "tarpaulin 10"',
     },
     {
       field: 'item_desc',
@@ -107,7 +115,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'textarea',
       required: true,
       group: 'Classification',
-      hint: 'Purpose, packaging, or specification notes for this item.',
+      hint: 'Include size, weight, packaging, and any spec that distinguishes this item from similar ones.',
+      placeholder: 'e.g. Corned beef, 340g tin, shelf-stable',
+      tooltip: 'e.g. "Corned beef in 340g tin, shelf-stable, halal certified" or "Heavy-duty tarpaulin, 10ft x 12ft, blue/white, reinforced grommets"',
     },
 
     {
@@ -117,7 +127,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       required: true,
       lookupTable: 'uom',
       group: 'Inventory Rules',
-      hint: 'Base unit for stock counts, movements, and needs-list quantities.',
+      hint: 'Smallest countable unit used when issuing this item.',
+      tooltip: 'e.g. EA (each) for individual tins / CS (case) for boxes of 24 / KG for bulk rice / PK (pack) for kits',
     },
     {
       field: 'reorder_qty',
@@ -125,7 +136,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'number',
       required: true,
       group: 'Inventory Rules',
-      hint: 'Triggers a replenishment request when stock reaches this level.',
+      hint: 'Triggers replenishment when stock reaches this level. Consider lead time and demand.',
+      placeholder: 'e.g. 100',
+      tooltip: 'e.g. 100 for corn beef tins (covers ~2 days) / 50 for tarpaulins',
     },
     {
       field: 'issuance_order',
@@ -139,7 +152,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
         { value: 'LIFO', label: 'LIFO (Last In, First Out)' },
       ],
       group: 'Inventory Rules',
-      hint: 'FIFO = first received. FEFO = earliest expiry. LIFO = latest received.',
+      hint: 'FIFO: best default for most items. FEFO: required for perishable food & medicine. LIFO: rarely used.',
+      tooltip: 'FIFO issues oldest stock first. FEFO issues earliest expiry first (required when Can Expire is enabled). LIFO issues newest first.',
     },
     {
       field: 'baseline_burn_rate',
@@ -147,7 +161,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'number',
       defaultValue: 0,
       group: 'Inventory Rules',
-      hint: 'Fallback used for stockout predictions when no demand history exists.',
+      hint: 'Units consumed per hour. Set 0 if unknown — system will auto-calculate from demand.',
+      placeholder: 'e.g. 5',
+      tooltip: 'Fallback for stockout predictions when no demand history exists. e.g. 5 for corn beef tins / 2 for tarpaulins',
     },
     {
       field: 'min_stock_threshold',
@@ -155,7 +171,9 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'number',
       defaultValue: 0,
       group: 'Inventory Rules',
-      hint: 'Items below this floor are flagged critical on the dashboard.',
+      hint: 'Items below this floor are flagged CRITICAL on the dashboard. Set 0 to use burn-rate only.',
+      placeholder: 'e.g. 50',
+      tooltip: 'e.g. 50 for corn beef tins / 20 for tarpaulins / 200 for water tablets',
     },
     {
       field: 'criticality_level',
@@ -169,7 +187,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
         { value: 'CRITICAL', label: 'Critical' },
       ],
       group: 'Inventory Rules',
-      hint: 'Baseline catalog criticality only. Runtime decisions use resolved criticality.',
+      hint: 'Baseline catalog criticality. Runtime decisions use resolved criticality based on event phase.',
+      tooltip: 'CRITICAL: water, medicine, infant formula / HIGH: rice, tarpaulins / NORMAL: canned goods / LOW: stationery',
     },
 
     {
@@ -179,7 +198,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       defaultValue: true,
       colspan: 2,
       group: 'Tracking & Behaviour',
-      hint: 'Records lot or batch numbers for all stock movements.',
+      hint: 'Enable lot/batch tracking for stock movements.',
+      tooltip: 'ON for canned food, medicine, donated goods. OFF for generic supplies like rope or nails.',
     },
     {
       field: 'can_expire_flag',
@@ -188,7 +208,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       defaultValue: false,
       colspan: 2,
       group: 'Tracking & Behaviour',
-      hint: 'Tracks expiration dates. FEFO is required whenever this is enabled.',
+      hint: 'Tracks expiration dates. When enabled, Issuance Order must be set to FEFO.',
+      tooltip: 'ON for food, medicine, batteries, water tablets. OFF for tarpaulins, blankets, tools.',
     },
     {
       field: 'units_size_vary_flag',
@@ -197,7 +218,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       defaultValue: false,
       colspan: 2,
       group: 'Tracking & Behaviour',
-      hint: 'Units may vary in size or weight, for example loose produce or bundles.',
+      hint: 'Enable when individual units are not uniform in size or weight.',
+      tooltip: 'ON for loose produce, variable-weight bags, mixed bundles. OFF for tins, pre-packaged kits, sealed cartons.',
     },
 
     {
@@ -206,7 +228,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'textarea',
       maxLength: 300,
       group: 'Notes & Storage',
-      hint: 'How and when this item is distributed or consumed.',
+      hint: 'How and when this item is distributed or consumed during a response.',
+      tooltip: 'e.g. "Distributed 1 tin per person per day at shelter feeding points" or "Issued 1 per household for roof repair"',
     },
     {
       field: 'storage_desc',
@@ -214,7 +237,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
       type: 'textarea',
       maxLength: 300,
       group: 'Notes & Storage',
-      hint: 'Handling instructions, temperature, or special storage conditions.',
+      hint: 'Handling instructions, temperature requirements, or special storage conditions.',
+      tooltip: 'e.g. "Cool, dry area below 30C; stack max 6 high" or "Folded on pallets, away from sunlight"',
     },
     {
       field: 'comments_text',
@@ -224,6 +248,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       colspan: 2,
       group: 'Notes & Storage',
       hint: 'Administrative notes and audit-relevant context.',
+      tooltip: 'e.g. "Donated by WFP, ref WFP-2024-0892" or "Replaces legacy TARP-OLD-001" or "Pre-positioned per ODPEM directive 2024-15"',
     },
 
     {
