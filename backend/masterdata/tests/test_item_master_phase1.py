@@ -9,7 +9,10 @@ from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from masterdata import views
-from masterdata.item_master_taxonomy import build_ifrc_taxonomy_seed_payload
+from masterdata.item_master_taxonomy import (
+    _backfill_default_item_uom_options,
+    build_ifrc_taxonomy_seed_payload,
+)
 from masterdata.services.catalog_governance import (
     catalog_detail_metadata,
     suggest_ifrc_family_authoring,
@@ -20,7 +23,9 @@ from masterdata.services.data_access import TABLE_REGISTRY
 from masterdata.services.item_master import (
     ITEM_CANONICAL_CONFLICT_CODE,
     _build_item_write_payload,
+    _ensure_default_item_uom_option,
     _normalize_item_uom_options,
+    _replace_item_uom_options,
     find_item_canonical_conflict,
     list_item_records,
     validate_item_payload,
@@ -919,6 +924,62 @@ class ItemMasterUomOptionTests(SimpleTestCase):
 
         self.assertIsNone(options)
         self.assertEqual(errors, {})
+
+    def test_ensure_default_demotes_existing_default_before_promoting_new_default(self):
+        cursor = MagicMock()
+        with patch("masterdata.services.item_master.connection") as mock_connection:
+            mock_connection.cursor.return_value.__enter__.return_value = cursor
+
+            _ensure_default_item_uom_option("public", 7, "BOX", "tester")
+
+        self.assertEqual(cursor.execute.call_count, 2)
+        first_sql = cursor.execute.call_args_list[0].args[0]
+        second_sql = cursor.execute.call_args_list[1].args[0]
+        self.assertIn("UPDATE public.item_uom_option AS item_uom_option", first_sql)
+        self.assertIn("is_default = FALSE", first_sql)
+        self.assertIn("INSERT INTO public.item_uom_option", second_sql)
+        self.assertEqual(cursor.execute.call_args_list[0].args[1], ["tester", 7, "BOX"])
+
+    def test_replace_uom_options_demotes_existing_default_before_upserts(self):
+        cursor = MagicMock()
+        options = [
+            {
+                "uom_code": "BOX",
+                "conversion_factor": Decimal("12"),
+                "is_default": True,
+                "sort_order": 0,
+            },
+            {
+                "uom_code": "EA",
+                "conversion_factor": Decimal("1"),
+                "is_default": False,
+                "sort_order": 1,
+            },
+        ]
+        with patch("masterdata.services.item_master.connection") as mock_connection:
+            mock_connection.cursor.return_value.__enter__.return_value = cursor
+
+            _replace_item_uom_options("public", 9, options, "tester")
+
+        self.assertGreaterEqual(cursor.execute.call_count, 3)
+        first_sql = cursor.execute.call_args_list[0].args[0]
+        second_sql = cursor.execute.call_args_list[1].args[0]
+        self.assertIn("UPDATE public.item_uom_option AS item_uom_option", first_sql)
+        self.assertIn("is_default = FALSE", first_sql)
+        self.assertIn("INSERT INTO public.item_uom_option", second_sql)
+        self.assertEqual(cursor.execute.call_args_list[0].args[1], ["tester", 9, "BOX"])
+
+    def test_backfill_demotes_existing_default_before_promoting_item_default(self):
+        cursor = MagicMock()
+
+        _backfill_default_item_uom_options(cursor, "tenant_a", "system")
+
+        self.assertEqual(cursor.execute.call_count, 2)
+        first_sql = cursor.execute.call_args_list[0].args[0]
+        second_sql = cursor.execute.call_args_list[1].args[0]
+        self.assertIn("UPDATE tenant_a.item_uom_option AS item_uom_option", first_sql)
+        self.assertIn("is_default = FALSE", first_sql)
+        self.assertIn("INSERT INTO tenant_a.item_uom_option", second_sql)
 
 
 class SyncItemMasterTaxonomyCommandTests(SimpleTestCase):

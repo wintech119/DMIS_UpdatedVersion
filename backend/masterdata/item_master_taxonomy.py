@@ -520,6 +520,22 @@ def _sync_references(
 def _backfill_default_item_uom_options(cursor, schema: str, actor_id: str) -> None:
     cursor.execute(
         f"""
+        UPDATE {schema}.item_uom_option AS item_uom_option
+        SET
+            is_default = FALSE,
+            update_by_id = %s,
+            update_dtime = NOW(),
+            version_nbr = item_uom_option.version_nbr + 1
+        FROM {schema}.item AS item
+        WHERE item.item_id = item_uom_option.item_id
+          AND item_uom_option.uom_code <> item.default_uom_code
+          AND item_uom_option.is_default = TRUE
+        """,
+        [actor_id],
+    )
+
+    cursor.execute(
+        f"""
         INSERT INTO {schema}.item_uom_option (
             item_id,
             uom_code,
@@ -558,20 +574,4 @@ def _backfill_default_item_uom_options(cursor, schema: str, actor_id: str) -> No
             version_nbr = item_uom_option.version_nbr + 1
         """,
         [actor_id, actor_id],
-    )
-
-    cursor.execute(
-        f"""
-        UPDATE {schema}.item_uom_option AS item_uom_option
-        SET
-            is_default = FALSE,
-            update_by_id = %s,
-            update_dtime = NOW(),
-            version_nbr = item_uom_option.version_nbr + 1
-        FROM {schema}.item AS item
-        WHERE item.item_id = item_uom_option.item_id
-          AND item_uom_option.uom_code <> item.default_uom_code
-          AND item_uom_option.is_default = TRUE
-        """,
-        [actor_id],
     )

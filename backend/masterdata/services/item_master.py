@@ -1039,6 +1039,20 @@ def _ensure_default_item_uom_option(
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
+            UPDATE {schema}.item_uom_option AS item_uom_option
+            SET
+                is_default = FALSE,
+                update_by_id = %s,
+                update_dtime = NOW(),
+                version_nbr = item_uom_option.version_nbr + 1
+            WHERE item_id = %s
+              AND uom_code <> %s
+              AND is_default = TRUE
+            """,
+            [actor_id, item_id, default_uom_code],
+        )
+        cursor.execute(
+            f"""
             INSERT INTO {schema}.item_uom_option (
                 item_id,
                 uom_code,
@@ -1065,20 +1079,6 @@ def _ensure_default_item_uom_option(
             """,
             [item_id, default_uom_code, actor_id, actor_id],
         )
-        cursor.execute(
-            f"""
-            UPDATE {schema}.item_uom_option AS item_uom_option
-            SET
-                is_default = FALSE,
-                update_by_id = %s,
-                update_dtime = NOW(),
-                version_nbr = item_uom_option.version_nbr + 1
-            WHERE item_id = %s
-              AND uom_code <> %s
-              AND is_default = TRUE
-            """,
-            [actor_id, item_id, default_uom_code],
-        )
 
 
 def _replace_item_uom_options(
@@ -1091,6 +1091,25 @@ def _replace_item_uom_options(
         return
 
     with connection.cursor() as cursor:
+        default_uom_code = next(
+            (str(option["uom_code"]).upper() for option in options if option.get("is_default")),
+            "",
+        )
+        if default_uom_code:
+            cursor.execute(
+                f"""
+                UPDATE {schema}.item_uom_option AS item_uom_option
+                SET
+                    is_default = FALSE,
+                    update_by_id = %s,
+                    update_dtime = NOW(),
+                    version_nbr = item_uom_option.version_nbr + 1
+                WHERE item_id = %s
+                  AND uom_code <> %s
+                  AND is_default = TRUE
+                """,
+                [actor_id, item_id, default_uom_code],
+            )
         for option in options:
             cursor.execute(
                 f"""
