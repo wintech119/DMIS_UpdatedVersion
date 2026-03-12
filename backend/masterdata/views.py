@@ -863,6 +863,38 @@ def _handle_detail(cfg, pk_value):
     if cfg.key == "items":
         record, warnings = get_item_record(pk_value)
         if record is None:
+            transient_warning = next(
+                (
+                    warning
+                    for warning in warnings
+                    if warning == "db_unavailable" or warning.startswith("transient")
+                ),
+                None,
+            )
+            if transient_warning is not None:
+                return Response(
+                    {
+                        "detail": "Item detail lookup is temporarily unavailable.",
+                        "diagnostic": (
+                            "get_item_record returned no record and a transient read warning "
+                            f"while loading item detail: {transient_warning}"
+                        ),
+                        "warnings": warnings,
+                    },
+                    status=503,
+                )
+            if "db_error" in warnings:
+                return Response(
+                    {
+                        "detail": "Failed to load item detail.",
+                        "diagnostic": (
+                            "get_item_record returned no record and a database read warning "
+                            "while loading item detail: db_error"
+                        ),
+                        "warnings": warnings,
+                    },
+                    status=500,
+                )
             return Response({"detail": "Not found."}, status=404)
         return Response({"record": record, "warnings": warnings})
 

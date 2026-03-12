@@ -281,6 +281,39 @@ class ItemUpdateValidationContextTests(SimpleTestCase):
         )
 
 
+class ItemDetailReadFailureTests(SimpleTestCase):
+    def setUp(self):
+        self.cfg = TABLE_REGISTRY["items"]
+
+    @patch("masterdata.views.get_item_record", return_value=(None, ["db_error"]))
+    def test_item_detail_returns_500_when_item_read_fails(self, _mock_get_item_record):
+        response = views._handle_detail(self.cfg, 42)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data["detail"], "Failed to load item detail.")
+        self.assertEqual(response.data["warnings"], ["db_error"])
+        self.assertIn("db_error", response.data["diagnostic"])
+
+    @patch("masterdata.views.get_item_record", return_value=(None, ["db_unavailable"]))
+    def test_item_detail_returns_503_when_item_read_is_transient(self, _mock_get_item_record):
+        response = views._handle_detail(self.cfg, 42)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.data["detail"],
+            "Item detail lookup is temporarily unavailable.",
+        )
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
+
+    @patch("masterdata.views.get_item_record", return_value=(None, []))
+    def test_item_detail_keeps_404_for_true_miss(self, _mock_get_item_record):
+        response = views._handle_detail(self.cfg, 42)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {"detail": "Not found."})
+
+
 class InactiveItemForwardWriteTests(SimpleTestCase):
     def setUp(self):
         self.cfg = TABLE_REGISTRY["inventory"]

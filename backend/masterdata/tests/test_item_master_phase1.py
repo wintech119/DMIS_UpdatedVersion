@@ -823,10 +823,21 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
             "masterdata.migrations.0008_catalog_governance_audit"
         )
 
-    @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
-    def test_0005_forwards_sql_uses_configured_schema(self, mock_sync):
+    def test_0005_forwards_sql_uses_configured_schema(self):
+        cursor = MagicMock()
+        connection = MagicMock(vendor="postgresql")
+        connection.cursor.return_value.__enter__.return_value = cursor
+        categories = self.migration_0005._FROZEN_ITEM_MASTER_SEED_PAYLOAD["categories"]
+        families = self.migration_0005._FROZEN_ITEM_MASTER_SEED_PAYLOAD["families"]
+        cursor.fetchall.side_effect = [
+            [(row["category_code"], row["category_id"]) for row in categories],
+            [
+                (row["group_code"], row["family_code"], index)
+                for index, row in enumerate(families, start=1)
+            ],
+        ]
         schema_editor = SimpleNamespace(
-            connection=SimpleNamespace(vendor="postgresql"),
+            connection=connection,
             execute=MagicMock(),
         )
         with patch.object(self.migration_0005, "_legacy_item_table_exists", return_value=True):
@@ -834,9 +845,22 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
                 self.migration_0005._forwards(None, schema_editor)
 
         executed_sql = schema_editor.execute.call_args.args[0]
-        self.assertIn("CREATE TABLE IF NOT EXISTS tenant_a.ifrc_family", executed_sql)
-        self.assertIn("ALTER TABLE tenant_a.item", executed_sql)
-        mock_sync.assert_called_once_with(schema_editor.connection, schema="tenant_a")
+        self.assertIn('CREATE TABLE IF NOT EXISTS "tenant_a".ifrc_family', executed_sql)
+        self.assertIn('ALTER TABLE "tenant_a".item', executed_sql)
+
+        seed_sql_statements = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertTrue(
+            any('INSERT INTO "tenant_a".itemcatg' in sql for sql in seed_sql_statements)
+        )
+        self.assertTrue(
+            any('INSERT INTO "tenant_a".ifrc_family' in sql for sql in seed_sql_statements)
+        )
+        reference_seed_sql = next(
+            sql
+            for sql in seed_sql_statements
+            if 'INSERT INTO "tenant_a".ifrc_item_reference' in sql
+        )
+        self.assertNotIn("size_weight", reference_seed_sql)
 
     def test_0006_forwards_sql_adds_legacy_code_and_reference_uniqueness(self):
         schema_editor = SimpleNamespace(
