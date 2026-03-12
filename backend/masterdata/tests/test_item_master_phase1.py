@@ -1078,6 +1078,21 @@ class ItemMasterUomOptionTests(SimpleTestCase):
         self.assertIn("INSERT INTO public.item_uom_option", second_sql)
         self.assertEqual(cursor.execute.call_args_list[0].args[1], ["tester", 9, "BOX"])
 
+    def test_replace_uom_options_inactivates_existing_rows_when_options_empty(self):
+        cursor = MagicMock()
+        with patch("masterdata.services.item_master.connection") as mock_connection:
+            mock_connection.cursor.return_value.__enter__.return_value = cursor
+
+            _replace_item_uom_options("public", 9, [], "tester")
+
+        self.assertEqual(cursor.execute.call_count, 1)
+        sql = cursor.execute.call_args.args[0]
+        params = cursor.execute.call_args.args[1]
+        self.assertIn("UPDATE public.item_uom_option AS item_uom_option", sql)
+        self.assertIn("status_code = 'I'", sql)
+        self.assertIn("AND status_code <> 'I'", sql)
+        self.assertEqual(params, ["tester", 9])
+
     def test_backfill_demotes_existing_default_before_promoting_item_default(self):
         cursor = MagicMock()
 

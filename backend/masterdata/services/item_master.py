@@ -1103,6 +1103,20 @@ def _replace_item_uom_options(
     actor_id: str,
 ) -> None:
     if not options:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE {schema}.item_uom_option AS item_uom_option
+                SET
+                    status_code = 'I',
+                    update_by_id = %s,
+                    update_dtime = NOW(),
+                    version_nbr = item_uom_option.version_nbr + 1
+                WHERE item_id = %s
+                  AND status_code <> 'I'
+                """,
+                [actor_id, item_id],
+            )
         return
 
     with connection.cursor() as cursor:
