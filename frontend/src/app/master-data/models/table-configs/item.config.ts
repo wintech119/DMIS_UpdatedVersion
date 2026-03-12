@@ -83,7 +83,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
 
     {
       field: 'category_id',
-      label: 'Level 1 DMIS Business Category',
+      label: 'Level 1 Category',
       type: 'lookup',
       required: true,
       lookupTable: 'item_categories',

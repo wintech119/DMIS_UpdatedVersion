@@ -248,7 +248,7 @@
                   </div>
                   <div class="item-taxonomy-grid">
                     <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
-                      <mat-label>Level 1 DMIS Business Category</mat-label>
+                      <mat-label>Level 1 Category</mat-label>
                       <mat-select formControlName="category_id" aria-required="true">
                         @for (item of itemCategoryOptions(); track item.value) {
                           <mat-option [value]="item.value">
@@ -265,7 +265,7 @@
                         type="button"
                         class="field-help-button"
                         matTooltip='This is a policy-aligned field, not a free choice once the IFRC Family or IFRC Item Reference is selected.'
-                        aria-label="More information about Level 1 DMIS Business Category">
+                        aria-label="More information about Level 1 Category">
                         <mat-icon>help_outline</mat-icon>
                       </button>
                       @if (lookupErrors()['item_categories']) {
@@ -366,12 +366,12 @@
                   </div>
 
                   @if (shouldShowIfrcHelperPanel()) {
-                    <section class="ifrc-suggestion-card" aria-label="Find IFRC Match">
+                    <section class="ifrc-suggestion-card" aria-label="IFRC Suggestion">
                       <div class="ifrc-suggestion-card__header">
                         <div>
-                          <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
+                          <p class="ifrc-suggestion-card__eyebrow">IFRC Suggestion</p>
                           <p class="ifrc-suggestion-card__intro">
-                            Use size, form, and material only to improve governed IFRC matching. These helper hints do not save as item identity fields.
+                            Auto-matched from the selected category, family, and item reference.
                           </p>
                         </div>
                         <div class="ifrc-suggestion-card__status-block">
@@ -386,29 +386,9 @@
                         </div>
                       </div>
 
-                      <div class="ifrc-suggestion-card__helper-grid" [formGroup]="ifrcSpecForm">
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Size or Weight Hint</mat-label>
-                          <input matInput formControlName="size_weight" placeholder="e.g. 100 TAB or 10 KG" />
-                          <mat-hint>Optional helper hint only. This does not persist as the item identity.</mat-hint>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Form Hint</mat-label>
-                          <input matInput formControlName="form" placeholder="e.g. TABLET, BAG, KIT" />
-                          <mat-hint>Optional IFRC classification hint. This is not the same as the operational UOM.</mat-hint>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Material Hint</mat-label>
-                          <input matInput formControlName="material" placeholder="e.g. CHLORINE or COTTON" />
-                          <mat-hint>Optional helper hint for governed matching only.</mat-hint>
-                        </mat-form-field>
-                      </div>
-
                       @if (!hasIfrcSuggestionActivity()) {
                         <p class="ifrc-suggestion-card__message neutral">
-                          Start with Item Name, then add optional IFRC size, form, or material hints only if you need help narrowing the governed reference.
+                          Enter the Item Name and select the classification levels above to generate an IFRC suggestion.
                         </p>
                       } @else if (ifrcError()) {
                         <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
