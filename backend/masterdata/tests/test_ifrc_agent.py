@@ -208,6 +208,21 @@ class TestSegmentExtraction(TestCase):
         self.assertEqual(metadata["material"], "PLASTIC")
         self.assertEqual(metadata["size_weight"], "500 G")
 
+    def test_extract_reference_metadata_from_dimension_description(self):
+        metadata = extract_reference_metadata("tarpaulin 4x5 m")
+
+        self.assertEqual(metadata["size_weight"], "4X5 M2")
+
+    def test_extract_reference_metadata_from_area_description(self):
+        metadata = extract_reference_metadata("family tent 16 m2")
+
+        self.assertEqual(metadata["size_weight"], "16 M2")
+
+    def test_extract_reference_metadata_preserves_raw_dimension_value(self):
+        metadata = extract_reference_metadata("tarpaulin", size_weight="4 x 5 sq m")
+
+        self.assertEqual(metadata["size_weight"], "4X5 M2")
+
 
 class TestIFRCAgent(TestCase):
     def setUp(self):

@@ -946,6 +946,88 @@ class IFRCSuggestViewTests(SimpleTestCase):
     @patch("masterdata.views._allow_ifrc_request", return_value=True)
     @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
     @patch(
+        "masterdata.views._load_ifrc_reference_candidates",
+        return_value=[
+            {
+                "ifrc_item_ref_id": 88,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB01",
+                "reference_desc": "WATER KIT",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "TB",
+                "size_weight": "",
+                "form": "",
+                "material": "",
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WTR",
+                "family_label": "Treatment",
+            },
+            {
+                "ifrc_item_ref_id": 89,
+                "ifrc_family_id": 11,
+                "ifrc_code": "WWTRTABLTB02",
+                "reference_desc": "WATER FILTER",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "TB",
+                "size_weight": "",
+                "form": "",
+                "material": "",
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WTR",
+                "family_label": "Treatment",
+            },
+        ],
+    )
+    @patch("masterdata.views._fetch_ifrc_reference_by_code", return_value=None)
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=11)
+    @patch("masterdata.views._ifrc_agent")
+    def test_auto_highlight_threshold_just_below_default(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        _mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="WWTRTABLTB99",
+            standardised_name="WATER KIT",
+            confidence=0.84,
+            match_type="generated",
+            construction_rationale="Group=W Family=WTR Category=TABL Spec=TB SEQ=99",
+            llm_used=False,
+            grp="W",
+            fam="WTR",
+            cat="TABL",
+            spec_seg="TB",
+            seq=99,
+        )
+
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water kit"})
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["confidence"], 0.84)
+        self.assertEqual(response.data["auto_fill_threshold"], 0.85)
+        self.assertEqual(response.data["resolution_status"], "ambiguous")
+        self.assertEqual(response.data["candidate_count"], 2)
+        self.assertIsNone(response.data["resolved_ifrc_item_ref_id"])
+        self.assertIsNone(response.data["auto_highlight_candidate_id"])
+        self.assertFalse(response.data["direct_accept_allowed"])
+        self.assertEqual(response.data["candidates"][0]["score"], 0.83)
+        self.assertFalse(response.data["candidates"][0]["auto_highlight"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch(
         "masterdata.views._resolve_ifrc_suggestion",
         return_value={
             "resolution_status": "unresolved",

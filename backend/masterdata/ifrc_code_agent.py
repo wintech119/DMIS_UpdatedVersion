@@ -371,6 +371,14 @@ _SIZE_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(kg|mg|g|l|lt|liter|litre|ml|kva|kw|cm|mm)\b",
     re.IGNORECASE,
 )
+_DIMENSION_RE = re.compile(
+    r"(\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m)\b",
+    re.IGNORECASE,
+)
+_AREA_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m)\b",
+    re.IGNORECASE,
+)
 
 _VRNT_PHRASE_CODES: list[tuple[str, str]] = [
     ("medium thermal", "MT"),
@@ -540,12 +548,16 @@ def _extract_material_metadata(item_name: str, *, material: str = "") -> str:
 
 def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> str:
     source = (size_weight or item_name or "").strip().lower()
-    match = _SIZE_RE.search(source)
+    match = _DIMENSION_RE.search(source)
+    if not match:
+        match = _AREA_RE.search(source)
+    if not match:
+        match = _SIZE_RE.search(source)
     if not match:
         return ""
 
-    raw_value = str(match.group(1) or "").strip()
-    raw_unit = str(match.group(2) or "").strip().lower()
+    raw_value = re.sub(r"\s*x\s*", "x", str(match.group(1) or "").strip())
+    raw_unit = re.sub(r"\s+", " ", str(match.group(2) or "").strip().lower())
     unit_map = {
         "kg": "KG",
         "mg": "MG",
@@ -559,6 +571,11 @@ def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> s
         "kw": "KW",
         "cm": "CM",
         "mm": "MM",
+        "m2": "M2",
+        "m^2": "M2",
+        "m": "M2",
+        "sqm": "M2",
+        "sq m": "M2",
     }
     unit = unit_map.get(raw_unit, raw_unit.upper())
     try:

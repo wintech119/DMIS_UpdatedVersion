@@ -229,14 +229,14 @@
           </section>
         }
 
-        @for (group of renderableFieldGroups(); track group.label) {
+        @for (group of renderableFieldGroups(); track group.key) {
           <section class="form-section" [attr.aria-label]="group.label + ' section'">
-            <h3 class="section-title" [id]="'section-heading-' + group.label">
+            <h3 class="section-title" [id]="'section-heading-' + group.key">
               <mat-icon aria-hidden="true">{{ getSectionIcon(group.label) }}</mat-icon>
               {{ group.label }}
             </h3>
 
-            <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.label">
+            <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.key">
 
               @if (isItemClassificationGroup(group.label)) {
                 <div class="form-field colspan-2 item-taxonomy-card">

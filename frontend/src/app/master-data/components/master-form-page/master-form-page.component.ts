@@ -103,6 +103,12 @@ interface CatalogSuggestionRequirement {
   ready: boolean;
 }
 
+interface FormFieldGroup {
+  key: string;
+  label: string;
+  fields: MasterFieldConfig[];
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -193,19 +199,25 @@ export class MasterFormPageComponent implements OnInit {
   });
 
   /** Group form fields by their group property */
-  fieldGroups = computed(() => {
+  fieldGroups = computed<FormFieldGroup[]>(() => {
     const cfg = this.config();
     if (!cfg) return [];
-    const groups: { label: string; fields: MasterFieldConfig[] }[] = [];
-    const seen = new Map<string, MasterFieldConfig[]>();
+    const groups: FormFieldGroup[] = [];
+    const seen = new Map<string, FormFieldGroup>();
+    const usedKeys = new Map<string, number>();
 
     for (const f of cfg.formFields) {
       const groupLabel = f.group || 'General';
-      if (!seen.has(groupLabel)) {
-        seen.set(groupLabel, []);
-        groups.push({ label: groupLabel, fields: seen.get(groupLabel)! });
+      let group = seen.get(groupLabel);
+
+      if (!group) {
+        const groupKey = this.buildFieldGroupKey(groupLabel, usedKeys);
+        group = { key: groupKey, label: groupLabel, fields: [] };
+        seen.set(groupLabel, group);
+        groups.push(group);
       }
-      seen.get(groupLabel)!.push(f);
+
+      group.fields.push(f);
     }
     return groups;
   });
@@ -1771,6 +1783,21 @@ export class MasterFormPageComponent implements OnInit {
     return this.getStatusField()?.options ?? [];
   }
 
+  private buildFieldGroupKey(label: string, usedKeys: Map<string, number>): string {
+    const slugBase = this.slugifyFieldGroupLabel(label) || 'general';
+    const duplicateCount = usedKeys.get(slugBase) ?? 0;
+    usedKeys.set(slugBase, duplicateCount + 1);
+    return duplicateCount === 0 ? slugBase : `${slugBase}-${duplicateCount + 1}`;
+  }
+
+  private slugifyFieldGroupLabel(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   getFieldTooltip(field: MasterFieldConfig): string | null {
     const tooltip = String(field.tooltip ?? '').trim();
     return tooltip || null;
@@ -2155,7 +2182,7 @@ export class MasterFormPageComponent implements OnInit {
     }
   }
 
-  getRenderableFields(group: { label: string; fields: MasterFieldConfig[] }): MasterFieldConfig[] {
+  getRenderableFields(group: FormFieldGroup): MasterFieldConfig[] {
     if (!this.isItemRecord() || group.label !== 'Classification') {
       return group.fields;
     }

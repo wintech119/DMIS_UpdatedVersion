@@ -1274,6 +1274,20 @@ describe('MasterFormPageComponent', () => {
     expect(component.getRenderedFieldLabel(requiredField!)).toBe('Reference Description');
     expect(component.getFieldTooltip(requiredField!)).toContain('description to propose codes');
   });
+
+  it('uses stable slug ids for section headings and fieldset labels', () => {
+    const { fixture } = setup('items');
+    const compiled = fixture.nativeElement as HTMLElement;
+    const identityHeading = Array.from(compiled.querySelectorAll<HTMLHeadingElement>('h3.section-title'))
+      .find((heading) => heading.textContent?.includes('Item Identity'));
+
+    expect(identityHeading).toBeTruthy();
+    expect(identityHeading?.id).toBe('section-heading-item-identity');
+
+    const identityFieldset = identityHeading?.closest('section')?.querySelector('fieldset.form-grid');
+    expect(identityFieldset?.getAttribute('aria-labelledby')).toBe('section-heading-item-identity');
+  });
+
   it('creates a governed replacement record for IFRC references instead of patching the original record', () => {
     const { component, masterDataService, router } = setup('ifrc-item-references', { pk: '77' });
     const internalComponent = component as unknown as {
