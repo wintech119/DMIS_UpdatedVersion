@@ -458,6 +458,15 @@ def validate_item_payload(
     is_update: bool,
     existing_record: dict[str, Any] | None = None,
 ) -> tuple[dict[str, str], list[str]]:
+    def parse_numeric_identifier(value: Any, field_name: str) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            errors[field_name] = "Invalid numeric ID."
+            return None
+
     errors: dict[str, str] = {}
     warnings: list[str] = []
 
@@ -468,6 +477,8 @@ def validate_item_payload(
     category_id = _merged_value(data, existing_record, "category_id")
     family_id = _merged_value(data, existing_record, "ifrc_family_id")
     reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
+    parsed_category_id = parse_numeric_identifier(category_id, "category_id")
+    parsed_family_id = parse_numeric_identifier(family_id, "ifrc_family_id")
     default_uom_code = str(
         _merged_value(data, existing_record, "default_uom_code") or ""
     ).strip().upper()
@@ -481,7 +492,11 @@ def validate_item_payload(
         return errors, warnings
 
     try:
-        family_row = _fetch_ifrc_family(schema, family_id) if family_id not in (None, "") else None
+        family_row = (
+            _fetch_ifrc_family(schema, parsed_family_id)
+            if parsed_family_id is not None
+            else None
+        )
         reference_row = (
             _fetch_ifrc_reference(schema, reference_id)
             if reference_id not in (None, "")
@@ -522,7 +537,7 @@ def validate_item_payload(
     ):
         errors["ifrc_item_ref_id"] = "IFRC Item Reference is required when selecting an IFRC Family."
 
-    if family_id not in (None, "") and family_row is None:
+    if family_id not in (None, "") and parsed_family_id is not None and family_row is None:
         errors["ifrc_family_id"] = "Selected IFRC Family does not exist."
     if reference_id not in (None, "") and reference_row is None:
         errors["ifrc_item_ref_id"] = "Selected IFRC Item Reference does not exist."
@@ -535,8 +550,8 @@ def validate_item_payload(
         if not is_update or reference_selection_changed or existing_reference_id in (None, ""):
             errors["ifrc_item_ref_id"] = "Selected IFRC Item Reference is inactive."
 
-    if family_row and category_id not in (None, ""):
-        if int(family_row["category_id"]) != int(category_id):
+    if family_row and parsed_category_id is not None:
+        if int(family_row["category_id"]) != parsed_category_id:
             errors["ifrc_family_id"] = (
                 "Selected IFRC Family does not belong to the chosen Level 1 category."
             )
@@ -546,7 +561,7 @@ def validate_item_payload(
             errors["ifrc_family_id"] = (
                 "IFRC Family is required when selecting an IFRC Item Reference."
             )
-        elif int(reference_row["ifrc_family_id"]) != int(family_id):
+        elif parsed_family_id is not None and int(reference_row["ifrc_family_id"]) != parsed_family_id:
             errors["ifrc_item_ref_id"] = (
                 "Selected IFRC Item Reference does not belong to the chosen IFRC Family."
             )

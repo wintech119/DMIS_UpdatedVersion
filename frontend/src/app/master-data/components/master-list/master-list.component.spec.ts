@@ -1,5 +1,5 @@
 import { fakeAsync, TestBed, tick } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, Subject } from 'rxjs';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatDialog } from '@angular/material/dialog';
@@ -149,5 +149,67 @@ describe('MasterListComponent', () => {
     listHarness.handleDialogQueryAction();
 
     expect(openFormDialogSpy).toHaveBeenCalledWith(null);
+  });
+
+  it('ignores stale IFRC family lookup responses', () => {
+    const { component, masterDataService } = setup();
+    const staleResponse = new Subject<Array<{
+      value: number;
+      label: string;
+      family_code: string;
+      group_code: string;
+      category_id: number;
+    }>>();
+    const latestItems = [
+      { value: 302, label: 'Shelter Kit', family_code: 'SHELTER', group_code: 'S', category_id: 103 },
+    ];
+
+    masterDataService.lookupIfrcFamilies.and.returnValues(
+      staleResponse.asObservable(),
+      of(latestItems),
+    );
+
+    component.onItemCategoryFilterChange({ target: { value: '102' } } as unknown as Event);
+    component.onItemCategoryFilterChange({ target: { value: '103' } } as unknown as Event);
+
+    expect(component.itemIfrcFamilyOptions()).toEqual(latestItems);
+    expect(component.itemLookupLoading().families).toBeFalse();
+
+    staleResponse.next([
+      { value: 301, label: 'Water Treatment', family_code: 'WTR', group_code: 'W', category_id: 102 },
+    ]);
+    staleResponse.complete();
+
+    expect(component.itemIfrcFamilyOptions()).toEqual(latestItems);
+    expect(component.itemLookupLoading().families).toBeFalse();
+  });
+
+  it('ignores stale IFRC reference lookup failures after a newer response succeeds', () => {
+    const { component, masterDataService } = setup();
+    const staleResponse = new Subject<Array<{
+      value: number;
+      label: string;
+      ifrc_code: string;
+      ifrc_family_id: number;
+    }>>();
+    const latestItems = [
+      { value: 402, label: 'Emergency shelter kit', ifrc_code: 'SSHLTKIT01', ifrc_family_id: 302 },
+    ];
+
+    masterDataService.lookupIfrcReferences.and.returnValues(
+      staleResponse.asObservable(),
+      of(latestItems),
+    );
+
+    component.onItemIfrcFamilyFilterChange({ target: { value: '301' } } as unknown as Event);
+    component.onItemIfrcFamilyFilterChange({ target: { value: '302' } } as unknown as Event);
+
+    expect(component.itemIfrcReferenceOptions()).toEqual(latestItems);
+    expect(component.itemLookupLoading().references).toBeFalse();
+
+    staleResponse.error(new Error('stale failure'));
+
+    expect(component.itemIfrcReferenceOptions()).toEqual(latestItems);
+    expect(component.itemLookupLoading().references).toBeFalse();
   });
 });

@@ -57,7 +57,6 @@ WHERE legacy_item_code IS NOT NULL
 ALTER TABLE {schema}.item
     DROP COLUMN IF EXISTS legacy_item_code;
 """
-"""
 
 
 _SCHEMA_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

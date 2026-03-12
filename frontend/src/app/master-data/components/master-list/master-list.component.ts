@@ -58,6 +58,8 @@ export class MasterListComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   private breakpointObserver = inject(BreakpointObserver);
   private latestLoadRequestId = 0;
+  private itemIfrcFamilyRequestId = 0;
+  private itemIfrcReferenceRequestId = 0;
   private pendingDialogQueryAction: 'new' | null = null;
 
   config = signal<MasterTableConfig | null>(null);
@@ -181,6 +183,7 @@ export class MasterListComponent implements OnInit {
   }
 
   private loadItemFamilyOptions(categoryId: string): void {
+    const requestId = ++this.itemIfrcFamilyRequestId;
     if (!categoryId) {
       this.itemIfrcFamilyOptions.set([]);
       this.itemLookupLoading.update((state) => ({ ...state, families: false }));
@@ -192,10 +195,12 @@ export class MasterListComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
+        if (requestId !== this.itemIfrcFamilyRequestId) return;
         this.itemIfrcFamilyOptions.set(items);
         this.itemLookupLoading.update((state) => ({ ...state, families: false }));
       },
       error: () => {
+        if (requestId !== this.itemIfrcFamilyRequestId) return;
         this.itemIfrcFamilyOptions.set([]);
         this.itemLookupLoading.update((state) => ({ ...state, families: false }));
         this.notify.showError('Failed to load IFRC family filters.');
@@ -204,6 +209,7 @@ export class MasterListComponent implements OnInit {
   }
 
   private loadItemReferenceOptions(familyId: string): void {
+    const requestId = ++this.itemIfrcReferenceRequestId;
     if (!familyId) {
       this.itemIfrcReferenceOptions.set([]);
       this.itemLookupLoading.update((state) => ({ ...state, references: false }));
@@ -218,10 +224,12 @@ export class MasterListComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
+        if (requestId !== this.itemIfrcReferenceRequestId) return;
         this.itemIfrcReferenceOptions.set(items);
         this.itemLookupLoading.update((state) => ({ ...state, references: false }));
       },
       error: () => {
+        if (requestId !== this.itemIfrcReferenceRequestId) return;
         this.itemIfrcReferenceOptions.set([]);
         this.itemLookupLoading.update((state) => ({ ...state, references: false }));
         this.notify.showError('Failed to load IFRC reference filters.');

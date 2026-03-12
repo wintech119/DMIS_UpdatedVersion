@@ -232,6 +232,64 @@ class ItemMasterValidationTests(SimpleTestCase):
     )
     @patch(
         "masterdata.services.item_master._fetch_ifrc_family",
+        return_value={"ifrc_family_id": 11, "category_id": 102, "group_code": "W", "family_code": "WTR", "family_label": "Water Treatment", "status_code": "A"},
+    )
+    def test_validate_item_payload_rejects_non_numeric_category_id(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": "abc",
+                "ifrc_family_id": 11,
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors["category_id"], "Invalid numeric ID.")
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "A"},
+    )
+    @patch("masterdata.services.item_master._fetch_ifrc_family")
+    def test_validate_item_payload_rejects_non_numeric_family_id(
+        self,
+        mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "ifrc_family_id": "abc",
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors["ifrc_family_id"], "Invalid numeric ID.")
+        mock_family.assert_not_called()
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "A"},
+    )
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_family",
         return_value={"ifrc_family_id": 11, "category_id": 102, "group_code": "W", "family_code": "WTR", "family_label": "Water Treatment", "status_code": "I"},
     )
     def test_validate_item_payload_rejects_inactive_family_for_new_mapping(
