@@ -325,6 +325,14 @@ describe('MasterFormPageComponent', () => {
     });
   }
 
+  function seedSubmitFailure(component: MasterFormPageComponent): void {
+    component.submissionError.set('Save failed.');
+    component.form.setErrors({
+      ...(component.form.errors || {}),
+      submitFailure: true,
+    });
+  }
+
   it('requires an IFRC family for new items when a category is selected', () => {
     const { component } = setup();
 
@@ -471,6 +479,69 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('ifrc_family_id')?.value).toBe(301);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
     expect(notificationService.showSuccess).toHaveBeenCalled();
+  });
+
+  it('clears submit failure state after programmatic taxonomy updates', () => {
+    const { component } = setup();
+    const suggestion = buildResolvedSuggestion();
+    const reference = {
+      value: 401,
+      label: 'Water purification tablet',
+      ifrc_code: 'WWTRTABLTB01',
+      ifrc_family_id: 301,
+      family_code: 'WTR',
+      family_label: 'Water Treatment',
+      category_code: 'TABL',
+      category_label: 'Tablet',
+      spec_segment: 'TB',
+    };
+
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set({
+      status: 'resolved',
+      family: {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
+      reference,
+      candidates: [
+        {
+          reference,
+          rank: 1,
+          score: 1,
+          autoHighlight: true,
+          matchReasons: ['exact_generated_code_match'],
+        },
+      ],
+      warning: null,
+      explanation: suggestion.resolution_explanation ?? null,
+      directAcceptAllowed: true,
+      autoHighlightCandidateId: 401,
+    });
+
+    seedSubmitFailure(component);
+    component.onAcceptIfrcSuggestion();
+
+    expect(component.submissionError()).toBeNull();
+    expect(component.form.hasError('submitFailure')).toBeFalse();
+
+    seedSubmitFailure(component);
+    component.onSelectIfrcReference(reference);
+
+    expect(component.submissionError()).toBeNull();
+    expect(component.form.hasError('submitFailure')).toBeFalse();
+
+    seedSubmitFailure(component);
+    component.onClearIfrcReference();
+
+    expect(component.submissionError()).toBeNull();
+    expect(component.form.hasError('submitFailure')).toBeFalse();
+    expect(component.form.hasError('ifrcReferenceRequired')).toBeTrue();
   });
 
   it('requires explicit candidate selection before accepting an ambiguous IFRC suggestion', () => {

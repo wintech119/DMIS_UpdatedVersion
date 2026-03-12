@@ -580,6 +580,7 @@ export class MasterFormPageComponent implements OnInit {
     );
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
+    this.clearSubmissionError();
     this.notify.showSuccess('Suggested IFRC classification applied.');
   }
 
@@ -612,6 +613,7 @@ export class MasterFormPageComponent implements OnInit {
     this.syncDisplayedItemCode(reference);
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
+    this.clearSubmissionError();
   }
 
   onClearIfrcReference(): void {
@@ -629,6 +631,7 @@ export class MasterFormPageComponent implements OnInit {
     this.syncDisplayedItemCode();
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
+    this.clearSubmissionError();
   }
 
   private getIfrcErrorMessage(error: unknown): string {
