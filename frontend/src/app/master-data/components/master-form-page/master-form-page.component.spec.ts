@@ -14,7 +14,7 @@ import { ITEM_CONFIG } from '../../models/table-configs/item.config';
 import { IFRC_FAMILY_CONFIG } from '../../models/table-configs/ifrc-family.config';
 import { IFRC_ITEM_REFERENCE_CONFIG } from '../../models/table-configs/ifrc-item-reference.config';
 
-function buildBaseItemRecord() {
+function buildBaseItemRecord(overrides: Record<string, unknown> = {}) {
   return {
     item_id: 17,
     item_code: 'LOC-001',
@@ -34,6 +34,7 @@ function buildBaseItemRecord() {
     ifrc_family_id: null,
     ifrc_item_ref_id: null,
     version_nbr: 2,
+    ...overrides,
   };
 }
 
@@ -342,6 +343,53 @@ describe('MasterFormPageComponent', () => {
     component.form.updateValueAndValidity({ emitEvent: false });
 
     expect(component.form.hasError('ifrcReferenceRequired')).toBeTrue();
+  });
+
+  it('preserves inactive saved family and reference values when opening an existing item', () => {
+    const { component, fixture, masterDataService } = setup();
+    const inactiveFamilyId = 991;
+    const inactiveReferenceId = 992;
+
+    masterDataService.get.and.returnValue(of({
+      record: buildBaseItemRecord({
+        item_code: 'WWTRTABLTB99',
+        legacy_item_code: 'LOC-001',
+        category_id: 102,
+        ifrc_family_id: inactiveFamilyId,
+        ifrc_item_ref_id: inactiveReferenceId,
+        ifrc_group_code: 'W',
+        ifrc_group_label: 'WASH',
+        ifrc_family_code: 'WTRX',
+        ifrc_family_label: 'Water Treatment Legacy',
+        ifrc_reference_code: 'WWTRTABLTB99',
+        ifrc_reference_desc: 'Water purification tablet legacy',
+        ifrc_reference_category_code: 'TABL',
+        ifrc_reference_category_label: 'Tablet',
+        ifrc_reference_spec_segment: 'TB99',
+      }),
+      warnings: [],
+    }));
+    masterDataService.lookupIfrcFamilies.and.returnValue(of([]));
+    masterDataService.lookupIfrcReferences.and.returnValue(of([]));
+
+    component.pk.set('17');
+    component.isEdit.set(true);
+    (component as unknown as { loadRecord: () => void }).loadRecord();
+    fixture.detectChanges();
+
+    expect(masterDataService.lookupIfrcFamilies).toHaveBeenCalledWith(jasmine.objectContaining({
+      categoryId: 102,
+      activeOnly: false,
+    }));
+    expect(masterDataService.lookupIfrcReferences).toHaveBeenCalledWith(jasmine.objectContaining({
+      ifrcFamilyId: inactiveFamilyId,
+      activeOnly: false,
+    }));
+    expect(component.form.get('ifrc_family_id')?.value).toBe(inactiveFamilyId);
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(inactiveReferenceId);
+    expect(component.itemIfrcFamilyOptions().map((item) => item.value)).toContain(inactiveFamilyId);
+    expect(component.itemIfrcReferenceOptions().map((item) => item.value)).toContain(inactiveReferenceId);
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB99');
   });
 
   it('keeps size, form, and material in the helper panel instead of the persisted item form', () => {
@@ -727,7 +775,7 @@ describe('MasterFormPageComponent', () => {
     const dialogData = openArgs[1]?.data as {
       confirmLabel?: string;
       cancelLabel?: string;
-      details?: Array<{ value?: string }>;
+      details?: { value?: string }[];
     };
 
     expect(dialogData.confirmLabel).toBe('Continue to Edit');
@@ -862,4 +910,3 @@ describe('MasterFormPageComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', 91]);
   });
 });
-

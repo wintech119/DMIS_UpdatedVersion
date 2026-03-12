@@ -717,6 +717,70 @@ export class MasterFormPageComponent implements OnInit {
     return [item, ...items];
   }
 
+  private shouldPreserveInactiveItemTaxonomy(
+    preserveValue: string | number | null,
+  ): boolean {
+    return this.isEdit() && preserveValue !== null && preserveValue !== undefined && preserveValue !== '';
+  }
+
+  private readLoadedRecordText(field: string): string | undefined {
+    const rawValue = this.loadedRecordSnapshot?.[field];
+    const text = String(rawValue ?? '').trim();
+    return text || undefined;
+  }
+
+  private buildPreservedItemFamilyOption(
+    preserveValue: string | number | null,
+  ): IfrcFamilyLookup | null {
+    const savedValue = this.loadedRecordSnapshot?.['ifrc_family_id'];
+    if (!this.sameValue(savedValue, preserveValue)) {
+      return null;
+    }
+
+    const label = this.readLoadedRecordText('ifrc_family_label');
+    if (!label) {
+      return null;
+    }
+
+    return {
+      value: savedValue as string | number,
+      label,
+      family_code: this.readLoadedRecordText('ifrc_family_code'),
+      group_code: this.readLoadedRecordText('ifrc_group_code'),
+      group_label: this.readLoadedRecordText('ifrc_group_label'),
+      category_id: this.loadedRecordSnapshot?.['category_id'] as string | number | undefined,
+      category_code: this.readLoadedRecordText('category_code'),
+      category_desc: this.readLoadedRecordText('category_desc'),
+    };
+  }
+
+  private buildPreservedItemReferenceOption(
+    preserveValue: string | number | null,
+  ): IfrcReferenceLookup | null {
+    const savedValue = this.loadedRecordSnapshot?.['ifrc_item_ref_id'];
+    if (!this.sameValue(savedValue, preserveValue)) {
+      return null;
+    }
+
+    const label = this.readLoadedRecordText('ifrc_reference_desc')
+      ?? this.readLoadedRecordText('ifrc_reference_code');
+    if (!label) {
+      return null;
+    }
+
+    return {
+      value: savedValue as string | number,
+      label,
+      ifrc_code: this.readLoadedRecordText('ifrc_reference_code'),
+      ifrc_family_id: this.loadedRecordSnapshot?.['ifrc_family_id'] as string | number | undefined,
+      family_code: this.readLoadedRecordText('ifrc_family_code'),
+      family_label: this.readLoadedRecordText('ifrc_family_label'),
+      category_code: this.readLoadedRecordText('ifrc_reference_category_code'),
+      category_label: this.readLoadedRecordText('ifrc_reference_category_label'),
+      spec_segment: this.readLoadedRecordText('ifrc_reference_spec_segment'),
+    };
+  }
+
   private syncDisplayedItemCode(reference: IfrcReferenceLookup | null = this.selectedReferenceOption): void {
     const referenceCode = String(reference?.ifrc_code ?? '').trim().toUpperCase();
     if (referenceCode) {
@@ -879,17 +943,28 @@ export class MasterFormPageComponent implements OnInit {
 
     this.setLookupLoading('ifrc_families', true);
     this.updateItemTaxonomyControlState();
-    this.service.lookupIfrcFamilies({ categoryId }).pipe(
+    const shouldPreserveInactive = this.shouldPreserveInactiveItemTaxonomy(preserveValue);
+    this.service.lookupIfrcFamilies({
+      categoryId,
+      activeOnly: shouldPreserveInactive ? false : undefined,
+    }).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
-        this.writeLookup('ifrc_families', items);
+        const familyControl = this.form.get('ifrc_family_id');
+        const selectedValue = preserveValue ?? familyControl?.value;
+        const preservedFamily = this.buildPreservedItemFamilyOption(
+          selectedValue as string | number | null,
+        );
+        const nextItems = preservedFamily
+          ? this.ensureLookupItem(items, preservedFamily)
+          : items;
+
+        this.writeLookup('ifrc_families', nextItems);
         this.setLookupLoading('ifrc_families', false);
         this.setLookupError('ifrc_families', null);
 
-        const familyControl = this.form.get('ifrc_family_id');
-        const selectedValue = preserveValue ?? familyControl?.value;
-        if (familyControl && selectedValue && !this.findLookupByValue(items, selectedValue)) {
+        if (familyControl && selectedValue && !this.findLookupByValue(nextItems, selectedValue)) {
           familyControl.patchValue(null, { emitEvent: false });
         }
         this.updateItemTaxonomyControlState();
@@ -919,21 +994,30 @@ export class MasterFormPageComponent implements OnInit {
 
     this.setLookupLoading('ifrc_references', true);
     this.updateItemTaxonomyControlState();
+    const shouldPreserveInactive = this.shouldPreserveInactiveItemTaxonomy(preserveValue);
     this.service.lookupIfrcReferences({
       ifrcFamilyId: familyId,
       search: search || undefined,
+      activeOnly: shouldPreserveInactive ? false : undefined,
       limit: 50,
     }).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
-        this.writeLookup('ifrc_references', items);
+        const referenceControl = this.form.get('ifrc_item_ref_id');
+        const selectedValue = preserveValue ?? referenceControl?.value;
+        const preservedReference = this.buildPreservedItemReferenceOption(
+          selectedValue as string | number | null,
+        );
+        const nextItems = preservedReference
+          ? this.ensureLookupItem(items, preservedReference)
+          : items;
+        const selectedReference = this.findLookupByValue(nextItems, selectedValue);
+
+        this.writeLookup('ifrc_references', nextItems);
         this.setLookupLoading('ifrc_references', false);
         this.setLookupError('ifrc_references', null);
 
-        const referenceControl = this.form.get('ifrc_item_ref_id');
-        const selectedValue = preserveValue ?? referenceControl?.value;
-        const selectedReference = this.findLookupByValue(items, selectedValue);
         if (referenceControl && selectedValue && !selectedReference) {
           referenceControl.patchValue(null, { emitEvent: false });
           if (!this.applyingTaxonomyPatch) {
@@ -2593,13 +2677,3 @@ export class MasterFormPageComponent implements OnInit {
       .join(' ');
   }
 }
-
-
-
-
-
-
-
-
-
-
