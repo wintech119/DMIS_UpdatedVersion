@@ -291,8 +291,11 @@ export class MasterDetailPageComponent implements OnInit {
 
   getDisplayValue(field: MasterFieldConfig, value: unknown): string {
     const record = this.record();
-    const displayValue = field.displayField && record
+    const companionDisplayValue = field.displayField && record
       ? record[field.displayField]
+      : undefined;
+    const displayValue = companionDisplayValue != null && companionDisplayValue !== ''
+      ? companionDisplayValue
       : value;
 
     if (displayValue == null || displayValue === '') return '-';

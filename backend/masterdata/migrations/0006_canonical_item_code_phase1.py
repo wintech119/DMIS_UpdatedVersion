@@ -79,6 +79,36 @@ def _legacy_item_table_exists(schema_editor) -> bool:
     return bool(row and row[0])
 
 
+def _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema: str) -> None:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT
+                ifrc_item_ref_id,
+                array_agg(item_id ORDER BY item_id)
+            FROM {schema}.item
+            WHERE ifrc_item_ref_id IS NOT NULL
+            GROUP BY ifrc_item_ref_id
+            HAVING COUNT(*) > 1
+            ORDER BY ifrc_item_ref_id
+            """
+        )
+        duplicate_rows = cursor.fetchall()
+
+    if not duplicate_rows:
+        return
+
+    duplicate_details = ", ".join(
+        f"{ifrc_item_ref_id}: {list(item_ids)}"
+        for ifrc_item_ref_id, item_ids in duplicate_rows
+    )
+    raise RuntimeError(
+        "Cannot create unique index ux_item_ifrc_item_ref_id_unique because duplicate "
+        f"item.ifrc_item_ref_id mappings exist in {schema}.item. Reconcile these mappings "
+        f"and rerun the migration. Offending mappings: {duplicate_details}"
+    )
+
+
 def _forwards(apps, schema_editor):
     if not _is_postgres(schema_editor):
         return
@@ -86,6 +116,7 @@ def _forwards(apps, schema_editor):
         return
 
     schema = _schema_name(schema_editor)
+    _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema)
     schema_editor.execute(_FORWARD_SQL_TEMPLATE.format(schema=schema))
 
 

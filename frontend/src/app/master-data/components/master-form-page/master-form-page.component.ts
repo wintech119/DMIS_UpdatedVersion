@@ -65,6 +65,7 @@ interface InactiveItemForwardWriteGuard {
 }
 
 interface SuggestedIfrcCandidate {
+  family: IfrcFamilyLookup | null;
   reference: IfrcReferenceLookup;
   rank: number;
   score: number;
@@ -178,6 +179,7 @@ export class MasterFormPageComponent implements OnInit {
   private promptedGovernedEditWarning = false;
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
+  private readonly lookupRequestIds: Record<string, number> = {};
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -525,10 +527,13 @@ export class MasterFormPageComponent implements OnInit {
   onAcceptIfrcSuggestion(): void {
     const suggestion = this.ifrcSuggestion();
     const resolved = this.ifrcSuggestionResolution();
+    const family = this.getAcceptedSuggestionFamily();
     const reference = this.getAcceptedSuggestionReference();
-    if (!suggestion || !resolved?.family || !reference) {
+    if (!suggestion || !family || !reference) {
       const status = resolved?.status;
-      const message = status === 'ambiguous'
+      const message = reference && !family
+        ? 'Resolve the suggested IFRC family before applying the classification.'
+        : status === 'ambiguous'
         ? 'Select one suggested IFRC candidate before applying the classification.'
         : status === 'unresolved'
           ? 'No governed IFRC reference is available to apply from this suggestion.'
@@ -545,7 +550,6 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     this.applyingTaxonomyPatch = true;
-    const family = resolved.family;
 
     categoryControl.patchValue(family.category_id ?? null, { emitEvent: false });
     familyControl.patchValue(family.value, { emitEvent: false });
@@ -674,21 +678,40 @@ export class MasterFormPageComponent implements OnInit {
     return (this.lookups()[lookupKey] ?? []) as T[];
   }
 
-  private writeLookup(lookupKey: string, items: LookupItem[]): void {
+  private beginLookupRequest(lookupKey: string): number {
+    const nextRequestId = (this.lookupRequestIds[lookupKey] ?? 0) + 1;
+    this.lookupRequestIds[lookupKey] = nextRequestId;
+    return nextRequestId;
+  }
+
+  private isCurrentLookupRequest(lookupKey: string, requestId?: number): boolean {
+    return requestId == null || this.lookupRequestIds[lookupKey] === requestId;
+  }
+
+  private writeLookup(lookupKey: string, items: LookupItem[], requestId?: number): void {
+    if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+      return;
+    }
     this.lookups.set({
       ...this.lookups(),
       [lookupKey]: items,
     });
   }
 
-  private setLookupLoading(lookupKey: string, isLoading: boolean): void {
+  private setLookupLoading(lookupKey: string, isLoading: boolean, requestId?: number): void {
+    if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+      return;
+    }
     this.lookupLoading.set({
       ...this.lookupLoading(),
       [lookupKey]: isLoading,
     });
   }
 
-  private setLookupError(lookupKey: string, message: string | null): void {
+  private setLookupError(lookupKey: string, message: string | null, requestId?: number): void {
+    if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+      return;
+    }
     const nextErrors = { ...this.lookupErrors() };
     if (message) {
       nextErrors[lookupKey] = message;
@@ -705,7 +728,15 @@ export class MasterFormPageComponent implements OnInit {
     return String(left) === String(right);
   }
 
-  private findLookupByValue<T extends LookupItem>(items: T[], value: unknown): T | null {
+  private findLookupByValue<T extends LookupItem>(
+    items: T[],
+    value: unknown,
+    lookupKey?: string,
+    requestId?: number,
+  ): T | null {
+    if (lookupKey && !this.isCurrentLookupRequest(lookupKey, requestId)) {
+      return null;
+    }
     if (value == null || value === '') {
       return null;
     }
@@ -936,15 +967,17 @@ export class MasterFormPageComponent implements OnInit {
     categoryId: string | number | null | undefined,
     preserveValue: string | number | null = null,
   ): void {
+    const lookupKey = 'ifrc_families';
+    const requestId = this.beginLookupRequest(lookupKey);
     if (categoryId == null || categoryId === '') {
-      this.writeLookup('ifrc_families', []);
-      this.setLookupLoading('ifrc_families', false);
+      this.writeLookup(lookupKey, [], requestId);
+      this.setLookupLoading(lookupKey, false, requestId);
       this.updateItemTaxonomyControlState();
       this.form.updateValueAndValidity({ emitEvent: false });
       return;
     }
 
-    this.setLookupLoading('ifrc_families', true);
+    this.setLookupLoading(lookupKey, true, requestId);
     this.updateItemTaxonomyControlState();
     const shouldPreserveInactive = this.shouldPreserveInactiveItemTaxonomy(preserveValue);
     this.service.lookupIfrcFamilies({
@@ -954,6 +987,9 @@ export class MasterFormPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
+        if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+          return;
+        }
         const familyControl = this.form.get('ifrc_family_id');
         const selectedValue = preserveValue ?? familyControl?.value;
         const preservedFamily = this.buildPreservedItemFamilyOption(
@@ -963,20 +999,27 @@ export class MasterFormPageComponent implements OnInit {
           ? this.ensureLookupItem(items, preservedFamily)
           : items;
 
-        this.writeLookup('ifrc_families', nextItems);
-        this.setLookupLoading('ifrc_families', false);
-        this.setLookupError('ifrc_families', null);
+        this.writeLookup(lookupKey, nextItems, requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, null, requestId);
 
-        if (familyControl && selectedValue && !this.findLookupByValue(nextItems, selectedValue)) {
+        if (
+          familyControl
+          && selectedValue
+          && !this.findLookupByValue(nextItems, selectedValue, lookupKey, requestId)
+        ) {
           familyControl.patchValue(null, { emitEvent: false });
         }
         this.updateItemTaxonomyControlState();
         this.form.updateValueAndValidity({ emitEvent: false });
       },
       error: () => {
-        this.writeLookup('ifrc_families', []);
-        this.setLookupLoading('ifrc_families', false);
-        this.setLookupError('ifrc_families', 'Failed to load IFRC family options.');
+        if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+          return;
+        }
+        this.writeLookup(lookupKey, [], requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, 'Failed to load IFRC family options.', requestId);
         this.updateItemTaxonomyControlState();
       },
     });
@@ -987,15 +1030,17 @@ export class MasterFormPageComponent implements OnInit {
     search = '',
     preserveValue: string | number | null = null,
   ): void {
+    const lookupKey = 'ifrc_references';
+    const requestId = this.beginLookupRequest(lookupKey);
     if (familyId == null || familyId === '') {
-      this.writeLookup('ifrc_references', []);
-      this.setLookupLoading('ifrc_references', false);
+      this.writeLookup(lookupKey, [], requestId);
+      this.setLookupLoading(lookupKey, false, requestId);
       this.updateItemTaxonomyControlState();
       this.form.updateValueAndValidity({ emitEvent: false });
       return;
     }
 
-    this.setLookupLoading('ifrc_references', true);
+    this.setLookupLoading(lookupKey, true, requestId);
     this.updateItemTaxonomyControlState();
     const shouldPreserveInactive = this.shouldPreserveInactiveItemTaxonomy(preserveValue);
     this.service.lookupIfrcReferences({
@@ -1007,6 +1052,9 @@ export class MasterFormPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (items) => {
+        if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+          return;
+        }
         const referenceControl = this.form.get('ifrc_item_ref_id');
         const selectedValue = preserveValue ?? referenceControl?.value;
         const preservedReference = this.buildPreservedItemReferenceOption(
@@ -1015,11 +1063,16 @@ export class MasterFormPageComponent implements OnInit {
         const nextItems = preservedReference
           ? this.ensureLookupItem(items, preservedReference)
           : items;
-        const selectedReference = this.findLookupByValue(nextItems, selectedValue);
+        const selectedReference = this.findLookupByValue(
+          nextItems,
+          selectedValue,
+          lookupKey,
+          requestId,
+        );
 
-        this.writeLookup('ifrc_references', nextItems);
-        this.setLookupLoading('ifrc_references', false);
-        this.setLookupError('ifrc_references', null);
+        this.writeLookup(lookupKey, nextItems, requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, null, requestId);
 
         if (referenceControl && selectedValue && !selectedReference) {
           referenceControl.patchValue(null, { emitEvent: false });
@@ -1035,9 +1088,12 @@ export class MasterFormPageComponent implements OnInit {
         this.form.updateValueAndValidity({ emitEvent: false });
       },
       error: () => {
-        this.writeLookup('ifrc_references', []);
-        this.setLookupLoading('ifrc_references', false);
-        this.setLookupError('ifrc_references', 'Failed to load IFRC reference options.');
+        if (!this.isCurrentLookupRequest(lookupKey, requestId)) {
+          return;
+        }
+        this.writeLookup(lookupKey, [], requestId);
+        this.setLookupLoading(lookupKey, false, requestId);
+        this.setLookupError(lookupKey, 'Failed to load IFRC reference options.', requestId);
         this.updateItemTaxonomyControlState();
       },
     });
@@ -1050,10 +1106,17 @@ export class MasterFormPageComponent implements OnInit {
       ?? candidateRows[0]?.family_code
       ?? '',
     ).trim();
-    const fallbackResolution = this.buildSuggestionResolutionState(suggestion, null);
+    const familyIds = [
+      this.toRecordIdentifier(suggestion.ifrc_family_id),
+      ...candidateRows
+        .map((candidate) => this.toRecordIdentifier(candidate.ifrc_family_id)),
+    ].filter((familyId): familyId is string | number => familyId != null);
+    const distinctFamilyIds = [...new Set(familyIds.map((familyId) => String(familyId)))];
+    const shouldLookupAllFamilies = distinctFamilyIds.length > 1 || !familySearch;
+    const fallbackResolution = this.buildSuggestionResolutionState(suggestion, []);
     this.selectedSuggestionCandidateId.set(null);
 
-    if (!familySearch) {
+    if (!familySearch && distinctFamilyIds.length === 0) {
       this.ifrcSuggestionResolution.set({
         ...fallbackResolution,
         warning: 'Suggestion did not include a resolvable IFRC family.',
@@ -1061,11 +1124,17 @@ export class MasterFormPageComponent implements OnInit {
       return;
     }
 
-    this.service.lookupIfrcFamilies({ search: familySearch }).pipe(
+    const familyLookup$ = shouldLookupAllFamilies
+      ? this.service.lookupIfrcFamilies()
+      : this.service.lookupIfrcFamilies({ search: familySearch });
+
+    familyLookup$.pipe(
       map((families) => {
-        const family = this.findMatchingSuggestedFamily(suggestion, families, candidateRows);
-        const resolved = this.buildSuggestionResolutionState(suggestion, family);
-        if (family) {
+        const resolved = this.buildSuggestionResolutionState(suggestion, families);
+        if (
+          resolved.family
+          || resolved.candidates.some((candidate) => candidate.family != null)
+        ) {
           return resolved;
         }
 
@@ -1084,9 +1153,9 @@ export class MasterFormPageComponent implements OnInit {
 
   private buildSuggestionResolutionState(
     suggestion: IFRCSuggestion,
-    family: IfrcFamilyLookup | null,
+    families: IfrcFamilyLookup[],
   ): ResolvedIfrcSuggestion {
-    const candidates = this.mapSuggestionCandidates(suggestion.candidates ?? []);
+    const candidates = this.mapSuggestionCandidates(suggestion.candidates ?? [], families);
     const resolutionStatus = suggestion.resolution_status
       ?? (suggestion.resolved_ifrc_item_ref_id != null
         ? 'resolved'
@@ -1094,28 +1163,37 @@ export class MasterFormPageComponent implements OnInit {
           ? 'ambiguous'
           : 'unresolved');
     const resolvedReferenceId = this.toRecordIdentifier(suggestion.resolved_ifrc_item_ref_id);
-    const resolvedReference = resolvedReferenceId != null
-      ? candidates.find((candidate) => this.sameValue(candidate.reference.value, resolvedReferenceId))?.reference ?? null
+    const resolvedCandidate = resolvedReferenceId != null
+      ? candidates.find((candidate) => this.sameValue(candidate.reference.value, resolvedReferenceId)) ?? null
       : resolutionStatus === 'resolved' && candidates.length === 1
-        ? candidates[0].reference
+        ? candidates[0]
         : null;
     const explanation = String(suggestion.resolution_explanation ?? '').trim() || null;
 
     return {
       status: resolutionStatus,
-      family,
-      reference: resolvedReference,
+      family: resolvedCandidate?.family ?? null,
+      reference: resolvedCandidate?.reference ?? null,
       candidates,
       warning: null,
       explanation,
-      directAcceptAllowed: suggestion.direct_accept_allowed === true && resolvedReference != null,
+      directAcceptAllowed: suggestion.direct_accept_allowed === true && resolvedCandidate != null,
       autoHighlightCandidateId: this.toRecordIdentifier(suggestion.auto_highlight_candidate_id),
     };
   }
 
-  private mapSuggestionCandidates(candidateRows: IFRCSuggestionCandidate[]): SuggestedIfrcCandidate[] {
+  private mapSuggestionCandidates(
+    candidateRows: IFRCSuggestionCandidate[],
+    families: IfrcFamilyLookup[],
+  ): SuggestedIfrcCandidate[] {
     return candidateRows
       .map((candidate) => ({
+        family: this.findSuggestedFamily(
+          families,
+          candidate.ifrc_family_id,
+          candidate.family_code,
+          candidate.group_code,
+        ),
         reference: this.toSuggestedReferenceLookup(candidate),
         rank: Number(candidate.rank ?? 0) || 0,
         score: Number(candidate.score ?? 0) || 0,
@@ -1139,14 +1217,13 @@ export class MasterFormPageComponent implements OnInit {
     };
   }
 
-  private findMatchingSuggestedFamily(
-    suggestion: IFRCSuggestion,
+  private findSuggestedFamily(
     families: IfrcFamilyLookup[],
-    candidateRows: IFRCSuggestionCandidate[],
+    familyId: unknown,
+    familyCode: unknown,
+    groupCode: unknown,
   ): IfrcFamilyLookup | null {
-    const suggestionFamilyId = this.toRecordIdentifier(
-      suggestion.ifrc_family_id ?? candidateRows[0]?.ifrc_family_id,
-    );
+    const suggestionFamilyId = this.toRecordIdentifier(familyId);
     if (suggestionFamilyId != null) {
       const exactFamilyIdMatch = families.find((family) => this.sameValue(family.value, suggestionFamilyId));
       if (exactFamilyIdMatch) {
@@ -1154,13 +1231,13 @@ export class MasterFormPageComponent implements OnInit {
       }
     }
 
-    const familyCode = String(suggestion.family_code ?? candidateRows[0]?.family_code ?? '').trim().toUpperCase();
-    const groupCode = String(suggestion.group_code ?? candidateRows[0]?.group_code ?? '').trim().toUpperCase();
+    const normalizedFamilyCode = String(familyCode ?? '').trim().toUpperCase();
+    const normalizedGroupCode = String(groupCode ?? '').trim().toUpperCase();
 
     return families.find((family) => {
-      const sameFamilyCode = String(family.family_code ?? '').trim().toUpperCase() === familyCode;
-      const sameGroupCode = !groupCode
-        || String(family.group_code ?? '').trim().toUpperCase() === groupCode;
+      const sameFamilyCode = String(family.family_code ?? '').trim().toUpperCase() === normalizedFamilyCode;
+      const sameGroupCode = !normalizedGroupCode
+        || String(family.group_code ?? '').trim().toUpperCase() === normalizedGroupCode;
       return sameFamilyCode && sameGroupCode;
     }) ?? null;
   }
@@ -2114,12 +2191,8 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   canAcceptResolvedIfrcSuggestion(): boolean {
-    const resolved = this.ifrcSuggestionResolution();
-    if (!resolved?.family) {
-      return false;
-    }
-
-    return this.getAcceptedSuggestionReference() != null;
+    return this.getAcceptedSuggestionFamily() != null
+      && this.getAcceptedSuggestionReference() != null;
   }
 
   getIfrcSuggestionPrimaryActionLabel(): string {
@@ -2309,6 +2382,19 @@ export class MasterFormPageComponent implements OnInit {
     return this.getSuggestionCandidates().find((candidate) => (
       this.sameValue(candidate.reference.value, selectedCandidateId)
     )) ?? null;
+  }
+
+  private getAcceptedSuggestionFamily(): IfrcFamilyLookup | null {
+    const resolved = this.ifrcSuggestionResolution();
+    if (!resolved) {
+      return null;
+    }
+
+    if (resolved.directAcceptAllowed && resolved.reference) {
+      return resolved.family;
+    }
+
+    return this.getSelectedSuggestionCandidate()?.family ?? null;
   }
 
   private getAcceptedSuggestionReference(): IfrcReferenceLookup | null {

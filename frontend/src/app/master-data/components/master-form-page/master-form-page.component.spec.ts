@@ -1,4 +1,4 @@
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -400,6 +400,157 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB99');
   });
 
+  it('ignores stale IFRC family lookup responses that arrive after a newer request', () => {
+    const { component, masterDataService } = setup();
+    const firstResponse$ = new Subject<Array<{
+      value: number;
+      label: string;
+      family_code: string;
+      group_code: string;
+      category_id: number;
+      category_desc: string;
+      category_code: string;
+    }>>();
+    const secondResponse$ = new Subject<Array<{
+      value: number;
+      label: string;
+      family_code: string;
+      group_code: string;
+      category_id: number;
+      category_desc: string;
+      category_code: string;
+    }>>();
+    masterDataService.lookupIfrcFamilies.and.returnValues(
+      firstResponse$.asObservable(),
+      secondResponse$.asObservable(),
+    );
+
+    component.form.get('ifrc_family_id')?.patchValue(302, { emitEvent: false });
+    (component as unknown as {
+      loadItemFamilyOptions: (
+        categoryId: string | number | null | undefined,
+        preserveValue?: string | number | null,
+      ) => void;
+    }).loadItemFamilyOptions(102);
+    (component as unknown as {
+      loadItemFamilyOptions: (
+        categoryId: string | number | null | undefined,
+        preserveValue?: string | number | null,
+      ) => void;
+    }).loadItemFamilyOptions(103);
+
+    secondResponse$.next([
+      {
+        value: 302,
+        label: 'Emergency Shelter',
+        family_code: 'SHEL',
+        group_code: 'S',
+        category_id: 103,
+        category_desc: 'Shelter',
+        category_code: 'SHELTER',
+      },
+    ]);
+
+    expect(component.itemIfrcFamilyOptions().map((item) => item.value)).toEqual([302]);
+    expect(component.form.get('ifrc_family_id')?.value).toBe(302);
+
+    firstResponse$.next([
+      {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
+    ]);
+
+    expect(component.itemIfrcFamilyOptions().map((item) => item.value)).toEqual([302]);
+    expect(component.form.get('ifrc_family_id')?.value).toBe(302);
+  });
+
+  it('ignores stale IFRC reference lookup responses that arrive after a newer request', () => {
+    const { component, masterDataService } = setup();
+    const firstResponse$ = new Subject<Array<{
+      value: number;
+      label: string;
+      ifrc_code: string;
+      ifrc_family_id: number;
+      family_code: string;
+      family_label: string;
+      category_code: string;
+      category_label: string;
+      spec_segment: string;
+    }>>();
+    const secondResponse$ = new Subject<Array<{
+      value: number;
+      label: string;
+      ifrc_code: string;
+      ifrc_family_id: number;
+      family_code: string;
+      family_label: string;
+      category_code: string;
+      category_label: string;
+      spec_segment: string;
+    }>>();
+    masterDataService.lookupIfrcReferences.and.returnValues(
+      firstResponse$.asObservable(),
+      secondResponse$.asObservable(),
+    );
+
+    component.form.get('ifrc_item_ref_id')?.patchValue(402, { emitEvent: false });
+    (component as unknown as {
+      loadItemReferenceOptions: (
+        familyId: string | number | null | undefined,
+        search?: string,
+        preserveValue?: string | number | null,
+      ) => void;
+    }).loadItemReferenceOptions(301, 'tablet');
+    (component as unknown as {
+      loadItemReferenceOptions: (
+        familyId: string | number | null | undefined,
+        search?: string,
+        preserveValue?: string | number | null,
+      ) => void;
+    }).loadItemReferenceOptions(301, 'powder');
+
+    secondResponse$.next([
+      {
+        value: 402,
+        label: 'Water purification powder',
+        ifrc_code: 'WWTRTABLPW01',
+        ifrc_family_id: 301,
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'PW',
+      },
+    ]);
+
+    expect(component.itemIfrcReferenceOptions().map((item) => item.value)).toEqual([402]);
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(402);
+
+    firstResponse$.next([
+      {
+        value: 401,
+        label: 'Water purification tablet',
+        ifrc_code: 'WWTRTABLTB01',
+        ifrc_family_id: 301,
+        family_code: 'WTR',
+        family_label: 'Water Treatment',
+        category_code: 'TABL',
+        category_label: 'Tablet',
+        spec_segment: 'TB',
+      },
+    ]);
+
+    expect(component.itemIfrcReferenceOptions().map((item) => item.value)).toEqual([402]);
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(402);
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABLPW01');
+  });
+
   it('keeps size, form, and material in the helper panel instead of the persisted item form', () => {
     const { component, fixture } = setup();
 
@@ -449,6 +600,15 @@ describe('MasterFormPageComponent', () => {
       },
       candidates: [
         {
+          family: {
+            value: 301,
+            label: 'Water Treatment',
+            family_code: 'WTR',
+            group_code: 'W',
+            category_id: 102,
+            category_desc: 'WASH',
+            category_code: 'WASH',
+          },
           reference: {
             value: 401,
             label: 'Water purification tablet',
@@ -511,6 +671,15 @@ describe('MasterFormPageComponent', () => {
       reference,
       candidates: [
         {
+          family: {
+            value: 301,
+            label: 'Water Treatment',
+            family_code: 'WTR',
+            group_code: 'W',
+            category_id: 102,
+            category_desc: 'WASH',
+            category_code: 'WASH',
+          },
           reference,
           rank: 1,
           score: 1,
@@ -592,6 +761,15 @@ describe('MasterFormPageComponent', () => {
       ],
     });
     const firstCandidate = {
+      family: {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
       reference: {
         value: 401,
         label: 'Water purification tablet',
@@ -612,19 +790,20 @@ describe('MasterFormPageComponent', () => {
     component.ifrcSuggestion.set(suggestion);
     component.ifrcSuggestionResolution.set({
       status: 'ambiguous',
-      family: {
-        value: 301,
-        label: 'Water Treatment',
-        family_code: 'WTR',
-        group_code: 'W',
-        category_id: 102,
-        category_desc: 'WASH',
-        category_code: 'WASH',
-      },
+      family: null,
       reference: null,
       candidates: [
         firstCandidate,
         {
+          family: {
+            value: 301,
+            label: 'Water Treatment',
+            family_code: 'WTR',
+            group_code: 'W',
+            category_id: 102,
+            category_desc: 'WASH',
+            category_code: 'WASH',
+          },
           reference: {
             value: 402,
             label: 'Water purification powder',
@@ -657,6 +836,158 @@ describe('MasterFormPageComponent', () => {
 
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
     expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB01');
+    expect(notificationService.showSuccess).toHaveBeenCalled();
+  });
+
+  it('keeps candidate families distinct for multi-family ambiguous suggestions and applies the selected family', () => {
+    const { component, notificationService, masterDataService } = setup();
+    const suggestion = buildResolvedSuggestion({
+      ifrc_family_id: null,
+      resolved_ifrc_item_ref_id: null,
+      resolution_status: 'ambiguous',
+      direct_accept_allowed: false,
+      candidate_count: 2,
+      auto_highlight_candidate_id: 402,
+      candidates: [
+        {
+          ifrc_item_ref_id: 401,
+          ifrc_family_id: 301,
+          ifrc_code: 'WWTRTABLTB01',
+          reference_desc: 'Water purification tablet',
+          group_code: 'W',
+          group_label: 'WASH',
+          family_code: 'WTR',
+          family_label: 'Water Treatment',
+          category_code: 'TABL',
+          category_label: 'Tablet',
+          spec_segment: 'TB',
+          rank: 1,
+          score: 0.82,
+          auto_highlight: false,
+          match_reasons: ['exact_spec_match'],
+        },
+        {
+          ifrc_item_ref_id: 402,
+          ifrc_family_id: 302,
+          ifrc_code: 'SMEDGAUZE01',
+          reference_desc: 'Sterile gauze pads',
+          group_code: 'M',
+          group_label: 'Medical',
+          family_code: 'MED',
+          family_label: 'Medical Consumables',
+          category_code: 'GAUZ',
+          category_label: 'Gauze',
+          spec_segment: '01',
+          rank: 2,
+          score: 0.79,
+          auto_highlight: true,
+          match_reasons: ['desc_overlap:GAUZE,PADS'],
+        },
+      ],
+    });
+    const families = [
+      {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
+      {
+        value: 302,
+        label: 'Medical Consumables',
+        family_code: 'MED',
+        group_code: 'M',
+        category_id: 103,
+        category_desc: 'Medical & Health',
+        category_code: 'HEALTH',
+      },
+    ];
+    masterDataService.lookupIfrcFamilies.and.callFake((options?: { categoryId?: string | number | null; search?: string }) => {
+      if (options?.categoryId === 103 || options?.search === 'MED') {
+        return of([families[1]]);
+      }
+      if (options?.categoryId === 102 || options?.search === 'WTR') {
+        return of([families[0]]);
+      }
+      return of(families);
+    });
+    masterDataService.lookupIfrcReferences.and.callFake((options?: { ifrcFamilyId?: string | number | null }) => (
+      options?.ifrcFamilyId === 302
+        ? of([
+            {
+              value: 402,
+              label: 'Sterile gauze pads',
+              ifrc_code: 'SMEDGAUZE01',
+              ifrc_family_id: 302,
+              family_code: 'MED',
+              family_label: 'Medical Consumables',
+              category_code: 'GAUZ',
+              category_label: 'Gauze',
+              spec_segment: '01',
+            },
+          ])
+        : of([
+            {
+              value: 401,
+              label: 'Water purification tablet',
+              ifrc_code: 'WWTRTABLTB01',
+              ifrc_family_id: 301,
+              family_code: 'WTR',
+              family_label: 'Water Treatment',
+              category_code: 'TABL',
+              category_label: 'Tablet',
+              spec_segment: 'TB',
+            },
+          ])
+    ));
+
+    const resolution = (component as unknown as {
+      buildSuggestionResolutionState: (
+        currentSuggestion: IFRCSuggestion,
+        currentFamilies: Array<{
+          value: number;
+          label: string;
+          family_code: string;
+          group_code: string;
+          category_id: number;
+          category_desc: string;
+          category_code: string;
+        }>,
+      ) => {
+        family: {
+          value: number;
+        } | null;
+        candidates: Array<{
+          family: {
+            value: number;
+            category_id: number;
+          } | null;
+          reference: {
+            value: number;
+            ifrc_code: string;
+          };
+        }>;
+      };
+    }).buildSuggestionResolutionState(suggestion, families);
+
+    expect(resolution.family).toBeNull();
+    expect(resolution.candidates.map((candidate) => candidate.family?.value ?? null)).toEqual([301, 302]);
+
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set(resolution as never);
+    component.onSelectSuggestionCandidate(resolution.candidates[1] as never);
+
+    expect(component.canAcceptResolvedIfrcSuggestion()).toBeTrue();
+
+    component.onAcceptIfrcSuggestion();
+
+    expect(component.form.get('category_id')?.value).toBe(103);
+    expect(component.form.get('ifrc_family_id')?.value).toBe(302);
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(402);
+    expect(component.form.get('item_code')?.value).toBe('SMEDGAUZE01');
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
 

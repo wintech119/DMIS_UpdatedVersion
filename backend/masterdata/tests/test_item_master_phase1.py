@@ -863,8 +863,12 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertNotIn("size_weight", reference_seed_sql)
 
     def test_0006_forwards_sql_adds_legacy_code_and_reference_uniqueness(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        connection = MagicMock(vendor="postgresql")
+        connection.cursor.return_value.__enter__.return_value = cursor
         schema_editor = SimpleNamespace(
-            connection=SimpleNamespace(vendor="postgresql"),
+            connection=connection,
             execute=MagicMock(),
         )
         with patch.object(self.migration_0006, "_legacy_item_table_exists", return_value=True):
@@ -872,9 +876,32 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
                 self.migration_0006._forwards(None, schema_editor)
 
         executed_sql = schema_editor.execute.call_args.args[0]
+        duplicate_check_sql = cursor.execute.call_args.args[0]
+        self.assertIn("GROUP BY ifrc_item_ref_id", duplicate_check_sql)
+        self.assertIn("HAVING COUNT(*) > 1", duplicate_check_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS legacy_item_code", executed_sql)
         self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS ux_item_ifrc_item_ref_id_unique", executed_sql)
         self.assertIn("UPDATE tenant_a.item AS item", executed_sql)
+
+    def test_0006_forwards_aborts_when_duplicate_reference_mappings_exist(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [(51, [7, 9]), (77, [12, 18])]
+        connection = MagicMock(vendor="postgresql")
+        connection.cursor.return_value.__enter__.return_value = cursor
+        schema_editor = SimpleNamespace(
+            connection=connection,
+            execute=MagicMock(),
+        )
+
+        with patch.object(self.migration_0006, "_legacy_item_table_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                with self.assertRaises(RuntimeError) as exc:
+                    self.migration_0006._forwards(None, schema_editor)
+
+        self.assertIn("ux_item_ifrc_item_ref_id_unique", str(exc.exception))
+        self.assertIn("51: [7, 9]", str(exc.exception))
+        self.assertIn("77: [12, 18]", str(exc.exception))
+        schema_editor.execute.assert_not_called()
 
     @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
     def test_0007_forwards_sql_adds_reference_metadata_columns(self, mock_sync):
