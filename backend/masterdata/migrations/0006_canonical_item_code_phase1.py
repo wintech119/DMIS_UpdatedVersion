@@ -46,8 +46,17 @@ _REVERSE_SQL_TEMPLATE = """
 DROP INDEX IF EXISTS {schema}.ux_item_ifrc_item_ref_id_unique;
 DROP INDEX IF EXISTS {schema}.idx_item_legacy_item_code;
 
+UPDATE {schema}.item
+SET item_code = legacy_item_code,
+    update_by_id = 'system',
+    update_dtime = NOW(),
+    version_nbr = version_nbr + 1
+WHERE legacy_item_code IS NOT NULL
+  AND legacy_item_code <> '';
+
 ALTER TABLE {schema}.item
     DROP COLUMN IF EXISTS legacy_item_code;
+"""
 """
 
 
