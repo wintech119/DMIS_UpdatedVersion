@@ -1539,6 +1539,26 @@ describe('MasterFormPageComponent', () => {
     expect(notificationService.showSuccess).toHaveBeenCalledWith('Suggested values applied to the form.');
   });
 
+  it('clears governed catalog suggestions when the source form values change', () => {
+    const { component } = setup('ifrc-families');
+
+    component.form.patchValue({
+      family_label: 'Water Treatment',
+      status_code: 'A',
+    }, { emitEvent: false });
+
+    component.onSuggestCatalogValues();
+
+    expect(component.catalogSuggestion()).not.toBeNull();
+
+    component.form.get('family_label')?.setValue('Water Treatment Plus');
+
+    expect(component.catalogSuggestion()).toBeNull();
+    expect(component.catalogAssistError()).toBe(
+      'Catalog suggestions were cleared because the form changed. Request fresh suggestions before applying them.',
+    );
+  });
+
   it('keeps locked canonical fields unchanged when applying suggestions during normal IFRC reference edits', () => {
     const { component, notificationService } = setup('ifrc-item-references', { pk: '77' });
     const internalComponent = component as unknown as {
@@ -1560,6 +1580,21 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('reference_desc')?.value).toBe('Water purification tablet plus');
     expect(component.catalogAssistError()).toContain('Locked canonical fields were not applied');
     expect(notificationService.showWarning).toHaveBeenCalledWith('Suggested values were applied to editable fields only.');
+  });
+
+  it('does not invalidate governed catalog suggestions while applying them', () => {
+    const { component } = setup('ifrc-families');
+
+    component.form.patchValue({
+      family_label: 'Water Treatment',
+      status_code: 'A',
+    }, { emitEvent: false });
+
+    component.onSuggestCatalogValues();
+    component.onApplyCatalogSuggestion();
+
+    expect(component.catalogSuggestion()).not.toBeNull();
+    expect(component.catalogAssistError()).toBeNull();
   });
 
   it('blocks family suggestions until the primary prerequisite field is filled', () => {

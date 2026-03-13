@@ -305,6 +305,13 @@ export class MasterFormPageComponent implements OnInit {
       if (this.submissionError()) {
         this.clearSubmissionError();
       }
+
+      if (this.isGovernedCatalogAuthoringTable() && this.catalogSuggestion()) {
+        this.catalogSuggestion.set(null);
+        this.catalogAssistError.set(
+          'Catalog suggestions were cleared because the form changed. Request fresh suggestions before applying them.',
+        );
+      }
     });
   }
 

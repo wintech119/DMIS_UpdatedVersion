@@ -66,21 +66,23 @@ def _is_postgres(schema_editor) -> bool:
     return schema_editor.connection.vendor == "postgresql"
 
 
+def _validated_schema(schema: object, *, source: str) -> str:
+    if not isinstance(schema, str) or not _SCHEMA_RE.fullmatch(schema):
+        raise RuntimeError(f"Invalid {source}: {schema!r}")
+    return schema
+
+
 def _schema_name(schema_editor) -> str:
     configured = os.getenv("DMIS_DB_SCHEMA")
     if configured is not None:
-        if not _SCHEMA_RE.fullmatch(configured):
-            raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
-        return configured
+        return _validated_schema(configured, source="DMIS_DB_SCHEMA")
 
     with schema_editor.connection.cursor() as cursor:
         cursor.execute("SELECT current_schema()")
         row = cursor.fetchone()
 
     schema = row[0] or "public"
-    if not isinstance(schema, str) or not _SCHEMA_RE.fullmatch(schema):
-        raise RuntimeError(f"Invalid database schema name: {schema!r}")
-    return schema
+    return _validated_schema(schema, source="database schema name")
 
 
 def _legacy_item_table_exists(schema_editor) -> bool:
@@ -92,13 +94,20 @@ def _legacy_item_table_exists(schema_editor) -> bool:
 
 
 def _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema: str) -> None:
+    # `_forwards()` passes `_schema_name(schema_editor)`, but revalidate against
+    # `_SCHEMA_RE` here so this raw-SQL f-string never interpolates an unchecked schema.
+    validated_schema = _validated_schema(
+        schema,
+        source="database schema name for duplicate mapping check",
+    )
+    schema_sql = schema_editor.connection.ops.quote_name(validated_schema)
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             f"""
             SELECT
                 ifrc_item_ref_id,
                 array_agg(item_id ORDER BY item_id)
-            FROM {schema}.item
+            FROM {schema_sql}.item
             WHERE ifrc_item_ref_id IS NOT NULL
             GROUP BY ifrc_item_ref_id
             HAVING COUNT(*) > 1
@@ -116,7 +125,7 @@ def _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema: str
     )
     raise RuntimeError(
         "Cannot create unique index ux_item_ifrc_item_ref_id_unique because duplicate "
-        f"item.ifrc_item_ref_id mappings exist in {schema}.item. Reconcile these mappings "
+        f"item.ifrc_item_ref_id mappings exist in {validated_schema}.item. Reconcile these mappings "
         f"and rerun the migration. Offending mappings: {duplicate_details}"
     )
 
