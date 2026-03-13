@@ -219,7 +219,11 @@ def list_item_records(
         return [], 0, ["db_error"]
 
 
-def get_item_record(item_id: Any) -> tuple[dict[str, Any] | None, list[str]]:
+def get_item_record(
+    item_id: Any,
+    *,
+    raise_on_error: bool = False,
+) -> tuple[dict[str, Any] | None, list[str]]:
     if _is_sqlite():
         return None, ["db_unavailable"]
 
@@ -249,8 +253,10 @@ def get_item_record(item_id: Any) -> tuple[dict[str, Any] | None, list[str]]:
             record["uom_options"] = _load_item_uom_options(cursor, schema, item_id)
             return record, []
     except DatabaseError as exc:
-        logger.warning("get_item_record(%s) failed: %s", item_id, exc)
         _safe_rollback()
+        if raise_on_error:
+            raise
+        logger.warning("get_item_record(%s) failed: %s", item_id, exc)
         return None, ["db_error"]
 
 
@@ -606,7 +612,7 @@ def create_item_record(
                     actor_id,
                 )
 
-            record, record_warnings = get_item_record(item_id)
+            record, record_warnings = get_item_record(item_id, raise_on_error=True)
             warnings.extend(record_warnings)
             if record is None:
                 return None, warnings or ["db_error"]
@@ -638,7 +644,10 @@ def update_item_record(
     schema = _schema_name()
     try:
         with transaction.atomic():
-            before_record, before_warnings = get_item_record(item_id)
+            before_record, before_warnings = get_item_record(
+                item_id,
+                raise_on_error=True,
+            )
             if before_record is None:
                 return False, before_warnings or ["not_found"]
 
@@ -682,7 +691,10 @@ def update_item_record(
                     actor_id,
                 )
 
-            after_record, after_warnings = get_item_record(item_id)
+            after_record, after_warnings = get_item_record(
+                item_id,
+                raise_on_error=True,
+            )
             warnings.extend(before_warnings)
             warnings.extend(after_warnings)
             if after_record is None:

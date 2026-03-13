@@ -1,10 +1,12 @@
 import importlib
+from contextlib import nullcontext
 from decimal import Decimal
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.management import call_command
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -32,8 +34,11 @@ from masterdata.services.item_master import (
     _ensure_default_item_uom_option,
     _normalize_item_uom_options,
     _replace_item_uom_options,
+    create_item_record,
     find_item_canonical_conflict,
+    get_item_record,
     list_item_records,
+    update_item_record,
     validate_item_payload,
 )
 
@@ -448,6 +453,123 @@ class ItemMasterWritePayloadTests(SimpleTestCase):
         self.assertEqual(reference_row["ifrc_item_ref_id"], 51)
         self.assertEqual(payload["item_code"], "WWTRTABL01")
         self.assertEqual(payload["legacy_item_code"], "HADR-WATER-TABS")
+
+
+class ItemMasterReadErrorTests(SimpleTestCase):
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._schema_name", return_value="tenant_a")
+    @patch("masterdata.services.item_master._safe_rollback")
+    @patch("masterdata.services.item_master.connection")
+    def test_get_item_record_returns_db_error_by_default(
+        self,
+        mock_connection,
+        mock_safe_rollback,
+        _mock_schema_name,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = DatabaseError("read failed")
+
+        record, warnings = get_item_record(501)
+
+        self.assertIsNone(record)
+        self.assertEqual(warnings, ["db_error"])
+        mock_safe_rollback.assert_called_once()
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._schema_name", return_value="tenant_a")
+    @patch("masterdata.services.item_master._safe_rollback")
+    @patch("masterdata.services.item_master.connection")
+    def test_get_item_record_reraises_db_error_when_requested(
+        self,
+        mock_connection,
+        mock_safe_rollback,
+        _mock_schema_name,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = DatabaseError("read failed")
+
+        with self.assertRaises(DatabaseError):
+            get_item_record(501, raise_on_error=True)
+
+        mock_safe_rollback.assert_called_once()
+
+
+class ItemMasterTransactionalWriteTests(SimpleTestCase):
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._schema_name", return_value="tenant_a")
+    @patch("masterdata.services.item_master._build_item_write_payload", return_value=({"default_uom_code": "EA"}, None))
+    @patch("masterdata.services.item_master._normalize_item_uom_options", return_value=(None, {}))
+    @patch("masterdata.services.item_master.create_record", return_value=(501, []))
+    @patch("masterdata.services.item_master.get_item_record", side_effect=DatabaseError("reload failed"))
+    @patch("masterdata.services.item_master._ensure_default_item_uom_option")
+    @patch("masterdata.services.item_master._safe_rollback")
+    @patch("masterdata.services.item_master.transaction.atomic", return_value=nullcontext())
+    def test_create_item_record_uses_raise_on_error_for_post_write_reload(
+        self,
+        _mock_atomic,
+        mock_safe_rollback,
+        _mock_ensure_default,
+        mock_get_item_record,
+        _mock_create_record,
+        _mock_normalize_uoms,
+        _mock_build_payload,
+        _mock_schema_name,
+        _mock_sqlite,
+    ):
+        item_id, warnings = create_item_record({"item_name": "WATER TABS"}, "tester")
+
+        self.assertIsNone(item_id)
+        self.assertIn("db_error", warnings)
+        self.assertIn("db_exception:DatabaseError", warnings)
+        self.assertIn("db_message:reload failed", warnings)
+        mock_get_item_record.assert_called_once_with(501, raise_on_error=True)
+        mock_safe_rollback.assert_called_once()
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._schema_name", return_value="tenant_a")
+    @patch("masterdata.services.item_master._build_item_write_payload", return_value=({"default_uom_code": "EA"}, None))
+    @patch("masterdata.services.item_master.update_record", return_value=(True, []))
+    @patch("masterdata.services.item_master._normalize_item_uom_options", return_value=(None, {}))
+    @patch("masterdata.services.item_master._ensure_default_item_uom_option")
+    @patch("masterdata.services.item_master._tracked_item_state", return_value={"identity": {"item_code": "OLD"}})
+    @patch(
+        "masterdata.services.item_master.get_item_record",
+        side_effect=[
+            ({"item_id": 501, "default_uom_code": "EA"}, []),
+            DatabaseError("reload failed"),
+        ],
+    )
+    @patch("masterdata.services.item_master._safe_rollback")
+    @patch("masterdata.services.item_master.transaction.atomic", return_value=nullcontext())
+    def test_update_item_record_uses_raise_on_error_for_transactional_reads(
+        self,
+        _mock_atomic,
+        mock_safe_rollback,
+        mock_get_item_record,
+        _mock_tracked_state,
+        _mock_ensure_default,
+        _mock_normalize_uoms,
+        _mock_update_record,
+        _mock_build_payload,
+        _mock_schema_name,
+        _mock_sqlite,
+    ):
+        success, warnings = update_item_record(501, {"item_name": "WATER TABS"}, "tester")
+
+        self.assertFalse(success)
+        self.assertIn("db_error", warnings)
+        self.assertIn("db_exception:DatabaseError", warnings)
+        self.assertIn("db_message:reload failed", warnings)
+        self.assertEqual(
+            mock_get_item_record.call_args_list,
+            [
+                call(501, raise_on_error=True),
+                call(501, raise_on_error=True),
+            ],
+        )
+        mock_safe_rollback.assert_called_once()
 
 
 class ItemMasterConflictTests(SimpleTestCase):
