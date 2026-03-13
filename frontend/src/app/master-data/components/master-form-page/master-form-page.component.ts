@@ -2271,7 +2271,7 @@ export class MasterFormPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((confirmed) => {
       if (!confirmed) {
-        this.router.navigate(['/master-data', cfg.routePath, this.pk()]);
+        this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'view']);
       }
     });
   }

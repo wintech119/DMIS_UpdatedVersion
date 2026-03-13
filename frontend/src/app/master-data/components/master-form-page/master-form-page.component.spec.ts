@@ -1480,6 +1480,27 @@ describe('MasterFormPageComponent', () => {
     expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('Create Replacement'))).toBeTrue();
   });
 
+  it('navigates to the record view when the governed edit warning dialog is cancelled', () => {
+    const { component, router } = setup('ifrc-item-references', { pk: '77' });
+    const dialogOpen = jasmine.createSpy('open').and.returnValue({ afterClosed: () => of(false) } as never);
+    const internalComponent = component as unknown as {
+      dialog: { open: typeof dialogOpen };
+      promptedGovernedEditWarning: boolean;
+      maybePromptGovernedEditWarning: () => void;
+    };
+
+    internalComponent.dialog = { open: dialogOpen };
+    component.isEdit.set(true);
+    component.catalogEditGuidance.set(
+      buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+    );
+    internalComponent.promptedGovernedEditWarning = false;
+
+    internalComponent.maybePromptGovernedEditWarning();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', '77', 'view']);
+  });
+
   it('applies suggested IFRC family values during governed family creation', () => {
     const { component, masterDataService, notificationService } = setup('ifrc-families');
 

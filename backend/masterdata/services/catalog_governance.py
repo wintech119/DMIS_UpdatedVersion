@@ -846,9 +846,12 @@ def _match_reference_category(*, taxonomy, group_code: str, family_code: str, re
             best_code = category_code
             best_label = category.label
             best_score = score
-    if not best_code:
-        best_code = next(iter(categories))
-        best_label = categories[best_code].label
+    if best_score <= 0:
+        general_category = categories.get("GENR")
+        return {
+            "category_code": "GENR",
+            "category_label": general_category.label if general_category is not None else "General",
+        }
     return {"category_code": best_code, "category_label": best_label}
 
 

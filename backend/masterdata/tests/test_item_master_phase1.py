@@ -17,6 +17,7 @@ from masterdata.item_master_taxonomy import (
     build_ifrc_taxonomy_seed_payload,
 )
 from masterdata.services.catalog_governance import (
+    _match_reference_category,
     catalog_detail_metadata,
     suggest_ifrc_family_authoring,
     suggest_ifrc_reference_authoring,
@@ -476,6 +477,35 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         self.assertTrue(guidance["edit_guidance"]["warning_required"])
         self.assertIn("replacement", guidance["edit_guidance"]["warning_text"])
         self.assertIn("family_code", guidance["edit_guidance"]["locked_fields"])
+
+    def test_match_reference_category_returns_general_when_no_category_scores_above_zero(self):
+        taxonomy = IFRCTaxonomy(
+            groups={
+                "W": GroupDef(
+                    code="W",
+                    label="WASH",
+                    families={
+                        "WTR": FamilyDef(
+                            code="WTR",
+                            label="Water Treatment",
+                            categories={
+                                "GENR": CategoryDef(code="GENR", label="General", items=["Miscellaneous supply"]),
+                                "TABL": CategoryDef(code="TABL", label="Tablet", items=["Water purification tablet"]),
+                            },
+                        )
+                    },
+                )
+            }
+        )
+
+        match = _match_reference_category(
+            taxonomy=taxonomy,
+            group_code="W",
+            family_code="WTR",
+            reference_desc="Unrelated fallback description",
+        )
+
+        self.assertEqual(match, {"category_code": "GENR", "category_label": "General"})
 
     @patch(
         "masterdata.services.catalog_governance._family_conflicts",
