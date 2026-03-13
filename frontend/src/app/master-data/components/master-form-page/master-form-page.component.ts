@@ -38,6 +38,7 @@ import {
   LookupItem,
   MasterFieldConfig,
   MasterRecord,
+  MasterSaveFailureResponse,
   MasterTableConfig,
 } from '../../models/master-data.models';
 import {
@@ -158,15 +159,10 @@ export class MasterFormPageComponent implements OnInit {
   submissionError = signal<string | null>(null);
   submissionErrorDetails = signal<string[]>([]);
   duplicateCanonicalConflict = signal<DuplicateCanonicalItemConflict | null>(null);
+  localDraftMode = signal(false);
+  ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
-
-  /** IFRC specification hint controls used only to improve suggestion quality */
-  ifrcSpecForm = new FormGroup({
-    size_weight: new FormControl<string>(''),
-    form: new FormControl<string>(''),
-    material: new FormControl<string>(''),
-  });
 
   private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
@@ -256,6 +252,7 @@ export class MasterFormPageComponent implements OnInit {
         this.config.set(cfg);
         this.buildForm(cfg);
         this.setupItemTaxonomyState(cfg);
+        this.setupItemIfrcSuggestion(cfg);
         this.loadLookups(cfg);
         if (this.pk()) {
           this.primeGovernedEditState();
@@ -298,6 +295,7 @@ export class MasterFormPageComponent implements OnInit {
         validateFefoRequiresExpiry,
         (control) => this.validateItemClassification(control),
       ]);
+      this.updateLocalDraftFieldValidators();
       this.form.updateValueAndValidity({ emitEvent: false });
     }
 
@@ -337,6 +335,7 @@ export class MasterFormPageComponent implements OnInit {
         this.selectedReferenceOption = null;
         this.referenceSearchControl.setValue('', { emitEvent: false });
         this.clearAcceptedSuggestion();
+        this.clearIfrcSuggestionState();
         this.syncDisplayedItemCode();
       }
 
@@ -361,6 +360,7 @@ export class MasterFormPageComponent implements OnInit {
         this.selectedReferenceOption = null;
         this.referenceSearchControl.setValue('', { emitEvent: false });
         this.clearAcceptedSuggestion();
+        this.clearIfrcSuggestionState();
         this.syncDisplayedItemCode();
       }
 
@@ -385,6 +385,7 @@ export class MasterFormPageComponent implements OnInit {
           this.referenceSearchControl.setValue('', { emitEvent: false });
         }
         this.clearAcceptedSuggestion();
+        this.clearIfrcSuggestionState();
       }
 
       this.syncDisplayedItemCode();
@@ -412,6 +413,7 @@ export class MasterFormPageComponent implements OnInit {
           referenceControl.patchValue(null, { emitEvent: false });
           this.selectedReferenceOption = null;
           this.clearAcceptedSuggestion();
+          this.clearIfrcSuggestionState();
           this.syncDisplayedItemCode();
           this.form.updateValueAndValidity({ emitEvent: false });
         }
@@ -431,7 +433,8 @@ export class MasterFormPageComponent implements OnInit {
     const familyId = control.get('ifrc_family_id')?.value;
     const referenceId = control.get('ifrc_item_ref_id')?.value;
     const errors: ValidationErrors = {};
-    const requiresMappedClassification = !this.isEdit() || this.itemHadMappedClassificationOnLoad;
+    const requiresMappedClassification = this.itemHadMappedClassificationOnLoad
+      || (!this.isEdit() && !this.localDraftMode());
 
     if (categoryId && requiresMappedClassification && !familyId) {
       errors['ifrcFamilyRequired'] = true;
@@ -462,9 +465,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private setupItemIfrcSuggestion(cfg: MasterTableConfig): void {
-    this.ifrcSuggestion.set(null);
-    this.ifrcSuggestionResolution.set(null);
-    this.ifrcError.set(null);
+    this.clearIfrcSuggestionState();
     this.clearAcceptedSuggestion();
 
     if (cfg.tableKey !== 'items') return;
@@ -472,43 +473,26 @@ export class MasterFormPageComponent implements OnInit {
     const itemNameControl = this.form.get('item_name');
     if (!itemNameControl) return;
 
-    // Item name changes -> push to trigger stream (debounced + deduplicated)
     itemNameControl.valueChanges.pipe(
       map((v) => (typeof v === 'string' ? v.trim() : '')),
-      debounceTime(600),
       distinctUntilChanged(),
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe((name) => {
-      this.clearAcceptedSuggestion();
-      this.ifrcTrigger$.next(name);
-    });
-
-    // Spec hint changes -> re-trigger with current item name
-    this.ifrcSpecForm.valueChanges.pipe(
-      debounceTime(400),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(() => {
       this.clearAcceptedSuggestion();
-      const name = String(itemNameControl.value ?? '').trim();
-      this.ifrcTrigger$.next(name);
+      this.clearIfrcSuggestionState();
     });
 
-    // Main suggest pipeline
     this.ifrcTrigger$.pipe(
       switchMap((itemName) => {
         if (itemName.length < 3) {
           this.ifrcSuggestion.set(null);
           this.ifrcSuggestionResolution.set(null);
           this.ifrcError.set(null);
+          this.ifrcRejectedState.set(null);
           return of(null);
         }
         this.ifrcLoading.set(true);
-        const { size_weight, form, material } = this.ifrcSpecForm.value;
-        return this.ifrcSuggestService.suggest(itemName, {
-          size_weight: size_weight ?? '',
-          form: form ?? '',
-          material: material ?? '',
-        }).pipe(
+        return this.ifrcSuggestService.suggest(itemName).pipe(
           catchError((error) => {
             this.ifrcError.set(this.getIfrcErrorMessage(error));
             return of(null);
@@ -531,8 +515,23 @@ export class MasterFormPageComponent implements OnInit {
       this.ifrcSuggestion.set(suggestion);
       this.ifrcSuggestionResolution.set(null);
       this.ifrcError.set(null);
+      this.ifrcRejectedState.set(null);
       this.resolveIfrcSuggestion(suggestion);
     });
+  }
+
+  onRequestIfrcSuggestion(): void {
+    const itemName = String(this.form.get('item_name')?.value ?? '').trim();
+    if (itemName.length < 3) {
+      this.form.get('item_name')?.markAsTouched();
+      this.notify.showWarning('Enter at least 3 characters in Item Name before using Find IFRC Match.');
+      return;
+    }
+
+    this.clearAcceptedSuggestion();
+    this.ifrcRejectedState.set(null);
+    this.ifrcError.set(null);
+    this.ifrcTrigger$.next(itemName);
   }
 
   onAcceptIfrcSuggestion(): void {
@@ -586,6 +585,8 @@ export class MasterFormPageComponent implements OnInit {
 
     this.applyingTaxonomyPatch = false;
     this.acceptedIfrcSuggestLogId = suggestion.suggestion_id ?? null;
+    this.setLocalDraftMode(false);
+    this.ifrcRejectedState.set(null);
     this.syncDisplayedItemCode(reference);
     this.loadItemFamilyOptions(family.category_id, family.value);
     this.loadItemReferenceOptions(
@@ -605,9 +606,56 @@ export class MasterFormPageComponent implements OnInit {
 
   onRejectIfrcSuggestion(): void {
     this.clearAcceptedSuggestion();
-    this.ifrcSuggestion.set(null);
-    this.ifrcSuggestionResolution.set(null);
-    this.ifrcError.set(null);
+    this.clearIfrcSuggestionState();
+    this.ifrcRejectedState.set(this.isEdit() ? 'edit' : 'create');
+  }
+
+  onChooseIfrcReferenceManually(): void {
+    this.setLocalDraftMode(false);
+    this.ifrcRejectedState.set(null);
+    this.form.get('ifrc_family_id')?.markAsTouched();
+    this.form.get('ifrc_item_ref_id')?.markAsTouched();
+  }
+
+  onKeepEditingAndTryAgain(): void {
+    this.ifrcRejectedState.set(null);
+  }
+
+  onSaveAsLocalDraft(): void {
+    if (!this.isItemRecord() || this.isEdit()) {
+      return;
+    }
+
+    const familyControl = this.form.get('ifrc_family_id');
+    const referenceControl = this.form.get('ifrc_item_ref_id');
+
+    this.applyingTaxonomyPatch = true;
+    familyControl?.patchValue(null, { emitEvent: false });
+    referenceControl?.patchValue(null, { emitEvent: false });
+    this.referenceSearchControl.setValue('', { emitEvent: false });
+    this.selectedReferenceOption = null;
+    this.applyingTaxonomyPatch = false;
+
+    this.clearAcceptedSuggestion();
+    this.clearIfrcSuggestionState();
+    this.setLocalDraftMode(true);
+    this.syncDisplayedItemCode();
+    this.updateItemTaxonomyControlState();
+    this.form.updateValueAndValidity({ emitEvent: false });
+    this.clearSubmissionError();
+    this.notify.showWarning('Local draft mode enabled. Choose a Level 1 category and enter a Local Item Code before saving.');
+  }
+
+  onKeepCurrentClassification(): void {
+    this.ifrcRejectedState.set(null);
+  }
+
+  onChooseAnotherIfrcReference(): void {
+    this.ifrcRejectedState.set(null);
+    this.setLocalDraftMode(false);
+    this.onClearIfrcReference();
+    this.form.get('ifrc_item_ref_id')?.markAsTouched();
+    this.notify.showWarning('Search and choose a different IFRC reference to continue.');
   }
 
   onSelectIfrcReference(reference: IfrcReferenceLookup): void {
@@ -624,7 +672,10 @@ export class MasterFormPageComponent implements OnInit {
     });
     this.writeLookup('ifrc_references', this.ensureLookupItem(this.itemIfrcReferenceOptions(), reference));
     this.applyingTaxonomyPatch = false;
+    this.setLocalDraftMode(false);
+    this.ifrcRejectedState.set(null);
     this.clearAcceptedSuggestion();
+    this.clearIfrcSuggestionState();
     this.syncDisplayedItemCode(reference);
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
@@ -643,6 +694,7 @@ export class MasterFormPageComponent implements OnInit {
     this.selectedReferenceOption = null;
     this.applyingTaxonomyPatch = false;
     this.clearAcceptedSuggestion();
+    this.clearIfrcSuggestionState();
     this.syncDisplayedItemCode();
     this.updateItemTaxonomyControlState();
     this.form.updateValueAndValidity({ emitEvent: false });
@@ -1140,26 +1192,85 @@ export class MasterFormPageComponent implements OnInit {
       : this.service.lookupIfrcFamilies({ search: familySearch });
 
     familyLookup$.pipe(
-      map((families) => {
-        const resolved = this.buildSuggestionResolutionState(suggestion, families);
-        if (
-          resolved.family
-          || resolved.candidates.some((candidate) => candidate.family != null)
-        ) {
-          return resolved;
-        }
-
-        return {
-          ...resolved,
-          warning: 'Suggestion could not be matched to an active IFRC family.',
-        } satisfies ResolvedIfrcSuggestion;
-      }),
+      switchMap((families) => this.resolveSuggestionAgainstLookups(suggestion, families)),
       catchError(() => of({
         ...fallbackResolution,
         warning: 'Failed to resolve the IFRC suggestion against the active taxonomy.',
       } satisfies ResolvedIfrcSuggestion)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((resolved) => this.ifrcSuggestionResolution.set(resolved));
+  }
+
+  private resolveSuggestionAgainstLookups(
+    suggestion: IFRCSuggestion,
+    families: IfrcFamilyLookup[],
+  ) {
+    const resolved = this.buildSuggestionResolutionState(suggestion, families);
+    const hasResolvedFamily = resolved.family != null
+      || resolved.candidates.some((candidate) => candidate.family != null);
+    const missingFamilyWarning = hasResolvedFamily
+      ? null
+      : 'Suggestion could not be matched to an active IFRC family.';
+    const resolvedReferenceId = this.toRecordIdentifier(suggestion.resolved_ifrc_item_ref_id);
+    const needsResolvedReferenceLookup = resolved.status === 'resolved'
+      && resolvedReferenceId != null
+      && resolved.reference == null;
+
+    if (!needsResolvedReferenceLookup) {
+      return of(missingFamilyWarning ? {
+        ...resolved,
+        warning: missingFamilyWarning,
+      } satisfies ResolvedIfrcSuggestion : resolved);
+    }
+
+    const resolvedFamilyId = this.toRecordIdentifier(suggestion.ifrc_family_id)
+      ?? resolved.family?.value
+      ?? resolved.candidates.find((candidate) => candidate.family != null)?.family?.value
+      ?? null;
+
+    if (resolvedFamilyId == null) {
+      return of({
+        ...resolved,
+        warning: missingFamilyWarning ?? 'Suggestion could not be matched to an active IFRC family.',
+      } satisfies ResolvedIfrcSuggestion);
+    }
+
+    const referenceSearch = String(suggestion.ifrc_code ?? suggestion.ifrc_description ?? '').trim();
+    return this.service.lookupIfrcReferences({
+      ifrcFamilyId: resolvedFamilyId,
+      search: referenceSearch || undefined,
+    }).pipe(
+      map((references) => {
+        const resolvedReference = this.findResolvedSuggestionReference(references, suggestion);
+        if (!resolvedReference) {
+          return {
+            ...resolved,
+            warning: 'Suggestion could not be matched to an active IFRC reference.',
+          } satisfies ResolvedIfrcSuggestion;
+        }
+
+        const resolvedFamily = resolved.family
+          ?? this.findLookupByValue(families, resolvedFamilyId)
+          ?? this.findSuggestedFamily(
+            families,
+            resolvedFamilyId,
+            suggestion.family_code,
+            suggestion.group_code,
+          );
+
+        return {
+          ...resolved,
+          family: resolvedFamily ?? null,
+          reference: resolvedReference,
+          warning: missingFamilyWarning,
+          directAcceptAllowed: resolvedFamily != null,
+        } satisfies ResolvedIfrcSuggestion;
+      }),
+      catchError(() => of({
+        ...resolved,
+        warning: 'Failed to resolve the IFRC suggestion against the active taxonomy.',
+      } satisfies ResolvedIfrcSuggestion)),
+    );
   }
 
   private buildSuggestionResolutionState(
@@ -1188,9 +1299,41 @@ export class MasterFormPageComponent implements OnInit {
       candidates,
       warning: null,
       explanation,
-      directAcceptAllowed: suggestion.direct_accept_allowed === true && resolvedCandidate != null,
+      directAcceptAllowed: resolutionStatus === 'resolved' && resolvedCandidate != null,
       autoHighlightCandidateId: this.toRecordIdentifier(suggestion.auto_highlight_candidate_id),
     };
+  }
+
+  private findResolvedSuggestionReference(
+    references: IfrcReferenceLookup[],
+    suggestion: IFRCSuggestion,
+  ): IfrcReferenceLookup | null {
+    const resolvedReferenceId = this.toRecordIdentifier(suggestion.resolved_ifrc_item_ref_id);
+    if (resolvedReferenceId != null) {
+      const exactIdMatch = references.find((reference) => this.sameValue(reference.value, resolvedReferenceId));
+      if (exactIdMatch) {
+        return exactIdMatch;
+      }
+    }
+
+    const suggestedCode = String(suggestion.ifrc_code ?? '').trim().toUpperCase();
+    if (suggestedCode) {
+      const exactCodeMatch = references.find((reference) => (
+        String(reference.ifrc_code ?? '').trim().toUpperCase() === suggestedCode
+      ));
+      if (exactCodeMatch) {
+        return exactCodeMatch;
+      }
+    }
+
+    const suggestedDescription = String(suggestion.ifrc_description ?? '').trim().toUpperCase();
+    if (!suggestedDescription) {
+      return null;
+    }
+
+    return references.find((reference) => (
+      String(reference.label ?? '').trim().toUpperCase() === suggestedDescription
+    )) ?? null;
   }
 
   private mapSuggestionCandidates(
@@ -1261,6 +1404,40 @@ export class MasterFormPageComponent implements OnInit {
     this.selectedSuggestionCandidateId.set(null);
   }
 
+  private clearIfrcSuggestionState(): void {
+    this.ifrcSuggestion.set(null);
+    this.ifrcSuggestionResolution.set(null);
+    this.ifrcError.set(null);
+    this.ifrcRejectedState.set(null);
+  }
+
+  private setLocalDraftMode(isActive: boolean): void {
+    this.localDraftMode.set(isActive);
+    this.updateLocalDraftFieldValidators();
+  }
+
+  private updateLocalDraftFieldValidators(): void {
+    const control = this.form.get('legacy_item_code');
+    const field = this.config()?.formFields.find((entry) => entry.field === 'legacy_item_code');
+    if (!control || !field) {
+      return;
+    }
+
+    const validators = [];
+    if (this.localDraftMode()) {
+      validators.push(Validators.required);
+    }
+    if (field.maxLength) {
+      validators.push(Validators.maxLength(field.maxLength));
+    }
+    if (field.pattern) {
+      validators.push(Validators.pattern(field.pattern));
+    }
+
+    control.setValidators(validators);
+    control.updateValueAndValidity({ emitEvent: false });
+  }
+
   private loadRecord(): void {
     const cfg = this.config();
     if (!cfg || !this.pk()) return;
@@ -1295,6 +1472,8 @@ export class MasterFormPageComponent implements OnInit {
           const familyId = record['ifrc_family_id'] as string | number | null | undefined;
           const referenceId = record['ifrc_item_ref_id'] as string | number | null | undefined;
           this.itemHadMappedClassificationOnLoad = referenceId != null && referenceId !== '';
+          this.setLocalDraftMode(false);
+          this.ifrcRejectedState.set(null);
 
           this.loadItemCategoryOptions(categoryId);
           this.loadItemFamilyOptions(categoryId, familyId ?? null);
@@ -1472,8 +1651,14 @@ export class MasterFormPageComponent implements OnInit {
           this.setSubmissionError(message, [], 'versionConflict');
           this.notify.showError(message);
         } else {
-          const message = err.error?.detail || 'Save failed.';
-          this.setSubmissionError(message, [], 'submitFailure');
+          const saveFailure = this.extractSaveFailureResponse(err);
+          const message = cfg.tableKey === 'items'
+            ? this.getItemSaveFailureMessage(err.status, saveFailure)
+            : saveFailure?.detail || 'Save failed.';
+          const details = cfg.tableKey === 'items'
+            ? this.buildItemSaveFailureDetails(saveFailure, message)
+            : [];
+          this.setSubmissionError(message, details, 'submitFailure');
           this.notify.showError(message);
         }
       },
@@ -1883,15 +2068,21 @@ export class MasterFormPageComponent implements OnInit {
   private buildPreparedFormPayload(cfg: MasterTableConfig): MasterRecord {
     const rawData = { ...this.form.getRawValue() } as MasterRecord;
 
-    if (cfg.tableKey === 'items') {
-      delete rawData['item_code'];
-      delete rawData['legacy_item_code'];
-    }
-
     for (const field of cfg.formFields) {
       if (field.uppercase && typeof rawData[field.field] === 'string') {
         const currentValue = rawData[field.field] as string;
         rawData[field.field] = currentValue.trim().toUpperCase();
+      }
+    }
+
+    if (cfg.tableKey === 'items') {
+      delete rawData['item_code'];
+
+      if (this.shouldPersistLocalItemCode()) {
+        const normalizedLegacyCode = String(rawData['legacy_item_code'] ?? '').trim().toUpperCase();
+        rawData['legacy_item_code'] = normalizedLegacyCode || null;
+      } else {
+        delete rawData['legacy_item_code'];
       }
     }
 
@@ -2185,11 +2376,19 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getRenderableFields(group: FormFieldGroup): MasterFieldConfig[] {
-    if (!this.isItemRecord() || group.label !== 'Classification') {
+    if (!this.isItemRecord()) {
       return group.fields;
     }
 
-    return group.fields.filter((field) => !['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'].includes(field.field));
+    if (group.label === 'Classification') {
+      return group.fields.filter((field) => !['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'].includes(field.field));
+    }
+
+    if (group.label === 'Item Identity') {
+      return group.fields.filter((field) => field.field !== 'legacy_item_code' || this.shouldShowLocalItemCodeField());
+    }
+
+    return group.fields;
   }
 
   isItemClassificationGroup(groupLabel: string): boolean {
@@ -2198,15 +2397,34 @@ export class MasterFormPageComponent implements OnInit {
 
   isItemFamilyRequired(): boolean {
     return !!this.form.get('category_id')?.value
-      && (!this.isEdit() || this.itemHadMappedClassificationOnLoad);
+      && (this.itemHadMappedClassificationOnLoad || (!this.isEdit() && !this.localDraftMode()));
   }
 
   isItemReferenceRequired(): boolean {
     return !!this.form.get('ifrc_family_id')?.value;
   }
 
+  shouldShowLocalItemCodeField(): boolean {
+    return this.isItemRecord() && (this.localDraftMode() || (this.isEdit() && !this.itemHadMappedClassificationOnLoad));
+  }
+
+  private shouldPersistLocalItemCode(): boolean {
+    return this.shouldShowLocalItemCodeField();
+  }
+
   shouldShowIfrcHelperPanel(): boolean {
-    return false;
+    return this.isItemRecord();
+  }
+
+  canRequestIfrcSuggestion(): boolean {
+    const itemName = String(this.form.get('item_name')?.value ?? '').trim();
+    return this.isItemRecord() && itemName.length >= 3 && !this.ifrcLoading();
+  }
+
+  getIfrcSuggestionRequestLabel(): string {
+    return this.ifrcSuggestion() || this.ifrcError() || this.ifrcSuggestionResolution()
+      ? 'Refresh Match'
+      : 'Find Match';
   }
 
   hasIfrcSuggestionActivity(): boolean {
@@ -2224,22 +2442,22 @@ export class MasterFormPageComponent implements OnInit {
   getIfrcSuggestionPrimaryActionLabel(): string {
     const resolution = this.ifrcSuggestionResolution();
     if (!resolution) {
-      return 'Review Governed Candidate';
+      return 'Review Suggested Match';
     }
 
     if (resolution.directAcceptAllowed) {
-      return 'Accept Governed Match';
+      return 'Accept Suggested Match';
     }
 
     if (resolution.status === 'ambiguous') {
-      return 'Use Selected Governed Candidate';
+      return 'Use Selected Candidate';
     }
 
     if (resolution.status === 'unresolved') {
       return 'No Governed Match Available';
     }
 
-    return 'Review Governed Candidate';
+    return 'Review Suggested Match';
   }
 
   hasSuggestionCandidates(): boolean {
@@ -2277,11 +2495,11 @@ export class MasterFormPageComponent implements OnInit {
     return itemName || null;
   }
 
-  getResolvedSuggestionVariantDetails(): Array<{ label: string; value: string }> {
+  getResolvedSuggestionVariantDetails(): { label: string; value: string }[] {
     return this.buildSuggestionVariantDetails(this.ifrcSuggestionResolution()?.reference ?? null);
   }
 
-  getSuggestionCandidateVariantDetails(candidate: SuggestedIfrcCandidate): Array<{ label: string; value: string }> {
+  getSuggestionCandidateVariantDetails(candidate: SuggestedIfrcCandidate): { label: string; value: string }[] {
     return this.buildSuggestionVariantDetails(candidate.reference);
   }
 
@@ -2344,7 +2562,7 @@ export class MasterFormPageComponent implements OnInit {
       case 'ambiguous':
         return 'Multiple official governed IFRC variants matched the entered item. Review IFRC code, size or weight, form, and material before selecting one.';
       case 'unresolved':
-        return 'No governed exact IFRC reference matched the entered item and specs. Keep the item name for searchability, but do not treat any generated code as final.';
+        return 'No governed exact IFRC reference matched the entered item. Keep the item name for searchability, but do not treat any generated code as final.';
       default:
         return null;
     }
@@ -2549,8 +2767,8 @@ export class MasterFormPageComponent implements OnInit {
 
   private buildSuggestionVariantDetails(
     reference: Pick<IfrcReferenceLookup, 'size_weight' | 'form' | 'material'> | null | undefined,
-  ): Array<{ label: string; value: string }> {
-    const details: Array<{ label: string; value: string }> = [];
+  ): { label: string; value: string }[] {
+    const details: { label: string; value: string }[] = [];
     const sizeWeight = String(reference?.size_weight ?? '').trim();
     const form = String(reference?.form ?? '').trim();
     const material = String(reference?.material ?? '').trim();
@@ -2839,6 +3057,58 @@ export class MasterFormPageComponent implements OnInit {
     }
     return details;
   }
+
+  private extractSaveFailureResponse(error: unknown): MasterSaveFailureResponse | null {
+    const err = error as {
+      error?: MasterSaveFailureResponse;
+    };
+    return err?.error && typeof err.error === 'object'
+      ? err.error
+      : null;
+  }
+
+  private getItemSaveFailureMessage(
+    status: number | undefined,
+    payload: MasterSaveFailureResponse | null,
+  ): string {
+    const detail = String(payload?.detail ?? '').trim();
+    if (status === 503) {
+      if (!detail) {
+        return 'The item save service is temporarily unavailable. Please try again.';
+      }
+      return /temporar|unavailable/i.test(detail)
+        ? detail
+        : `The item save service is temporarily unavailable. ${detail}`;
+    }
+    return detail || 'Save failed.';
+  }
+
+  private buildItemSaveFailureDetails(
+    payload: MasterSaveFailureResponse | null,
+    message: string,
+  ): string[] {
+    const details: string[] = [];
+    const diagnostic = String(payload?.diagnostic ?? '').trim();
+    if (diagnostic && diagnostic !== message) {
+      details.push(`Diagnostic: ${diagnostic}`);
+    }
+
+    const warningMessages = (payload?.warnings ?? [])
+      .map((warning) => this.normalizeSaveFailureWarning(warning))
+      .filter((warning): warning is string => warning.length > 0)
+      .filter((warning) => warning !== message && !details.includes(warning));
+
+    return [...details, ...warningMessages];
+  }
+
+  private normalizeSaveFailureWarning(warning: string): string {
+    const normalized = String(warning ?? '').trim();
+    if (!normalized) {
+      return '';
+    }
+    return /\s/.test(normalized) ? normalized : this.humanizeToken(normalized);
+  }
+
   private extractInactiveItemForwardWriteGuard(error: unknown): InactiveItemForwardWriteGuard | null {
     const err = error as {
       error?: {
@@ -2903,3 +3173,4 @@ export class MasterFormPageComponent implements OnInit {
       .join(' ');
   }
 }
+

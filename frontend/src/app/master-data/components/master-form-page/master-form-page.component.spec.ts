@@ -403,7 +403,7 @@ describe('MasterFormPageComponent', () => {
 
   it('ignores stale IFRC family lookup responses that arrive after a newer request', () => {
     const { component, masterDataService } = setup();
-    const firstResponse$ = new Subject<Array<{
+    const firstResponse$ = new Subject<{
       value: number;
       label: string;
       family_code: string;
@@ -411,8 +411,8 @@ describe('MasterFormPageComponent', () => {
       category_id: number;
       category_desc: string;
       category_code: string;
-    }>>();
-    const secondResponse$ = new Subject<Array<{
+    }[]>();
+    const secondResponse$ = new Subject<{
       value: number;
       label: string;
       family_code: string;
@@ -420,7 +420,7 @@ describe('MasterFormPageComponent', () => {
       category_id: number;
       category_desc: string;
       category_code: string;
-    }>>();
+    }[]>();
     masterDataService.lookupIfrcFamilies.and.returnValues(
       firstResponse$.asObservable(),
       secondResponse$.asObservable(),
@@ -473,7 +473,7 @@ describe('MasterFormPageComponent', () => {
 
   it('ignores stale IFRC reference lookup responses that arrive after a newer request', () => {
     const { component, masterDataService } = setup();
-    const firstResponse$ = new Subject<Array<{
+    const firstResponse$ = new Subject<{
       value: number;
       label: string;
       ifrc_code: string;
@@ -483,8 +483,8 @@ describe('MasterFormPageComponent', () => {
       category_code: string;
       category_label: string;
       spec_segment: string;
-    }>>();
-    const secondResponse$ = new Subject<Array<{
+    }[]>();
+    const secondResponse$ = new Subject<{
       value: number;
       label: string;
       ifrc_code: string;
@@ -494,7 +494,7 @@ describe('MasterFormPageComponent', () => {
       category_code: string;
       category_label: string;
       spec_segment: string;
-    }>>();
+    }[]>();
     masterDataService.lookupIfrcReferences.and.returnValues(
       firstResponse$.asObservable(),
       secondResponse$.asObservable(),
@@ -552,24 +552,75 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('item_code')?.value).toBe('WWTRTABLPW01');
   });
 
-  it('does not render the deprecated Find IFRC Match helper panel on item forms', () => {
+  it('renders the Find IFRC Match helper panel without deprecated helper input fields', () => {
     const { component, fixture } = setup();
 
     expect(component.form.contains('size_weight')).toBeFalse();
     expect(component.form.contains('form')).toBeFalse();
     expect(component.form.contains('material')).toBeFalse();
-    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('Find Match');
     expect(fixture.nativeElement.textContent).not.toContain('IFRC Size or Weight Hint');
+    expect(fixture.nativeElement.textContent).not.toContain('IFRC Form Hint');
+    expect(fixture.nativeElement.textContent).not.toContain('IFRC Material Hint');
   });
 
-  it('does not trigger IFRC helper lookups from item name changes', fakeAsync(() => {
+  it('only requests IFRC helper suggestions when Find Match is used', fakeAsync(() => {
     const { component, ifrcSuggestService } = setup();
 
     component.form.get('item_name')?.setValue('Water Tabs, 500 g');
-    tick(700);
+    tick();
 
     expect(ifrcSuggestService.suggest).not.toHaveBeenCalled();
+
+    component.onRequestIfrcSuggestion();
+    tick();
+
+    expect(ifrcSuggestService.suggest).toHaveBeenCalledWith('Water Tabs, 500 g');
   }));
+
+  it('enables the approved local-draft path for new unmapped items', () => {
+    const { component, fixture } = setup();
+
+    component.onSaveAsLocalDraft();
+    fixture.detectChanges();
+
+    expect(component.localDraftMode()).toBeTrue();
+    expect(component.shouldShowLocalItemCodeField()).toBeTrue();
+    expect(component.form.get('ifrc_family_id')?.value).toBeNull();
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Local Item Code');
+    expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
+  });
+
+  it('saves a create-time local draft through legacy_item_code instead of canonical item_code', () => {
+    const { component, masterDataService } = setup();
+
+    component.onSaveAsLocalDraft();
+    component.form.patchValue({
+      item_name: 'Water Tabs, local pack',
+      item_desc: 'Water purification tablets',
+      default_uom_code: 'EA',
+      reorder_qty: 10,
+      issuance_order: 'FIFO',
+      status_code: 'A',
+      category_id: 102,
+      legacy_item_code: 'LOC-WASH-001',
+      item_code: 'USER-TYPED',
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    component.onSave();
+
+    expect(masterDataService.create).toHaveBeenCalledWith('items', jasmine.objectContaining({
+      category_id: 102,
+      ifrc_family_id: null,
+      ifrc_item_ref_id: null,
+      legacy_item_code: 'LOC-WASH-001',
+    }));
+    const payload = masterDataService.create.calls.mostRecent().args[1] as Record<string, unknown>;
+    expect(payload['item_code']).toBeUndefined();
+  });
 
   it('accepts exact resolved IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
@@ -649,6 +700,33 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('item_name')?.value).toBe('Water Tabs, local pack');
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
+
+  it('accepts resolved IFRC suggestions from backend identifiers even without candidate rows', fakeAsync(() => {
+    const { component, ifrcSuggestService, notificationService } = setup();
+    const suggestion = buildResolvedSuggestion({
+      direct_accept_allowed: false,
+      candidates: [],
+    });
+    ifrcSuggestService.suggest.and.returnValue(of(suggestion));
+
+    component.form.patchValue({
+      item_name: 'Water purification tablet',
+    }, { emitEvent: false });
+
+    component.onRequestIfrcSuggestion();
+    tick();
+
+    expect(component.canAcceptResolvedIfrcSuggestion()).toBeTrue();
+    expect(component.getIfrcSuggestionPrimaryActionLabel()).toBe('Accept Suggested Match');
+
+    component.onAcceptIfrcSuggestion();
+
+    expect(component.form.get('category_id')?.value).toBe(102);
+    expect(component.form.get('ifrc_family_id')?.value).toBe(301);
+    expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
+    expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB01');
+    expect(notificationService.showSuccess).toHaveBeenCalled();
+  }));
 
   it('clears submit failure state after programmatic taxonomy updates', () => {
     const { component } = setup();
@@ -853,7 +931,7 @@ describe('MasterFormPageComponent', () => {
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
 
-  it('keeps the deprecated IFRC helper hidden even when ambiguous suggestion data exists', () => {
+  it('shows the Find IFRC Match helper panel with candidate review details for ambiguous suggestions', () => {
     const { component, fixture } = setup();
     const suggestion = buildResolvedSuggestion({
       ifrc_code: 'FFODBEEF50001',
@@ -944,7 +1022,9 @@ describe('MasterFormPageComponent', () => {
 
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('Corned beef, canned');
+    expect(fixture.nativeElement.textContent).toContain('500 G');
   });
 
   it('keeps candidate families distinct for multi-family ambiguous suggestions and applies the selected family', () => {
@@ -1055,7 +1135,7 @@ describe('MasterFormPageComponent', () => {
     const resolution = (component as unknown as {
       buildSuggestionResolutionState: (
         currentSuggestion: IFRCSuggestion,
-        currentFamilies: Array<{
+        currentFamilies: {
           value: number;
           label: string;
           family_code: string;
@@ -1063,12 +1143,12 @@ describe('MasterFormPageComponent', () => {
           category_id: number;
           category_desc: string;
           category_code: string;
-        }>,
+        }[],
       ) => {
         family: {
           value: number;
         } | null;
-        candidates: Array<{
+        candidates: {
           family: {
             value: number;
             category_id: number;
@@ -1077,7 +1157,7 @@ describe('MasterFormPageComponent', () => {
             value: number;
             ifrc_code: string;
           };
-        }>;
+        }[];
       };
     }).buildSuggestionResolutionState(suggestion, families);
 
@@ -1137,7 +1217,7 @@ describe('MasterFormPageComponent', () => {
     );
   });
 
-  it('keeps the deprecated IFRC helper hidden even when unresolved suggestion data exists', () => {
+  it('keeps the Find IFRC Match helper visible when no governed match is resolved', () => {
     const { component, fixture } = setup();
     const suggestion = buildResolvedSuggestion({
       ifrc_code: 'FMEDAMOX350PX01',
@@ -1169,7 +1249,9 @@ describe('MasterFormPageComponent', () => {
 
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).toContain('No governed exact match found');
+    expect(fixture.nativeElement.textContent).toContain('No governed exact IFRC reference matched the entered item.');
   });
 
   it('renders the item code field as readonly and backend-managed', () => {
@@ -1187,8 +1269,8 @@ describe('MasterFormPageComponent', () => {
     const note = fixture.nativeElement.querySelector('#item-taxonomy-governance-note') as HTMLElement | null;
 
     expect(note).not.toBeNull();
-    expect(note?.textContent).toContain('Category aligns to the selected IFRC Family.');
-    expect(note?.textContent).toContain('UOM is the operational issue or counting unit and may differ from IFRC form.');
+    expect(note?.textContent).toContain('Choose the IFRC Family and IFRC Item Reference to set the official code.');
+    expect(note?.textContent).toContain('UOM is how stock is counted or issued');
   });
 
   it('shows the approved Item Categories governance panel on the page form', () => {
@@ -1203,10 +1285,12 @@ describe('MasterFormPageComponent', () => {
 
   it('uses the approved Item Master governance copy in the config', () => {
     const itemCodeField = ITEM_CONFIG.formFields.find((field) => field.field === 'item_code');
+    const localItemCodeField = ITEM_CONFIG.formFields.find((field) => field.field === 'legacy_item_code');
     const uomField = ITEM_CONFIG.formFields.find((field) => field.field === 'default_uom_code');
 
-    expect(ITEM_CONFIG.formDescription).toContain('Items are governed by the selected IFRC Family and IFRC Item Reference.');
+    expect(ITEM_CONFIG.formDescription).toContain('Use this page to set up an item.');
     expect(itemCodeField?.hint).toBe('Canonical code derived from the selected Level 3 IFRC reference. This is governed and not typed manually.');
+    expect(localItemCodeField?.hint).toContain('saving a local draft without an IFRC match yet');
     expect(itemCodeField?.tooltip).toContain('the canonical item code changes with it');
     expect(uomField?.tooltip).toContain('UOM is not always the same as IFRC form.');
   });
@@ -1250,6 +1334,69 @@ describe('MasterFormPageComponent', () => {
       item_code: 'USER-TYPED',
     }));
   });
+  it('keeps 400 item validation handling unchanged', () => {
+    const { component, masterDataService, notificationService } = setup();
+
+    masterDataService.create.and.returnValue(throwError(() => ({
+      status: 400,
+      error: {
+        errors: {
+          item_name: 'Enter a unique item name.',
+        },
+      },
+    })));
+
+    populateRequiredCreateFields(component);
+    component.onSave();
+
+    expect(component.form.get('item_name')?.errors?.['server']).toBe('Enter a unique item name.');
+    expect(component.form.get('item_name')?.touched).toBeTrue();
+    expect(component.submissionError()).toBeNull();
+    expect(notificationService.showWarning).toHaveBeenCalledWith('Please fix the validation errors.');
+  });
+
+  it('shows backend diagnostic details for non-validation item save failures', () => {
+    const { component, masterDataService, notificationService } = setup();
+
+    masterDataService.create.and.returnValue(throwError(() => ({
+      status: 500,
+      error: {
+        detail: 'Item save failed in the catalog service.',
+        diagnostic: 'item_uom_option mirror insert failed',
+        warnings: ['Legacy code was preserved.', 'Retry after catalog sync.'],
+      },
+    })));
+
+    populateRequiredCreateFields(component);
+    component.onSave();
+
+    expect(component.submissionError()).toBe('Item save failed in the catalog service.');
+    expect(component.submissionErrorDetails()).toEqual([
+      'Diagnostic: item_uom_option mirror insert failed',
+      'Legacy code was preserved.',
+      'Retry after catalog sync.',
+    ]);
+    expect(notificationService.showError).toHaveBeenCalledWith('Item save failed in the catalog service.');
+  });
+
+  it('uses temporary-unavailable wording for 503 item save failures', () => {
+    const { component, masterDataService, notificationService } = setup();
+
+    masterDataService.create.and.returnValue(throwError(() => ({
+      status: 503,
+      error: {
+        diagnostic: 'taxonomy resolver unavailable',
+      },
+    })));
+
+    populateRequiredCreateFields(component);
+    component.onSave();
+
+    expect(component.submissionError()).toBe('The item save service is temporarily unavailable. Please try again.');
+    expect(component.submissionErrorDetails()).toEqual(['Diagnostic: taxonomy resolver unavailable']);
+    expect(notificationService.showError).toHaveBeenCalledWith('The item save service is temporarily unavailable. Please try again.');
+  });
+
 
   it('handles duplicate canonical item-code conflicts as a blocking flow', () => {
     const { component, masterDataService, router } = setup();
@@ -1473,3 +1620,4 @@ describe('MasterFormPageComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', 91]);
   });
 });
+

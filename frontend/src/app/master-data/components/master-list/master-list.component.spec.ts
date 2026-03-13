@@ -153,13 +153,13 @@ describe('MasterListComponent', () => {
 
   it('ignores stale IFRC family lookup responses', () => {
     const { component, masterDataService } = setup();
-    const staleResponse = new Subject<Array<{
+    const staleResponse = new Subject<{
       value: number;
       label: string;
       family_code: string;
       group_code: string;
       category_id: number;
-    }>>();
+    }[]>();
     const latestItems = [
       { value: 302, label: 'Shelter Kit', family_code: 'SHELTER', group_code: 'S', category_id: 103 },
     ];
@@ -186,12 +186,12 @@ describe('MasterListComponent', () => {
 
   it('ignores stale IFRC reference lookup failures after a newer response succeeds', () => {
     const { component, masterDataService } = setup();
-    const staleResponse = new Subject<Array<{
+    const staleResponse = new Subject<{
       value: number;
       label: string;
       ifrc_code: string;
       ifrc_family_id: number;
-    }>>();
+    }[]>();
     const latestItems = [
       { value: 402, label: 'Emergency shelter kit', ifrc_code: 'SSHLTKIT01', ifrc_family_id: 302 },
     ];

@@ -239,6 +239,8 @@ def _llm_classify(
     """LLM classification. Returns (grp, fam, cat, confidence). Raises on failure."""
     prompt = (
         f'Item to classify: "{item_name}"\n\n'
+        "Choose only from the provided IFRC taxonomy. Do not invent new groups, families, or categories.\n"
+        "Ignore local business-category and unit-of-measure conventions; this task is IFRC classification only.\n\n"
         f"Available Groups (1-letter code: description):\n{taxonomy.all_groups_text()}\n\n"
         f"Available Group/Family/Category:\n{taxonomy.all_categories_text()}\n\n"
         "Reply ONLY with JSON (no markdown fences):\n"

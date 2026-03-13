@@ -79,6 +79,128 @@ def _db_error_warnings(exc: Exception) -> list[str]:
     return warnings
 
 
+def _is_postgresql() -> bool:
+    return getattr(connection, "vendor", "") == "postgresql"
+
+
+def _auto_pk_config(table_key: str) -> tuple["TableConfig", "FieldDef"] | tuple[None, None]:
+    cfg = TABLE_REGISTRY.get(table_key)
+    pk_def = getattr(cfg, "_pk_def", None)
+    if cfg is None or pk_def is None or not pk_def.auto_pk:
+        return None, None
+    return cfg, pk_def
+
+
+def inspect_auto_pk_sequence(table_key: str) -> tuple[dict[str, Any] | None, list[str]]:
+    cfg, pk_def = _auto_pk_config(table_key)
+    if cfg is None or pk_def is None:
+        return None, ["auto_pk_not_supported"]
+    if _is_sqlite():
+        return None, ["db_unavailable"]
+    if not _is_postgresql():
+        return None, ["db_vendor_not_supported"]
+
+    schema = _schema_name()
+    qualified_table = f"{schema}.{cfg.db_table}"
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_get_serial_sequence(%s, %s)",
+                [qualified_table, cfg.pk_field],
+            )
+            sequence_row = cursor.fetchone()
+            sequence_name = sequence_row[0] if sequence_row else None
+            if not sequence_name:
+                return None, ["pk_sequence_not_found"]
+
+            cursor.execute(
+                f"SELECT COALESCE(MAX({cfg.pk_field}), 0) FROM {schema}.{cfg.db_table}"
+            )
+            max_pk_row = cursor.fetchone()
+            max_pk = int(max_pk_row[0] or 0) if max_pk_row else 0
+
+            cursor.execute(f"SELECT last_value, is_called FROM {sequence_name}")
+            state_row = cursor.fetchone()
+            last_value = int(state_row[0]) if state_row else 0
+            is_called = bool(state_row[1]) if state_row else False
+
+        return {
+            "table_key": table_key,
+            "schema": schema,
+            "table_name": cfg.db_table,
+            "pk_field": cfg.pk_field,
+            "sequence_name": sequence_name,
+            "max_pk": max_pk,
+            "last_value": last_value,
+            "is_called": is_called,
+            "next_value": last_value + 1 if is_called else last_value,
+        }, []
+    except DatabaseError as exc:
+        logger.warning("inspect_auto_pk_sequence(%s) failed: %s", table_key, exc)
+        _safe_rollback()
+        return None, ["pk_sequence_inspection_failed"]
+
+
+def resync_auto_pk_sequence(table_key: str) -> tuple[bool, dict[str, Any] | None, list[str]]:
+    info, warnings = inspect_auto_pk_sequence(table_key)
+    if info is None:
+        return False, None, warnings
+
+    target_value = int(info["max_pk"]) + 1
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT setval(%s::regclass, %s, false)",
+                    [info["sequence_name"], target_value],
+                )
+                row = cursor.fetchone()
+                applied_value = int(row[0]) if row else target_value
+    except DatabaseError as exc:
+        logger.warning("resync_auto_pk_sequence(%s) failed: %s", table_key, exc)
+        _safe_rollback()
+        return False, info, warnings + ["pk_sequence_resync_failed"]
+
+    updated_info = dict(info)
+    updated_info.update(
+        {
+            "last_value": applied_value,
+            "is_called": False,
+            "next_value": target_value,
+            "target_value": target_value,
+        }
+    )
+    return True, updated_info, warnings + ["pk_sequence_resynced"]
+
+
+def _is_auto_pk_duplicate_violation(table_key: str, exc: Exception) -> bool:
+    cfg, pk_def = _auto_pk_config(table_key)
+    if cfg is None or pk_def is None:
+        return False
+    if _is_sqlite() or not _is_postgresql():
+        return False
+
+    cause = getattr(exc, "__cause__", None)
+    sqlstate = getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
+    if sqlstate and str(sqlstate) != "23505":
+        return False
+
+    constraint_name = getattr(getattr(cause, "diag", None), "constraint_name", None)
+    normalized_constraint = str(constraint_name or "").strip().lower()
+    if normalized_constraint in {f"pk_{cfg.db_table}".lower(), f"{cfg.db_table}_pkey".lower()}:
+        return True
+
+    message = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
+    if "duplicate key value violates unique constraint" not in message:
+        return False
+    if normalized_constraint and normalized_constraint not in {
+        f"pk_{cfg.db_table}".lower(),
+        f"{cfg.db_table}_pkey".lower(),
+    }:
+        return False
+    return f"({cfg.pk_field})=" in message
+
+
 # ---------------------------------------------------------------------------
 # Field descriptor
 # ---------------------------------------------------------------------------
@@ -1067,6 +1189,31 @@ def _lookup_inventory_item_id(inventory_id: Any) -> Tuple[Any | None, List[str]]
     return row[0], []
 
 
+def _execute_create_insert(
+    cfg: "TableConfig",
+    schema: str,
+    col_sql: str,
+    ph_sql: str,
+    final_values: list[Any],
+    data: Dict[str, Any],
+) -> Any | None:
+    returning = f"RETURNING {cfg.pk_field}" if cfg._pk_def and cfg._pk_def.auto_pk else ""
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {schema}.{cfg.db_table} ({col_sql})
+                VALUES ({ph_sql})
+                {returning}
+                """,
+                final_values,
+            )
+            if returning:
+                row = cursor.fetchone()
+                return row[0] if row else None
+            return data.get(cfg.pk_field)
+
+
 def create_record(
     table_key: str, data: Dict[str, Any], actor_id: str
 ) -> Tuple[Any | None, List[str]]:
@@ -1130,26 +1277,34 @@ def create_record(
     col_sql = ", ".join(columns)
     ph_sql = ", ".join(placeholders)
 
-    returning = f"RETURNING {cfg.pk_field}" if cfg._pk_def and cfg._pk_def.auto_pk else ""
-
     try:
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                    INSERT INTO {schema}.{cfg.db_table} ({col_sql})
-                    VALUES ({ph_sql})
-                    {returning}
-                    """,
-                    final_values,
-                )
-                if returning:
-                    row = cursor.fetchone()
-                    pk_val = row[0] if row else None
-                else:
-                    pk_val = data.get(cfg.pk_field)
-                return pk_val, warnings
+        pk_val = _execute_create_insert(
+            cfg,
+            schema,
+            col_sql,
+            ph_sql,
+            final_values,
+            data,
+        )
+        return pk_val, warnings
     except DatabaseError as exc:
+        if _is_auto_pk_duplicate_violation(table_key, exc):
+            _safe_rollback()
+            recovered, _info, recovery_warnings = resync_auto_pk_sequence(table_key)
+            warnings.extend(recovery_warnings)
+            if recovered:
+                try:
+                    pk_val = _execute_create_insert(
+                        cfg,
+                        schema,
+                        col_sql,
+                        ph_sql,
+                        final_values,
+                        data,
+                    )
+                    return pk_val, warnings
+                except DatabaseError as retry_exc:
+                    exc = retry_exc
         logger.warning("create_record(%s) failed: %s", table_key, exc)
         warnings.extend(_db_error_warnings(exc))
         return None, warnings

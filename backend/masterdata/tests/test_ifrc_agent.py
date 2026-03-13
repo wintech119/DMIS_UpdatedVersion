@@ -19,6 +19,7 @@ from masterdata.ifrc_code_agent import (
     _extract_item_segment,
     _extract_vrnt_segment,
     _keyword_classify,
+    _llm_classify,
     _standardise_description,
     extract_reference_metadata,
 )
@@ -286,6 +287,29 @@ class TestIFRCAgent(TestCase):
         self.assertEqual(result.match_type, "generated")
         self.assertTrue(result.llm_used)
         self.assertIsNotNone(result.item_code)
+
+    @patch("masterdata.ifrc_code_agent._call_ollama")
+    def test_llm_prompt_includes_taxonomy_and_scope_guardrails(self, mock_ollama):
+        mock_ollama.return_value = {
+            "group": "WS",
+            "family": "WT",
+            "category": "PURI",
+            "confidence": 0.88,
+            "rationale": "Water treatment item",
+        }
+        taxonomy = parse_taxonomy(self.taxonomy_path)
+
+        _llm_classify("traditional ceramic water filter", taxonomy)
+
+        prompt = mock_ollama.call_args.args[0]
+        self.assertIn(
+            "Choose only from the provided IFRC taxonomy. Do not invent new groups, families, or categories.",
+            prompt,
+        )
+        self.assertIn(
+            "Ignore local business-category and unit-of-measure conventions; this task is IFRC classification only.",
+            prompt,
+        )
 
     @patch("masterdata.ifrc_code_agent._call_ollama")
     def test_fallback_on_llm_failure(self, mock_ollama):

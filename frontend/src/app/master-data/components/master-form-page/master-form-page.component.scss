@@ -271,9 +271,13 @@ fieldset.form-grid {
 .ifrc-suggestion-card__status-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   align-items: flex-end;
   text-align: right;
+
+  button {
+    align-self: flex-end;
+  }
 }
 
 .ifrc-suggestion-card__eyebrow {
@@ -462,6 +466,11 @@ fieldset.form-grid {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ifrc-suggestion-card__actions--stacked {
+  justify-content: flex-start;
 }
 
 .catalog-governance-section {

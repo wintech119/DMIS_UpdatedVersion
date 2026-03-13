@@ -243,7 +243,7 @@
                   <div class="item-taxonomy-governance-note" id="item-taxonomy-governance-note" role="note">
                     <mat-icon aria-hidden="true">policy</mat-icon>
                     <p>
-                      Governance note: Category aligns to the selected IFRC Family. IFRC size, form, and material classify the reference; UOM is the operational issue or counting unit and may differ from IFRC form.
+                      Choose the IFRC Family and IFRC Item Reference to set the official code. Keep the item name as your team uses it. UOM is how stock is counted or issued and may be different from the IFRC reference wording.
                     </p>
                   </div>
                   <div class="item-taxonomy-grid">
@@ -371,7 +371,7 @@
                         <div>
                           <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
                           <p class="ifrc-suggestion-card__intro">
-                            Keep your item name exactly as entered for local searchability. Add optional spec hints only to help the helper find official governed IFRC variants.
+                            Use Find IFRC Match to look for the closest official IFRC reference for this item. If no official match is found, any fallback code shown here is only a helper and not the final code.
                           </p>
                         </div>
                         <div class="ifrc-suggestion-card__status-block">
@@ -383,33 +383,57 @@
                           } @else if (getIfrcSuggestionStatusText(); as suggestionStatus) {
                             <span class="ifrc-suggestion-card__status">{{ suggestionStatus }}</span>
                           }
+                          <button
+                            mat-flat-button
+                            color="primary"
+                            type="button"
+                            [disabled]="!canRequestIfrcSuggestion()"
+                            (click)="onRequestIfrcSuggestion()">
+                            {{ getIfrcSuggestionRequestLabel() }}
+                          </button>
                         </div>
                       </div>
 
-                      <div class="ifrc-suggestion-card__helper-grid" [formGroup]="ifrcSpecForm">
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Size or Weight Hint</mat-label>
-                          <input matInput formControlName="size_weight" placeholder="e.g. 200 G or 500 MG" />
-                          <mat-hint>Optional helper hint only. The item name remains the searchable local description.</mat-hint>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Form Hint</mat-label>
-                          <input matInput formControlName="form" placeholder="e.g. TABLET, CANNED, KIT" />
-                          <mat-hint>Optional official variant hint. This supports IFRC matching only.</mat-hint>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
-                          <mat-label>IFRC Material Hint</mat-label>
-                          <input matInput formControlName="material" placeholder="e.g. CHLORINE or COTTON" />
-                          <mat-hint>Optional official variant hint when material differentiates governed references.</mat-hint>
-                        </mat-form-field>
-                      </div>
-
-                      @if (!hasIfrcSuggestionActivity()) {
-                        <p class="ifrc-suggestion-card__message neutral">
-                          Enter the Item Name the way users will search for it. Add size, dosage, packaging, or material hints only when you need help narrowing the official governed IFRC reference.
+                      @if (localDraftMode()) {
+                        <p class="ifrc-suggestion-card__message info">
+                          Local draft mode is active. Keep the Level 1 category, enter Local Item Code, and leave IFRC Family and IFRC Item Reference blank until an official match is available.
                         </p>
+                      }
+
+                      @if (!hasIfrcSuggestionActivity() && ifrcRejectedState() === null) {
+                        <p class="ifrc-suggestion-card__message neutral">
+                          Enter the item name the way users search for it, then use Find Match to look for the closest official IFRC reference.
+                        </p>
+                      } @else if (ifrcRejectedState() === 'create') {
+                        <div class="ifrc-suggestion-card__message info">
+                          <p>Next steps</p>
+                          <div class="ifrc-suggestion-card__actions ifrc-suggestion-card__actions--stacked">
+                            <button mat-stroked-button type="button" (click)="onChooseIfrcReferenceManually()">
+                              Choose IFRC Reference Manually
+                            </button>
+                            <button mat-stroked-button type="button" (click)="onKeepEditingAndTryAgain()">
+                              Keep Editing and Try Again
+                            </button>
+                            <button mat-flat-button color="primary" type="button" (click)="onSaveAsLocalDraft()">
+                              Save as Local Draft
+                            </button>
+                          </div>
+                        </div>
+                      } @else if (ifrcRejectedState() === 'edit') {
+                        <div class="ifrc-suggestion-card__message info">
+                          <p>Next steps</p>
+                          <div class="ifrc-suggestion-card__actions ifrc-suggestion-card__actions--stacked">
+                            <button mat-stroked-button type="button" (click)="onKeepCurrentClassification()">
+                              Keep Current Classification
+                            </button>
+                            <button mat-flat-button color="primary" type="button" (click)="onChooseAnotherIfrcReference()">
+                              Choose Another IFRC Reference
+                            </button>
+                            <button mat-stroked-button type="button" (click)="onKeepEditingAndTryAgain()">
+                              Keep Editing and Try Again
+                            </button>
+                          </div>
+                        </div>
                       } @else if (ifrcError()) {
                         <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
                       } @else if (ifrcSuggestion(); as suggestion) {
@@ -819,6 +843,17 @@
                             readonly
                             aria-readonly="true"
                             [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                          @if (getFieldTooltip(field); as fieldTooltip) {
+                            <button
+                              mat-icon-button
+                              matSuffix
+                              type="button"
+                              class="field-help-button"
+                              [matTooltip]="fieldTooltip"
+                              [attr.aria-label]="'More information about ' + field.label">
+                              <mat-icon>help_outline</mat-icon>
+                            </button>
+                          }
                           <mat-icon matSuffix aria-hidden="true">lock</mat-icon>
                           @if (field.hint) {
                             <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>

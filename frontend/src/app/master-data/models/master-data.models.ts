@@ -141,6 +141,13 @@ export interface LookupItem {
 export interface MasterValidationErrors {
   errors: Record<string, string>;
 }
+export interface MasterSaveFailureResponse {
+  detail?: string;
+  diagnostic?: string;
+  warnings?: string[];
+  errors?: Record<string, unknown>;
+}
+
 
 export interface MasterInactivateBlockedResponse {
   detail: string;

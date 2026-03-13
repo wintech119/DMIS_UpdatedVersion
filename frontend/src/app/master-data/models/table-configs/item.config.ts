@@ -30,8 +30,8 @@ export const ITEM_CONFIG: MasterTableConfig = {
   routePath: 'items',
   formMode: 'page',
   formDescription:
-    'Items are governed by the selected IFRC Family and IFRC Item Reference. ' +
-    'The Level 1 category must stay aligned to that governed classification, and the Default UOM should follow the approved operational issue or counting unit for the selected item.',
+    'Use this page to set up an item. Keep the item name the way your team knows it. ' +
+    'Pick the IFRC Family and IFRC Item Reference to set the official code when a governed match is available.',
   searchPlaceholder: 'Search by item code, legacy code, name, SKU, category, IFRC family, description, or IFRC code...',
   columns: [
     { field: 'item_code', header: 'Item Code', type: 'text', sortable: true },
@@ -56,6 +56,19 @@ export const ITEM_CONFIG: MasterTableConfig = {
       group: 'Item Identity',
       hint: 'Canonical code derived from the selected Level 3 IFRC reference. This is governed and not typed manually.',
       tooltip: 'Auto-generated from the selected IFRC reference. If the reference changes, the canonical item code changes with it.',
+    },
+    {
+      field: 'legacy_item_code',
+      label: 'Local Item Code',
+      type: 'text',
+      maxLength: 30,
+      uppercase: true,
+      pattern: '^[A-Z0-9\\-_\\.]+$',
+      patternMessage: 'Only uppercase letters, digits, hyphens, underscores, and dots are allowed.',
+      group: 'Item Identity',
+      hint: 'Use this only when saving a local draft without an IFRC match yet. This helps your team find the item later.',
+      tooltip: 'For local drafts only. This does not replace the official Item Code used after IFRC mapping.',
+      placeholder: 'e.g. LOC-WASH-001',
     },
     {
       field: 'item_name',

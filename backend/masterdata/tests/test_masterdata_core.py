@@ -1,7 +1,9 @@
 import importlib
+from io import StringIO
 from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
+from django.core.management import call_command
 from django.db import DatabaseError
 from django.test import RequestFactory, SimpleTestCase
 from django.test import override_settings
@@ -20,6 +22,8 @@ from masterdata.services.data_access import (
     check_dependencies,
     check_uniqueness,
     create_record,
+    inspect_auto_pk_sequence,
+    resync_auto_pk_sequence,
     update_record,
 )
 from masterdata.services.validation import _cross_field_validation
@@ -252,6 +256,157 @@ class ItemSkuNormalizationTests(SimpleTestCase):
         self.assertEqual(warnings, [])
         _, params = cursor.execute.call_args.args
         self.assertIsNone(params[0])
+
+
+class AutoPkSequenceRepairTests(SimpleTestCase):
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_inspect_auto_pk_sequence_uses_runtime_schema(self, mock_connection, _mock_sqlite):
+        mock_connection.vendor = "postgresql"
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [
+            ("public.item_item_id_seq",),
+            (457,),
+            (401, True),
+        ]
+
+        info, warnings = inspect_auto_pk_sequence("items")
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(info["sequence_name"], "public.item_item_id_seq")
+        self.assertEqual(info["max_pk"], 457)
+        self.assertEqual(info["last_value"], 401)
+        self.assertTrue(info["is_called"])
+        self.assertEqual(info["next_value"], 402)
+        self.assertEqual(cursor.execute.call_args_list[0].args[1], ["public.item", "item_id"])
+
+    @patch("masterdata.services.data_access.inspect_auto_pk_sequence")
+    @patch("masterdata.services.data_access.transaction.atomic")
+    @patch("masterdata.services.data_access.connection")
+    def test_resync_auto_pk_sequence_sets_next_free_value(
+        self,
+        mock_connection,
+        _mock_atomic,
+        mock_inspect,
+    ):
+        mock_connection.vendor = "postgresql"
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (458,)
+        mock_inspect.return_value = ({
+            "table_key": "items",
+            "schema": "public",
+            "table_name": "item",
+            "pk_field": "item_id",
+            "sequence_name": "public.item_item_id_seq",
+            "max_pk": 457,
+            "last_value": 401,
+            "is_called": True,
+            "next_value": 402,
+        }, [])
+
+        success, info, warnings = resync_auto_pk_sequence("items")
+
+        self.assertTrue(success)
+        self.assertEqual(info["target_value"], 458)
+        self.assertEqual(info["next_value"], 458)
+        self.assertIn("pk_sequence_resynced", warnings)
+        self.assertEqual(
+            cursor.execute.call_args.args[1],
+            ["public.item_item_id_seq", 458],
+        )
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.resync_auto_pk_sequence")
+    @patch("masterdata.services.data_access._is_auto_pk_duplicate_violation", return_value=True)
+    @patch("masterdata.services.data_access._execute_create_insert")
+    def test_create_record_retries_once_after_sequence_resync(
+        self,
+        mock_execute_insert,
+        _mock_duplicate,
+        mock_resync,
+        _mock_sqlite,
+    ):
+        duplicate_exc = DatabaseError(
+            'duplicate key value violates unique constraint "pk_item" DETAIL: Key (item_id)=(457) already exists.'
+        )
+        mock_execute_insert.side_effect = [duplicate_exc, 458]
+        mock_resync.return_value = (True, {"target_value": 458}, ["pk_sequence_resynced"])
+
+        pk_val, warnings = create_record("items", {"item_name": "WATER TABS"}, "tester")
+
+        self.assertEqual(pk_val, 458)
+        self.assertIn("pk_sequence_resynced", warnings)
+        self.assertEqual(mock_execute_insert.call_count, 2)
+        mock_resync.assert_called_once_with("items")
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.resync_auto_pk_sequence")
+    @patch("masterdata.services.data_access._execute_create_insert", return_value=123)
+    def test_create_record_normal_insert_does_not_resync(
+        self,
+        _mock_execute_insert,
+        mock_resync,
+        _mock_sqlite,
+    ):
+        pk_val, warnings = create_record("items", {"item_name": "BLANKET"}, "tester")
+
+        self.assertEqual(pk_val, 123)
+        self.assertEqual(warnings, [])
+        mock_resync.assert_not_called()
+
+
+class AutoPkSequenceRepairCommandTests(SimpleTestCase):
+    @patch("masterdata.management.commands.repair_auto_pk_sequence.inspect_auto_pk_sequence")
+    def test_command_inspects_default_item_table(self, mock_inspect):
+        mock_inspect.return_value = ({
+            "schema": "public",
+            "table_name": "item",
+            "pk_field": "item_id",
+            "sequence_name": "public.item_item_id_seq",
+            "max_pk": 457,
+            "last_value": 401,
+            "is_called": True,
+            "next_value": 402,
+        }, [])
+        stdout = StringIO()
+
+        call_command("repair_auto_pk_sequence", stdout=stdout)
+
+        output = stdout.getvalue()
+        self.assertIn("Table key: items", output)
+        self.assertIn("Sequence: public.item_item_id_seq", output)
+        self.assertIn("Next sequence value: 402", output)
+
+    @patch("masterdata.management.commands.repair_auto_pk_sequence.resync_auto_pk_sequence")
+    @patch("masterdata.management.commands.repair_auto_pk_sequence.inspect_auto_pk_sequence")
+    def test_command_repairs_sequence_when_apply_requested(self, mock_inspect, mock_resync):
+        mock_inspect.return_value = ({
+            "schema": "public",
+            "table_name": "item",
+            "pk_field": "item_id",
+            "sequence_name": "public.item_item_id_seq",
+            "max_pk": 457,
+            "last_value": 401,
+            "is_called": True,
+            "next_value": 402,
+        }, [])
+        mock_resync.return_value = (
+            True,
+            {
+                "last_value": 458,
+                "next_value": 458,
+            },
+            ["pk_sequence_resynced"],
+        )
+        stdout = StringIO()
+
+        call_command("repair_auto_pk_sequence", "items", "--apply", stdout=stdout)
+
+        output = stdout.getvalue()
+        self.assertIn("Sequence repaired.", output)
+        self.assertIn("Applied value: 458", output)
+        self.assertIn("Next insert value: 458", output)
+        mock_resync.assert_called_once_with("items")
 
 
 class ItemUpdateValidationContextTests(SimpleTestCase):
