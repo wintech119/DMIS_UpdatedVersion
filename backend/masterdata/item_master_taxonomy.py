@@ -201,7 +201,6 @@ def sync_item_master_taxonomy(
             family_id_by_key,
             actor_id,
         )
-        _backfill_default_item_uom_options(cursor, schema_name, actor_id)
 
     return {
         "categories": len(payload["categories"]),

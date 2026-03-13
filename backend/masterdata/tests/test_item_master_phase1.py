@@ -15,6 +15,7 @@ from masterdata.item_master_taxonomy import (
     _sync_categories,
     _sync_references,
     build_ifrc_taxonomy_seed_payload,
+    sync_item_master_taxonomy,
 )
 from masterdata.services.catalog_governance import (
     _match_reference_category,
@@ -24,6 +25,7 @@ from masterdata.services.catalog_governance import (
     validate_catalog_update,
 )
 from masterdata.services.data_access import TABLE_REGISTRY
+from masterdata.services.data_access import get_lookup
 from masterdata.services.item_master import (
     ITEM_CANONICAL_CONFLICT_CODE,
     _build_item_write_payload,
@@ -55,6 +57,24 @@ class ItemMasterRegistryTests(SimpleTestCase):
         self.assertIn("size_weight", reference_fields)
         self.assertIn("form", reference_fields)
         self.assertIn("material", reference_fields)
+
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_ifrc_family_lookup_uses_family_label_for_dropdown_labels(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(11, "Water Treatment")]
+
+        rows, warnings = get_lookup("ifrc_families")
+
+        self.assertEqual(rows, [{"value": 11, "label": "Water Treatment"}])
+        self.assertEqual(warnings, [])
+        executed_sql = cursor.execute.call_args.args[0]
+        self.assertIn("SELECT ifrc_family_id, family_label", executed_sql)
+        self.assertIn("ORDER BY family_label", executed_sql)
 
 
 class ItemMasterSearchSqlTests(SimpleTestCase):
@@ -1440,6 +1460,33 @@ class ItemMasterUomOptionTests(SimpleTestCase):
 
 
 class SyncItemMasterTaxonomyCommandTests(SimpleTestCase):
+    @patch("masterdata.item_master_taxonomy._backfill_default_item_uom_options")
+    @patch("masterdata.item_master_taxonomy._sync_references")
+    @patch("masterdata.item_master_taxonomy._load_family_ids", return_value={("W", "WTR"): 11})
+    @patch("masterdata.item_master_taxonomy._sync_families")
+    @patch("masterdata.item_master_taxonomy._load_category_ids", return_value={"WASH": 102})
+    @patch("masterdata.item_master_taxonomy._sync_categories")
+    @patch(
+        "masterdata.item_master_taxonomy.build_ifrc_taxonomy_seed_payload",
+        return_value={"categories": [{"category_code": "WASH"}], "families": [{"family_code": "WTR"}], "references": [{"ifrc_code": "WWTRTABLTB01"}]},
+    )
+    def test_sync_function_does_not_run_item_uom_backfill_during_operational_sync(
+        self,
+        _mock_payload,
+        _mock_sync_categories,
+        _mock_load_category_ids,
+        _mock_sync_families,
+        _mock_load_family_ids,
+        _mock_sync_references,
+        mock_backfill,
+    ):
+        connection_obj = MagicMock()
+
+        summary = sync_item_master_taxonomy(connection_obj, schema="tenant_a")
+
+        self.assertEqual(summary, {"categories": 1, "families": 1, "references": 1})
+        mock_backfill.assert_not_called()
+
     def test_dry_run_reports_seed_counts(self):
         stdout = StringIO()
 

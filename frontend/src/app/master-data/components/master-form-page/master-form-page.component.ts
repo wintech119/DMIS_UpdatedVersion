@@ -1560,6 +1560,7 @@ export class MasterFormPageComponent implements OnInit {
         : this.service.create(cfg.tableKey, rawData);
 
     obs$.pipe(
+      finalize(() => this.isSaving.set(false)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (res) => {
@@ -1592,7 +1593,6 @@ export class MasterFormPageComponent implements OnInit {
         }
       },
       error: (err) => {
-        this.isSaving.set(false);
         if (err.status === 400 && err.error?.errors) {
           const errors = err.error.errors as Record<string, string>;
           this.applyServerErrors(errors);

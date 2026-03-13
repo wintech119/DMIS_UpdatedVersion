@@ -1334,6 +1334,23 @@ describe('MasterFormPageComponent', () => {
       item_code: 'USER-TYPED',
     }));
   });
+
+  it('clears isSaving after a successful save completes', () => {
+    const { component, masterDataService } = setup();
+    const response$ = new Subject<{ record: { item_id: number }; warnings: string[] }>();
+
+    masterDataService.create.and.returnValue(response$.asObservable());
+    populateRequiredCreateFields(component);
+
+    component.onSave();
+    expect(component.isSaving()).toBeTrue();
+
+    response$.next({ record: { item_id: 99 }, warnings: [] });
+    response$.complete();
+
+    expect(component.isSaving()).toBeFalse();
+  });
+
   it('keeps 400 item validation handling unchanged', () => {
     const { component, masterDataService, notificationService } = setup();
 
