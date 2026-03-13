@@ -393,6 +393,32 @@ fieldset.form-grid {
   gap: 12px;
   flex-wrap: wrap;
 }
+.ifrc-suggestion-candidate__variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.ifrc-suggestion-candidate__variant {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #dbe4ee;
+  border-radius: 6px;
+  background: #fff;
+}
+.ifrc-suggestion-candidate__variant-label {
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ifrc-suggestion-candidate__variant-value {
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
 .ifrc-suggestion-candidate__title {
   font-size: 0.9rem;
   font-weight: 700;

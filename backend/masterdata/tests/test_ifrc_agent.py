@@ -60,7 +60,7 @@ _TEST_TAXONOMY_MD = textwrap.dedent("""\
     - ITEM: Jerrycan, plastic, 20 L
 
     #### CATEGORY:PURI Water Purification
-    - ITEM: Water purification tablet
+    - ITEM: Water purification tablet | FORM=TABLET | MATERIAL=CHLORINE
 """)
 
 
@@ -97,6 +97,16 @@ class TestTaxonomyLoader(TestCase):
         self.assertIn("BLKT", categories)
         items = categories["BLKT"].items
         self.assertTrue(any("Blanket" in i for i in items))
+
+    def test_parses_item_metadata(self):
+        t = parse_taxonomy(self.path)
+        category = t.groups["WS"].families["WT"].categories["PURI"]
+
+        self.assertEqual(category.items, ["Water purification tablet"])
+        self.assertEqual(
+            category.item_metadata["WATER PURIFICATION TABLET"],
+            {"FORM": "TABLET", "MATERIAL": "CHLORINE"},
+        )
 
     def test_keyword_index_built(self):
         t = parse_taxonomy(self.path)
@@ -223,6 +233,16 @@ class TestSegmentExtraction(TestCase):
 
         self.assertEqual(metadata["size_weight"], "4X5 M2")
 
+    def test_extract_reference_metadata_preserves_explicit_material_metadata(self):
+        metadata = extract_reference_metadata(
+            "water purification tablet, aquatab",
+            form="TABLET",
+            material="CHLORINE",
+        )
+
+        self.assertEqual(metadata["form"], "TABLET")
+        self.assertEqual(metadata["material"], "CHLORINE")
+
 
 class TestIFRCAgent(TestCase):
     def setUp(self):
@@ -238,8 +258,7 @@ class TestIFRCAgent(TestCase):
         cfg["TAXONOMY_FILE"] = str(self.taxonomy_path)
         return cfg
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_generates_code_via_keywords(self, _):
+    def test_generates_code_via_keywords(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("synthetic blanket medium thermal")
@@ -248,11 +267,12 @@ class TestIFRCAgent(TestCase):
         self.assertIsNotNone(result.item_code)
         self.assertEqual(result.match_type, "generated")
         self.assertFalse(result.llm_used)
+        self.assertEqual(len(result.item_code), 12)
         self.assertTrue(result.item_code.startswith("REHO"), result.item_code)
+        self.assertEqual(len(result.spec_seg or ""), 4)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
     @patch("masterdata.ifrc_code_agent._call_ollama")
-    def test_generates_code_via_llm(self, mock_ollama, _):
+    def test_generates_code_via_llm(self, mock_ollama):
         cfg = self._settings()
         cfg["LLM_ENABLED"] = True
         mock_ollama.return_value = {
@@ -267,9 +287,8 @@ class TestIFRCAgent(TestCase):
         self.assertTrue(result.llm_used)
         self.assertIsNotNone(result.item_code)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
     @patch("masterdata.ifrc_code_agent._call_ollama")
-    def test_fallback_on_llm_failure(self, mock_ollama, _):
+    def test_fallback_on_llm_failure(self, mock_ollama):
         cfg = self._settings()
         cfg["LLM_ENABLED"] = True
         mock_ollama.side_effect = Exception("Ollama not running")
@@ -280,40 +299,35 @@ class TestIFRCAgent(TestCase):
         self.assertIsInstance(result, IFRCCodeSuggestion)
         self.assertFalse(result.llm_used)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_code_always_uppercase(self, _):
+    def test_code_always_uppercase(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket")
         if result.item_code:
             self.assertEqual(result.item_code, result.item_code.upper())
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_code_max_30_chars(self, _):
+    def test_code_max_30_chars(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("a very long description of a complex multi-word item type")
         if result.item_code:
             self.assertLessEqual(len(result.item_code), 30)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_construction_rationale_mentions_all_segments(self, _):
+    def test_construction_rationale_mentions_all_segments(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket synthetic")
-        for segment in ["Group", "Family", "Variant", "Sequence"]:
+        for segment in ["Group", "Family", "Compact specification"]:
             self.assertIn(segment, result.construction_rationale)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=3)
-    def test_seq_reflects_collision_avoidance(self, _):
+    def test_generated_codes_do_not_use_sequence_suffix(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket synthetic")
-        if result.seq:
-            self.assertEqual(result.seq, 3)
+        self.assertIsNone(result.seq)
+        self.assertEqual(len(result.item_code or ""), 12)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_suggest_compat_shim_works(self, _):
+    def test_suggest_compat_shim_works(self):
         """suggest() backward-compat shim should produce the same result as generate()."""
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()

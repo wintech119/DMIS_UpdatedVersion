@@ -71,6 +71,14 @@ def _safe_rollback() -> None:
         pass
 
 
+def _db_error_warnings(exc: Exception) -> list[str]:
+    warnings = ["db_error", f"db_exception:{exc.__class__.__name__}"]
+    message = re.sub(r"\s+", " ", str(exc or "")).strip()
+    if message:
+        warnings.append(f"db_message:{message[:240]}")
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Field descriptor
 # ---------------------------------------------------------------------------
@@ -1143,7 +1151,7 @@ def create_record(
                 return pk_val, warnings
     except DatabaseError as exc:
         logger.warning("create_record(%s) failed: %s", table_key, exc)
-        warnings.append("db_error")
+        warnings.extend(_db_error_warnings(exc))
         return None, warnings
 
 
@@ -1240,7 +1248,7 @@ def update_record(
                 return True, warnings
     except DatabaseError as exc:
         logger.warning("update_record(%s, %s) failed: %s", table_key, pk_value, exc)
-        warnings.append("db_error")
+        warnings.extend(_db_error_warnings(exc))
         return False, warnings
 
 

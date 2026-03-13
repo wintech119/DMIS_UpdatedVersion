@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
 from typing import Any
 
 from masterdata.ifrc_catalogue_loader import IFRCTaxonomy, get_taxonomy
-from masterdata.ifrc_code_agent import _encode_spec, extract_reference_metadata
+from masterdata.ifrc_code_agent import (
+    _encode_spec,
+    _extract_size_weight_metadata,
+    extract_reference_metadata,
+)
 
 SCHEMA_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SOURCE_VERSION_RE = re.compile(r"^#\s+Version:\s*(.+)$")
@@ -67,7 +72,6 @@ IFRC_FAMILY_CATEGORY_CODE_MAP: dict[tuple[str, str], str] = {
     ("W", "WTR"): "WASH",
 }
 
-
 def resolve_schema_name(configured: str | None = None) -> str:
     schema = configured or os.getenv("DMIS_DB_SCHEMA", "public")
     if not SCHEMA_RE.fullmatch(schema):
@@ -99,7 +103,6 @@ def build_ifrc_taxonomy_seed_payload(
 
     families: list[dict[str, Any]] = []
     references: list[dict[str, Any]] = []
-    prefix_sequence: dict[str, int] = {}
 
     for group_code, group in taxonomy.groups.items():
         for family_code, family in group.families.items():
@@ -122,17 +125,36 @@ def build_ifrc_taxonomy_seed_payload(
 
             for reference_category_code, reference_category in family.categories.items():
                 for reference_desc in reference_category.items:
-                    spec_segment = _encode_spec(reference_desc)
-                    prefix = f"{group_code}{family_code}{reference_category_code}{spec_segment}".upper()
-                    next_seq = prefix_sequence.get(prefix, 0) + 1
-                    prefix_sequence[prefix] = next_seq
-                    reference_metadata = extract_reference_metadata(reference_desc)
+                    normalized_reference_desc = reference_desc.strip()
+                    source_metadata = _reference_source_metadata(
+                        reference_category,
+                        normalized_reference_desc,
+                    )
+                    reference_metadata = _resolved_reference_metadata(
+                        normalized_reference_desc,
+                        source_metadata,
+                    )
+                    spec_segment = (
+                        source_metadata.get("spec_segment")
+                        or _encode_spec(
+                            normalized_reference_desc,
+                            form=reference_metadata["form"],
+                            material=reference_metadata["material"],
+                            size_weight=reference_metadata["size_weight"],
+                        )
+                    )
                     references.append(
                         {
                             "group_code": group_code,
                             "family_code": family_code,
-                            "ifrc_code": f"{prefix}{next_seq:02d}",
-                            "reference_desc": reference_desc.strip(),
+                            "ifrc_code": source_metadata.get("ifrc_code") or _stable_reference_ifrc_code(
+                                group_code=group_code,
+                                family_code=family_code,
+                                category_code=reference_category_code,
+                                reference_desc=normalized_reference_desc,
+                                spec_segment=spec_segment,
+                            ),
+                            "reference_desc": normalized_reference_desc,
                             "category_code": reference_category_code,
                             "category_label": reference_category.label,
                             "spec_segment": spec_segment,
@@ -143,6 +165,7 @@ def build_ifrc_taxonomy_seed_payload(
                         }
                     )
 
+    _assert_unique_reference_codes(references)
     return {
         "categories": list(APPROVED_LEVEL1_CATEGORIES),
         "families": families,
@@ -189,6 +212,161 @@ def sync_item_master_taxonomy(
 
 def _taxonomy_path() -> Path:
     return Path(__file__).resolve().parent / "data" / "ifrc_catalogue_taxonomy.md"
+
+
+def _normalize_reference_desc(reference_desc: str) -> str:
+    return " ".join(str(reference_desc or "").strip().upper().split())
+
+
+def _normalize_metadata_text(value: str) -> str:
+    return " ".join(str(value or "").strip().upper().split())
+
+
+def _normalize_seed_size_weight(value: str) -> str:
+    normalized = _extract_size_weight_metadata("", size_weight=str(value or ""))
+    return normalized or _normalize_metadata_text(value)
+
+
+def _reference_source_metadata(reference_category, reference_desc: str) -> dict[str, str]:
+    item_metadata = getattr(reference_category, "item_metadata", {}) or {}
+    source_metadata = item_metadata.get(_normalize_reference_desc(reference_desc), {})
+    return {
+        "ifrc_code": _normalize_metadata_text(source_metadata.get("IFRC_CODE", "")),
+        "spec_segment": _normalize_metadata_text(source_metadata.get("SPEC_SEGMENT", ""))[:7],
+        "size_weight": _normalize_seed_size_weight(source_metadata.get("SIZE_WEIGHT", "")),
+        "form": _normalize_metadata_text(source_metadata.get("FORM", "")),
+        "material": _normalize_metadata_text(source_metadata.get("MATERIAL", "")),
+    }
+
+
+def _resolved_reference_metadata(
+    reference_desc: str,
+    source_metadata: dict[str, str],
+) -> dict[str, str]:
+    inferred_metadata = extract_reference_metadata(
+        reference_desc,
+        size_weight=source_metadata.get("size_weight", ""),
+        form=source_metadata.get("form", ""),
+        material=source_metadata.get("material", ""),
+    )
+    return {
+        "size_weight": source_metadata.get("size_weight") or inferred_metadata["size_weight"],
+        "form": source_metadata.get("form") or inferred_metadata["form"],
+        "material": source_metadata.get("material") or inferred_metadata["material"],
+    }
+
+
+def _reference_identity_key(
+    *,
+    group_code: str,
+    family_code: str,
+    category_code: str,
+    reference_desc: str,
+    spec_segment: str,
+) -> tuple[str, str, str, str, str]:
+    return (
+        str(group_code or "").upper(),
+        str(family_code or "").upper(),
+        str(category_code or "").upper(),
+        _normalize_reference_desc(reference_desc),
+        str(spec_segment or "").upper(),
+    )
+
+
+def _stable_reference_ifrc_code(
+    *,
+    group_code: str,
+    family_code: str,
+    category_code: str,
+    reference_desc: str,
+    spec_segment: str,
+) -> str:
+    prefix = f"{group_code}{family_code}{category_code}{spec_segment}".upper()
+    identity_key = _reference_identity_key(
+        group_code=group_code,
+        family_code=family_code,
+        category_code=category_code,
+        reference_desc=reference_desc,
+        spec_segment=spec_segment,
+    )
+    digest = hashlib.sha1("|".join(identity_key).encode("utf-8")).hexdigest().upper()[:8]
+    return f"{prefix}{digest}"
+
+
+def _assert_unique_reference_codes(references: list[dict[str, Any]]) -> None:
+    seen_by_code: dict[str, tuple[str, str, str, str, str]] = {}
+    for reference in references:
+        code = str(reference["ifrc_code"])
+        key = _reference_identity_key(
+            group_code=reference["group_code"],
+            family_code=reference["family_code"],
+            category_code=reference["category_code"],
+            reference_desc=reference["reference_desc"],
+            spec_segment=reference["spec_segment"],
+        )
+        existing = seen_by_code.get(code)
+        if existing is not None and existing != key:
+            raise RuntimeError(
+                f"Deterministic IFRC code collision for {code}: {existing!r} vs {key!r}"
+            )
+        seen_by_code[code] = key
+
+
+def _load_existing_reference_code_map(
+    cursor,
+    schema: str,
+) -> dict[tuple[str, str, str, str, str], str]:
+    cursor.execute(
+        f"""
+        SELECT
+            f.group_code,
+            f.family_code,
+            r.category_code,
+            r.reference_desc,
+            COALESCE(r.spec_segment, ''),
+            r.ifrc_code
+        FROM {schema}.ifrc_item_reference AS r
+        JOIN {schema}.ifrc_family AS f
+          ON f.ifrc_family_id = r.ifrc_family_id
+        ORDER BY
+            CASE WHEN r.status_code = 'A' THEN 0 ELSE 1 END,
+            r.ifrc_item_ref_id
+        """
+    )
+    code_by_key: dict[tuple[str, str, str, str, str], str] = {}
+    for group_code, family_code, category_code, reference_desc, spec_segment, ifrc_code in cursor.fetchall():
+        key = _reference_identity_key(
+            group_code=str(group_code or ""),
+            family_code=str(family_code or ""),
+            category_code=str(category_code or ""),
+            reference_desc=str(reference_desc or ""),
+            spec_segment=str(spec_segment or ""),
+        )
+        code_by_key.setdefault(key, str(ifrc_code or "").upper())
+    return code_by_key
+
+
+def _resolve_reference_codes(
+    references: list[dict[str, Any]],
+    existing_code_by_key: dict[tuple[str, str, str, str, str], str],
+) -> list[dict[str, Any]]:
+    resolved: list[dict[str, Any]] = []
+    for reference in references:
+        key = _reference_identity_key(
+            group_code=reference["group_code"],
+            family_code=reference["family_code"],
+            category_code=reference["category_code"],
+            reference_desc=reference["reference_desc"],
+            spec_segment=reference["spec_segment"],
+        )
+        resolved.append(
+            {
+                **reference,
+                "ifrc_code": existing_code_by_key.get(key, reference["ifrc_code"]),
+            }
+        )
+    _assert_unique_reference_codes(resolved)
+    return resolved
 
 
 def _load_category_ids(cursor, schema: str) -> dict[str, int]:
@@ -404,9 +582,13 @@ def _sync_references(
     family_id_by_key: dict[tuple[str, str], int],
     actor_id: str,
 ) -> None:
-    values_sql = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(references))
+    resolved_references = _resolve_reference_codes(
+        references,
+        _load_existing_reference_code_map(cursor, schema),
+    )
+    values_sql = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(resolved_references))
     params: list[Any] = []
-    for reference in references:
+    for reference in resolved_references:
         family_id = family_id_by_key[(reference["group_code"], reference["family_code"])]
         params.extend(
             [
@@ -422,7 +604,7 @@ def _sync_references(
             ]
         )
 
-    source_version = references[0]["source_version"] if references else taxonomy_source_version()
+    source_version = resolved_references[0]["source_version"] if resolved_references else taxonomy_source_version()
     cursor.execute(
         f"""
         WITH source_rows(
@@ -493,8 +675,8 @@ def _sync_references(
         params + [source_version, actor_id, actor_id],
     )
 
-    deactivate_values = ", ".join(["(%s)"] * len(references))
-    deactivate_params = [reference["ifrc_code"] for reference in references]
+    deactivate_values = ", ".join(["(%s)"] * len(resolved_references))
+    deactivate_params = [reference["ifrc_code"] for reference in resolved_references]
     cursor.execute(
         f"""
         WITH source_rows(ifrc_code) AS (

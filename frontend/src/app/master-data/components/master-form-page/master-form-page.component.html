@@ -366,12 +366,12 @@
                   </div>
 
                   @if (shouldShowIfrcHelperPanel()) {
-                    <section class="ifrc-suggestion-card" aria-label="IFRC Suggestion">
+                    <section class="ifrc-suggestion-card" aria-label="Find IFRC Match">
                       <div class="ifrc-suggestion-card__header">
                         <div>
-                          <p class="ifrc-suggestion-card__eyebrow">IFRC Suggestion</p>
+                          <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
                           <p class="ifrc-suggestion-card__intro">
-                            Auto-matched from the selected category, family, and item reference.
+                            Keep your item name exactly as entered for local searchability. Add optional spec hints only to help the helper find official governed IFRC variants.
                           </p>
                         </div>
                         <div class="ifrc-suggestion-card__status-block">
@@ -386,44 +386,81 @@
                         </div>
                       </div>
 
+                      <div class="ifrc-suggestion-card__helper-grid" [formGroup]="ifrcSpecForm">
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Size or Weight Hint</mat-label>
+                          <input matInput formControlName="size_weight" placeholder="e.g. 200 G or 500 MG" />
+                          <mat-hint>Optional helper hint only. The item name remains the searchable local description.</mat-hint>
+                        </mat-form-field>
+
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Form Hint</mat-label>
+                          <input matInput formControlName="form" placeholder="e.g. TABLET, CANNED, KIT" />
+                          <mat-hint>Optional official variant hint. This supports IFRC matching only.</mat-hint>
+                        </mat-form-field>
+
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                          <mat-label>IFRC Material Hint</mat-label>
+                          <input matInput formControlName="material" placeholder="e.g. CHLORINE or COTTON" />
+                          <mat-hint>Optional official variant hint when material differentiates governed references.</mat-hint>
+                        </mat-form-field>
+                      </div>
+
                       @if (!hasIfrcSuggestionActivity()) {
                         <p class="ifrc-suggestion-card__message neutral">
-                          Enter the Item Name and select the classification levels above to generate an IFRC suggestion.
+                          Enter the Item Name the way users will search for it. Add size, dosage, packaging, or material hints only when you need help narrowing the official governed IFRC reference.
                         </p>
                       } @else if (ifrcError()) {
                         <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
                       } @else if (ifrcSuggestion(); as suggestion) {
                         <dl class="ifrc-suggestion-card__details">
+                          @if (getSuggestionInputName(); as itemName) {
+                            <div class="colspan-2">
+                              <dt>Entered Item Name</dt>
+                              <dd>{{ itemName }}</dd>
+                            </div>
+                          }
                           <div>
-                            <dt>Suggested Family</dt>
+                            <dt>Family Context</dt>
                             <dd>{{ getResolvedSuggestionFamilyLabel() }}</dd>
                           </div>
                           @if (getSuggestedIfrcCode(); as suggestedCode) {
                             <div>
-                              <dt>Generated IFRC Code</dt>
+                              <dt>Governed IFRC Code</dt>
                               <dd>{{ suggestedCode }}</dd>
                             </div>
                           }
                           @if (getResolvedSuggestionReferenceLabel(); as suggestionReference) {
                             <div>
-                              <dt>Resolved Reference</dt>
+                              <dt>Governed Reference</dt>
                               <dd>{{ suggestionReference }}</dd>
+                            </div>
+                          }
+                          @for (detail of getResolvedSuggestionVariantDetails(); track detail.label) {
+                            <div>
+                              <dt>{{ detail.label }}</dt>
+                              <dd>{{ detail.value }}</dd>
                             </div>
                           }
                           @if (suggestion.construction_rationale) {
                             <div class="colspan-2">
-                              <dt>Rationale</dt>
+                              <dt>Search Rationale</dt>
                               <dd>{{ suggestion.construction_rationale }}</dd>
                             </div>
                           }
                         </dl>
 
                         @if (getIfrcSuggestionExplanation(); as explanation) {
-                          <p class="ifrc-suggestion-card__message info">{{ explanation }}</p>
+                          <p
+                            class="ifrc-suggestion-card__message"
+                            [class.info]="ifrcSuggestionResolution()?.status !== 'unresolved'"
+                            [class.warning]="ifrcSuggestionResolution()?.status === 'unresolved'">
+                            {{ explanation }}
+                          </p>
                         }
 
                         @if (shouldShowSuggestionCandidates()) {
-                          <div class="ifrc-suggestion-card__candidate-list" aria-label="Suggested IFRC candidates">
+                          <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
                             @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
                               <button
                                 class="ifrc-suggestion-candidate"
@@ -439,10 +476,25 @@
                                 @if (candidate.reference.ifrc_code) {
                                   <p class="ifrc-suggestion-candidate__code">{{ candidate.reference.ifrc_code }}</p>
                                 }
+                                @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
+                                  @if (variantDetails.length > 0) {
+                                    <div class="ifrc-suggestion-candidate__variant-grid">
+                                      @for (detail of variantDetails; track detail.label) {
+                                        <div class="ifrc-suggestion-candidate__variant">
+                                          <span class="ifrc-suggestion-candidate__variant-label">{{ detail.label }}</span>
+                                          <span class="ifrc-suggestion-candidate__variant-value">{{ detail.value }}</span>
+                                        </div>
+                                      }
+                                    </div>
+                                  }
+                                }
                                 <div class="ifrc-suggestion-candidate__meta">
-                                  <span>{{ candidate.reference.family_label || getResolvedSuggestionFamilyLabel() }}</span>
+                                  <span>{{ getSuggestionCandidateFamilyLabel(candidate) }}</span>
+                                  @if (getSuggestionCandidateCategoryLabel(candidate); as categoryLabel) {
+                                    <span>Category: {{ categoryLabel }}</span>
+                                  }
                                   @if (candidate.reference.spec_segment) {
-                                    <span>Spec: {{ candidate.reference.spec_segment }}</span>
+                                    <span>Spec segment: {{ candidate.reference.spec_segment }}</span>
                                   }
                                 </div>
                                 @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) {

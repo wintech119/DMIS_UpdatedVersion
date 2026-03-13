@@ -12,11 +12,10 @@ from django.db import DatabaseError, connection, transaction
 from masterdata.ifrc_catalogue_loader import get_taxonomy
 from masterdata.ifrc_code_agent import (
     IFRCAgent,
-    _encode_spec,
+    _encode_generated_spec,
     _extract_form_metadata,
     _extract_material_metadata,
     _extract_size_weight_metadata,
-    _next_sequence,
 )
 from masterdata.services.data_access import (
     _is_sqlite,
@@ -430,7 +429,13 @@ def suggest_ifrc_reference_authoring(data: dict[str, Any]) -> tuple[dict[str, An
     )
     category_code = category_match["category_code"]
     category_label = category_match["category_label"]
-    spec_segment = _encode_spec(size_weight, form, material)
+    spec_segment = _encode_generated_spec(
+        reference_desc,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+        category_code=category_code,
+    )
     source = "deterministic"
 
     ai_candidate = _reference_ai_candidate(
@@ -448,15 +453,7 @@ def suggest_ifrc_reference_authoring(data: dict[str, Any]) -> tuple[dict[str, An
         spec_segment = ai_candidate["spec_segment"]
         source = ai_candidate["source"]
 
-    prefix = f"{group_code}{family_code}{category_code}{spec_segment}".upper()
-    try:
-        seq, _ = _next_sequence(prefix)
-    except DatabaseError as exc:
-        logger.warning("suggest_ifrc_reference_authoring sequence lookup failed for prefix %s: %s", prefix, exc)
-        _safe_rollback()
-        warnings.append("reference_sequence_lookup_failed")
-        seq = 1
-    ifrc_code = f"{prefix}{seq:02d}" if prefix else ""
+    ifrc_code = f"{group_code}{family_code}{category_code}{spec_segment}".upper() if category_code else ""
 
     conflicts, conflict_warnings = _reference_conflicts(
         family_id=int(family_row["ifrc_family_id"]),

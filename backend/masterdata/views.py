@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
@@ -18,7 +19,14 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from masterdata.ifrc_code_agent import IFRCCodeSuggestion, IFRCAgent, cb_is_open
+from masterdata.ifrc_code_agent import (
+    IFRCCodeSuggestion,
+    IFRCAgent,
+    _extract_form_metadata,
+    _extract_material_metadata,
+    _extract_size_weight_metadata,
+    cb_is_open,
+)
 from masterdata.models import ItemIfrcSuggestLog
 from masterdata.permissions import (
     MasterDataPermission,
@@ -79,6 +87,8 @@ _IFRC_AGENT_SINGLETON: IFRCAgent | None = None
 _IFRC_RESOLVED_CANDIDATE_MIN = 0.55
 _IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
 _IFRC_RESPONSE_CANDIDATE_LIMIT = 5
+_SCALAR_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(KG|MG|G|L|ML|KVA|KW|CM|MM|M2)$")
+_DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*M2$")
 
 
 def _actor_id(request) -> str:
@@ -155,6 +165,75 @@ def _inactive_item_guard_response(warnings: list[str], fallback_table: str):
     )
 
 
+def _warning_diagnostic_message(warnings: list[str], *, operation: str, target: str) -> str:
+    exception_name = next(
+        (
+            warning.split(":", 1)[1]
+            for warning in warnings
+            if warning.startswith("db_exception:")
+        ),
+        "",
+    )
+    db_message = next(
+        (
+            warning.split(":", 1)[1]
+            for warning in warnings
+            if warning.startswith("db_message:")
+        ),
+        "",
+    )
+    transient_warning = next(
+        (
+            warning
+            for warning in warnings
+            if warning == "db_unavailable" or warning.startswith("transient")
+        ),
+        "",
+    )
+    if exception_name and db_message:
+        return f"{operation} {target} failed with {exception_name}: {db_message}"
+    if exception_name:
+        return f"{operation} {target} failed with {exception_name}."
+    if db_message:
+        return f"{operation} {target} failed: {db_message}"
+    if transient_warning:
+        return (
+            f"{operation} {target} could not complete because the data store was temporarily unavailable: "
+            f"{transient_warning}"
+        )
+    if warnings:
+        return f"{operation} {target} failed with warnings: {', '.join(warnings)}"
+    return f"{operation} {target} failed for an unknown reason."
+
+
+def _create_failure_response(*, target: str, warnings: list[str], detail: str):
+    transient_warning = next(
+        (
+            warning
+            for warning in warnings
+            if warning == "db_unavailable" or warning.startswith("transient")
+        ),
+        None,
+    )
+    status = 503 if transient_warning is not None else 500
+    if transient_warning is not None and target == "item":
+        detail = "Item creation is temporarily unavailable."
+    elif transient_warning is not None:
+        detail = "Record creation is temporarily unavailable."
+    return Response(
+        {
+            "detail": detail,
+            "diagnostic": _warning_diagnostic_message(
+                warnings,
+                operation="create",
+                target=target,
+            ),
+            "warnings": warnings,
+        },
+        status=status,
+    )
+
+
 def _ifrc_agent() -> IFRCAgent:
     global _IFRC_AGENT_SINGLETON
     if _IFRC_AGENT_SINGLETON is None:
@@ -187,6 +266,89 @@ def _tokenize_ifrc_terms(*parts: Any) -> set[str]:
     return tokens
 
 
+def _decimal_text(value: Decimal) -> str:
+    normalized = value.normalize()
+    if normalized == normalized.to_integral():
+        return str(normalized.quantize(Decimal("1")))
+    return format(normalized, "f").rstrip("0").rstrip(".")
+
+
+def _normalized_measure_key(value: str) -> tuple[str, ...] | None:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+
+    dimension_match = _DIMENSION_MEASURE_RE.fullmatch(text)
+    if dimension_match:
+        try:
+            left = Decimal(dimension_match.group(1))
+            right = Decimal(dimension_match.group(2))
+        except (InvalidOperation, ValueError):
+            return ("text", text)
+        first, second = sorted((_decimal_text(left), _decimal_text(right)))
+        return ("dimension", first, second, "M2")
+
+    scalar_match = _SCALAR_MEASURE_RE.fullmatch(text)
+    if not scalar_match:
+        return ("text", text)
+
+    try:
+        numeric_value = Decimal(scalar_match.group(1))
+    except (InvalidOperation, ValueError):
+        return ("text", text)
+
+    unit = scalar_match.group(2)
+    unit_map: dict[str, tuple[str, Decimal]] = {
+        "KG": ("G", Decimal("1000")),
+        "G": ("G", Decimal("1")),
+        "MG": ("G", Decimal("0.001")),
+        "L": ("ML", Decimal("1000")),
+        "ML": ("ML", Decimal("1")),
+        "CM": ("MM", Decimal("10")),
+        "MM": ("MM", Decimal("1")),
+        "KVA": ("KVA", Decimal("1")),
+        "KW": ("KW", Decimal("1")),
+        "M2": ("M2", Decimal("1")),
+    }
+    base_unit, factor = unit_map.get(unit, (unit, Decimal("1")))
+    return ("scalar", _decimal_text(numeric_value * factor), base_unit)
+
+
+def _resolved_variant_metadata(
+    *,
+    item_name: str,
+    size_weight: str,
+    form: str,
+    material: str,
+) -> dict[str, Any]:
+    normalized_size_weight = _extract_size_weight_metadata(item_name, size_weight=size_weight)
+    normalized_form = _extract_form_metadata(item_name, form=form)
+    normalized_material = _extract_material_metadata(item_name, material=material)
+    return {
+        "size_weight": normalized_size_weight,
+        "form": normalized_form,
+        "material": normalized_material,
+        "size_key": _normalized_measure_key(normalized_size_weight),
+    }
+
+
+def _structured_variant_metadata(
+    *,
+    size_weight: str,
+    form: str,
+    material: str,
+) -> dict[str, Any]:
+    normalized_size_weight = _extract_size_weight_metadata("", size_weight=size_weight)
+    normalized_form = _extract_form_metadata("", form=form)
+    normalized_material = _extract_material_metadata("", material=material)
+    return {
+        "size_weight": normalized_size_weight,
+        "form": normalized_form,
+        "material": normalized_material,
+        "size_key": _normalized_measure_key(normalized_size_weight),
+    }
+
+
 def _spec_from_ifrc_code(
     ifrc_code: str | None,
     *,
@@ -196,6 +358,9 @@ def _spec_from_ifrc_code(
 ) -> str:
     normalized = str(ifrc_code or "").strip().upper()
     prefix_len = len(f"{group_code or ''}{family_code or ''}{category_code or ''}")
+    suffix = normalized[prefix_len:]
+    if len(suffix) <= 4:
+        return suffix
     if len(normalized) <= prefix_len + 2:
         return ""
     return normalized[prefix_len:-2]
@@ -388,6 +553,7 @@ def _score_ifrc_candidate(
     search_key: dict[str, Any],
     *,
     item_tokens: set[str],
+    request_variant: dict[str, Any],
     size_tokens: set[str],
     form_tokens: set[str],
     material_tokens: set[str],
@@ -398,6 +564,25 @@ def _score_ifrc_candidate(
     candidate_spec = str(candidate.get("spec_segment") or "").upper()
     generated_code = str(search_key.get("ifrc_code") or "").upper()
     generated_spec = str(search_key.get("spec_segment") or "").upper()
+    candidate_variant = _structured_variant_metadata(
+        size_weight=str(candidate.get("size_weight") or ""),
+        form=str(candidate.get("form") or ""),
+        material=str(candidate.get("material") or ""),
+    )
+    request_size_key = request_variant["size_key"]
+    request_form = str(request_variant["form"] or "").upper()
+    request_material = str(request_variant["material"] or "").upper()
+    structured_request = bool(request_size_key or request_form or request_material)
+
+    exact_generated_code_bonus = 0.70 if search_key.get("source") == "primary" else 0.60
+    generated_prefix_bonus = 0.35
+    exact_spec_bonus = 0.25
+    partial_spec_bonus = 0.15
+    if structured_request:
+        exact_generated_code_bonus = 0.30 if search_key.get("source") == "primary" else 0.25
+        generated_prefix_bonus = 0.18
+        exact_spec_bonus = 0.12
+        partial_spec_bonus = 0.08
 
     if search_key.get("source") == "primary":
         score += 0.15
@@ -407,28 +592,60 @@ def _score_ifrc_candidate(
         reasons.append("alternative_classification")
 
     if generated_code and candidate_code == generated_code:
-        score += 0.70 if search_key.get("source") == "primary" else 0.60
+        score += exact_generated_code_bonus
         reasons.append("exact_generated_code_match")
     elif generated_code and len(generated_code) > 2 and candidate_code.startswith(generated_code[:-2]):
-        score += 0.35
+        score += generated_prefix_bonus
         reasons.append("generated_prefix_match")
 
     if generated_spec and candidate_spec == generated_spec:
-        score += 0.25
+        score += exact_spec_bonus
         reasons.append("exact_spec_match")
     elif generated_spec and candidate_spec and (
         candidate_spec.startswith(generated_spec) or generated_spec.startswith(candidate_spec)
     ):
-        score += 0.15
+        score += partial_spec_bonus
         reasons.append("partial_spec_match")
+
+    candidate_size_key = candidate_variant["size_key"]
+    size_keys_match = False
+    if request_size_key and candidate_size_key:
+        if request_size_key == candidate_size_key:
+            size_keys_match = True
+            score += 0.32
+            reasons.append("exact_size_weight_match")
+        elif request_size_key[0] == candidate_size_key[0]:
+            score -= 0.45
+            reasons.append("size_weight_mismatch")
+    elif request_size_key:
+        score -= 0.15
+        reasons.append("size_weight_missing")
+
+    candidate_form = str(candidate_variant["form"] or "").upper()
+    if request_form and candidate_form:
+        if request_form == candidate_form:
+            score += 0.05
+            reasons.append("exact_form_match")
+        else:
+            score -= 0.05
+            reasons.append("form_mismatch")
+
+    candidate_material = str(candidate_variant["material"] or "").upper()
+    if request_material and candidate_material:
+        if request_material == candidate_material:
+            score += 0.04
+            reasons.append("exact_material_match")
+        else:
+            score -= 0.04
+            reasons.append("material_mismatch")
 
     candidate_tokens = _tokenize_ifrc_terms(
         candidate.get("reference_desc"),
         candidate.get("category_label"),
         candidate.get("family_label"),
-        candidate.get("size_weight"),
-        candidate.get("form"),
-        candidate.get("material"),
+        candidate_variant["size_weight"],
+        candidate_variant["form"],
+        candidate_variant["material"],
         candidate_spec,
         candidate_code,
     )
@@ -442,11 +659,15 @@ def _score_ifrc_candidate(
         (form_tokens, "form", 0.10),
         (material_tokens, "material", 0.10),
     ):
+        if not candidate_variant[label]:
+            continue
+        if label == "size_weight" and request_size_key and candidate_size_key and not size_keys_match:
+            continue
         if tokens and tokens & candidate_tokens:
             score += bonus
             reasons.append(f"{label}_match")
 
-    return min(score, 1.0), reasons
+    return max(0.0, min(score, 1.0)), reasons
 
 
 def _rank_ifrc_reference_candidates(
@@ -460,10 +681,22 @@ def _rank_ifrc_reference_candidates(
     material: str,
     auto_fill_threshold: float,
 ) -> list[dict[str, Any]]:
-    item_tokens = _tokenize_ifrc_terms(item_name, ifrc_description)
-    size_tokens = _tokenize_ifrc_terms(size_weight)
-    form_tokens = _tokenize_ifrc_terms(form)
-    material_tokens = _tokenize_ifrc_terms(material)
+    request_variant = _resolved_variant_metadata(
+        item_name=item_name,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+    )
+    item_tokens = _tokenize_ifrc_terms(
+        item_name,
+        ifrc_description,
+        request_variant["size_weight"],
+        request_variant["form"],
+        request_variant["material"],
+    )
+    size_tokens = _tokenize_ifrc_terms(request_variant["size_weight"])
+    form_tokens = _tokenize_ifrc_terms(request_variant["form"])
+    material_tokens = _tokenize_ifrc_terms(request_variant["material"])
 
     ranked: list[dict[str, Any]] = []
     for candidate in candidate_rows:
@@ -480,6 +713,7 @@ def _rank_ifrc_reference_candidates(
                 candidate,
                 search_key,
                 item_tokens=item_tokens,
+                request_variant=request_variant,
                 size_tokens=size_tokens,
                 form_tokens=form_tokens,
                 material_tokens=material_tokens,
@@ -563,7 +797,7 @@ def _resolve_ifrc_suggestion(
         )
         return resolution_payload
 
-    if exact_active is not None:
+    if exact_active is not None and not candidate_rows:
         exact_candidate = {
             **exact_active,
             "rank": 1,
@@ -586,6 +820,12 @@ def _resolve_ifrc_suggestion(
             "candidates": [exact_candidate],
         }
 
+    if exact_active is not None and all(
+        candidate.get("ifrc_item_ref_id") != exact_active.get("ifrc_item_ref_id")
+        for candidate in candidate_rows
+    ):
+        candidate_rows.append(exact_active)
+
     ranked_candidates = _rank_ifrc_reference_candidates(
         candidate_rows,
         search_keys,
@@ -601,6 +841,38 @@ def _resolve_ifrc_suggestion(
         for candidate in ranked_candidates
         if candidate["score"] >= _IFRC_PLAUSIBLE_CANDIDATE_MIN
     ]
+
+    if plausible_candidates and plausible_candidates[0]["score"] >= _IFRC_RESOLVED_CANDIDATE_MIN:
+        top_candidate = plausible_candidates[0]
+        exact_variant_reasons = (
+            "exact_size_weight_match",
+            "exact_form_match",
+            "exact_material_match",
+        )
+        decisive_reasons = [
+            reason
+            for reason in exact_variant_reasons
+            if reason in top_candidate["match_reasons"]
+            and not any(
+                reason in candidate["match_reasons"]
+                for candidate in plausible_candidates[1:]
+            )
+        ]
+        if decisive_reasons:
+            return {
+                "resolution_status": "resolved",
+                "resolution_explanation": (
+                    "Generated suggestion resolved to a uniquely matching active governed IFRC variant."
+                ),
+                "ifrc_family_id": top_candidate["ifrc_family_id"],
+                "resolved_ifrc_item_ref_id": top_candidate["ifrc_item_ref_id"],
+                "candidate_count": 1,
+                "auto_highlight_candidate_id": (
+                    top_candidate["ifrc_item_ref_id"] if top_candidate["auto_highlight"] else None
+                ),
+                "direct_accept_allowed": True,
+                "candidates": [top_candidate],
+            }
 
     if len(plausible_candidates) == 1 and plausible_candidates[0]["score"] >= _IFRC_RESOLVED_CANDIDATE_MIN:
         winner = plausible_candidates[0]
@@ -723,9 +995,10 @@ def _handle_create(request, cfg):
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
             return guard_response
-        return Response(
-            {"detail": "Failed to create record.", "warnings": warnings},
-            status=500,
+        return _create_failure_response(
+            target="record",
+            warnings=warnings,
+            detail="Failed to create record.",
         )
 
     record, _ = get_record(cfg.key, pk_val)
@@ -802,17 +1075,39 @@ def _handle_item_create(request, cfg):
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
             return guard_response
-        return Response(
-            {"detail": "Failed to create record.", "warnings": warnings},
-            status=500,
+        return _create_failure_response(
+            target="item",
+            warnings=warnings,
+            detail="Failed to create item.",
         )
 
     record, record_warnings = get_item_record(pk_val)
     warnings.extend(record_warnings)
     if record is None:
+        read_warnings = warnings or ["db_error"]
+        transient_warning = next(
+            (
+                warning
+                for warning in read_warnings
+                if warning == "db_unavailable" or warning.startswith("transient")
+            ),
+            None,
+        )
         return Response(
-            {"detail": "Failed to load created item.", "warnings": warnings or ["db_error"]},
-            status=500,
+            {
+                "detail": (
+                    "Loading the created item is temporarily unavailable."
+                    if transient_warning is not None
+                    else "Failed to load created item."
+                ),
+                "diagnostic": _warning_diagnostic_message(
+                    read_warnings,
+                    operation="load",
+                    target="created item",
+                ),
+                "warnings": read_warnings,
+            },
+            status=503 if transient_warning is not None else 500,
         )
     _link_ifrc_selection_if_present(
         request_data=data,
@@ -1348,12 +1643,23 @@ def ifrc_suggest(request):
         material=material,
         auto_fill_threshold=cfg["AUTO_FILL_CONFIDENCE_THRESHOLD"],
     )
+    resolved_candidate = None
+    resolved_candidate_id = resolution_payload.get("resolved_ifrc_item_ref_id")
+    if resolved_candidate_id is not None:
+        resolved_candidate = next(
+            (
+                candidate
+                for candidate in resolution_payload.get("candidates", [])
+                if candidate.get("ifrc_item_ref_id") == resolved_candidate_id
+            ),
+            None,
+        )
 
     response_payload = {
         "suggestion_id": str(suggestion_id) if suggestion_id is not None else None,
-        # Map v4 field names to existing API field names for backward compatibility.
-        "ifrc_code": suggestion.item_code,
-        "ifrc_description": suggestion.standardised_name,
+        # Expose governed IFRC identity only when resolution succeeded.
+        "ifrc_code": resolved_candidate.get("ifrc_code") if resolved_candidate is not None else None,
+        "ifrc_description": resolved_candidate.get("reference_desc") if resolved_candidate is not None else None,
         "confidence": suggestion.confidence,
         "match_type": suggestion.match_type,
         "construction_rationale": suggestion.construction_rationale,

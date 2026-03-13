@@ -22,6 +22,9 @@ export interface IfrcReferenceLookup extends LookupItem {
   category_code?: string;
   category_label?: string;
   spec_segment?: string;
+  size_weight?: string;
+  form?: string;
+  material?: string;
 }
 
 export interface MasterListOptions {

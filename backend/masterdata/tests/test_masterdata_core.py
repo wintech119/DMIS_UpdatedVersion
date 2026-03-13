@@ -23,7 +23,13 @@ from masterdata.services.data_access import (
     update_record,
 )
 from masterdata.services.validation import _cross_field_validation
-from masterdata.ifrc_code_agent import IFRCAgent, IFRCCodeSuggestion, _encode_spec, _next_sequence
+from masterdata.ifrc_code_agent import (
+    IFRCAgent,
+    IFRCCodeSuggestion,
+    _encode_generated_spec,
+    _encode_spec,
+    _next_sequence,
+)
 
 
 class OrderByValidationTests(SimpleTestCase):
@@ -730,24 +736,43 @@ class ItemCodeMigrationSchemaTests(SimpleTestCase):
     }
 )
 class IFRCAgentTests(SimpleTestCase):
-    @patch("masterdata.ifrc_code_agent._next_sequence", return_value=(1, "SEQ=1 selected."))
-    def test_suggest_generates_v3_code_when_llm_disabled(self, _mock_seq):
+    def test_suggest_generates_ifrc_style_12_char_code_when_llm_disabled(self):
         agent = IFRCAgent()
         result = agent.suggest("water tabs")
 
         self.assertEqual(result.match_type, "fallback")
         self.assertIsNotNone(result.ifrc_code)
-        self.assertRegex(result.ifrc_code, r"^[A-Z]{8}[A-Z0-9]{0,7}\d{2}$")
+        self.assertRegex(result.ifrc_code, r"^[A-Z0-9]{12}$")
         self.assertEqual(result.group_code, "W")
         self.assertEqual(result.family_code, "WTR")
         self.assertEqual(result.category_code, "TABL")
-        self.assertEqual(result.sequence, 1)
+        self.assertEqual(result.spec_seg, "TB00")
+        self.assertIsNone(result.sequence)
 
     def test_spec_encoding_prefers_form_then_size(self):
         self.assertEqual(_encode_spec("200 g", "tablet", "plastic"), "TB200")
 
     def test_spec_encoding_uses_material_when_form_absent(self):
         self.assertEqual(_encode_spec("20 l", "", "plastic"), "PL20L")
+
+    def test_generated_spec_encoding_uses_compact_ifrc_style_suffix(self):
+        self.assertEqual(
+            _encode_generated_spec(
+                "Corned beef, canned, 200 g",
+                size_weight="200 g",
+                form="canned",
+                category_code="MEAT",
+            ),
+            "BK02",
+        )
+        self.assertEqual(
+            _encode_generated_spec(
+                "Air conditioner, window, 18000 BTU",
+                size_weight="18000 BTU",
+                category_code="ACON",
+            ),
+            "CW18",
+        )
 
     def test_empty_input_returns_none(self):
         agent = IFRCAgent()
@@ -782,18 +807,90 @@ class IFRCSuggestViewTests(SimpleTestCase):
 
     def _build_suggestion(self):
         return IFRCCodeSuggestion(
-            item_code="WWTRTABLTB01",
+            item_code="WWTRTABLTB00",
             standardised_name="WATER PURIFICATION TABLET",
             confidence=0.88,
             match_type="generated",
-            construction_rationale="Group=W Family=WTR Category=TABL Spec=TB SEQ=01",
+            construction_rationale="Group=W Family=WTR Category=TABL Compact specification TB00",
             llm_used=False,
             grp="W",
             fam="WTR",
             cat="TABL",
-            spec_seg="TB",
-            seq=1,
+            spec_seg="TB00",
+            seq=None,
         )
+
+    def _official_corned_beef_candidates(self):
+        return [
+            {
+                "ifrc_item_ref_id": 501,
+                "ifrc_family_id": 41,
+                "ifrc_code": "FCANMEATCB200G",
+                "reference_desc": "Corned beef, canned, 200 g",
+                "category_code": "MEAT",
+                "category_label": "Canned Meat",
+                "spec_segment": "CN200",
+                "size_weight": "200 G",
+                "form": "CANNED",
+                "material": "",
+                "group_code": "F",
+                "group_label": "Food",
+                "family_code": "CAN",
+                "family_label": "Canned Food",
+            },
+            {
+                "ifrc_item_ref_id": 502,
+                "ifrc_family_id": 41,
+                "ifrc_code": "FCANMEATCB500G",
+                "reference_desc": "Corned beef, canned, 500 g",
+                "category_code": "MEAT",
+                "category_label": "Canned Meat",
+                "spec_segment": "CN500",
+                "size_weight": "500 G",
+                "form": "CANNED",
+                "material": "",
+                "group_code": "F",
+                "group_label": "Food",
+                "family_code": "CAN",
+                "family_label": "Canned Food",
+            },
+        ]
+
+    def _official_amoxicillin_candidates(self):
+        return [
+            {
+                "ifrc_item_ref_id": 611,
+                "ifrc_family_id": 22,
+                "ifrc_code": "DANBAMOXAMX250MG",
+                "reference_desc": "Amoxicillin tablet, 250 mg",
+                "category_code": "AMOX",
+                "category_label": "Amoxicillin and Penicillins",
+                "spec_segment": "TB250",
+                "size_weight": "250 MG",
+                "form": "TABLET",
+                "material": "",
+                "group_code": "D",
+                "group_label": "Drugs",
+                "family_code": "ANB",
+                "family_label": "Antibiotics",
+            },
+            {
+                "ifrc_item_ref_id": 612,
+                "ifrc_family_id": 22,
+                "ifrc_code": "DANBAMOXAMX500MG",
+                "reference_desc": "Amoxicillin tablet, 500 mg",
+                "category_code": "AMOX",
+                "category_label": "Amoxicillin and Penicillins",
+                "spec_segment": "TB500",
+                "size_weight": "500 MG",
+                "form": "TABLET",
+                "material": "",
+                "group_code": "D",
+                "group_label": "Drugs",
+                "family_code": "ANB",
+                "family_label": "Antibiotics",
+            },
+        ]
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views._allow_ifrc_request", return_value=True)
@@ -996,17 +1093,17 @@ class IFRCSuggestViewTests(SimpleTestCase):
         _mock_permission,
     ):
         mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
-            item_code="WWTRTABLTB99",
+            item_code="WWTRTABLTB00",
             standardised_name="WATER KIT",
             confidence=0.84,
             match_type="generated",
-            construction_rationale="Group=W Family=WTR Category=TABL Spec=TB SEQ=99",
+            construction_rationale="Group=W Family=WTR Category=TABL Compact specification TB00",
             llm_used=False,
             grp="W",
             fam="WTR",
             cat="TABL",
-            spec_seg="TB",
-            seq=99,
+            spec_seg="TB00",
+            seq=None,
         )
 
         request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water kit"})
@@ -1021,7 +1118,7 @@ class IFRCSuggestViewTests(SimpleTestCase):
         self.assertIsNone(response.data["resolved_ifrc_item_ref_id"])
         self.assertIsNone(response.data["auto_highlight_candidate_id"])
         self.assertFalse(response.data["direct_accept_allowed"])
-        self.assertEqual(response.data["candidates"][0]["score"], 0.83)
+        self.assertLess(response.data["candidates"][0]["score"], 0.85)
         self.assertFalse(response.data["candidates"][0]["auto_highlight"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
@@ -1062,6 +1159,151 @@ class IFRCSuggestViewTests(SimpleTestCase):
         self.assertFalse(response.data["direct_accept_allowed"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._load_ifrc_reference_candidates")
+    @patch("masterdata.views._fetch_ifrc_reference_by_code", return_value=None)
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=41)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_resolves_official_corned_beef_200g_reference(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_load_candidates.return_value = self._official_corned_beef_candidates()
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="FCANMEATBK02",
+            standardised_name="CORNED BEEF CANNED 200 G",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=F Family=CAN Category=MEAT Compact specification BK02",
+            llm_used=False,
+            grp="F",
+            fam="CAN",
+            cat="MEAT",
+            spec_seg="BK02",
+            seq=None,
+        )
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {"name": "CORNED BEEF, CANNED, 200g"},
+        )
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "resolved")
+        self.assertEqual(response.data["resolved_ifrc_item_ref_id"], 501)
+        self.assertEqual(response.data["ifrc_code"], "FCANMEATCB200G")
+        self.assertEqual(response.data["ifrc_description"], "Corned beef, canned, 200 g")
+        self.assertNotEqual(response.data["ifrc_code"], "FCANMEATBK02")
+        self.assertEqual(response.data["candidates"][0]["size_weight"], "200 G")
+        self.assertIn("exact_size_weight_match", response.data["candidates"][0]["match_reasons"])
+        self.assertTrue(response.data["direct_accept_allowed"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._load_ifrc_reference_candidates")
+    @patch("masterdata.views._fetch_ifrc_reference_by_code", return_value=None)
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=41)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_resolves_official_corned_beef_500g_reference(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_load_candidates.return_value = self._official_corned_beef_candidates()
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="FCANMEATBK05",
+            standardised_name="CORNED BEEF CANNED 500 G",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=F Family=CAN Category=MEAT Compact specification BK05",
+            llm_used=False,
+            grp="F",
+            fam="CAN",
+            cat="MEAT",
+            spec_seg="BK05",
+            seq=None,
+        )
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {"name": "CORNED BEEF, CANNED, 500g"},
+        )
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "resolved")
+        self.assertEqual(response.data["resolved_ifrc_item_ref_id"], 502)
+        self.assertEqual(response.data["ifrc_code"], "FCANMEATCB500G")
+        self.assertEqual(response.data["ifrc_description"], "Corned beef, canned, 500 g")
+        self.assertNotEqual(response.data["ifrc_code"], "FCANMEATBK05")
+        self.assertEqual(response.data["candidates"][0]["size_weight"], "500 G")
+        self.assertIn("exact_size_weight_match", response.data["candidates"][0]["match_reasons"])
+        self.assertTrue(response.data["direct_accept_allowed"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._load_ifrc_reference_candidates")
+    @patch("masterdata.views._fetch_ifrc_reference_by_code", return_value=None)
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=41)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_200kg_does_not_return_pseudo_code_when_only_governed_variants_exist(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_load_candidates.return_value = self._official_corned_beef_candidates()
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="FCANMEATBK20",
+            standardised_name="CORNED BEEF CANNED 200 KG",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=F Family=CAN Category=MEAT Compact specification BK20",
+            llm_used=False,
+            grp="F",
+            fam="CAN",
+            cat="MEAT",
+            spec_seg="BK20",
+            seq=None,
+        )
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {"name": "CORNED BEEF, CANNED, 200kg"},
+        )
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "unresolved")
+        self.assertIsNone(response.data["resolved_ifrc_item_ref_id"])
+        self.assertIsNone(response.data["ifrc_code"])
+        self.assertEqual(response.data["candidate_count"], 0)
+        self.assertEqual(response.data["candidates"], [])
+        self.assertFalse(response.data["direct_accept_allowed"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views._allow_ifrc_request", return_value=False)
     def test_ifrc_suggest_rate_limited(self, _mock_rate_limit, _mock_permission):
         request = self.factory.get("/api/v1/masterdata/items/ifrc-suggest", {"name": "water"})
@@ -1069,6 +1311,122 @@ class IFRCSuggestViewTests(SimpleTestCase):
         response = views.ifrc_suggest(request)
 
         self.assertEqual(response.status_code, 429)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._load_ifrc_reference_candidates")
+    @patch(
+        "masterdata.views._fetch_ifrc_reference_by_code",
+        return_value={
+            "ifrc_item_ref_id": 699,
+            "ifrc_family_id": 22,
+            "ifrc_code": "DANBAMOXTB50",
+            "reference_desc": "Amoxicillin tablet",
+            "category_code": "AMOX",
+            "category_label": "Amoxicillin and Penicillins",
+            "spec_segment": "TB50",
+            "size_weight": "",
+            "form": "TABLET",
+            "material": "",
+            "group_code": "D",
+            "group_label": "Drugs",
+            "family_code": "ANB",
+            "family_label": "Antibiotics",
+        },
+    )
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=22)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_prefers_official_medical_variant_over_generated_code_match(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_load_candidates.return_value = self._official_amoxicillin_candidates()
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="DANBAMOXTB50",
+            standardised_name="AMOXICILLIN TABLET 500 MG",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=D Family=ANB Category=AMOX Compact specification TB50",
+            llm_used=False,
+            grp="D",
+            fam="ANB",
+            cat="AMOX",
+            spec_seg="TB50",
+            seq=None,
+        )
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {"name": "AMOXICILLIN TABLET, 500mg"},
+        )
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "resolved")
+        self.assertEqual(response.data["resolved_ifrc_item_ref_id"], 612)
+        self.assertEqual(response.data["ifrc_code"], "DANBAMOXAMX500MG")
+        self.assertNotEqual(response.data["ifrc_code"], "DANBAMOXTB50")
+        self.assertEqual(response.data["candidates"][0]["size_weight"], "500 MG")
+        self.assertIn("exact_size_weight_match", response.data["candidates"][0]["match_reasons"])
+        self.assertTrue(response.data["direct_accept_allowed"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views._allow_ifrc_request", return_value=True)
+    @patch("masterdata.views._write_ifrc_audit_log", return_value=123)
+    @patch("masterdata.views._load_ifrc_reference_candidates")
+    @patch("masterdata.views._fetch_ifrc_reference_by_code", return_value=None)
+    @patch("masterdata.views._fetch_ifrc_family_id", return_value=22)
+    @patch("masterdata.views._ifrc_agent")
+    def test_ifrc_suggest_returns_official_medical_candidates_for_ambiguous_spec(
+        self,
+        mock_ifrc_agent,
+        _mock_family_lookup,
+        _mock_reference_lookup,
+        mock_load_candidates,
+        _mock_write_log,
+        _mock_rate_limit,
+        _mock_permission,
+    ):
+        mock_load_candidates.return_value = self._official_amoxicillin_candidates()
+        mock_ifrc_agent.return_value.generate.return_value = IFRCCodeSuggestion(
+            item_code="DANBAMOXTB00",
+            standardised_name="AMOXICILLIN TABLET",
+            confidence=0.88,
+            match_type="generated",
+            construction_rationale="Group=D Family=ANB Category=AMOX Compact specification TB00",
+            llm_used=False,
+            grp="D",
+            fam="ANB",
+            cat="AMOX",
+            spec_seg="TB00",
+            seq=None,
+        )
+
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-suggest",
+            {"name": "AMOXICILLIN TABLET"},
+        )
+        force_authenticate(request, user=self.user)
+        response = views.ifrc_suggest(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["resolution_status"], "ambiguous")
+        self.assertIsNone(response.data["resolved_ifrc_item_ref_id"])
+        self.assertIsNone(response.data["ifrc_code"])
+        self.assertEqual(response.data["candidate_count"], 2)
+        self.assertFalse(response.data["direct_accept_allowed"])
+        self.assertEqual(
+            {candidate["ifrc_code"] for candidate in response.data["candidates"]},
+            {"DANBAMOXAMX250MG", "DANBAMOXAMX500MG"},
+        )
 
 
 class IFRCSuggestionResolutionTests(SimpleTestCase):
@@ -1092,6 +1450,9 @@ class IFRCSuggestionResolutionTests(SimpleTestCase):
                 "category_code": "TABL",
                 "category_label": "Tablet",
                 "spec_segment": "TB",
+                "size_weight": "",
+                "form": "TABLET",
+                "material": "",
                 "group_code": "W",
                 "group_label": "WASH",
                 "family_code": "WTR",
@@ -1105,6 +1466,9 @@ class IFRCSuggestionResolutionTests(SimpleTestCase):
                 "category_code": "TABL",
                 "category_label": "Tablet",
                 "spec_segment": "PW",
+                "size_weight": "",
+                "form": "POWDER",
+                "material": "",
                 "group_code": "W",
                 "group_label": "WASH",
                 "family_code": "WTR",

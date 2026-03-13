@@ -10,6 +10,7 @@ from django.db import DatabaseError, connection, transaction
 
 from masterdata.services.data_access import (
     TABLE_REGISTRY,
+    _db_error_warnings,
     _is_sqlite,
     _parse_sort_expression,
     _safe_rollback,
@@ -622,7 +623,7 @@ def create_item_record(
     except DatabaseError as exc:
         logger.warning("create_item_record failed: %s", exc)
         _safe_rollback()
-        return None, ["db_error"]
+        return None, _db_error_warnings(exc)
 
 
 def update_item_record(
@@ -703,7 +704,7 @@ def update_item_record(
     except DatabaseError as exc:
         logger.warning("update_item_record(%s) failed: %s", item_id, exc)
         _safe_rollback()
-        return False, ["db_error"]
+        return False, _db_error_warnings(exc)
 
 
 def find_item_canonical_conflict(

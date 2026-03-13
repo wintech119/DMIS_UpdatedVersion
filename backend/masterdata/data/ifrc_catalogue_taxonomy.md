@@ -6,6 +6,10 @@
 #   ### FAMILY:<FAM> <Label>     3-letter Family code
 #   #### CATEGORY:<CAT> <Label>  4-letter Category code
 #   - ITEM: <description>        representative items (keyword source)
+#   - ITEM: <description> | KEY=VALUE | ...    optional governed metadata
+#
+# Supported item metadata keys:
+#   IFRC_CODE, SIZE_WEIGHT, FORM, MATERIAL, SPEC_SEGMENT
 #
 # CODE STRUCTURE:
 #   GROUP(1) + FAMILY(3) + CATEGORY(4) + SPEC(1-7) + SEQ(2) = max 17 chars
@@ -77,8 +81,8 @@
 ### FAMILY:ANB Antibiotics
 
 #### CATEGORY:AMOX Amoxicillin and Penicillins
-- ITEM: Amoxicillin tablet, 250 mg
-- ITEM: Amoxicillin tablet, 500 mg
+- ITEM: Amoxicillin tablet, 250 mg | SIZE_WEIGHT=250 MG | FORM=TABLET
+- ITEM: Amoxicillin tablet, 500 mg | SIZE_WEIGHT=500 MG | FORM=TABLET
 - ITEM: Amoxicillin clavulanic acid tablet
 - ITEM: Ampicillin injection
 - ITEM: Penicillin tablet
@@ -187,6 +191,8 @@
 
 #### CATEGORY:MEAT Canned Meat
 - ITEM: Corned beef, canned
+- ITEM: Corned beef, canned, 200 g | IFRC_CODE=FCANMEATCB200G | SIZE_WEIGHT=200 G | FORM=CANNED
+- ITEM: Corned beef, canned, 500 g | IFRC_CODE=FCANMEATCB500G | SIZE_WEIGHT=500 G | FORM=CANNED
 - ITEM: Canned meat, generic
 - ITEM: Luncheon meat, canned
 
@@ -449,7 +455,7 @@
 - ITEM: Potable water container
 
 #### CATEGORY:TABL Water Purification Tablets
-- ITEM: Water purification tablet, aquatab
+- ITEM: Water purification tablet, aquatab | FORM=TABLET | MATERIAL=CHLORINE
 - ITEM: Sodium dichloroisocyanurate tablet
 - ITEM: Chlorine tablet, water treatment
 - ITEM: Aquatab

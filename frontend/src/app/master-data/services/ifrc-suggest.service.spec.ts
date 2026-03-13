@@ -2,6 +2,7 @@
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 
 import { IfrcSuggestService } from './ifrc-suggest.service';
+import { IFRCSuggestion } from '../models/ifrc-suggest.models';
 
 describe('IfrcSuggestService', () => {
   let service: IfrcSuggestService;
@@ -36,7 +37,7 @@ describe('IfrcSuggestService', () => {
     expect(request.request.params.get('form')).toBe('tablet');
     expect(request.request.params.get('material')).toBe('chlorine');
 
-    request.flush({
+    const response: IFRCSuggestion = {
       suggestion_id: '123',
       ifrc_code: 'WWTRTABLTB01',
       ifrc_description: 'Water purification tablet',
@@ -47,7 +48,7 @@ describe('IfrcSuggestService', () => {
       family_code: 'WTR',
       category_code: 'TABL',
       spec_segment: 'TB',
-      sequence: 1,
+      sequence: null,
       auto_fill_threshold: 0.85,
       resolution_status: 'resolved',
       resolution_explanation: 'Generated suggestion resolved to exactly one active governed IFRC reference.',
@@ -57,6 +58,8 @@ describe('IfrcSuggestService', () => {
       auto_highlight_candidate_id: 401,
       direct_accept_allowed: true,
       candidates: [],
-    });
+    };
+
+    request.flush(response);
   });
 });

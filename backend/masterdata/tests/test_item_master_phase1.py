@@ -9,8 +9,10 @@ from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from masterdata import views
+from masterdata.ifrc_catalogue_loader import CategoryDef, FamilyDef, GroupDef, IFRCTaxonomy
 from masterdata.item_master_taxonomy import (
     _backfill_default_item_uom_options,
+    _sync_references,
     build_ifrc_taxonomy_seed_payload,
 )
 from masterdata.services.catalog_governance import (
@@ -498,7 +500,6 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         return_value=({"exact_code_match": None, "exact_desc_match": None, "near_matches": []}, []),
     )
     @patch("masterdata.services.catalog_governance._reference_ai_candidate", return_value=None)
-    @patch("masterdata.services.catalog_governance._next_sequence", return_value=(1, "db"))
     @patch(
         "masterdata.services.catalog_governance._fetch_ifrc_family",
         return_value={
@@ -511,7 +512,6 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
     def test_reference_authoring_suggestion_falls_back_to_deterministic_logic(
         self,
         _mock_family,
-        _mock_sequence,
         _mock_ai_candidate,
         _mock_conflicts,
         _mock_sqlite,
@@ -528,7 +528,8 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         self.assertEqual(warnings, [])
         self.assertEqual(payload["source"], "deterministic")
         self.assertEqual(payload["normalized"]["form"], "TABLET")
-        self.assertTrue(payload["normalized"]["ifrc_code"].endswith("01"))
+        self.assertEqual(payload["normalized"]["spec_segment"], "TB00")
+        self.assertEqual(payload["normalized"]["ifrc_code"], "WWTRTABLTB00")
 
 
 class ItemMasterSeedPayloadTests(SimpleTestCase):
@@ -543,6 +544,172 @@ class ItemMasterSeedPayloadTests(SimpleTestCase):
         self.assertIn("size_weight", first["references"][0])
         self.assertIn("form", first["references"][0])
         self.assertIn("material", first["references"][0])
+
+    def test_seed_payload_includes_governed_corned_beef_variants(self):
+        payload = build_ifrc_taxonomy_seed_payload()
+        references_by_desc = {
+            reference["reference_desc"]: reference
+            for reference in payload["references"]
+            if reference["reference_desc"].startswith("Corned beef, canned")
+        }
+
+        self.assertEqual(references_by_desc["Corned beef, canned, 200 g"]["ifrc_code"], "FCANMEATCB200G")
+        self.assertEqual(references_by_desc["Corned beef, canned, 200 g"]["size_weight"], "200 G")
+        self.assertEqual(references_by_desc["Corned beef, canned, 500 g"]["ifrc_code"], "FCANMEATCB500G")
+        self.assertEqual(references_by_desc["Corned beef, canned, 500 g"]["size_weight"], "500 G")
+
+    def test_seed_payload_preserves_catalogue_item_metadata(self):
+        payload = build_ifrc_taxonomy_seed_payload()
+        references_by_desc = {
+            reference["reference_desc"]: reference
+            for reference in payload["references"]
+        }
+
+        self.assertEqual(
+            references_by_desc["Water purification tablet, aquatab"]["material"],
+            "CHLORINE",
+        )
+        self.assertEqual(
+            references_by_desc["Water purification tablet, aquatab"]["form"],
+            "TABLET",
+        )
+
+    def test_seed_payload_uses_item_metadata_for_governed_codes_generically(self):
+        taxonomy = IFRCTaxonomy(
+            groups={
+                "W": GroupDef(
+                    code="W",
+                    label="WASH",
+                    families={
+                        "WTR": FamilyDef(
+                            code="WTR",
+                            label="Water Treatment",
+                            categories={
+                                "PURI": CategoryDef(
+                                    code="PURI",
+                                    label="Water Purification",
+                                    items=["Water purification tablet, 500 mg"],
+                                    item_metadata={
+                                        "WATER PURIFICATION TABLET, 500 MG": {
+                                            "IFRC_CODE": "WWTRPURIAQ500MG",
+                                            "SIZE_WEIGHT": "500 MG",
+                                            "FORM": "TABLET",
+                                            "MATERIAL": "CHLORINE",
+                                            "SPEC_SEGMENT": "TB500",
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+        )
+
+        payload = build_ifrc_taxonomy_seed_payload(taxonomy)
+
+        self.assertEqual(
+            payload["references"],
+            [
+                {
+                    "group_code": "W",
+                    "family_code": "WTR",
+                    "ifrc_code": "WWTRPURIAQ500MG",
+                    "reference_desc": "Water purification tablet, 500 mg",
+                    "category_code": "PURI",
+                    "category_label": "Water Purification",
+                    "spec_segment": "TB500",
+                    "size_weight": "500 MG",
+                    "form": "TABLET",
+                    "material": "CHLORINE",
+                    "source_version": payload["references"][0]["source_version"],
+                }
+            ],
+        )
+
+    def test_reference_codes_are_stable_across_item_reordering(self):
+        taxonomy_a = IFRCTaxonomy(
+            groups={
+                "W": GroupDef(
+                    code="W",
+                    label="WASH",
+                    families={
+                        "WTR": FamilyDef(
+                            code="WTR",
+                            label="Water Treatment",
+                            categories={
+                                "TEST": CategoryDef(
+                                    code="TEST",
+                                    label="Test",
+                                    items=["Alpha supply", "Beta supply"],
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+        )
+        taxonomy_b = IFRCTaxonomy(
+            groups={
+                "W": GroupDef(
+                    code="W",
+                    label="WASH",
+                    families={
+                        "WTR": FamilyDef(
+                            code="WTR",
+                            label="Water Treatment",
+                            categories={
+                                "TEST": CategoryDef(
+                                    code="TEST",
+                                    label="Test",
+                                    items=["Beta supply", "Alpha supply"],
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+        )
+
+        payload_a = build_ifrc_taxonomy_seed_payload(taxonomy_a)
+        payload_b = build_ifrc_taxonomy_seed_payload(taxonomy_b)
+
+        codes_a = {reference["reference_desc"]: reference["ifrc_code"] for reference in payload_a["references"]}
+        codes_b = {reference["reference_desc"]: reference["ifrc_code"] for reference in payload_b["references"]}
+
+        self.assertEqual(codes_a, codes_b)
+        self.assertNotEqual(codes_a["Alpha supply"], codes_a["Beta supply"])
+
+
+class ItemMasterReferenceSyncTests(SimpleTestCase):
+    def test_sync_references_reuses_existing_code_for_same_reference(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            ("W", "WTR", "TABL", "Water purification tablet", "TB", "WWTRTABLTB01"),
+        ]
+        references = [
+            {
+                "group_code": "W",
+                "family_code": "WTR",
+                "ifrc_code": "WWTRTABLTBDEADBEEF",
+                "reference_desc": "Water purification tablet",
+                "category_code": "TABL",
+                "category_label": "Tablet",
+                "spec_segment": "TB",
+                "size_weight": "",
+                "form": "TABLET",
+                "material": "",
+                "source_version": "2024",
+            }
+        ]
+
+        _sync_references(cursor, "tenant_a", references, {("W", "WTR"): 11}, "system")
+
+        self.assertEqual(cursor.execute.call_count, 3)
+        insert_params = cursor.execute.call_args_list[1].args[1]
+        deactivate_params = cursor.execute.call_args_list[2].args[1]
+        self.assertEqual(insert_params[1], "WWTRTABLTB01")
+        self.assertEqual(deactivate_params[0], "WWTRTABLTB01")
 
 
 class ItemMasterViewDispatchTests(SimpleTestCase):
@@ -593,6 +760,114 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.data["errors"][ITEM_CANONICAL_CONFLICT_CODE]["existing_item"]["item_id"], 99)
+
+    @patch(
+        "masterdata.views.create_item_record",
+        return_value=(
+            None,
+            [
+                "db_error",
+                "db_exception:IntegrityError",
+                "db_message:duplicate key value violates unique constraint ux_item_item_code",
+            ],
+        ),
+    )
+    @patch("masterdata.views.find_item_canonical_conflict", return_value=None)
+    @patch("masterdata.views.validate_item_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_handle_item_create_surfaces_db_failure_diagnostic(
+        self,
+        _mock_validate_record,
+        _mock_validate_item_payload,
+        _mock_find_conflict,
+        _mock_create_item_record,
+    ):
+        request = SimpleNamespace(
+            data={"item_name": "WATER TABS", "category_id": 102, "ifrc_family_id": 11, "ifrc_item_ref_id": 51},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_create(request, TABLE_REGISTRY["items"])
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data["detail"], "Failed to create item.")
+        self.assertEqual(
+            response.data["warnings"],
+            [
+                "db_error",
+                "db_exception:IntegrityError",
+                "db_message:duplicate key value violates unique constraint ux_item_item_code",
+            ],
+        )
+        self.assertIn("IntegrityError", response.data["diagnostic"])
+        self.assertIn("duplicate key value", response.data["diagnostic"])
+
+    @patch("masterdata.views.create_item_record", return_value=(None, ["db_unavailable"]))
+    @patch("masterdata.views.find_item_canonical_conflict", return_value=None)
+    @patch("masterdata.views.validate_item_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_handle_item_create_returns_service_unavailable_for_transient_failure(
+        self,
+        _mock_validate_record,
+        _mock_validate_item_payload,
+        _mock_find_conflict,
+        _mock_create_item_record,
+    ):
+        request = SimpleNamespace(
+            data={"item_name": "WATER TABS", "category_id": 102, "ifrc_family_id": 11, "ifrc_item_ref_id": 51},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_create(request, TABLE_REGISTRY["items"])
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["detail"], "Item creation is temporarily unavailable.")
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("temporarily unavailable", response.data["diagnostic"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
+
+    @patch(
+        "masterdata.views.get_item_record",
+        return_value=(
+            None,
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:connection lost during created-item reload",
+            ],
+        ),
+    )
+    @patch("masterdata.views.create_item_record", return_value=(501, []))
+    @patch("masterdata.views.find_item_canonical_conflict", return_value=None)
+    @patch("masterdata.views.validate_item_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_handle_item_create_surfaces_created_item_reload_diagnostic(
+        self,
+        _mock_validate_record,
+        _mock_validate_item_payload,
+        _mock_find_conflict,
+        _mock_create_item_record,
+        _mock_get_item_record,
+    ):
+        request = SimpleNamespace(
+            data={"item_name": "WATER TABS", "category_id": 102, "ifrc_family_id": 11, "ifrc_item_ref_id": 51},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_create(request, TABLE_REGISTRY["items"])
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data["detail"], "Failed to load created item.")
+        self.assertIn("OperationalError", response.data["diagnostic"])
+        self.assertIn("connection lost", response.data["diagnostic"])
+        self.assertEqual(
+            response.data["warnings"],
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:connection lost during created-item reload",
+            ],
+        )
 
 
 class ItemMasterLookupViewTests(SimpleTestCase):

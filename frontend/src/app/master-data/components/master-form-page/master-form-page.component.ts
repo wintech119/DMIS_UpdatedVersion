@@ -256,7 +256,6 @@ export class MasterFormPageComponent implements OnInit {
         this.config.set(cfg);
         this.buildForm(cfg);
         this.setupItemTaxonomyState(cfg);
-        this.setupItemIfrcSuggestion(cfg);
         this.loadLookups(cfg);
         if (this.pk()) {
           this.primeGovernedEditState();
@@ -1226,6 +1225,9 @@ export class MasterFormPageComponent implements OnInit {
       category_code: candidate.category_code,
       category_label: candidate.category_label,
       spec_segment: candidate.spec_segment ?? '',
+      size_weight: candidate.size_weight ?? '',
+      form: candidate.form ?? '',
+      material: candidate.material ?? '',
     };
   }
 
@@ -2204,10 +2206,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   shouldShowIfrcHelperPanel(): boolean {
-    return this.isItemRecord() && (
-      !this.isEdit()
-      || this.hasIfrcSuggestionActivity()
-    );
+    return false;
   }
 
   hasIfrcSuggestionActivity(): boolean {
@@ -2223,9 +2222,24 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getIfrcSuggestionPrimaryActionLabel(): string {
-    return this.ifrcSuggestionResolution()?.directAcceptAllowed
-      ? 'Accept Suggested Match'
-      : 'Use Selected Candidate';
+    const resolution = this.ifrcSuggestionResolution();
+    if (!resolution) {
+      return 'Review Governed Candidate';
+    }
+
+    if (resolution.directAcceptAllowed) {
+      return 'Accept Governed Match';
+    }
+
+    if (resolution.status === 'ambiguous') {
+      return 'Use Selected Governed Candidate';
+    }
+
+    if (resolution.status === 'unresolved') {
+      return 'No Governed Match Available';
+    }
+
+    return 'Review Governed Candidate';
   }
 
   hasSuggestionCandidates(): boolean {
@@ -2258,6 +2272,36 @@ export class MasterFormPageComponent implements OnInit {
     return `${Math.round(score * 100)}% match`;
   }
 
+  getSuggestionInputName(): string | null {
+    const itemName = String(this.form.get('item_name')?.value ?? '').trim();
+    return itemName || null;
+  }
+
+  getResolvedSuggestionVariantDetails(): Array<{ label: string; value: string }> {
+    return this.buildSuggestionVariantDetails(this.ifrcSuggestionResolution()?.reference ?? null);
+  }
+
+  getSuggestionCandidateVariantDetails(candidate: SuggestedIfrcCandidate): Array<{ label: string; value: string }> {
+    return this.buildSuggestionVariantDetails(candidate.reference);
+  }
+
+  getSuggestionCandidateFamilyLabel(candidate: SuggestedIfrcCandidate): string {
+    const familyLabel = String(candidate.reference.family_label ?? candidate.family?.label ?? '').trim() || 'Unresolved family';
+    const familyCode = String(candidate.reference.family_code ?? candidate.family?.family_code ?? '').trim();
+    const groupCode = String(candidate.family?.group_code ?? '').trim();
+    const suffix = [groupCode, familyCode].filter(Boolean).join('-');
+    return suffix ? `${familyLabel} (${suffix})` : familyLabel;
+  }
+
+  getSuggestionCandidateCategoryLabel(candidate: SuggestedIfrcCandidate): string | null {
+    const categoryLabel = String(candidate.reference.category_label ?? '').trim();
+    const categoryCode = String(candidate.reference.category_code ?? '').trim();
+    if (categoryLabel && categoryCode) {
+      return `${categoryLabel} (${categoryCode})`;
+    }
+    return categoryLabel || categoryCode || null;
+  }
+
   getSuggestionCandidateReasonSummary(candidate: SuggestedIfrcCandidate): string | null {
     const reasons = candidate.matchReasons
       .map((reason) => this.humanizeSuggestionMatchReason(reason))
@@ -2273,22 +2317,41 @@ export class MasterFormPageComponent implements OnInit {
 
     switch (resolution.status) {
       case 'resolved':
-        return 'Exactly one active governed match found';
+        return 'Exact governed reference found';
       case 'ambiguous':
-        return `${resolution.candidates.length || 0} ranked candidate${resolution.candidates.length === 1 ? '' : 's'} require review`;
+        return `${resolution.candidates.length || 0} governed variant${resolution.candidates.length === 1 ? '' : 's'} require review`;
       case 'unresolved':
-        return 'No active governed match found';
+        return 'No governed exact match found';
       default:
         return null;
     }
   }
 
   getIfrcSuggestionExplanation(): string | null {
-    return this.ifrcSuggestionResolution()?.explanation ?? null;
+    const resolution = this.ifrcSuggestionResolution();
+    if (!resolution) {
+      return null;
+    }
+
+    const explanation = String(resolution.explanation ?? '').trim();
+    if (explanation) {
+      return explanation;
+    }
+
+    switch (resolution.status) {
+      case 'resolved':
+        return 'Exactly one official governed IFRC reference matched the entered item. Review the official variant details before accepting it.';
+      case 'ambiguous':
+        return 'Multiple official governed IFRC variants matched the entered item. Review IFRC code, size or weight, form, and material before selecting one.';
+      case 'unresolved':
+        return 'No governed exact IFRC reference matched the entered item and specs. Keep the item name for searchability, but do not treat any generated code as final.';
+      default:
+        return null;
+    }
   }
 
   getSuggestedIfrcCode(): string | null {
-    const ifrcCode = String(this.ifrcSuggestion()?.ifrc_code ?? '').trim();
+    const ifrcCode = String(this.ifrcSuggestionResolution()?.reference?.ifrc_code ?? '').trim();
     return ifrcCode || null;
   }
 
@@ -2443,6 +2506,32 @@ export class MasterFormPageComponent implements OnInit {
       return '';
     }
 
+    switch (normalizedReason) {
+      case 'exact_generated_code_match':
+        return 'Exact governed IFRC code match';
+      case 'exact_spec_match':
+        return 'Exact governed variant match';
+      case 'exact_size_weight_match':
+      case 'size_weight_match':
+        return 'Exact size or weight match';
+      case 'size_weight_mismatch':
+        return 'Size or weight differs from the entered spec';
+      case 'size_weight_missing':
+        return 'Candidate is missing official size or weight metadata';
+      case 'exact_form_match':
+      case 'form_match':
+        return 'Exact form match';
+      case 'form_mismatch':
+        return 'Form differs from the entered spec';
+      case 'exact_material_match':
+      case 'material_match':
+        return 'Exact material match';
+      case 'material_mismatch':
+        return 'Material differs from the entered spec';
+      default:
+        break;
+    }
+
     if (normalizedReason.startsWith('desc_overlap:')) {
       const terms = normalizedReason.slice('desc_overlap:'.length).split(',').filter(Boolean).join(', ');
       return terms ? `Description overlap: ${terms}` : 'Description overlap';
@@ -2456,6 +2545,27 @@ export class MasterFormPageComponent implements OnInit {
     return words
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
+
+  private buildSuggestionVariantDetails(
+    reference: Pick<IfrcReferenceLookup, 'size_weight' | 'form' | 'material'> | null | undefined,
+  ): Array<{ label: string; value: string }> {
+    const details: Array<{ label: string; value: string }> = [];
+    const sizeWeight = String(reference?.size_weight ?? '').trim();
+    const form = String(reference?.form ?? '').trim();
+    const material = String(reference?.material ?? '').trim();
+
+    if (sizeWeight) {
+      details.push({ label: 'Size / Weight', value: sizeWeight });
+    }
+    if (form) {
+      details.push({ label: 'Form', value: form });
+    }
+    if (material) {
+      details.push({ label: 'Material', value: material });
+    }
+
+    return details;
   }
 
   onAssignStorageLocation(): void {

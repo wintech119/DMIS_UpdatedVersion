@@ -13,6 +13,9 @@ export interface IFRCSuggestionCandidate {
   category_code: string;
   category_label: string;
   spec_segment?: string;
+  size_weight?: string;
+  form?: string;
+  material?: string;
   rank: number;
   score: number;
   auto_highlight: boolean;
@@ -30,7 +33,7 @@ export interface IFRCSuggestion {
   family_code: string;     // 3 letters
   category_code: string;   // 4 letters
   spec_segment: string;    // 0-5 chars
-  sequence: number;
+  sequence?: number | null;
   auto_fill_threshold: number;
   resolution_status?: IFRCSuggestionResolutionStatus;
   resolution_explanation?: string;

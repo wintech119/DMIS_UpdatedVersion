@@ -1,6 +1,6 @@
 import { of, Subject, throwError } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatDialog } from '@angular/material/dialog';
 
@@ -91,7 +91,7 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
     family_code: 'WTR',
     category_code: 'TABL',
     spec_segment: 'TB',
-    sequence: 1,
+    sequence: null,
     auto_fill_threshold: 0.85,
     resolution_status: 'resolved',
     resolution_explanation: 'Generated suggestion resolved to exactly one active governed IFRC reference.',
@@ -295,6 +295,7 @@ describe('MasterFormPageComponent', () => {
       fixture,
       component: fixture.componentInstance,
       masterDataService,
+      ifrcSuggestService,
       notificationService,
       router,
       dialog,
@@ -551,24 +552,31 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('item_code')?.value).toBe('WWTRTABLPW01');
   });
 
-  it('keeps size, form, and material in the helper panel instead of the persisted item form', () => {
+  it('does not render the deprecated Find IFRC Match helper panel on item forms', () => {
     const { component, fixture } = setup();
 
     expect(component.form.contains('size_weight')).toBeFalse();
     expect(component.form.contains('form')).toBeFalse();
     expect(component.form.contains('material')).toBeFalse();
-    expect(component.ifrcSpecForm.contains('size_weight')).toBeTrue();
-    expect(component.ifrcSpecForm.contains('form')).toBeTrue();
-    expect(component.ifrcSpecForm.contains('material')).toBeTrue();
-    expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
+    expect(fixture.nativeElement.textContent).not.toContain('IFRC Size or Weight Hint');
   });
+
+  it('does not trigger IFRC helper lookups from item name changes', fakeAsync(() => {
+    const { component, ifrcSuggestService } = setup();
+
+    component.form.get('item_name')?.setValue('Water Tabs, 500 g');
+    tick(700);
+
+    expect(ifrcSuggestService.suggest).not.toHaveBeenCalled();
+  }));
 
   it('accepts exact resolved IFRC suggestions by filling classification fields and previewing the canonical item code', () => {
     const { component, notificationService } = setup();
     const suggestion = buildResolvedSuggestion();
 
     component.form.patchValue({
-      item_name: 'Water Tabs',
+      item_name: 'Water Tabs, local pack',
       item_desc: 'Water purification tablets',
       default_uom_code: 'EA',
       reorder_qty: 10,
@@ -638,6 +646,7 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('category_id')?.value).toBe(102);
     expect(component.form.get('ifrc_family_id')?.value).toBe(301);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
+    expect(component.form.get('item_name')?.value).toBe('Water Tabs, local pack');
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
 
@@ -760,6 +769,10 @@ describe('MasterFormPageComponent', () => {
         },
       ],
     });
+
+    component.form.patchValue({
+      item_name: 'Water Tabs, 500 mg local blister',
+    }, { emitEvent: false });
     const firstCandidate = {
       family: {
         value: 301,
@@ -836,7 +849,102 @@ describe('MasterFormPageComponent', () => {
 
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(401);
     expect(component.form.get('item_code')?.value).toBe('WWTRTABLTB01');
+    expect(component.form.get('item_name')?.value).toBe('Water Tabs, 500 mg local blister');
     expect(notificationService.showSuccess).toHaveBeenCalled();
+  });
+
+  it('keeps the deprecated IFRC helper hidden even when ambiguous suggestion data exists', () => {
+    const { component, fixture } = setup();
+    const suggestion = buildResolvedSuggestion({
+      ifrc_code: 'FFODBEEF50001',
+      ifrc_description: 'Corned beef, canned',
+      resolution_status: 'ambiguous',
+      resolution_explanation: 'Multiple official corned beef variants matched the entered size and packaging.',
+      ifrc_family_id: 401,
+      resolved_ifrc_item_ref_id: null,
+      candidate_count: 2,
+      auto_highlight_candidate_id: 502,
+      direct_accept_allowed: false,
+      candidates: [],
+    });
+
+    component.form.patchValue({
+      item_name: 'Corned beef, canned, 500 g local label',
+    }, { emitEvent: false });
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set({
+      status: 'ambiguous',
+      family: null,
+      reference: null,
+      candidates: [
+        {
+          family: {
+            value: 401,
+            label: 'Food Rations',
+            family_code: 'FOD',
+            group_code: 'F',
+            category_id: 101,
+            category_desc: 'Food & Nutrition',
+            category_code: 'FOOD',
+          },
+          reference: {
+            value: 501,
+            label: 'Corned beef, canned',
+            ifrc_code: 'FFODBEEF20001',
+            ifrc_family_id: 401,
+            family_code: 'FOD',
+            family_label: 'Food Rations',
+            category_code: 'BEEF',
+            category_label: 'Corned Beef',
+            spec_segment: '200',
+            size_weight: '200 G',
+            form: 'CANNED',
+            material: '',
+          },
+          rank: 1,
+          score: 0.77,
+          autoHighlight: false,
+          matchReasons: ['desc_overlap:CORNED,BEEF', 'size_weight_mismatch'],
+        },
+        {
+          family: {
+            value: 401,
+            label: 'Food Rations',
+            family_code: 'FOD',
+            group_code: 'F',
+            category_id: 101,
+            category_desc: 'Food & Nutrition',
+            category_code: 'FOOD',
+          },
+          reference: {
+            value: 502,
+            label: 'Corned beef, canned',
+            ifrc_code: 'FFODBEEF50001',
+            ifrc_family_id: 401,
+            family_code: 'FOD',
+            family_label: 'Food Rations',
+            category_code: 'BEEF',
+            category_label: 'Corned Beef',
+            spec_segment: '500',
+            size_weight: '500 G',
+            form: 'CANNED',
+            material: '',
+          },
+          rank: 2,
+          score: 0.91,
+          autoHighlight: true,
+          matchReasons: ['exact_size_weight_match', 'desc_overlap:CORNED,BEEF'],
+        },
+      ],
+      warning: null,
+      explanation: suggestion.resolution_explanation ?? null,
+      directAcceptAllowed: false,
+      autoHighlightCandidateId: 502,
+    } as never);
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
   });
 
   it('keeps candidate families distinct for multi-family ambiguous suggestions and applies the selected family', () => {
@@ -976,6 +1084,9 @@ describe('MasterFormPageComponent', () => {
     expect(resolution.family).toBeNull();
     expect(resolution.candidates.map((candidate) => candidate.family?.value ?? null)).toEqual([301, 302]);
 
+    component.form.patchValue({
+      item_name: 'Sterile gauze pads, local 10 x 10',
+    }, { emitEvent: false });
     component.ifrcSuggestion.set(suggestion);
     component.ifrcSuggestionResolution.set(resolution as never);
     component.onSelectSuggestionCandidate(resolution.candidates[1] as never);
@@ -988,6 +1099,7 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('ifrc_family_id')?.value).toBe(302);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(402);
     expect(component.form.get('item_code')?.value).toBe('SMEDGAUZE01');
+    expect(component.form.get('item_name')?.value).toBe('Sterile gauze pads, local 10 x 10');
     expect(notificationService.showSuccess).toHaveBeenCalled();
   });
 
@@ -1023,6 +1135,41 @@ describe('MasterFormPageComponent', () => {
     expect(notificationService.showError).toHaveBeenCalledWith(
       'No governed IFRC reference is available to apply from this suggestion.',
     );
+  });
+
+  it('keeps the deprecated IFRC helper hidden even when unresolved suggestion data exists', () => {
+    const { component, fixture } = setup();
+    const suggestion = buildResolvedSuggestion({
+      ifrc_code: 'FMEDAMOX350PX01',
+      ifrc_description: 'Amoxicillin, unsupported pouch',
+      resolution_status: 'unresolved',
+      resolution_explanation: '',
+      ifrc_family_id: null,
+      resolved_ifrc_item_ref_id: null,
+      candidate_count: 0,
+      auto_highlight_candidate_id: null,
+      direct_accept_allowed: false,
+      candidates: [],
+    });
+
+    component.form.patchValue({
+      item_name: 'Amoxicillin 350 mg pouch',
+    }, { emitEvent: false });
+    component.ifrcSuggestion.set(suggestion);
+    component.ifrcSuggestionResolution.set({
+      status: 'unresolved',
+      family: null,
+      reference: null,
+      candidates: [],
+      warning: null,
+      explanation: null,
+      directAcceptAllowed: false,
+      autoHighlightCandidateId: null,
+    });
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Find IFRC Match');
   });
 
   it('renders the item code field as readonly and backend-managed', () => {
