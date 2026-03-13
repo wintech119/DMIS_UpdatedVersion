@@ -12,6 +12,7 @@ from masterdata import views
 from masterdata.ifrc_catalogue_loader import CategoryDef, FamilyDef, GroupDef, IFRCTaxonomy
 from masterdata.item_master_taxonomy import (
     _backfill_default_item_uom_options,
+    _sync_categories,
     _sync_references,
     build_ifrc_taxonomy_seed_payload,
 )
@@ -682,6 +683,32 @@ class ItemMasterSeedPayloadTests(SimpleTestCase):
 
 
 class ItemMasterReferenceSyncTests(SimpleTestCase):
+    def test_sync_categories_only_deactivates_rows_owned_by_sync_actor(self):
+        cursor = MagicMock()
+        categories = [
+            {
+                "category_id": 101,
+                "category_code": "FOOD_NUTRITION",
+                "category_desc": "Food & Nutrition",
+            },
+            {
+                "category_id": 102,
+                "category_code": "WASH",
+                "category_desc": "WASH",
+            },
+        ]
+
+        _sync_categories(cursor, "tenant_a", categories, "system")
+
+        self.assertEqual(cursor.execute.call_count, 2)
+        deactivate_sql = cursor.execute.call_args_list[1].args[0]
+        deactivate_params = cursor.execute.call_args_list[1].args[1]
+        self.assertIn("AND itemcatg.update_by_id = %s", deactivate_sql)
+        self.assertEqual(
+            deactivate_params,
+            ["FOOD_NUTRITION", "WASH", "system", "system"],
+        )
+
     def test_sync_references_reuses_existing_code_for_same_reference(self):
         cursor = MagicMock()
         cursor.fetchall.return_value = [
@@ -1264,6 +1291,7 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
 
         executed_sql = schema_editor.execute.call_args.args[0]
         self.assertIn("CREATE TABLE IF NOT EXISTS tenant_a.catalog_governance_audit", executed_sql)
+        self.assertIn("changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()", executed_sql)
         self.assertIn("CREATE TRIGGER trg_catalog_governance_audit_no_mutation", executed_sql)
 
 

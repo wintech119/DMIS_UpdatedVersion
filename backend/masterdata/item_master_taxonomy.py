@@ -466,8 +466,9 @@ def _sync_categories(
             WHERE source_rows.category_code = itemcatg.category_code
         )
           AND itemcatg.status_code <> 'I'
+          AND itemcatg.update_by_id = %s
         """,
-        deactivate_params + [actor_id],
+        deactivate_params + [actor_id, actor_id],
     )
 
 

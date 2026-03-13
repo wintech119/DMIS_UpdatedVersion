@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS {schema}.catalog_governance_audit (
     after_state_json JSONB NOT NULL,
     context_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
     changed_by_id VARCHAR(50) NOT NULL,
-    changed_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_catalog_governance_audit_lookup

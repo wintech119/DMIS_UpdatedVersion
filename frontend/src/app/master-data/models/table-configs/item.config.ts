@@ -119,7 +119,7 @@ export const ITEM_CONFIG: MasterTableConfig = {
       field: 'ifrc_item_ref_id',
       label: 'Level 3 IFRC Item Reference',
       type: 'lookup',
-      lookupTable: 'ifrc_references',
+      lookupTable: 'ifrc_item_references',
       displayField: 'ifrc_reference_desc',
       group: 'Classification',
       hint: 'Governed Level 3 reference. Selecting it assigns the canonical item code and anchors category and UOM review.',
