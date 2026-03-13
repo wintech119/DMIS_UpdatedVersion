@@ -1293,6 +1293,31 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS ux_item_ifrc_item_ref_id_unique", executed_sql)
         self.assertIn("UPDATE tenant_a.item AS item", executed_sql)
 
+    def test_0006_schema_name_accepts_valid_current_schema_fallback(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ("tenant_a",)
+        connection = MagicMock(vendor="postgresql")
+        connection.cursor.return_value.__enter__.return_value = cursor
+        schema_editor = SimpleNamespace(connection=connection)
+
+        with patch.dict("os.environ", {}, clear=True):
+            schema = self.migration_0006._schema_name(schema_editor)
+
+        self.assertEqual(schema, "tenant_a")
+
+    def test_0006_schema_name_rejects_invalid_current_schema_fallback(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ('tenant_a"; DROP SCHEMA public; --',)
+        connection = MagicMock(vendor="postgresql")
+        connection.cursor.return_value.__enter__.return_value = cursor
+        schema_editor = SimpleNamespace(connection=connection)
+
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(RuntimeError) as exc:
+                self.migration_0006._schema_name(schema_editor)
+
+        self.assertIn("Invalid database schema name", str(exc.exception))
+
     def test_0006_forwards_aborts_when_duplicate_reference_mappings_exist(self):
         cursor = MagicMock()
         cursor.fetchall.return_value = [(51, [7, 9]), (77, [12, 18])]

@@ -76,7 +76,11 @@ def _schema_name(schema_editor) -> str:
     with schema_editor.connection.cursor() as cursor:
         cursor.execute("SELECT current_schema()")
         row = cursor.fetchone()
-    return row[0] or "public"
+
+    schema = row[0] or "public"
+    if not isinstance(schema, str) or not _SCHEMA_RE.fullmatch(schema):
+        raise RuntimeError(f"Invalid database schema name: {schema!r}")
+    return schema
 
 
 def _legacy_item_table_exists(schema_editor) -> bool:
