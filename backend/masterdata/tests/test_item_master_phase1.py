@@ -43,6 +43,7 @@ from masterdata.services.item_master import (
     update_item_record,
     validate_item_payload,
 )
+from masterdata.services.validation import validate_record
 
 
 class ItemMasterRegistryTests(SimpleTestCase):
@@ -842,6 +843,52 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         self.assertEqual(payload["source"], "deterministic")
         self.assertEqual(payload["normalized"]["group_code"], "W")
         self.assertEqual(payload["normalized"]["family_code"], "WTR")
+
+    @patch(
+        "masterdata.services.catalog_governance._family_conflicts",
+        return_value=({"exact_code_match": None, "exact_label_match": None, "near_matches": []}, []),
+    )
+    @patch("masterdata.services.catalog_governance._family_ai_candidate", return_value=None)
+    def test_family_authoring_with_explicit_group_uses_three_character_family_code(
+        self,
+        _mock_ai_candidate,
+        _mock_conflicts,
+    ):
+        payload, errors, warnings = suggest_ifrc_family_authoring(
+            {
+                "family_label": "Emergency Communications Support",
+                "group_code": "W",
+            }
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(warnings, [])
+        self.assertEqual(payload["normalized"]["group_code"], "W")
+        self.assertEqual(payload["normalized"]["family_code"], "ECS")
+
+    @patch("masterdata.services.validation.check_fk_exists", return_value=(True, []))
+    @patch("masterdata.services.validation.check_uniqueness", return_value=(True, []))
+    def test_ifrc_family_validation_rejects_non_canonical_family_code_length(
+        self,
+        _mock_check_uniqueness,
+        _mock_check_fk_exists,
+    ):
+        errors = validate_record(
+            TABLE_REGISTRY["ifrc_families"],
+            {
+                "category_id": 102,
+                "group_code": "W",
+                "group_label": "WASH",
+                "family_code": "WT",
+                "family_label": "Water Treatment",
+                "status_code": "A",
+            },
+        )
+
+        self.assertEqual(
+            errors["family_code"],
+            "Family Code must be exactly 3 uppercase letters or digits.",
+        )
 
     @patch("masterdata.services.catalog_governance._is_sqlite", return_value=False)
     @patch(

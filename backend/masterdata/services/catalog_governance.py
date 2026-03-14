@@ -352,13 +352,13 @@ def suggest_ifrc_family_authoring(data: dict[str, Any]) -> tuple[dict[str, Any] 
     elif explicit_group_code and explicit_group_code in taxonomy.groups:
         group_code = explicit_group_code
         group_label = taxonomy.group_label(group_code)
-        family_code = _derive_code_from_label(normalized_family_label, 6)
+        family_code = _derive_code_from_label(normalized_family_label, 3)
     elif explicit_group_label:
         matched_group = _match_taxonomy_group(explicit_group_label, taxonomy)
         if matched_group is not None:
             group_code = matched_group["group_code"]
             group_label = matched_group["group_label"]
-        family_code = _derive_code_from_label(normalized_family_label, 6)
+        family_code = _derive_code_from_label(normalized_family_label, 3)
     else:
         ai_candidate = _family_ai_candidate(normalized_family_label)
         if ai_candidate is not None:
@@ -367,7 +367,7 @@ def suggest_ifrc_family_authoring(data: dict[str, Any]) -> tuple[dict[str, Any] 
             family_code = ai_candidate["family_code"]
             source = ai_candidate["source"]
         else:
-            family_code = _derive_code_from_label(normalized_family_label, 6)
+            family_code = _derive_code_from_label(normalized_family_label, 3)
 
     conflicts, conflict_warnings = _family_conflicts(
         group_code=group_code,

@@ -349,15 +349,15 @@ class TestIFRCAgent(TestCase):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket")
-        if result.item_code:
-            self.assertEqual(result.item_code, result.item_code.upper())
+        self.assertTrue(result.item_code)
+        self.assertEqual(result.item_code, result.item_code.upper())
 
     def test_code_max_30_chars(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("a very long description of a complex multi-word item type")
-        if result.item_code:
-            self.assertLessEqual(len(result.item_code), 30)
+        self.assertTrue(result.item_code)
+        self.assertLessEqual(len(result.item_code), 30)
 
     def test_construction_rationale_mentions_all_segments(self):
         with override_settings(IFRC_AGENT=self._settings()):
@@ -377,7 +377,31 @@ class TestIFRCAgent(TestCase):
         """suggest() backward-compat shim should produce the same result as generate()."""
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
-            result = agent.suggest("blanket", size_weight="medium", material="synthetic")
-        self.assertIsNotNone(result.item_code)
+            suggested = agent.suggest(
+                "blanket",
+                size_weight="medium",
+                material="synthetic",
+            )
+            generated = agent.generate(
+                "blanket",
+                size_weight="medium",
+                material="synthetic",
+            )
+
+        self.assertTrue(suggested.item_code)
+        self.assertEqual(suggested.item_code, generated.item_code)
+        self.assertEqual(suggested.standardised_name, generated.standardised_name)
+        self.assertEqual(suggested.confidence, generated.confidence)
+        self.assertEqual(suggested.grp, generated.grp)
+        self.assertEqual(suggested.grp_label, generated.grp_label)
+        self.assertEqual(suggested.fam, generated.fam)
+        self.assertEqual(suggested.fam_label, generated.fam_label)
+        self.assertEqual(suggested.cat, generated.cat)
+        self.assertEqual(suggested.cat_label, generated.cat_label)
+        self.assertEqual(suggested.spec_seg, generated.spec_seg)
+        self.assertEqual(suggested.seq, generated.seq)
+        self.assertEqual(suggested.construction_rationale, generated.construction_rationale)
+        self.assertEqual(suggested.llm_used, generated.llm_used)
+        self.assertEqual(suggested.alternatives, generated.alternatives)
 
 
