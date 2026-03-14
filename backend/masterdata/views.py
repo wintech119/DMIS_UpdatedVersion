@@ -1499,6 +1499,10 @@ def item_ifrc_reference_lookup(request):
         ),
         search=request.query_params.get("search"),
         active_only=active_only,
+        include_value=(
+            request.query_params.get("include_value")
+            or request.query_params.get("current_ifrc_item_ref_id")
+        ),
         limit=limit,
     )
     return Response({"items": items, "warnings": warnings})

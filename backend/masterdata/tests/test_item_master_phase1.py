@@ -37,6 +37,7 @@ from masterdata.services.item_master import (
     create_item_record,
     find_item_canonical_conflict,
     get_item_record,
+    list_ifrc_reference_lookup,
     list_item_records,
     update_item_record,
     validate_item_payload,
@@ -106,6 +107,44 @@ class ItemMasterSearchSqlTests(SimpleTestCase):
         self.assertIn("UPPER(COALESCE(f.family_label, '')) LIKE %s", executed_sql)
         self.assertIn("UPPER(COALESCE(r.reference_desc, '')) LIKE %s", executed_sql)
         self.assertIn("ORDER BY ifrc_family_label ASC", executed_sql)
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master.connection")
+    def test_list_ifrc_reference_lookup_can_include_requested_inactive_value(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            (
+                77,
+                "Water purification tablet",
+                "WWTRTABLTB01",
+                11,
+                "WTR",
+                "Water Treatment",
+                "TABL",
+                "Tablet",
+                "TB",
+                "500 G",
+                "TABLET",
+                "CHLORINE",
+            )
+        ]
+
+        rows, warnings = list_ifrc_reference_lookup(
+            ifrc_family_id=11,
+            active_only=True,
+            include_value=77,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(rows[0]["value"], 77)
+        executed_sql = cursor.execute.call_args.args[0]
+        query_params = cursor.execute.call_args.args[1]
+        self.assertIn("(r.status_code = 'A' OR r.ifrc_item_ref_id = %s)", executed_sql)
+        self.assertEqual(query_params[:2], [11, 77])
 
 
 class ItemMasterValidationTests(SimpleTestCase):
@@ -1168,6 +1207,30 @@ class ItemMasterLookupViewTests(SimpleTestCase):
         self.assertEqual(response.data["items"][0]["size_weight"], "500 G")
         self.assertEqual(response.data["items"][0]["form"], "TABLET")
         self.assertEqual(response.data["items"][0]["material"], "CHLORINE")
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.list_ifrc_reference_lookup", return_value=([], []))
+    def test_reference_lookup_passes_include_value_for_inactive_saved_selection(
+        self,
+        mock_lookup,
+        _mock_permission,
+    ):
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-references/lookup",
+            {"ifrc_family_id": "11", "include_value": "77", "active_only": "true"},
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.item_ifrc_reference_lookup(request)
+
+        self.assertEqual(response.status_code, 200)
+        mock_lookup.assert_called_once_with(
+            ifrc_family_id="11",
+            search=None,
+            active_only=True,
+            include_value="77",
+            limit=views.DEFAULT_PAGE_LIMIT,
+        )
 
 
 class CatalogMaintenanceViewTests(SimpleTestCase):

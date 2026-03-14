@@ -379,6 +379,7 @@ def list_ifrc_reference_lookup(
     ifrc_family_id: Any | None = None,
     search: str | None = None,
     active_only: bool = True,
+    include_value: Any | None = None,
     limit: int = 100,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if _is_sqlite():
@@ -391,7 +392,11 @@ def list_ifrc_reference_lookup(
         where_clauses.append("r.ifrc_family_id = %s")
         params.append(ifrc_family_id)
     if active_only:
-        where_clauses.append("r.status_code = 'A'")
+        if include_value not in (None, ""):
+            where_clauses.append("(r.status_code = 'A' OR r.ifrc_item_ref_id = %s)")
+            params.append(include_value)
+        else:
+            where_clauses.append("r.status_code = 'A'")
     if search:
         where_clauses.append(
             "(" 
