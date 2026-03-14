@@ -41,5 +41,7 @@ In `.mcp.json`, the Postgres MCP is configured to:
 
 ## If it still fails
 
-- Check Cursor’s MCP logs for the exact error (e.g. connection refused, auth failed, or spawn error).
-- Confirm `uv tool run postgres-mcp --access-mode=unrestricted` works in a normal terminal with the same `DATABASE_URI` in the environment.
+- Check Cursor's MCP logs for the exact error (e.g. connection refused, auth failed, or spawn error).
+- For local debugging only, you can temporarily run:
+- `uv tool run postgres-mcp --access-mode=unrestricted`
+- Then revert to the least-privilege access mode used by your team/default config for regular use.
