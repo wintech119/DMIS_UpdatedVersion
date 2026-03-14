@@ -43,9 +43,6 @@ WHERE item.ifrc_item_ref_id IS NULL
 
 
 _REVERSE_SQL_TEMPLATE = """
-DROP INDEX IF EXISTS {schema}.ux_item_ifrc_item_ref_id_unique;
-DROP INDEX IF EXISTS {schema}.idx_item_legacy_item_code;
-
 UPDATE {schema}.item
 SET item_code = legacy_item_code,
     update_by_id = 'system',
@@ -53,6 +50,9 @@ SET item_code = legacy_item_code,
     version_nbr = version_nbr + 1
 WHERE legacy_item_code IS NOT NULL
   AND legacy_item_code <> '';
+
+DROP INDEX IF EXISTS {schema}.ux_item_ifrc_item_ref_id_unique;
+DROP INDEX IF EXISTS {schema}.idx_item_legacy_item_code;
 
 ALTER TABLE {schema}.item
     DROP COLUMN IF EXISTS legacy_item_code;

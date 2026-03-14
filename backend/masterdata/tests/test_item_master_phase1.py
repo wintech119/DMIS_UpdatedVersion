@@ -1445,6 +1445,31 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS ux_item_ifrc_item_ref_id_unique", executed_sql)
         self.assertIn("UPDATE tenant_a.item AS item", executed_sql)
 
+    def test_0006_backwards_sql_restores_legacy_item_code_before_drop(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+
+        with patch.object(self.migration_0006, "_legacy_item_table_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration_0006._backwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        update_position = executed_sql.index("UPDATE tenant_a.item")
+        unique_index_drop_position = executed_sql.index(
+            "DROP INDEX IF EXISTS tenant_a.ux_item_ifrc_item_ref_id_unique"
+        )
+        legacy_index_drop_position = executed_sql.index(
+            "DROP INDEX IF EXISTS tenant_a.idx_item_legacy_item_code"
+        )
+        drop_column_position = executed_sql.index("DROP COLUMN IF EXISTS legacy_item_code")
+
+        self.assertLess(update_position, unique_index_drop_position)
+        self.assertLess(unique_index_drop_position, legacy_index_drop_position)
+        self.assertLess(legacy_index_drop_position, drop_column_position)
+        self.assertIn("SET item_code = legacy_item_code", executed_sql)
+
     def test_0006_schema_name_accepts_valid_current_schema_fallback(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = ("tenant_a",)
