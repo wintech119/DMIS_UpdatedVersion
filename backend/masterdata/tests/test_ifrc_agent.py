@@ -19,7 +19,9 @@ from masterdata.ifrc_code_agent import (
     _extract_item_segment,
     _extract_vrnt_segment,
     _keyword_classify,
+    _llm_classify,
     _standardise_description,
+    extract_reference_metadata,
 )
 
 _BASE_IFRC_SETTINGS = {
@@ -29,7 +31,7 @@ _BASE_IFRC_SETTINGS = {
     "OLLAMA_BASE_URL": "http://localhost:11434",
     "OLLAMA_MODEL_ID": "qwen3.5:0.8b",
     "OLLAMA_TIMEOUT_SECONDS": 8,
-    "AUTO_FILL_CONFIDENCE_THRESHOLD": 0.80,
+    "AUTO_FILL_CONFIDENCE_THRESHOLD": 0.85,
     "MIN_INPUT_LENGTH": 3,
     "MAX_INPUT_LENGTH": 120,
     "CB_FAILURE_THRESHOLD": 5,
@@ -59,7 +61,7 @@ _TEST_TAXONOMY_MD = textwrap.dedent("""\
     - ITEM: Jerrycan, plastic, 20 L
 
     #### CATEGORY:PURI Water Purification
-    - ITEM: Water purification tablet
+    - ITEM: Water purification tablet | FORM=TABLET | MATERIAL=CHLORINE
 """)
 
 
@@ -96,6 +98,32 @@ class TestTaxonomyLoader(TestCase):
         self.assertIn("BLKT", categories)
         items = categories["BLKT"].items
         self.assertTrue(any("Blanket" in i for i in items))
+
+    def test_parses_item_metadata(self):
+        t = parse_taxonomy(self.path)
+        category = t.groups["WS"].families["WT"].categories["PURI"]
+
+        self.assertEqual(category.items, ["Water purification tablet"])
+        self.assertEqual(
+            category.item_metadata["WATER PURIFICATION TABLET"],
+            {"FORM": "TABLET", "MATERIAL": "CHLORINE"},
+        )
+
+    def test_rejects_item_entry_with_empty_description(self):
+        bad_taxonomy = textwrap.dedent("""\
+            ## GROUP:WS WASH (Water, Sanitation and Hygiene)
+            ### FAMILY:WT Water Treatment, Purification and Storage
+            #### CATEGORY:PURI Water Purification
+            - ITEM: | FORM=TABLET | MATERIAL=CHLORINE
+        """)
+        with NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as fh:
+            fh.write(bad_taxonomy)
+            bad_path = Path(fh.name)
+        try:
+            with self.assertRaisesMessage(ValueError, "Item description cannot be empty."):
+                parse_taxonomy(bad_path)
+        finally:
+            bad_path.unlink(missing_ok=True)
 
     def test_keyword_index_built(self):
         t = parse_taxonomy(self.path)
@@ -200,6 +228,44 @@ class TestSegmentExtraction(TestCase):
         # "medium thermal" should beat plain "medium"
         self.assertEqual(_extract_vrnt_segment("blanket synthetic medium thermal"), "MT")
 
+    def test_extract_reference_metadata_from_description(self):
+        metadata = extract_reference_metadata("water purification tablet 500 g plastic")
+
+        self.assertEqual(metadata["form"], "TABLET")
+        self.assertEqual(metadata["material"], "PLASTIC")
+        self.assertEqual(metadata["size_weight"], "500 G")
+
+    def test_extract_reference_metadata_from_dimension_description(self):
+        metadata = extract_reference_metadata("tarpaulin 4x5 m")
+
+        self.assertEqual(metadata["size_weight"], "4X5 M2")
+
+    def test_extract_reference_metadata_from_area_description(self):
+        metadata = extract_reference_metadata("family tent 16 m2")
+
+        self.assertEqual(metadata["size_weight"], "16 M2")
+
+    def test_extract_reference_metadata_does_not_treat_linear_meters_as_area(self):
+        metadata = extract_reference_metadata("rope 20 m")
+
+        self.assertNotEqual(metadata["size_weight"], "20 M2")
+        self.assertIn(metadata["size_weight"], {"", "20 M"})
+
+    def test_extract_reference_metadata_preserves_raw_dimension_value(self):
+        metadata = extract_reference_metadata("tarpaulin", size_weight="4 x 5 sq m")
+
+        self.assertEqual(metadata["size_weight"], "4X5 M2")
+
+    def test_extract_reference_metadata_preserves_explicit_material_metadata(self):
+        metadata = extract_reference_metadata(
+            "water purification tablet, aquatab",
+            form="TABLET",
+            material="CHLORINE",
+        )
+
+        self.assertEqual(metadata["form"], "TABLET")
+        self.assertEqual(metadata["material"], "CHLORINE")
+
 
 class TestIFRCAgent(TestCase):
     def setUp(self):
@@ -215,8 +281,7 @@ class TestIFRCAgent(TestCase):
         cfg["TAXONOMY_FILE"] = str(self.taxonomy_path)
         return cfg
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_generates_code_via_keywords(self, _):
+    def test_generates_code_via_keywords(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("synthetic blanket medium thermal")
@@ -225,11 +290,12 @@ class TestIFRCAgent(TestCase):
         self.assertIsNotNone(result.item_code)
         self.assertEqual(result.match_type, "generated")
         self.assertFalse(result.llm_used)
+        self.assertEqual(len(result.item_code), 12)
         self.assertTrue(result.item_code.startswith("REHO"), result.item_code)
+        self.assertEqual(len(result.spec_seg or ""), 4)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
     @patch("masterdata.ifrc_code_agent._call_ollama")
-    def test_generates_code_via_llm(self, mock_ollama, _):
+    def test_generates_code_via_llm(self, mock_ollama):
         cfg = self._settings()
         cfg["LLM_ENABLED"] = True
         mock_ollama.return_value = {
@@ -244,9 +310,31 @@ class TestIFRCAgent(TestCase):
         self.assertTrue(result.llm_used)
         self.assertIsNotNone(result.item_code)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
     @patch("masterdata.ifrc_code_agent._call_ollama")
-    def test_fallback_on_llm_failure(self, mock_ollama, _):
+    def test_llm_prompt_includes_taxonomy_and_scope_guardrails(self, mock_ollama):
+        mock_ollama.return_value = {
+            "group": "WS",
+            "family": "WT",
+            "category": "PURI",
+            "confidence": 0.88,
+            "rationale": "Water treatment item",
+        }
+        taxonomy = parse_taxonomy(self.taxonomy_path)
+
+        _llm_classify("traditional ceramic water filter", taxonomy)
+
+        prompt = mock_ollama.call_args.args[0]
+        self.assertIn(
+            "Choose only from the provided IFRC taxonomy. Do not invent new groups, families, or categories.",
+            prompt,
+        )
+        self.assertIn(
+            "Ignore local business-category and unit-of-measure conventions; this task is IFRC classification only.",
+            prompt,
+        )
+
+    @patch("masterdata.ifrc_code_agent._call_ollama")
+    def test_fallback_on_llm_failure(self, mock_ollama):
         cfg = self._settings()
         cfg["LLM_ENABLED"] = True
         mock_ollama.side_effect = Exception("Ollama not running")
@@ -257,43 +345,39 @@ class TestIFRCAgent(TestCase):
         self.assertIsInstance(result, IFRCCodeSuggestion)
         self.assertFalse(result.llm_used)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_code_always_uppercase(self, _):
+    def test_code_always_uppercase(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket")
         if result.item_code:
             self.assertEqual(result.item_code, result.item_code.upper())
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_code_max_30_chars(self, _):
+    def test_code_max_30_chars(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("a very long description of a complex multi-word item type")
         if result.item_code:
             self.assertLessEqual(len(result.item_code), 30)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_construction_rationale_mentions_all_segments(self, _):
+    def test_construction_rationale_mentions_all_segments(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket synthetic")
-        for segment in ["Group", "Family", "Variant", "Sequence"]:
+        for segment in ["Group", "Family", "Compact specification"]:
             self.assertIn(segment, result.construction_rationale)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=3)
-    def test_seq_reflects_collision_avoidance(self, _):
+    def test_generated_codes_do_not_use_sequence_suffix(self):
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.generate("blanket synthetic")
-        if result.seq:
-            self.assertEqual(result.seq, 3)
+        self.assertIsNone(result.seq)
+        self.assertEqual(len(result.item_code or ""), 12)
 
-    @patch("masterdata.ifrc_code_agent._find_next_seq", return_value=1)
-    def test_suggest_compat_shim_works(self, _):
+    def test_suggest_compat_shim_works(self):
         """suggest() backward-compat shim should produce the same result as generate()."""
         with override_settings(IFRC_AGENT=self._settings()):
             agent  = IFRCAgent()
             result = agent.suggest("blanket", size_weight="medium", material="synthetic")
         self.assertIsNotNone(result.item_code)
+
 

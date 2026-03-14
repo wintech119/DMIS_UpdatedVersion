@@ -34,6 +34,7 @@ class CategoryDef:
     code:  str
     label: str
     items: list[str] = field(default_factory=list)
+    item_metadata: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,6 +127,34 @@ _GROUP_RE    = re.compile(r"^##\s+GROUP:([A-Z]{1,4})\s+(.+)$")
 _FAMILY_RE   = re.compile(r"^###\s+FAMILY:([A-Z]{1,6})\s+(.+)$")
 _CATEGORY_RE = re.compile(r"^####\s+CATEGORY:([A-Z]{1,6})\s+(.+)$")
 _ITEM_RE     = re.compile(r"^-\s+ITEM:\s+(.+)$")
+_ITEM_METADATA_RE = re.compile(r"^([A-Z_]+)\s*=\s*(.+)$")
+_ITEM_METADATA_KEYS = frozenset({"IFRC_CODE", "SIZE_WEIGHT", "FORM", "MATERIAL", "SPEC_SEGMENT"})
+
+
+def _normalize_item_metadata_key(item_desc: str) -> str:
+    return " ".join(str(item_desc or "").strip().upper().split())
+
+
+def _parse_item_entry(raw_entry: str) -> tuple[str, dict[str, str]]:
+    parts = [part.strip() for part in str(raw_entry or "").split("|")]
+    item_desc = parts[0] if parts else ""
+    item_desc = item_desc.strip()
+    if item_desc == "":
+        raise ValueError("Item description cannot be empty.")
+    metadata: dict[str, str] = {}
+    for part in parts[1:]:
+        if not part:
+            continue
+        match = _ITEM_METADATA_RE.fullmatch(part)
+        if not match:
+            raise ValueError(f"Invalid item metadata segment: {part!r}")
+        key = match.group(1).strip().upper()
+        value = match.group(2).strip()
+        if key not in _ITEM_METADATA_KEYS:
+            raise ValueError(f"Unsupported item metadata key: {key!r}")
+        if value:
+            metadata[key] = value
+    return item_desc, metadata
 
 
 def parse_taxonomy(md_path: Path) -> IFRCTaxonomy:
@@ -176,7 +205,10 @@ def parse_taxonomy(md_path: Path) -> IFRCTaxonomy:
 
             m = _ITEM_RE.match(line)
             if m and current_category:
-                current_category.items.append(m.group(1).strip())
+                item_desc, item_metadata = _parse_item_entry(m.group(1).strip())
+                current_category.items.append(item_desc)
+                if item_metadata:
+                    current_category.item_metadata[_normalize_item_metadata_key(item_desc)] = item_metadata
 
     if not groups:
         raise ValueError(

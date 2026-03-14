@@ -310,17 +310,8 @@
         background-color: #f8f9fa;
       }
 
-      &.row-severity-critical {
-        background-color: #fff5f5;
-      }
-
-      &.row-severity-warning {
-        background-color: #fffbf0;
-      }
-
-      &.row-severity-watch {
-        background-color: #ffffea;
-      }
+      // Row background colors removed — the badge and time-to-stockout
+      // already convey severity; tinted rows were redundant.
     }
 
     td {
@@ -1433,19 +1424,18 @@ mat-chip-option {
   padding: 12px;
   transition: box-shadow 0.2s ease;
 
+  // Card background colors removed — badge and time-to-stockout convey severity.
+  // Left-border kept as a subtle indicator.
   &.card-severity-critical {
     border-left: 4px solid #dc3545;
-    background-color: #fff5f5;
   }
 
   &.card-severity-warning {
     border-left: 4px solid #fd7e14;
-    background-color: #fffbf0;
   }
 
   &.card-severity-watch {
     border-left: 4px solid #ffc107;
-    background-color: #ffffea;
   }
 
   &.card-severity-ok {

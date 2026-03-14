@@ -28,6 +28,8 @@ export interface MasterFieldConfig {
   options?: { value: string; label: string }[];
   /** For 'lookup' type: which table_key to fetch dropdown data from */
   lookupTable?: string;
+  /** Optional read/display field for detail pages */
+  displayField?: string;
   /** For 'boolean' type: default value */
   defaultValue?: unknown;
   /** Readonly on edit (e.g. donor_code) */
@@ -40,6 +42,10 @@ export interface MasterFieldConfig {
   colspan?: 1 | 2;
   /** Optional help text rendered below the field */
   hint?: string;
+  /** Optional tooltip text rendered from an inline help affordance */
+  tooltip?: string;
+  /** Optional placeholder text shown inside the input when empty */
+  placeholder?: string;
 }
 
 export interface MasterTableConfig {
@@ -53,6 +59,14 @@ export interface MasterTableConfig {
   readOnly?: boolean;
   /** Table has no status_code column (e.g. donor, custodian, parish) */
   hasStatus?: boolean;
+  /** Instructional text shown at the top of the create/edit form */
+  formDescription?: string;
+  /** Optional always-visible governance guidance shown above the form */
+  governanceNoteTitle?: string;
+  /** Optional always-visible governance guidance copy shown above the form */
+  governanceNoteBody?: string;
+  /** Render governance guidance in a more compact layout when space is limited */
+  governanceNoteCompact?: boolean;
   /** Columns shown in the list view */
   columns: MasterColumnConfig[];
   /** Fields shown in the create/edit form */
@@ -80,6 +94,7 @@ export interface MasterListResponse<T = MasterRecord> {
 export interface MasterDetailResponse<T = MasterRecord> {
   record: T;
   warnings: string[];
+  edit_guidance?: CatalogEditGuidance;
 }
 
 export interface MasterSummaryResponse {
@@ -91,22 +106,52 @@ export interface MasterSummaryResponse {
   warnings: string[];
 }
 
-export interface MasterLookupResponse {
-  items: LookupItem[];
+export interface MasterLookupResponse<T = LookupItem> {
+  items: T[];
   warnings: string[];
+}
+
+export interface CatalogEditGuidance {
+  warning_required: boolean;
+  warning_text: string;
+  locked_fields: string[];
+  replacement_supported: boolean;
+}
+
+export interface CatalogAuthoringSuggestionResponse {
+  source: string;
+  normalized: MasterRecord;
+  conflicts?: Record<string, unknown>;
+  warnings: string[];
+  edit_guidance?: CatalogEditGuidance;
+}
+
+export interface CatalogReplacementResponse<T = MasterRecord> extends MasterDetailResponse<T> {
+  replacement_for_pk: string | number;
+  retire_original_requested?: boolean;
+  retired_original?: boolean;
 }
 
 export interface LookupItem {
   value: string | number;
   label: string;
+  [key: string]: unknown;
 }
 
 export interface MasterValidationErrors {
   errors: Record<string, string>;
 }
+export interface MasterSaveFailureResponse {
+  detail?: string;
+  diagnostic?: string;
+  warnings?: string[];
+  errors?: Record<string, unknown>;
+}
+
 
 export interface MasterInactivateBlockedResponse {
   detail: string;
   blocking: string[];
   warnings: string[];
 }
+

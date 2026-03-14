@@ -23,6 +23,8 @@ export const MASTER_DOMAIN_DEFINITIONS: MasterDomainDefinition[] = [
     description: 'Foundational reference data and item catalogs.',
     implementedRoutePaths: [
       'item-categories',
+      'ifrc-families',
+      'ifrc-item-references',
       'uom',
       'items',
       'countries',

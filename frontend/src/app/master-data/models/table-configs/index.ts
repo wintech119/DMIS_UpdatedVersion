@@ -1,6 +1,8 @@
 import { MasterTableConfig } from '../master-data.models';
 
 import { ITEM_CATEGORY_CONFIG } from './item-category.config';
+import { IFRC_FAMILY_CONFIG } from './ifrc-family.config';
+import { IFRC_ITEM_REFERENCE_CONFIG } from './ifrc-item-reference.config';
 import { UOM_CONFIG } from './uom.config';
 import { ITEM_CONFIG } from './item.config';
 import { INVENTORY_CONFIG } from './inventory.config';
@@ -17,6 +19,8 @@ import { PARISH_CONFIG } from './parish.config';
 
 export {
   ITEM_CATEGORY_CONFIG,
+  IFRC_FAMILY_CONFIG,
+  IFRC_ITEM_REFERENCE_CONFIG,
   UOM_CONFIG,
   ITEM_CONFIG,
   INVENTORY_CONFIG,
@@ -35,6 +39,8 @@ export {
 /** All table configs indexed by routePath for route resolution */
 export const ALL_TABLE_CONFIGS: Record<string, MasterTableConfig> = {
   'item-categories': ITEM_CATEGORY_CONFIG,
+  'ifrc-families': IFRC_FAMILY_CONFIG,
+  'ifrc-item-references': IFRC_ITEM_REFERENCE_CONFIG,
   'uom': UOM_CONFIG,
   'items': ITEM_CONFIG,
   'inventory': INVENTORY_CONFIG,
