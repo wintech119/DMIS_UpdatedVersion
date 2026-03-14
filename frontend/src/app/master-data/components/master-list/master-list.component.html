@@ -68,6 +68,49 @@
               </label>
             }
 
+            @if (isItemList()) {
+              <label class="filter-field">
+                <span class="filter-label">Level 1 Category</span>
+                <select
+                  class="filter-select"
+                  [value]="itemCategoryFilter()"
+                  (change)="onItemCategoryFilterChange($event)">
+                  <option value="">All categories</option>
+                  @for (item of itemCategoryOptions(); track item.value) {
+                    <option [value]="item.value">{{ getItemCategoryFilterLabel(item) }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="filter-field">
+                <span class="filter-label">Level 2 IFRC Family</span>
+                <select
+                  class="filter-select"
+                  [disabled]="!itemCategoryFilter()"
+                  [value]="itemIfrcFamilyFilter()"
+                  (change)="onItemIfrcFamilyFilterChange($event)">
+                  <option value="">All families</option>
+                  @for (item of itemIfrcFamilyOptions(); track item.value) {
+                    <option [value]="item.value">{{ getItemFamilyFilterLabel(item) }}</option>
+                  }
+                </select>
+              </label>
+
+              <label class="filter-field">
+                <span class="filter-label">Level 3 IFRC Reference</span>
+                <select
+                  class="filter-select"
+                  [disabled]="!itemIfrcFamilyFilter()"
+                  [value]="itemIfrcReferenceFilter()"
+                  (change)="onItemIfrcReferenceFilterChange($event)">
+                  <option value="">All references</option>
+                  @for (item of itemIfrcReferenceOptions(); track item.value) {
+                    <option [value]="item.value">{{ getItemReferenceFilterLabel(item) }}</option>
+                  }
+                </select>
+              </label>
+            }
+
             @if (sortableColumns().length > 0) {
               <label class="filter-field">
                 <span class="filter-label">Sort By</span>

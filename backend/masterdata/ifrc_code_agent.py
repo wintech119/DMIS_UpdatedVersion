@@ -1,18 +1,14 @@
 """
 DMIS IFRC Item Code Generator Agent (v4)
 ==========================================
-Generates structurally valid IFRC item codes matching the real
-IFRC/ICRC Standard Products Catalogue 15-character codification.
+Generates structurally valid IFRC-style fallback item codes.
 
-Code structure (real IFRC):
-    GROUP(1) + FAMILY(3) + CATEGORY(4) + SPEC(0-7) + SEQ(02) = max 17 chars
+Generated fallback structure:
+    GROUP(1) + FAMILY(3) + CATEGORY(4) + SPEC(4) = 12 chars
 
-    Example: MDRECOMPA1001
-        M   = Group  Medical Renewable Items
-        DRE = Family Dressings
-        COMP= Category Compress / Wound Pad
-        A10 = Spec  aluminized, 10 cm
-        01  = Sequence 01
+    Example: HAPPACONCW18
+        HAPPACON = Group/Family/Category prefix
+        CW18     = Compact spec (window, 18k)
 
 Taxonomy source: masterdata/data/ifrc_catalogue_taxonomy.md
 LLM:            Ollama via direct httpx POST (no LangChain/LangGraph)
@@ -63,8 +59,8 @@ def _cfg(key: str) -> Any:
 
 @dataclass
 class IFRCCodeSuggestion:
-    """Mirrors the real IFRC 15-char code structure."""
-    # Generated code (up to 17 chars: G+FAM3+CAT4+SPEC7+SEQ2)
+    """Carries the generated IFRC-style fallback code and classification."""
+    # Generated fallback code (12 chars: G+FAM3+CAT4+SPEC4)
     item_code:              Optional[str] = None
     standardised_name:      Optional[str] = None
     confidence:             float         = 0.0
@@ -76,8 +72,8 @@ class IFRCCodeSuggestion:
     fam_label:              Optional[str] = None
     cat:                    Optional[str] = None   # 4 letters
     cat_label:              Optional[str] = None
-    spec_seg:               Optional[str] = None   # 0-7 chars
-    seq:                    Optional[int] = None   # integer sequence
+    spec_seg:               Optional[str] = None   # 4-char compact spec
+    seq:                    Optional[int] = None   # legacy field; unused for generated fallback codes
     construction_rationale: str           = ""
     llm_used:               bool          = False
     alternatives:           list          = field(default_factory=list)
@@ -243,6 +239,8 @@ def _llm_classify(
     """LLM classification. Returns (grp, fam, cat, confidence). Raises on failure."""
     prompt = (
         f'Item to classify: "{item_name}"\n\n'
+        "Choose only from the provided IFRC taxonomy. Do not invent new groups, families, or categories.\n"
+        "Ignore local business-category and unit-of-measure conventions; this task is IFRC classification only.\n\n"
         f"Available Groups (1-letter code: description):\n{taxonomy.all_groups_text()}\n\n"
         f"Available Group/Family/Category:\n{taxonomy.all_categories_text()}\n\n"
         "Reply ONLY with JSON (no markdown fences):\n"
@@ -327,6 +325,7 @@ def _best_effort_fallback(
 
 _FORM_CODES: dict[str, str] = {
     "tablet": "TB",   "tablets": "TB",
+    "tab": "TB",      "tabs": "TB",
     "liquid": "LQ",
     "solution": "SL",
     "powder": "PW",   "powdered": "PW",
@@ -369,6 +368,15 @@ _MATERIAL_CODES: dict[str, str] = {
 
 _SIZE_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(kg|mg|g|l|lt|liter|litre|ml|kva|kw|cm|mm)\b",
+    re.IGNORECASE,
+)
+_BTU_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(btu)\b", re.IGNORECASE)
+_DIMENSION_RE = re.compile(
+    r"(\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m)\b",
+    re.IGNORECASE,
+)
+_AREA_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m)\b",
     re.IGNORECASE,
 )
 
@@ -467,6 +475,307 @@ def _encode_size(text: str) -> str:
     return ""
 
 
+_FORM_LABELS: dict[str, str] = {
+    "TB": "TABLET",
+    "LQ": "LIQUID",
+    "SL": "SOLUTION",
+    "PW": "POWDER",
+    "CN": "CAN",
+    "BR": "BAR",
+    "SC": "SACHET",
+    "CP": "CAPSULE",
+    "CR": "CREAM",
+    "RL": "ROLL",
+    "SH": "SHEET",
+    "KT": "KIT",
+    "PK": "PACK",
+    "BT": "BOTTLE",
+    "BG": "BAG",
+    "BX": "BOX",
+    "TU": "TUBE",
+    "GL": "GEL",
+    "SP": "SPRAY",
+    "SY": "SYRUP",
+    "IN": "INJECTION",
+    "IF": "INFUSION",
+    "LO": "LOTION",
+}
+
+_MATERIAL_LABELS: dict[str, str] = {
+    "AL": "ALUMINIZED",
+    "CT": "COTTON",
+    "PE": "POLYETHYLENE",
+    "PP": "POLYPROPYLENE",
+    "PL": "PLASTIC",
+    "RB": "RUBBER",
+    "NY": "NYLON",
+    "SY": "SYNTHETIC",
+    "SS": "STAINLESS",
+    "LX": "LATEX",
+    "WO": "WOOL",
+    "FL": "FLEECE",
+    "NI": "NITRILE",
+}
+
+_GENERATED_VARIANT_PHRASES: list[tuple[re.Pattern[str], str, frozenset[str]]] = [
+    (re.compile(r"\bcorned\s+beef\b", re.IGNORECASE), "BK", frozenset({"MEAT"})),
+    (re.compile(r"\bwindow\b", re.IGNORECASE), "CW", frozenset({"ACON"})),
+    (re.compile(r"\bsplit\b", re.IGNORECASE), "CS", frozenset({"ACON"})),
+]
+_GENERATED_SPEC_STOPWORDS = frozenset(
+    {
+        "AND",
+        "FOR",
+        "THE",
+        "WITH",
+        "PER",
+        "OF",
+        "ITEM",
+        "GENERIC",
+    }
+)
+
+
+def _extract_form_metadata(item_name: str, *, form: str = "") -> str:
+    explicit = (form or "").strip().lower()
+    if explicit:
+        for kw, code in _FORM_CODES.items():
+            if re.search(r"\b" + re.escape(kw) + r"\b", explicit):
+                return _FORM_LABELS.get(code, kw.upper())
+        return " ".join(explicit.upper().split())
+
+    normalized = (item_name or "").strip().lower()
+    for kw, code in _FORM_CODES.items():
+        if re.search(r"\b" + re.escape(kw) + r"\b", normalized):
+            return _FORM_LABELS.get(code, kw.upper())
+    return ""
+
+
+def _extract_material_metadata(item_name: str, *, material: str = "") -> str:
+    explicit = (material or "").strip().lower()
+    if explicit:
+        for kw, code in _MATERIAL_CODES.items():
+            if kw in explicit:
+                return _MATERIAL_LABELS.get(code, kw.upper())
+        return " ".join(explicit.upper().split())
+
+    normalized = (item_name or "").strip().lower()
+    for kw, code in _MATERIAL_CODES.items():
+        if kw in normalized:
+            return _MATERIAL_LABELS.get(code, kw.upper())
+    return ""
+
+
+def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> str:
+    source = (size_weight or item_name or "").strip().lower()
+    match = _DIMENSION_RE.search(source)
+    if not match:
+        match = _AREA_RE.search(source)
+    if not match:
+        match = _SIZE_RE.search(source)
+    if not match:
+        return ""
+
+    raw_value = re.sub(r"\s*x\s*", "x", str(match.group(1) or "").strip())
+    raw_unit = re.sub(r"\s+", " ", str(match.group(2) or "").strip().lower())
+    unit_map = {
+        "kg": "KG",
+        "mg": "MG",
+        "g": "G",
+        "l": "L",
+        "lt": "L",
+        "liter": "L",
+        "litre": "L",
+        "ml": "ML",
+        "kva": "KVA",
+        "kw": "KW",
+        "cm": "CM",
+        "mm": "MM",
+        "m2": "M2",
+        "m^2": "M2",
+        "sqm": "M2",
+        "sq m": "M2",
+    }
+    if raw_unit == "m" and "x" in raw_value.lower():
+        unit = "M2"
+    else:
+        unit = unit_map.get(raw_unit, raw_unit.upper())
+    try:
+        value = Decimal(raw_value)
+        if value == value.to_integral():
+            value_text = str(value.quantize(Decimal("1")))
+        else:
+            value_text = format(value.normalize(), "f").rstrip("0").rstrip(".")
+    except (InvalidOperation, ValueError):
+        value_text = raw_value
+    return f"{value_text} {unit}".strip().upper()
+
+
+def extract_reference_metadata(
+    item_name: str,
+    *,
+    size_weight: str = "",
+    form: str = "",
+    material: str = "",
+) -> dict[str, str]:
+    return {
+        "size_weight": _extract_size_weight_metadata(item_name, size_weight=size_weight),
+        "form": _extract_form_metadata(item_name, form=form),
+        "material": _extract_material_metadata(item_name, material=material),
+    }
+
+
+def _form_code_from_label(form_label: str) -> str:
+    normalized = str(form_label or "").strip().upper()
+    if not normalized:
+        return ""
+    for code, label in _FORM_LABELS.items():
+        if normalized == label:
+            return code
+    return ""
+
+
+def _material_code_from_label(material_label: str) -> str:
+    normalized = str(material_label or "").strip().upper()
+    if not normalized:
+        return ""
+    for code, label in _MATERIAL_LABELS.items():
+        if normalized == label:
+            return code
+    return ""
+
+
+def _first_two_significant_digits(value: int) -> str:
+    digits = re.sub(r"\D", "", str(abs(int(value))))
+    if not digits:
+        return "00"
+    if len(digits) == 1:
+        return digits.zfill(2)
+    return digits[:2]
+
+
+def _compact_variant_code(
+    item_name: str,
+    *,
+    form: str = "",
+    material: str = "",
+    category_code: str = "",
+) -> str:
+    normalized_category = str(category_code or "").upper()
+    text = " ".join(part for part in (item_name, form, material) if part).strip()
+    for pattern, code, categories in _GENERATED_VARIANT_PHRASES:
+        if categories and normalized_category not in categories:
+            continue
+        if pattern.search(text):
+            return code
+
+    form_code = _form_code_from_label(_extract_form_metadata(item_name, form=form))
+    if form_code:
+        return form_code
+
+    material_code = _material_code_from_label(_extract_material_metadata(item_name, material=material))
+    if material_code:
+        return material_code
+
+    tokens = [
+        token
+        for token in re.findall(r"[A-Z0-9]+", _standardise_description(item_name))
+        if token not in _GENERATED_SPEC_STOPWORDS
+    ]
+    if not tokens:
+        return "GN"
+    joined = "".join(tokens)
+    return (joined + "XX")[:2]
+
+
+def _compact_quantity_code(item_name: str, *, size_weight: str = "") -> str:
+    raw_source = str(size_weight or item_name or "").strip()
+    if not raw_source:
+        return "00"
+
+    btu_match = _BTU_RE.search(raw_source)
+    if btu_match:
+        try:
+            thousands = int(
+                (Decimal(btu_match.group(1)) / Decimal("1000")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+        except (InvalidOperation, ValueError):
+            return "00"
+        return str(max(0, min(thousands, 99))).zfill(2)
+
+    normalized_size = _extract_size_weight_metadata(item_name, size_weight=size_weight)
+    if not normalized_size:
+        return "00"
+
+    dimension_match = re.fullmatch(r"(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s+M2", normalized_size)
+    if dimension_match:
+        try:
+            left = int(Decimal(dimension_match.group(1)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            right = int(Decimal(dimension_match.group(2)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, ValueError):
+            return "00"
+        return f"{left % 10}{right % 10}"
+
+    scalar_match = re.fullmatch(r"(\d+(?:\.\d+)?)\s+(KG|MG|G|L|ML|KVA|KW|M2)", normalized_size)
+    if not scalar_match:
+        return "00"
+
+    try:
+        value = Decimal(scalar_match.group(1))
+    except (InvalidOperation, ValueError):
+        return "00"
+    unit = scalar_match.group(2)
+
+    if unit == "G":
+        grams = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if 0 < grams < 1000 and grams % 100 == 0:
+            return str(grams // 100).zfill(2)
+        return _first_two_significant_digits(grams)
+    if unit == "MG":
+        milligrams = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return _first_two_significant_digits(milligrams)
+    if unit == "KG":
+        kilograms = value
+        if kilograms < 10:
+            scaled = int((kilograms * Decimal("10")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return str(scaled).zfill(2)
+        whole = int(kilograms.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return _first_two_significant_digits(whole)
+    if unit == "ML":
+        milliliters = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if 0 < milliliters < 1000 and milliliters % 100 == 0:
+            return str(milliliters // 100).zfill(2)
+        return _first_two_significant_digits(milliliters)
+    if unit == "L":
+        if value < 10:
+            scaled = int((value * Decimal("10")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            return str(scaled).zfill(2)
+        whole = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return _first_two_significant_digits(whole)
+    if unit in {"KW", "KVA", "M2"}:
+        whole = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        return str(max(0, min(whole, 99))).zfill(2)
+    return "00"
+
+
+def _encode_generated_spec(
+    item_name: str,
+    *,
+    size_weight: str = "",
+    form: str = "",
+    material: str = "",
+    category_code: str = "",
+) -> str:
+    variant_code = _compact_variant_code(
+        item_name,
+        form=form,
+        material=material,
+        category_code=category_code,
+    )
+    quantity_code = _compact_quantity_code(item_name, size_weight=size_weight)
+    return f"{variant_code}{quantity_code}"[:4].ljust(4, "0")
+
+
 def _encode_spec(
     item_name: str,
     form: str = "",
@@ -483,21 +792,18 @@ def _encode_spec(
     size_text = (size_weight or "").strip().lower()
     parts: list[str] = []
 
-    # Explicit form parameter takes priority over parsing item_name.
     if form_text:
         for kw, code in _FORM_CODES.items():
             if re.search(r"\b" + re.escape(kw) + r"\b", form_text):
                 parts.append(code)
                 break
 
-    # Fall back to form terms found in item_name.
     if not parts:
         for kw, code in _FORM_CODES.items():
             if re.search(r"\b" + re.escape(kw) + r"\b", n):
                 parts.append(code)
                 break
 
-    # Material code when no form matched, using explicit material first.
     if not parts:
         if material_text:
             for kw, code in _MATERIAL_CODES.items():
@@ -510,7 +816,6 @@ def _encode_spec(
                 parts.append(code)
                 break
 
-    # Size appended after form/material; explicit size hint takes precedence.
     size = _encode_size(size_text) if size_text else ""
     if not size:
         size = _encode_size(item_name)
@@ -518,7 +823,6 @@ def _encode_spec(
         parts.append(size)
 
     return "".join(parts)[:7]
-
 
 # ─── Collision check ──────────────────────────────────────────────────────────
 
@@ -621,13 +925,17 @@ def _construct_code(
     material: str = "",
 ) -> dict:
     """
-    Build the full IFRC code: GROUP(1)+FAMILY(3)+CATEGORY(4)+SPEC(0-7)+SEQ(02).
+    Build the generated IFRC-style code: GROUP(1)+FAMILY(3)+CATEGORY(4)+SPEC(4).
     Returns all segments and a human-readable rationale.
     """
-    spec    = _encode_spec(item_name, form=form, material=material, size_weight=size_weight)
-    prefix  = f"{grp}{fam}{cat}{spec}".upper()
-    seq, seq_rationale = _next_sequence(prefix)
-    code    = f"{prefix}{seq:02d}"
+    spec = _encode_generated_spec(
+        item_name,
+        size_weight=size_weight,
+        form=form,
+        material=material,
+        category_code=cat,
+    )
+    code = f"{grp}{fam}{cat}{spec}".upper()
 
     grp_label = taxonomy.group_label(grp)
     fam_label = taxonomy.family_label(grp, fam)
@@ -637,16 +945,16 @@ def _construct_code(
         f"Group '{grp}' ({grp_label}); "
         f"Family '{fam}' ({fam_label}); "
         f"Category '{cat}' ({cat_label}); "
-        f"Variant/Spec '{spec or 'none'}'; "
-        f"Sequence {seq:02d} (next available for prefix '{prefix}'). {seq_rationale}"
+        f"Compact specification '{spec or '0000'}'; "
+        "Generated IFRC-style 12-character fallback code."
     )
     return {
-        "code":      code,
-        "grp":       grp,
-        "fam":       fam,
-        "cat":       cat,
-        "spec_seg":  spec,
-        "seq":       seq,
+        "code": code,
+        "grp": grp,
+        "fam": fam,
+        "cat": cat,
+        "spec_seg": spec,
+        "seq": None,
         "rationale": rationale,
         "grp_label": grp_label,
         "fam_label": fam_label,
@@ -705,6 +1013,7 @@ def _generate_alternatives(
                         "grp": grp, "grp_label": taxonomy.group_label(grp),
                         "fam": fam, "fam_label": taxonomy.family_label(grp, fam),
                         "cat": cat, "cat_label": taxonomy.category_label(grp, fam, cat),
+                        "spec_seg": built["spec_seg"],
                         "rationale": f"Alternative if classified under {grp}/{fam}/{cat}",
                     })
                 except Exception as exc:
@@ -872,8 +1181,8 @@ def _stage_validate(state: AgentState) -> AgentState:
 
 class IFRCAgent:
     """
-    Generates real IFRC-compliant item codes:
-        GROUP(1) + FAMILY(3) + CATEGORY(4) + SPEC(0-7) + SEQ(02)
+    Generates IFRC-style item codes:
+        GROUP(1) + FAMILY(3) + CATEGORY(4) + SPEC(4)
 
     Usage:
         agent = IFRCAgent()
@@ -924,4 +1233,5 @@ class IFRCAgent:
         if not _cfg("LLM_ENABLED") and result.match_type == "generated":
             result.match_type = "fallback"
         return result
+
 

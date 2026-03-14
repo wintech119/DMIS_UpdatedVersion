@@ -1,4 +1,4 @@
-﻿"""
+"""
 Generic raw-SQL CRUD for legacy master-data tables.
 
 Each table is described by a registry entry so that views, validation and
@@ -11,7 +11,9 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
+
+from masterdata.item_master_taxonomy import taxonomy_source_version
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,148 @@ def _safe_rollback() -> None:
         connection.rollback()
     except Exception:
         pass
+
+
+def _db_error_warnings(exc: Exception) -> list[str]:
+    warnings = ["db_error"]
+    if isinstance(exc, IntegrityError):
+        warnings.append("db_constraint")
+        cause_name = getattr(getattr(exc, "__cause__", None), "__class__", type(exc)).__name__
+        message = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
+        if cause_name == "UniqueViolation" or "unique constraint" in message:
+            warnings.append("db_unique_violation")
+    return warnings
+
+
+def _is_postgresql() -> bool:
+    return getattr(connection, "vendor", "") == "postgresql"
+
+
+def _auto_pk_config(table_key: str) -> tuple["TableConfig", "FieldDef"] | tuple[None, None]:
+    cfg = TABLE_REGISTRY.get(table_key)
+    pk_def = getattr(cfg, "_pk_def", None)
+    if cfg is None or pk_def is None or not pk_def.auto_pk:
+        return None, None
+    return cfg, pk_def
+
+
+def inspect_auto_pk_sequence(table_key: str) -> tuple[dict[str, Any] | None, list[str]]:
+    cfg, pk_def = _auto_pk_config(table_key)
+    if cfg is None or pk_def is None:
+        return None, ["auto_pk_not_supported"]
+    if _is_sqlite():
+        return None, ["db_unavailable"]
+    if not _is_postgresql():
+        return None, ["db_vendor_not_supported"]
+
+    schema = _schema_name()
+    qualified_table = f"{schema}.{cfg.db_table}"
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_get_serial_sequence(%s, %s)",
+                [qualified_table, cfg.pk_field],
+            )
+            sequence_row = cursor.fetchone()
+            sequence_name = sequence_row[0] if sequence_row else None
+            if not sequence_name:
+                return None, ["pk_sequence_not_found"]
+
+            cursor.execute(
+                f"SELECT COALESCE(MAX({cfg.pk_field}), 0) FROM {schema}.{cfg.db_table}"
+            )
+            max_pk_row = cursor.fetchone()
+            max_pk = int(max_pk_row[0] or 0) if max_pk_row else 0
+
+            cursor.execute(f"SELECT last_value, is_called FROM {sequence_name}")
+            state_row = cursor.fetchone()
+            last_value = int(state_row[0]) if state_row else 0
+            is_called = bool(state_row[1]) if state_row else False
+
+        return {
+            "table_key": table_key,
+            "schema": schema,
+            "table_name": cfg.db_table,
+            "pk_field": cfg.pk_field,
+            "sequence_name": sequence_name,
+            "max_pk": max_pk,
+            "last_value": last_value,
+            "is_called": is_called,
+            "next_value": last_value + 1 if is_called else last_value,
+        }, []
+    except DatabaseError as exc:
+        logger.warning("inspect_auto_pk_sequence(%s) failed: %s", table_key, exc)
+        _safe_rollback()
+        return None, ["pk_sequence_inspection_failed"]
+
+
+def resync_auto_pk_sequence(table_key: str) -> tuple[bool, dict[str, Any] | None, list[str]]:
+    info, warnings = inspect_auto_pk_sequence(table_key)
+    if info is None:
+        return False, None, warnings
+
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                schema_sql = connection.ops.quote_name(str(info["schema"]))
+                table_sql = connection.ops.quote_name(str(info["table_name"]))
+                column_sql = connection.ops.quote_name(str(info["pk_field"]))
+                cursor.execute(
+                    f"SELECT COALESCE(MAX({column_sql}), 0) FROM {schema_sql}.{table_sql}"
+                )
+                current_max_row = cursor.fetchone()
+                current_max = int(current_max_row[0] or 0) if current_max_row else 0
+                target_value = current_max + 1
+                cursor.execute(
+                    "SELECT setval(%s::regclass, %s, false)",
+                    [info["sequence_name"], target_value],
+                )
+                row = cursor.fetchone()
+                applied_value = int(row[0]) if row else target_value
+    except DatabaseError as exc:
+        logger.warning("resync_auto_pk_sequence(%s) failed: %s", table_key, exc)
+        _safe_rollback()
+        return False, info, warnings + ["pk_sequence_resync_failed"]
+
+    updated_info = dict(info)
+    updated_info.update(
+        {
+            "max_pk": current_max,
+            "last_value": applied_value,
+            "is_called": False,
+            "next_value": target_value,
+            "target_value": target_value,
+        }
+    )
+    return True, updated_info, warnings + ["pk_sequence_resynced"]
+
+
+def _is_auto_pk_duplicate_violation(table_key: str, exc: Exception) -> bool:
+    cfg, pk_def = _auto_pk_config(table_key)
+    if cfg is None or pk_def is None:
+        return False
+    if _is_sqlite() or not _is_postgresql():
+        return False
+
+    cause = getattr(exc, "__cause__", None)
+    sqlstate = getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
+    if sqlstate and str(sqlstate) != "23505":
+        return False
+
+    constraint_name = getattr(getattr(cause, "diag", None), "constraint_name", None)
+    normalized_constraint = str(constraint_name or "").strip().lower()
+    if normalized_constraint in {f"pk_{cfg.db_table}".lower(), f"{cfg.db_table}_pkey".lower()}:
+        return True
+
+    message = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
+    if "duplicate key value violates unique constraint" not in message:
+        return False
+    if normalized_constraint and normalized_constraint not in {
+        f"pk_{cfg.db_table}".lower(),
+        f"{cfg.db_table}_pkey".lower(),
+    }:
+        return False
+    return f"({cfg.pk_field})=" in message
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +365,7 @@ def _register(cfg: TableConfig) -> TableConfig:
     return cfg
 
 
-# â”€â”€ Item Categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Item Categories ───────────────────────────────────────────────────────
 _register(TableConfig(
     key="item_categories",
     db_table="itemcatg",
@@ -245,7 +389,76 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Units of Measure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# -- IFRC Families -----------------------------------------------------------
+_register(TableConfig(
+    key="ifrc_families",
+    db_table="ifrc_family",
+    pk_field="ifrc_family_id",
+    display_name="IFRC Families",
+    default_order="family_label",
+    fields=[
+        FieldDef("ifrc_family_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("category_id", required=True, db_type="int", label="Level 1 Category",
+                 fk_table="itemcatg", fk_pk="category_id", fk_label="category_desc"),
+        FieldDef("family_label", required=True, max_length=160,
+                 searchable=True, label="Family Label"),
+        FieldDef("group_code", required=True, uppercase=True, max_length=4,
+                 searchable=True, label="Group Code"),
+        FieldDef("group_label", required=True, max_length=120,
+                 searchable=True, label="Group Label"),
+        FieldDef("family_code", required=True, uppercase=True, max_length=3,
+                 pattern=r"[A-Z0-9]{3}",
+                 pattern_message="Family Code must be exactly 3 uppercase letters or digits.",
+                 searchable=True, label="Family Code"),
+        FieldDef("source_version", required=False, max_length=80,
+                 default=taxonomy_source_version(), label="Source Version"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("item", "ifrc_family_id", "Items"),
+        DependencyDef("ifrc_item_reference", "ifrc_family_id", "IFRC Item References"),
+    ],
+))
+
+# -- IFRC Item References ----------------------------------------------------
+_register(TableConfig(
+    key="ifrc_item_references",
+    db_table="ifrc_item_reference",
+    pk_field="ifrc_item_ref_id",
+    display_name="IFRC Item References",
+    default_order="reference_desc",
+    fields=[
+        FieldDef("ifrc_item_ref_id", pk=True, auto_pk=True, db_type="int", label="ID"),
+        FieldDef("ifrc_family_id", required=True, db_type="int", label="IFRC Family",
+                 fk_table="ifrc_family", fk_pk="ifrc_family_id", fk_label="family_label"),
+        FieldDef("ifrc_code", required=True, unique=True, uppercase=True,
+                 max_length=30, searchable=True, label="IFRC Code"),
+        FieldDef("reference_desc", required=True, max_length=255,
+                 searchable=True, label="Reference Description"),
+        FieldDef("category_code", required=True, uppercase=True, max_length=6,
+                 searchable=True, label="Reference Category Code"),
+        FieldDef("category_label", required=True, max_length=160,
+                 searchable=True, label="Reference Category Label"),
+        FieldDef("spec_segment", required=False, uppercase=True, max_length=7,
+                 searchable=True, empty_as_null=True, label="Spec Segment"),
+        FieldDef("size_weight", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Size or Weight"),
+        FieldDef("form", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Form"),
+        FieldDef("material", required=False, uppercase=True, max_length=40,
+                 searchable=True, empty_as_null=True, label="Material"),
+        FieldDef("source_version", required=False, max_length=80,
+                 default=taxonomy_source_version(), label="Source Version"),
+        FieldDef("status_code", required=True, max_length=1, default="A",
+                 choices=["A", "I"], label="Status"),
+    ],
+    dependencies=[
+        DependencyDef("item", "ifrc_item_ref_id", "Items"),
+    ],
+))
+
+# ── Units of Measure ─────────────────────────────────────────────────────
 _register(TableConfig(
     key="uom",
     db_table="unitofmeasure",
@@ -267,7 +480,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Items ─────────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="items",
     db_table="item",
@@ -276,10 +489,15 @@ _register(TableConfig(
     default_order="item_name",
     fields=[
         FieldDef("item_id", pk=True, auto_pk=True, db_type="int", label="ID"),
-        FieldDef("item_code", required=True, unique=True, uppercase=True,
+        FieldDef("item_code", required=False, unique=True, uppercase=True,
                  max_length=30, searchable=True, label="Item Code",
                  pattern=r"^[A-Z0-9\-_\.]+$",
                  pattern_message="Only uppercase letters, digits, hyphens, underscores, dots"),
+        FieldDef("legacy_item_code", required=False, uppercase=True,
+                 max_length=30, searchable=True, label="Legacy Item Code",
+                 pattern=r"^[A-Z0-9\-_\.]+$",
+                 pattern_message="Only uppercase letters, digits, hyphens, underscores, dots",
+                 empty_as_null=True),
         FieldDef("item_name", required=True, unique=True, uppercase=True,
                  max_length=60, searchable=True, label="Item Name"),
         FieldDef("sku_code", required=False, unique=True, uppercase=True,
@@ -287,6 +505,10 @@ _register(TableConfig(
                  empty_as_null=True),
         FieldDef("category_id", required=True, db_type="int", label="Category",
                  fk_table="itemcatg", fk_pk="category_id", fk_label="category_desc"),
+        FieldDef("ifrc_family_id", db_type="int", label="IFRC Family",
+                 fk_table="ifrc_family", fk_pk="ifrc_family_id", fk_label="family_label"),
+        FieldDef("ifrc_item_ref_id", db_type="int", label="IFRC Item Reference",
+                 fk_table="ifrc_item_reference", fk_pk="ifrc_item_ref_id", fk_label="reference_desc"),
         FieldDef("item_desc", required=True, label="Description"),
         FieldDef("reorder_qty", required=True, db_type="numeric", label="Reorder Quantity"),
         FieldDef("default_uom_code", required=True, max_length=25, label="Default UOM",
@@ -371,7 +593,7 @@ _register(TableConfig(
         DependencyDef("batchlocation", "location_id", "Batch-Location Assignments"),
     ],
 ))
-# â”€â”€ Warehouses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Warehouses ────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="warehouses",
     db_table="warehouse",
@@ -410,7 +632,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Agencies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Agencies ──────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="agencies",
     db_table="agency",
@@ -448,7 +670,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Custodians â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Custodians ────────────────────────────────────────────────────────────
 # NOTE: custodian table has NO status_code column in the live DB.
 _register(TableConfig(
     key="custodians",
@@ -479,7 +701,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Donors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Donors ────────────────────────────────────────────────────────────────
 # NOTE: donor table has NO status_code column in the live DB.
 _register(TableConfig(
     key="donors",
@@ -511,7 +733,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Events ────────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="events",
     db_table="event",
@@ -548,7 +770,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Countries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Countries ─────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="countries",
     db_table="country",
@@ -569,7 +791,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Currencies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Currencies ────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="currencies",
     db_table="currency",
@@ -590,7 +812,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Parishes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Parishes ──────────────────────────────────────────────────────────────
 # NOTE: parish table only has parish_code and parish_name. No status, audit, or version.
 _register(TableConfig(
     key="parishes",
@@ -614,7 +836,7 @@ _register(TableConfig(
     ],
 ))
 
-# â”€â”€ Suppliers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Suppliers ─────────────────────────────────────────────────────────────
 _register(TableConfig(
     key="suppliers",
     db_table="supplier",
@@ -981,6 +1203,31 @@ def _lookup_inventory_item_id(inventory_id: Any) -> Tuple[Any | None, List[str]]
     return row[0], []
 
 
+def _execute_create_insert(
+    cfg: "TableConfig",
+    schema: str,
+    col_sql: str,
+    ph_sql: str,
+    final_values: list[Any],
+    data: Dict[str, Any],
+) -> Any | None:
+    returning = f"RETURNING {cfg.pk_field}" if cfg._pk_def and cfg._pk_def.auto_pk else ""
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {schema}.{cfg.db_table} ({col_sql})
+                VALUES ({ph_sql})
+                {returning}
+                """,
+                final_values,
+            )
+            if returning:
+                row = cursor.fetchone()
+                return row[0] if row else None
+            return data.get(cfg.pk_field)
+
+
 def create_record(
     table_key: str, data: Dict[str, Any], actor_id: str
 ) -> Tuple[Any | None, List[str]]:
@@ -1044,28 +1291,36 @@ def create_record(
     col_sql = ", ".join(columns)
     ph_sql = ", ".join(placeholders)
 
-    returning = f"RETURNING {cfg.pk_field}" if cfg._pk_def and cfg._pk_def.auto_pk else ""
-
     try:
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                    INSERT INTO {schema}.{cfg.db_table} ({col_sql})
-                    VALUES ({ph_sql})
-                    {returning}
-                    """,
-                    final_values,
-                )
-                if returning:
-                    row = cursor.fetchone()
-                    pk_val = row[0] if row else None
-                else:
-                    pk_val = data.get(cfg.pk_field)
-                return pk_val, warnings
+        pk_val = _execute_create_insert(
+            cfg,
+            schema,
+            col_sql,
+            ph_sql,
+            final_values,
+            data,
+        )
+        return pk_val, warnings
     except DatabaseError as exc:
+        if _is_auto_pk_duplicate_violation(table_key, exc):
+            _safe_rollback()
+            recovered, _info, recovery_warnings = resync_auto_pk_sequence(table_key)
+            warnings.extend(recovery_warnings)
+            if recovered:
+                try:
+                    pk_val = _execute_create_insert(
+                        cfg,
+                        schema,
+                        col_sql,
+                        ph_sql,
+                        final_values,
+                        data,
+                    )
+                    return pk_val, warnings
+                except DatabaseError as retry_exc:
+                    exc = retry_exc
         logger.warning("create_record(%s) failed: %s", table_key, exc)
-        warnings.append("db_error")
+        warnings.extend(_db_error_warnings(exc))
         return None, warnings
 
 
@@ -1162,7 +1417,7 @@ def update_record(
                 return True, warnings
     except DatabaseError as exc:
         logger.warning("update_record(%s, %s) failed: %s", table_key, pk_value, exc)
-        warnings.append("db_error")
+        warnings.extend(_db_error_warnings(exc))
         return False, warnings
 
 
@@ -1574,4 +1829,7 @@ def check_fk_exists(
     except DatabaseError as exc:
         logger.warning("check_fk_exists(%s.%s=%s) failed: %s", fk_table, fk_pk, value, exc)
         return True, ["db_error"]
+
+
+
 

@@ -16,10 +16,17 @@
       "env": {}
     },
     "postgres": {
-      "command": "uvx",
-      "args": ["postgres-mcp", "--access-mode=unrestricted"],
+      "command": "C:\\Users\\YOUR_USERNAME\\.local\\bin\\uv.exe",
+      "args": ["run", "postgres-mcp", "--access-mode=unrestricted"],
       "env": {
         "DATABASE_URI": "postgresql://postgres:YOUR_PASSWORD@localhost:5432/dmis"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
       }
     }
   }

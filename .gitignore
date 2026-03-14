@@ -122,6 +122,7 @@ dmis_schema.sql
 .claude
 .claude/
 .mcp.json
+docs/ops/mcp-postgres-troubleshooting.md
 
 # ---------------------------------------------------------------------------
 # Non-application / generated or downloaded data

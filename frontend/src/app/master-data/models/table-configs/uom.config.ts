@@ -7,6 +7,8 @@ export const UOM_CONFIG: MasterTableConfig = {
   pkField: 'uom_code',
   routePath: 'uom',
   formMode: 'dialog',
+  governanceNoteBody: 'UOM is how stock is counted or issued in operations. It may not match the IFRC product form.',
+  governanceNoteCompact: true,
   searchPlaceholder: 'Search by code or description...',
   columns: [
     { field: 'uom_code', header: 'Code', type: 'text', sortable: true },
@@ -17,10 +19,12 @@ export const UOM_CONFIG: MasterTableConfig = {
     { field: 'uom_code', label: 'UOM Code', type: 'text', required: true, maxLength: 25, uppercase: true, readonlyOnEdit: true },
     { field: 'uom_desc', label: 'Description', type: 'text', required: true, maxLength: 60 },
     { field: 'comments_text', label: 'Comments', type: 'textarea', maxLength: 300 },
-    { field: 'status_code', label: 'Status', type: 'select', required: true, defaultValue: 'A',
+    {
+      field: 'status_code', label: 'Status', type: 'select', required: true, defaultValue: 'A',
       options: [
         { value: 'A', label: 'Active' },
         { value: 'I', label: 'Inactive' },
-      ] },
+      ],
+    },
   ],
 };
