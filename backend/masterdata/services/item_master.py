@@ -486,6 +486,7 @@ def validate_item_payload(
     reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
     parsed_category_id = parse_numeric_identifier(category_id, "category_id")
     parsed_family_id = parse_numeric_identifier(family_id, "ifrc_family_id")
+    parsed_reference_id = parse_numeric_identifier(reference_id, "ifrc_item_ref_id")
     default_uom_code = str(
         _merged_value(data, existing_record, "default_uom_code") or ""
     ).strip().upper()
@@ -505,8 +506,8 @@ def validate_item_payload(
             else None
         )
         reference_row = (
-            _fetch_ifrc_reference(schema, reference_id)
-            if reference_id not in (None, "")
+            _fetch_ifrc_reference(schema, parsed_reference_id)
+            if parsed_reference_id is not None
             else None
         )
         if normalized_uom_options is not None:
@@ -546,7 +547,11 @@ def validate_item_payload(
 
     if family_id not in (None, "") and parsed_family_id is not None and family_row is None:
         errors["ifrc_family_id"] = "Selected IFRC Family does not exist."
-    if reference_id not in (None, "") and reference_row is None:
+    if (
+        reference_id not in (None, "")
+        and parsed_reference_id is not None
+        and reference_row is None
+    ):
         errors["ifrc_item_ref_id"] = "Selected IFRC Item Reference does not exist."
 
     if family_row and str(family_row.get("status_code") or "").upper() != "A":
