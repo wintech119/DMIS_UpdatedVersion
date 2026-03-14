@@ -968,6 +968,10 @@ fieldset.form-grid {
   .ifrc-suggestion-card__status-block {
     align-items: flex-start;
     text-align: left;
+
+    button {
+      align-self: flex-start;
+    }
   }
 
   .catalog-governance__prereqs-item {

@@ -109,6 +109,22 @@ class TestTaxonomyLoader(TestCase):
             {"FORM": "TABLET", "MATERIAL": "CHLORINE"},
         )
 
+    def test_rejects_item_entry_with_empty_description(self):
+        bad_taxonomy = textwrap.dedent("""\
+            ## GROUP:WS WASH (Water, Sanitation and Hygiene)
+            ### FAMILY:WT Water Treatment, Purification and Storage
+            #### CATEGORY:PURI Water Purification
+            - ITEM: | FORM=TABLET | MATERIAL=CHLORINE
+        """)
+        with NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as fh:
+            fh.write(bad_taxonomy)
+            bad_path = Path(fh.name)
+        try:
+            with self.assertRaisesMessage(ValueError, "Item description cannot be empty."):
+                parse_taxonomy(bad_path)
+        finally:
+            bad_path.unlink(missing_ok=True)
+
     def test_keyword_index_built(self):
         t = parse_taxonomy(self.path)
         self.assertGreater(len(t.keyword_index), 0)

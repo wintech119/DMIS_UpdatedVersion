@@ -138,6 +138,9 @@ def _normalize_item_metadata_key(item_desc: str) -> str:
 def _parse_item_entry(raw_entry: str) -> tuple[str, dict[str, str]]:
     parts = [part.strip() for part in str(raw_entry or "").split("|")]
     item_desc = parts[0] if parts else ""
+    item_desc = item_desc.strip()
+    if item_desc == "":
+        raise ValueError("Item description cannot be empty.")
     metadata: dict[str, str] = {}
     for part in parts[1:]:
         if not part:
@@ -151,7 +154,7 @@ def _parse_item_entry(raw_entry: str) -> tuple[str, dict[str, str]]:
             raise ValueError(f"Unsupported item metadata key: {key!r}")
         if value:
             metadata[key] = value
-    return item_desc.strip(), metadata
+    return item_desc, metadata
 
 
 def parse_taxonomy(md_path: Path) -> IFRCTaxonomy:
