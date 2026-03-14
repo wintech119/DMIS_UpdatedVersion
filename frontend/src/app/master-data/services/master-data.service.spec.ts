@@ -59,18 +59,18 @@ describe('MasterDataService', () => {
 
   it('uses the dedicated category, family, and reference lookup endpoints', () => {
     service.lookupItemCategories({ includeValue: 101 }).subscribe();
-    service.lookupIfrcFamilies({ categoryId: 101, search: 'WTR' }).subscribe();
-    service.lookupIfrcReferences({ ifrcFamilyId: 301, search: 'tablet', limit: 20 }).subscribe();
+    service.lookupIfrcFamilies({ categoryId: 101, search: 'WTR', includeValue: 301 }).subscribe();
+    service.lookupIfrcReferences({ ifrcFamilyId: 301, search: 'tablet', includeValue: 401, limit: 20 }).subscribe();
 
     const categoryRequest = httpMock.expectOne('/api/v1/masterdata/items/categories/lookup?include_value=101');
     expect(categoryRequest.request.method).toBe('GET');
     categoryRequest.flush({ items: [], warnings: [] });
 
-    const familyRequest = httpMock.expectOne('/api/v1/masterdata/items/ifrc-families/lookup?category_id=101&search=WTR');
+    const familyRequest = httpMock.expectOne('/api/v1/masterdata/items/ifrc-families/lookup?category_id=101&include_value=301&search=WTR');
     expect(familyRequest.request.method).toBe('GET');
     familyRequest.flush({ items: [], warnings: [] });
 
-    const referenceRequest = httpMock.expectOne('/api/v1/masterdata/items/ifrc-references/lookup?ifrc_family_id=301&search=tablet&limit=20');
+    const referenceRequest = httpMock.expectOne('/api/v1/masterdata/items/ifrc-references/lookup?ifrc_family_id=301&include_value=401&search=tablet&limit=20');
     expect(referenceRequest.request.method).toBe('GET');
     referenceRequest.flush({ items: [], warnings: [] });
   });

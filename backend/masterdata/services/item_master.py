@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.db import DatabaseError, connection, transaction
@@ -260,6 +260,15 @@ def get_item_record(
         return None, ["db_error"]
 
 
+def _parse_optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def list_item_category_lookup(
     *,
     active_only: bool = True,
@@ -319,13 +328,15 @@ def list_ifrc_family_lookup(
     schema = _schema_name()
     where_clauses: list[str] = []
     params: list[Any] = []
-    if category_id not in (None, ""):
+    parsed_category_id = _parse_optional_int(category_id)
+    parsed_include_value = _parse_optional_int(include_value)
+    if category_id not in (None, "") and parsed_category_id is not None:
         where_clauses.append("f.category_id = %s")
-        params.append(category_id)
+        params.append(parsed_category_id)
     if active_only:
-        if include_value not in (None, ""):
+        if parsed_include_value is not None:
             where_clauses.append("(f.status_code = 'A' OR f.ifrc_family_id = %s)")
-            params.append(include_value)
+            params.append(parsed_include_value)
         else:
             where_clauses.append("f.status_code = 'A'")
     if search:
@@ -393,13 +404,15 @@ def list_ifrc_reference_lookup(
     schema = _schema_name()
     where_clauses: list[str] = []
     params: list[Any] = []
-    if ifrc_family_id not in (None, ""):
+    parsed_ifrc_family_id = _parse_optional_int(ifrc_family_id)
+    parsed_include_value = _parse_optional_int(include_value)
+    if ifrc_family_id not in (None, "") and parsed_ifrc_family_id is not None:
         where_clauses.append("r.ifrc_family_id = %s")
-        params.append(ifrc_family_id)
+        params.append(parsed_ifrc_family_id)
     if active_only:
-        if include_value not in (None, ""):
+        if parsed_include_value is not None:
             where_clauses.append("(r.status_code = 'A' OR r.ifrc_item_ref_id = %s)")
-            params.append(include_value)
+            params.append(parsed_include_value)
         else:
             where_clauses.append("r.status_code = 'A'")
     if search:
@@ -746,8 +759,11 @@ def find_item_canonical_conflict(
     merged_reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
     if merged_reference_id in (None, ""):
         return None
+    parsed_reference_id = _parse_optional_int(merged_reference_id)
+    if parsed_reference_id is None:
+        return None
 
-    reference_row = _fetch_ifrc_reference(schema, merged_reference_id)
+    reference_row = _fetch_ifrc_reference(schema, parsed_reference_id)
     if reference_row is None:
         return None
 
@@ -1032,7 +1048,7 @@ def _normalize_item_uom_options(
         raw_factor = option.get("conversion_factor", option.get("conversion_to_default", 1))
         try:
             conversion_factor = Decimal(str(raw_factor))
-        except Exception:
+        except (InvalidOperation, ValueError, TypeError):
             errors["uom_options"] = "Each UOM option must include a numeric conversion_factor."
             break
         if conversion_factor <= 0:

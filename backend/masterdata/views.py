@@ -234,6 +234,41 @@ def _create_failure_response(*, target: str, warnings: list[str], detail: str):
     )
 
 
+def _status_change_readback_failure_response(
+    *,
+    action: str,
+    table_key: str,
+    warnings: list[str],
+):
+    read_warnings = warnings or ["db_error"]
+    transient_warning = next(
+        (
+            warning
+            for warning in read_warnings
+            if warning == "db_unavailable" or warning.startswith("transient")
+        ),
+        None,
+    )
+    target = f"{action} item" if table_key == "items" else f"{action} record"
+    detail = (
+        f"Loading the {target} is temporarily unavailable."
+        if transient_warning is not None
+        else f"Failed to load {target}."
+    )
+    return Response(
+        {
+            "detail": detail,
+            "diagnostic": _warning_diagnostic_message(
+                read_warnings,
+                operation="load",
+                target=target,
+            ),
+            "warnings": read_warnings,
+        },
+        status=503 if transient_warning is not None else 500,
+    )
+
+
 def _ifrc_agent() -> IFRCAgent:
     global _IFRC_AGENT_SINGLETON
     if _IFRC_AGENT_SINGLETON is None:
@@ -1802,9 +1837,16 @@ def master_inactivate(request, table_key: str, pk: str):
         return Response({"detail": "Inactivation failed.", "warnings": warnings}, status=500)
 
     if cfg.key == "items":
-        record, _ = get_item_record(pk_value)
+        record, read_warnings = get_item_record(pk_value)
     else:
-        record, _ = get_record(cfg.key, pk_value)
+        record, read_warnings = get_record(cfg.key, pk_value)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="inactivated",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
     payload = {"record": record, "warnings": warnings}
     payload.update(catalog_detail_metadata(cfg.key))
     return Response(payload)
@@ -1860,9 +1902,16 @@ def master_activate(request, table_key: str, pk: str):
         return Response({"detail": "Activation failed.", "warnings": warnings}, status=500)
 
     if cfg.key == "items":
-        record, _ = get_item_record(pk_value)
+        record, read_warnings = get_item_record(pk_value)
     else:
-        record, _ = get_record(cfg.key, pk_value)
+        record, read_warnings = get_record(cfg.key, pk_value)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="activated",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
     payload = {"record": record, "warnings": warnings}
     payload.update(catalog_detail_metadata(cfg.key))
     return Response(payload)

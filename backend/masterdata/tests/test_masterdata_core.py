@@ -661,6 +661,77 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.assertEqual(response.data["warnings"], ["not_found"])
 
 
+class StatusChangeReadbackFailureViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="tester",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_INACTIVATE, views.PERM_MASTERDATA_EDIT],
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.get_item_record", return_value=(None, ["db_unavailable"]))
+    @patch("masterdata.views.update_item_record", return_value=(True, []))
+    @patch("masterdata.views.check_dependencies", return_value=([], []))
+    def test_master_inactivate_returns_503_when_item_readback_is_transient(
+        self,
+        _mock_check_dependencies,
+        _mock_update_item_record,
+        _mock_get_item_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/items/15/inactivate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_inactivate(request, "items", "15")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.data["detail"],
+            "Loading the inactivated item is temporarily unavailable.",
+        )
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            None,
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:failed to reload activated record",
+            ],
+        ),
+    )
+    @patch("masterdata.views.activate_record", return_value=(True, []))
+    def test_master_activate_returns_500_when_generic_readback_fails(
+        self,
+        _mock_activate_record,
+        _mock_get_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/uom/EA/activate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_activate(request, "uom", "EA")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data["detail"], "Failed to load activated record.")
+        self.assertEqual(
+            response.data["warnings"],
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:failed to reload activated record",
+            ],
+        )
+        self.assertIn("OperationalError", response.data["diagnostic"])
+
+
 class InventoryGuardLookupTests(SimpleTestCase):
     @patch(
         "masterdata.services.data_access._guard_inactive_item_forward_write",

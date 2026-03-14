@@ -388,11 +388,11 @@ describe('MasterFormPageComponent', () => {
 
     expect(masterDataService.lookupIfrcFamilies).toHaveBeenCalledWith(jasmine.objectContaining({
       categoryId: 102,
-      activeOnly: false,
+      includeValue: inactiveFamilyId,
     }));
     expect(masterDataService.lookupIfrcReferences).toHaveBeenCalledWith(jasmine.objectContaining({
       ifrcFamilyId: inactiveFamilyId,
-      activeOnly: false,
+      includeValue: inactiveReferenceId,
     }));
     expect(component.form.get('ifrc_family_id')?.value).toBe(inactiveFamilyId);
     expect(component.form.get('ifrc_item_ref_id')?.value).toBe(inactiveReferenceId);

@@ -47,6 +47,7 @@ export interface IfrcFamilyLookupOptions {
   categoryId?: string | number | null;
   search?: string;
   activeOnly?: boolean;
+  includeValue?: string | number | null;
 }
 
 export interface IfrcReferenceLookupOptions {
@@ -54,5 +55,6 @@ export interface IfrcReferenceLookupOptions {
   familyId?: string | number | null;
   search?: string;
   activeOnly?: boolean;
+  includeValue?: string | number | null;
   limit?: number;
 }

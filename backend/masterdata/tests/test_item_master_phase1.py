@@ -102,12 +102,30 @@ class ItemMasterSearchSqlTests(SimpleTestCase):
         self.assertEqual(total, 0)
         self.assertEqual(warnings, [])
         executed_sql = cursor.execute.call_args_list[1].args[0]
-        self.assertIn("LEFT JOIN public.ifrc_family f", executed_sql)
-        self.assertIn("LEFT JOIN public.ifrc_item_reference r", executed_sql)
+        self.assertIn(".ifrc_family f", executed_sql)
+        self.assertIn(".ifrc_item_reference r", executed_sql)
         self.assertIn("UPPER(COALESCE(i.legacy_item_code, '')) LIKE %s", executed_sql)
         self.assertIn("UPPER(COALESCE(f.family_label, '')) LIKE %s", executed_sql)
         self.assertIn("UPPER(COALESCE(r.reference_desc, '')) LIKE %s", executed_sql)
         self.assertIn("ORDER BY ifrc_family_label ASC", executed_sql)
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master.connection")
+    def test_list_ifrc_family_lookup_ignores_malformed_category_filter(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+
+        rows, warnings = list_ifrc_family_lookup(category_id="abc", active_only=False)
+
+        self.assertEqual(rows, [])
+        self.assertEqual(warnings, [])
+        executed_sql = cursor.execute.call_args.args[0]
+        self.assertNotIn("f.category_id = %s", executed_sql)
+        self.assertEqual(cursor.execute.call_args.args[1], [])
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
     @patch("masterdata.services.item_master.connection")
@@ -133,6 +151,25 @@ class ItemMasterSearchSqlTests(SimpleTestCase):
         query_params = cursor.execute.call_args.args[1]
         self.assertIn("(f.status_code = 'A' OR f.ifrc_family_id = %s)", executed_sql)
         self.assertEqual(query_params[:2], [102, 11])
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master.connection")
+    def test_list_ifrc_reference_lookup_ignores_malformed_family_filter(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+
+        rows, warnings = list_ifrc_reference_lookup(ifrc_family_id="abc", active_only=False)
+
+        self.assertEqual(rows, [])
+        self.assertEqual(warnings, [])
+        executed_sql = cursor.execute.call_args.args[0]
+        query_params = cursor.execute.call_args.args[1]
+        self.assertNotIn("r.ifrc_family_id = %s", executed_sql)
+        self.assertEqual(query_params, [100])
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
     @patch("masterdata.services.item_master.connection")
@@ -686,6 +723,18 @@ class ItemMasterConflictTests(SimpleTestCase):
         self.assertEqual(conflict["code"], ITEM_CANONICAL_CONFLICT_CODE)
         self.assertEqual(conflict["item_code"], "WWTRTABL01")
         self.assertEqual(conflict["existing_item"]["item_id"], 91)
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._fetch_ifrc_reference")
+    def test_find_item_canonical_conflict_returns_none_for_non_numeric_reference_id(
+        self,
+        mock_reference,
+        _mock_sqlite,
+    ):
+        conflict = find_item_canonical_conflict({"ifrc_item_ref_id": "abc"})
+
+        self.assertIsNone(conflict)
+        mock_reference.assert_not_called()
 
 
 class CatalogGovernanceServiceTests(SimpleTestCase):
@@ -1557,6 +1606,7 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
             if 'INSERT INTO "tenant_a".ifrc_item_reference' in sql
         )
         self.assertNotIn("size_weight", reference_seed_sql)
+        self.assertNotIn("idx_ifrc_item_reference_code", executed_sql)
 
     def test_0006_forwards_sql_adds_legacy_code_and_reference_uniqueness(self):
         cursor = MagicMock()
@@ -1574,16 +1624,20 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
 
         executed_sql = schema_editor.execute.call_args.args[0]
         duplicate_check_sql = cursor.execute.call_args.args[0]
-        self.assertIn('FROM "tenant_a".item', duplicate_check_sql)
+        self.assertIn('FROM "tenant_a"."item"', duplicate_check_sql)
         self.assertIn("GROUP BY ifrc_item_ref_id", duplicate_check_sql)
         self.assertIn("HAVING COUNT(*) > 1", duplicate_check_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS legacy_item_code", executed_sql)
         self.assertIn("CREATE UNIQUE INDEX IF NOT EXISTS ux_item_ifrc_item_ref_id_unique", executed_sql)
-        self.assertIn("UPDATE tenant_a.item AS item", executed_sql)
+        self.assertIn('UPDATE "tenant_a".item AS item', executed_sql)
 
     def test_0006_backwards_sql_restores_legacy_item_code_before_drop(self):
+        connection = SimpleNamespace(
+            vendor="postgresql",
+            ops=SimpleNamespace(quote_name=lambda name: f'"{name}"'),
+        )
         schema_editor = SimpleNamespace(
-            connection=SimpleNamespace(vendor="postgresql"),
+            connection=connection,
             execute=MagicMock(),
         )
 
@@ -1592,12 +1646,12 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
                 self.migration_0006._backwards(None, schema_editor)
 
         executed_sql = schema_editor.execute.call_args.args[0]
-        update_position = executed_sql.index("UPDATE tenant_a.item")
+        update_position = executed_sql.index('UPDATE "tenant_a".item')
         unique_index_drop_position = executed_sql.index(
-            "DROP INDEX IF EXISTS tenant_a.ux_item_ifrc_item_ref_id_unique"
+            'DROP INDEX IF EXISTS "tenant_a".ux_item_ifrc_item_ref_id_unique'
         )
         legacy_index_drop_position = executed_sql.index(
-            "DROP INDEX IF EXISTS tenant_a.idx_item_legacy_item_code"
+            'DROP INDEX IF EXISTS "tenant_a".idx_item_legacy_item_code'
         )
         drop_column_position = executed_sql.index("DROP COLUMN IF EXISTS legacy_item_code")
 
@@ -1605,6 +1659,20 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertLess(unique_index_drop_position, legacy_index_drop_position)
         self.assertLess(legacy_index_drop_position, drop_column_position)
         self.assertIn("SET item_code = legacy_item_code", executed_sql)
+
+    def test_0006_legacy_item_table_exists_quotes_mixed_case_schema_in_to_regclass(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ('"TenantA"."item"',)
+        connection = MagicMock(vendor="postgresql")
+        connection.ops.quote_name.side_effect = lambda name: f'"{name}"'
+        connection.cursor.return_value.__enter__.return_value = cursor
+        schema_editor = SimpleNamespace(connection=connection)
+
+        with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "TenantA"}):
+            exists = self.migration_0006._legacy_item_table_exists(schema_editor)
+
+        self.assertTrue(exists)
+        self.assertEqual(cursor.execute.call_args.args[1], ['"TenantA"."item"'])
 
     def test_0006_schema_name_accepts_valid_current_schema_fallback(self):
         cursor = MagicMock()
@@ -1668,10 +1736,16 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("Invalid database schema name for duplicate mapping check", str(exc.exception))
         cursor.execute.assert_not_called()
 
-    @patch("masterdata.item_master_taxonomy.sync_item_master_taxonomy")
-    def test_0007_forwards_sql_adds_reference_metadata_columns(self, mock_sync):
+    def test_0007_forwards_sql_adds_reference_metadata_columns(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            (77, "Water purification tablet 500 g plastic", "", "", "")
+        ]
+        connection = MagicMock(vendor="postgresql")
+        connection.ops.quote_name.side_effect = lambda name: f'"{name}"'
+        connection.cursor.return_value.__enter__.return_value = cursor
         schema_editor = SimpleNamespace(
-            connection=SimpleNamespace(vendor="postgresql"),
+            connection=connection,
             execute=MagicMock(),
         )
         with patch.object(self.migration_0007, "_relation_exists", return_value=True):
@@ -1679,11 +1753,16 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
                 self.migration_0007._forwards(None, schema_editor)
 
         executed_sql = schema_editor.execute.call_args.args[0]
-        self.assertIn("ALTER TABLE tenant_a.ifrc_item_reference", executed_sql)
+        self.assertIn('ALTER TABLE "tenant_a".ifrc_item_reference', executed_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS size_weight", executed_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS form", executed_sql)
         self.assertIn("ADD COLUMN IF NOT EXISTS material", executed_sql)
-        mock_sync.assert_called_once_with(schema_editor.connection, schema="tenant_a")
+        cursor.executemany.assert_called_once()
+        update_sql, update_params = cursor.executemany.call_args.args
+        self.assertIn('UPDATE "tenant_a"."ifrc_item_reference"', update_sql)
+        self.assertEqual(update_params[0][0], "500 G")
+        self.assertEqual(update_params[0][1], "TABLET")
+        self.assertEqual(update_params[0][2], "PLASTIC")
 
     def test_0008_forwards_sql_creates_append_only_catalog_audit(self):
         schema_editor = SimpleNamespace(
@@ -1735,6 +1814,15 @@ class ItemMasterUomOptionTests(SimpleTestCase):
 
         self.assertIsNone(options)
         self.assertIn("greater than zero", errors["uom_options"])
+
+    def test_normalize_rejects_non_numeric_conversion_factor(self):
+        options, errors = _normalize_item_uom_options(
+            [{"uom_code": "BOX", "conversion_factor": "abc"}],
+            default_uom_code="EA",
+        )
+
+        self.assertIsNone(options)
+        self.assertIn("numeric conversion_factor", errors["uom_options"])
 
     def test_normalize_returns_none_for_null_input(self):
         options, errors = _normalize_item_uom_options(None, default_uom_code="EA")

@@ -85,8 +85,24 @@ def _schema_name(schema_editor) -> str:
     return _validated_schema(schema, source="database schema name")
 
 
+def _quoted_schema(schema_editor, schema: str) -> str:
+    validated_schema = _validated_schema(schema, source="database schema name")
+    return schema_editor.connection.ops.quote_name(validated_schema)
+
+
+def _qualified_relation_name(schema_editor, *, schema: str, relation_name: str) -> str:
+    return (
+        f"{_quoted_schema(schema_editor, schema)}."
+        f"{schema_editor.connection.ops.quote_name(relation_name)}"
+    )
+
+
 def _legacy_item_table_exists(schema_editor) -> bool:
-    relation = f"{_schema_name(schema_editor)}.item"
+    relation = _qualified_relation_name(
+        schema_editor,
+        schema=_schema_name(schema_editor),
+        relation_name="item",
+    )
     with schema_editor.connection.cursor() as cursor:
         cursor.execute("SELECT to_regclass(%s)", [relation])
         row = cursor.fetchone()
@@ -100,14 +116,18 @@ def _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema: str
         schema,
         source="database schema name for duplicate mapping check",
     )
-    schema_sql = schema_editor.connection.ops.quote_name(validated_schema)
+    item_table_sql = _qualified_relation_name(
+        schema_editor,
+        schema=validated_schema,
+        relation_name="item",
+    )
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             f"""
             SELECT
                 ifrc_item_ref_id,
                 array_agg(item_id ORDER BY item_id)
-            FROM {schema_sql}.item
+            FROM {item_table_sql}
             WHERE ifrc_item_ref_id IS NOT NULL
             GROUP BY ifrc_item_ref_id
             HAVING COUNT(*) > 1
@@ -137,8 +157,9 @@ def _forwards(apps, schema_editor):
         return
 
     schema = _schema_name(schema_editor)
+    quoted_schema = _quoted_schema(schema_editor, schema)
     _assert_no_duplicate_ifrc_item_reference_mappings(schema_editor, schema)
-    schema_editor.execute(_FORWARD_SQL_TEMPLATE.format(schema=schema))
+    schema_editor.execute(_FORWARD_SQL_TEMPLATE.format(schema=quoted_schema))
 
 
 def _backwards(apps, schema_editor):
@@ -148,7 +169,8 @@ def _backwards(apps, schema_editor):
         return
 
     schema = _schema_name(schema_editor)
-    schema_editor.execute(_REVERSE_SQL_TEMPLATE.format(schema=schema))
+    quoted_schema = _quoted_schema(schema_editor, schema)
+    schema_editor.execute(_REVERSE_SQL_TEMPLATE.format(schema=quoted_schema))
 
 
 class Migration(migrations.Migration):

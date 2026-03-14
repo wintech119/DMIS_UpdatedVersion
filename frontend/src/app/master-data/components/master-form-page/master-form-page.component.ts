@@ -1054,7 +1054,7 @@ export class MasterFormPageComponent implements OnInit {
     const shouldPreserveInactive = this.shouldPreserveInactiveItemTaxonomy(preserveValue);
     this.service.lookupIfrcFamilies({
       categoryId,
-      activeOnly: shouldPreserveInactive ? false : undefined,
+      includeValue: shouldPreserveInactive ? preserveValue : null,
     }).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
@@ -1118,7 +1118,7 @@ export class MasterFormPageComponent implements OnInit {
     this.service.lookupIfrcReferences({
       ifrcFamilyId: familyId,
       search: search || undefined,
-      activeOnly: shouldPreserveInactive ? false : undefined,
+      includeValue: shouldPreserveInactive ? preserveValue : null,
       limit: 50,
     }).pipe(
       takeUntilDestroyed(this.destroyRef),

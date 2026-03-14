@@ -122,6 +122,9 @@ export class MasterDataService {
     if (opts?.categoryId != null && opts.categoryId !== '') {
       params = params.set('category_id', String(opts.categoryId));
     }
+    if (opts?.includeValue != null && opts.includeValue !== '') {
+      params = params.set('include_value', String(opts.includeValue));
+    }
     if (opts?.search) {
       params = params.set('search', opts.search);
     }
@@ -140,6 +143,9 @@ export class MasterDataService {
     const familyId = opts?.ifrcFamilyId ?? opts?.familyId;
     if (familyId != null && familyId !== '') {
       params = params.set('ifrc_family_id', String(familyId));
+    }
+    if (opts?.includeValue != null && opts.includeValue !== '') {
+      params = params.set('include_value', String(opts.includeValue));
     }
     if (opts?.search) {
       params = params.set('search', opts.search);
