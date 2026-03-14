@@ -229,6 +229,12 @@ class TestSegmentExtraction(TestCase):
 
         self.assertEqual(metadata["size_weight"], "16 M2")
 
+    def test_extract_reference_metadata_does_not_treat_linear_meters_as_area(self):
+        metadata = extract_reference_metadata("rope 20 m")
+
+        self.assertNotEqual(metadata["size_weight"], "20 M2")
+        self.assertIn(metadata["size_weight"], {"", "20 M"})
+
     def test_extract_reference_metadata_preserves_raw_dimension_value(self):
         metadata = extract_reference_metadata("tarpaulin", size_weight="4 x 5 sq m")
 

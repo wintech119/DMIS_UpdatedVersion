@@ -376,7 +376,7 @@ _DIMENSION_RE = re.compile(
     re.IGNORECASE,
 )
 _AREA_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m)\b",
+    r"(\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m)\b",
     re.IGNORECASE,
 )
 
@@ -593,11 +593,13 @@ def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> s
         "mm": "MM",
         "m2": "M2",
         "m^2": "M2",
-        "m": "M2",
         "sqm": "M2",
         "sq m": "M2",
     }
-    unit = unit_map.get(raw_unit, raw_unit.upper())
+    if raw_unit == "m" and "x" in raw_value.lower():
+        unit = "M2"
+    else:
+        unit = unit_map.get(raw_unit, raw_unit.upper())
     try:
         value = Decimal(raw_value)
         if value == value.to_integral():
