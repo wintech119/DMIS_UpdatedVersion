@@ -11,7 +11,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 
 from masterdata.item_master_taxonomy import taxonomy_source_version
 
@@ -72,10 +72,13 @@ def _safe_rollback() -> None:
 
 
 def _db_error_warnings(exc: Exception) -> list[str]:
-    warnings = ["db_error", f"db_exception:{exc.__class__.__name__}"]
-    message = re.sub(r"\s+", " ", str(exc or "")).strip()
-    if message:
-        warnings.append(f"db_message:{message[:240]}")
+    warnings = ["db_error"]
+    if isinstance(exc, IntegrityError):
+        warnings.append("db_constraint")
+        cause_name = getattr(getattr(exc, "__cause__", None), "__class__", type(exc)).__name__
+        message = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
+        if cause_name == "UniqueViolation" or "unique constraint" in message:
+            warnings.append("db_unique_violation")
     return warnings
 
 
@@ -146,10 +149,18 @@ def resync_auto_pk_sequence(table_key: str) -> tuple[bool, dict[str, Any] | None
     if info is None:
         return False, None, warnings
 
-    target_value = int(info["max_pk"]) + 1
     try:
         with transaction.atomic():
             with connection.cursor() as cursor:
+                schema_sql = connection.ops.quote_name(str(info["schema"]))
+                table_sql = connection.ops.quote_name(str(info["table_name"]))
+                column_sql = connection.ops.quote_name(str(info["pk_field"]))
+                cursor.execute(
+                    f"SELECT COALESCE(MAX({column_sql}), 0) FROM {schema_sql}.{table_sql}"
+                )
+                current_max_row = cursor.fetchone()
+                current_max = int(current_max_row[0] or 0) if current_max_row else 0
+                target_value = current_max + 1
                 cursor.execute(
                     "SELECT setval(%s::regclass, %s, false)",
                     [info["sequence_name"], target_value],
@@ -164,6 +175,7 @@ def resync_auto_pk_sequence(table_key: str) -> tuple[bool, dict[str, Any] | None
     updated_info = dict(info)
     updated_info.update(
         {
+            "max_pk": current_max,
             "last_value": applied_value,
             "is_called": False,
             "next_value": target_value,

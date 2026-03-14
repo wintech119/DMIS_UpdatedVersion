@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
 from django.core.management import call_command
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError
 from django.test import RequestFactory, SimpleTestCase
 from django.test import override_settings
 from rest_framework.request import Request
@@ -15,6 +15,7 @@ from masterdata import views
 from masterdata.services.data_access import (
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
+    _db_error_warnings,
     _guard_inactive_item_forward_write,
     _is_forward_write_guarded_state,
     _schema_name,
@@ -72,6 +73,18 @@ class OrderByValidationTests(SimpleTestCase):
         sort_sql, invalid = _resolve_order_by(cfg, None)
         self.assertEqual(sort_sql, "start_date DESC")
         self.assertFalse(invalid)
+
+
+class DataAccessErrorWarningTests(SimpleTestCase):
+    def test_db_error_warnings_sanitizes_unique_constraint_details(self):
+        warnings = _db_error_warnings(
+            IntegrityError("duplicate key value violates unique constraint ux_item_item_code")
+        )
+
+        self.assertEqual(
+            warnings,
+            ["db_error", "db_constraint", "db_unique_violation"],
+        )
 
 
 class PaginationLimitClampTests(SimpleTestCase):
@@ -293,8 +306,9 @@ class AutoPkSequenceRepairTests(SimpleTestCase):
         mock_inspect,
     ):
         mock_connection.vendor = "postgresql"
+        mock_connection.ops.quote_name.side_effect = lambda value: f'"{value}"'
         cursor = mock_connection.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = (458,)
+        cursor.fetchone.side_effect = [(460,), (461,)]
         mock_inspect.return_value = ({
             "table_key": "items",
             "schema": "public",
@@ -310,12 +324,15 @@ class AutoPkSequenceRepairTests(SimpleTestCase):
         success, info, warnings = resync_auto_pk_sequence("items")
 
         self.assertTrue(success)
-        self.assertEqual(info["target_value"], 458)
-        self.assertEqual(info["next_value"], 458)
+        self.assertEqual(info["max_pk"], 460)
+        self.assertEqual(info["target_value"], 461)
+        self.assertEqual(info["next_value"], 461)
         self.assertIn("pk_sequence_resynced", warnings)
+        self.assertIn("SELECT COALESCE(MAX(", cursor.execute.call_args_list[0].args[0])
+        self.assertIn("FROM \"public\".\"item\"", cursor.execute.call_args_list[0].args[0])
         self.assertEqual(
-            cursor.execute.call_args.args[1],
-            ["public.item_item_id_seq", 458],
+            cursor.execute.call_args_list[1].args[1],
+            ["public.item_item_id_seq", 461],
         )
 
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
@@ -510,11 +527,7 @@ class PostWriteReadbackFailureViewTests(SimpleTestCase):
         "masterdata.views.get_record",
         return_value=(
             None,
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:failed to reload updated record",
-            ],
+            ["db_error"],
         ),
     )
     @patch("masterdata.views.update_record", return_value=(True, []))
@@ -536,13 +549,9 @@ class PostWriteReadbackFailureViewTests(SimpleTestCase):
         self.assertEqual(response.data["detail"], "Failed to load updated record.")
         self.assertEqual(
             response.data["warnings"],
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:failed to reload updated record",
-            ],
+            ["db_error"],
         )
-        self.assertIn("OperationalError", response.data["diagnostic"])
+        self.assertIn("database error", response.data["diagnostic"])
 
 
 class InactiveItemForwardWriteTests(SimpleTestCase):
@@ -770,11 +779,7 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
         "masterdata.views.get_record",
         return_value=(
             None,
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:failed to reload activated record",
-            ],
+            ["db_error"],
         ),
     )
     @patch("masterdata.views.activate_record", return_value=(True, []))
@@ -793,13 +798,9 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
         self.assertEqual(response.data["detail"], "Failed to load activated record.")
         self.assertEqual(
             response.data["warnings"],
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:failed to reload activated record",
-            ],
+            ["db_error"],
         )
-        self.assertIn("OperationalError", response.data["diagnostic"])
+        self.assertIn("database error", response.data["diagnostic"])
 
 
 class InventoryGuardLookupTests(SimpleTestCase):

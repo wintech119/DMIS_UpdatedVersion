@@ -1,4 +1,5 @@
 import importlib
+import json
 from contextlib import nullcontext
 from decimal import Decimal
 from io import StringIO
@@ -20,6 +21,7 @@ from masterdata.item_master_taxonomy import (
     sync_item_master_taxonomy,
 )
 from masterdata.services.catalog_governance import (
+    _write_catalog_audit,
     _match_reference_category,
     catalog_detail_metadata,
     suggest_ifrc_family_authoring,
@@ -686,9 +688,7 @@ class ItemMasterTransactionalWriteTests(SimpleTestCase):
         item_id, warnings = create_item_record({"item_name": "WATER TABS"}, "tester")
 
         self.assertIsNone(item_id)
-        self.assertIn("db_error", warnings)
-        self.assertIn("db_exception:DatabaseError", warnings)
-        self.assertIn("db_message:reload failed", warnings)
+        self.assertEqual(warnings, ["db_error"])
         mock_get_item_record.assert_called_once_with(501, raise_on_error=True)
         mock_safe_rollback.assert_called_once()
 
@@ -724,9 +724,7 @@ class ItemMasterTransactionalWriteTests(SimpleTestCase):
         success, warnings = update_item_record(501, {"item_name": "WATER TABS"}, "tester")
 
         self.assertFalse(success)
-        self.assertIn("db_error", warnings)
-        self.assertIn("db_exception:DatabaseError", warnings)
-        self.assertIn("db_message:reload failed", warnings)
+        self.assertEqual(warnings, ["db_error"])
         self.assertEqual(
             mock_get_item_record.call_args_list,
             [
@@ -773,6 +771,29 @@ class ItemMasterConflictTests(SimpleTestCase):
 
 
 class CatalogGovernanceServiceTests(SimpleTestCase):
+    @patch("masterdata.services.catalog_governance.connection")
+    def test_write_catalog_audit_uses_sql_null_for_missing_before_state(
+        self,
+        mock_connection,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+
+        _write_catalog_audit(
+            "tenant_a",
+            table_key="ifrc_families",
+            record_pk=11,
+            change_action="CREATE",
+            before_state=None,
+            after_state={"status_code": "A"},
+            changed_by_id="system",
+            context={"source": "test"},
+        )
+
+        params = cursor.execute.call_args.args[1]
+        self.assertIsNone(params[4])
+        self.assertEqual(json.loads(params[5]), {"status_code": "A"})
+        self.assertEqual(json.loads(params[6]), {"source": "test"})
+
     def test_validate_catalog_update_rejects_locked_reference_fields(self):
         errors, warnings = validate_catalog_update(
             "ifrc_item_references",
@@ -1189,8 +1210,8 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
             None,
             [
                 "db_error",
-                "db_exception:IntegrityError",
-                "db_message:duplicate key value violates unique constraint ux_item_item_code",
+                "db_constraint",
+                "db_unique_violation",
             ],
         ),
     )
@@ -1217,12 +1238,11 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
             response.data["warnings"],
             [
                 "db_error",
-                "db_exception:IntegrityError",
-                "db_message:duplicate key value violates unique constraint ux_item_item_code",
+                "db_constraint",
+                "db_unique_violation",
             ],
         )
-        self.assertIn("IntegrityError", response.data["diagnostic"])
-        self.assertIn("duplicate key value", response.data["diagnostic"])
+        self.assertIn("unique database constraint", response.data["diagnostic"])
 
     @patch("masterdata.views.create_item_record", return_value=(None, ["db_unavailable"]))
     @patch("masterdata.views.find_item_canonical_conflict", return_value=None)
@@ -1252,11 +1272,7 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
         "masterdata.views.get_item_record",
         return_value=(
             None,
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:connection lost during created-item reload",
-            ],
+            ["db_error"],
         ),
     )
     @patch("masterdata.views.create_item_record", return_value=(501, []))
@@ -1280,15 +1296,10 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.data["detail"], "Failed to load created item.")
-        self.assertIn("OperationalError", response.data["diagnostic"])
-        self.assertIn("connection lost", response.data["diagnostic"])
+        self.assertIn("database error", response.data["diagnostic"])
         self.assertEqual(
             response.data["warnings"],
-            [
-                "db_error",
-                "db_exception:OperationalError",
-                "db_message:connection lost during created-item reload",
-            ],
+            ["db_error"],
         )
 
     @patch(

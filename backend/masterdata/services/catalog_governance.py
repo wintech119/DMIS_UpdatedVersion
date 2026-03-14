@@ -583,7 +583,7 @@ def _write_catalog_audit(
                 int(record_pk),
                 change_action,
                 json.dumps(_to_jsonable(changed_fields)),
-                json.dumps(_to_jsonable(before_state)),
+                None if before_state is None else json.dumps(_to_jsonable(before_state)),
                 json.dumps(_to_jsonable(after_state)),
                 json.dumps(_to_jsonable(context or {})),
                 changed_by_id,

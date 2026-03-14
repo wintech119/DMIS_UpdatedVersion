@@ -166,22 +166,6 @@ def _inactive_item_guard_response(warnings: list[str], fallback_table: str):
 
 
 def _warning_diagnostic_message(warnings: list[str], *, operation: str, target: str) -> str:
-    exception_name = next(
-        (
-            warning.split(":", 1)[1]
-            for warning in warnings
-            if warning.startswith("db_exception:")
-        ),
-        "",
-    )
-    db_message = next(
-        (
-            warning.split(":", 1)[1]
-            for warning in warnings
-            if warning.startswith("db_message:")
-        ),
-        "",
-    )
     transient_warning = next(
         (
             warning
@@ -190,17 +174,17 @@ def _warning_diagnostic_message(warnings: list[str], *, operation: str, target: 
         ),
         "",
     )
-    if exception_name and db_message:
-        return f"{operation} {target} failed with {exception_name}: {db_message}"
-    if exception_name:
-        return f"{operation} {target} failed with {exception_name}."
-    if db_message:
-        return f"{operation} {target} failed: {db_message}"
     if transient_warning:
         return (
             f"{operation} {target} could not complete because the data store was temporarily unavailable: "
             f"{transient_warning}"
         )
+    if "db_unique_violation" in warnings:
+        return f"{operation} {target} failed because a unique database constraint was violated."
+    if "db_constraint" in warnings:
+        return f"{operation} {target} failed because a database constraint was violated."
+    if "db_error" in warnings:
+        return f"{operation} {target} failed due to a database error."
     if warnings:
         return f"{operation} {target} failed with warnings: {', '.join(warnings)}"
     return f"{operation} {target} failed for an unknown reason."
