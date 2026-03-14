@@ -1789,6 +1789,11 @@ def master_inactivate(request, table_key: str, pk: str):
             cfg.key, pk_value, _actor_id(request), expected_version,
         )
     if not success:
+        if "not_found" in warnings:
+            return Response(
+                {"detail": "Record not found.", "warnings": warnings},
+                status=404,
+            )
         if "version_conflict" in warnings:
             return Response(
                 {"detail": "Record was modified by another user.", "warnings": warnings},
@@ -1842,6 +1847,11 @@ def master_activate(request, table_key: str, pk: str):
             cfg.key, pk_value, _actor_id(request), expected_version,
         )
     if not success:
+        if "not_found" in warnings:
+            return Response(
+                {"detail": "Record not found.", "warnings": warnings},
+                status=404,
+            )
         if "version_conflict" in warnings:
             return Response(
                 {"detail": "Record was modified by another user.", "warnings": warnings},

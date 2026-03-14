@@ -582,6 +582,85 @@ class InactivationDependencyFailureViewTests(SimpleTestCase):
         mock_inactivate_record.assert_not_called()
 
 
+class StatusChangeNotFoundViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(
+            is_authenticated=True,
+            user_id="tester",
+            roles=[],
+            permissions=[views.PERM_MASTERDATA_INACTIVATE, views.PERM_MASTERDATA_EDIT],
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.update_item_record", return_value=(False, ["not_found"]))
+    @patch("masterdata.views.check_dependencies", return_value=([], []))
+    def test_master_inactivate_returns_404_when_item_status_change_reports_not_found(
+        self,
+        _mock_check_dependencies,
+        _mock_update_item_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/items/15/inactivate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_inactivate(request, "items", "15")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Record not found.")
+        self.assertEqual(response.data["warnings"], ["not_found"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.inactivate_record", return_value=(False, ["not_found"]))
+    @patch("masterdata.views.check_dependencies", return_value=([], []))
+    def test_master_inactivate_returns_404_when_generic_status_change_reports_not_found(
+        self,
+        _mock_check_dependencies,
+        _mock_inactivate_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/uom/EA/inactivate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_inactivate(request, "uom", "EA")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Record not found.")
+        self.assertEqual(response.data["warnings"], ["not_found"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.update_item_record", return_value=(False, ["not_found"]))
+    def test_master_activate_returns_404_when_item_status_change_reports_not_found(
+        self,
+        _mock_update_item_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/items/15/activate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_activate(request, "items", "15")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Record not found.")
+        self.assertEqual(response.data["warnings"], ["not_found"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.activate_record", return_value=(False, ["not_found"]))
+    def test_master_activate_returns_404_when_generic_status_change_reports_not_found(
+        self,
+        _mock_activate_record,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/uom/EA/activate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_activate(request, "uom", "EA")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Record not found.")
+        self.assertEqual(response.data["warnings"], ["not_found"])
+
+
 class InventoryGuardLookupTests(SimpleTestCase):
     @patch(
         "masterdata.services.data_access._guard_inactive_item_forward_write",
