@@ -1036,7 +1036,14 @@ def _handle_create(request, cfg):
             detail="Failed to create record.",
         )
 
-    record, _ = get_record(cfg.key, pk_val)
+    record, read_warnings = get_record(cfg.key, pk_val)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="created",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
     _link_ifrc_selection_if_present(
         request_data=data,
         actor_id=_actor_id(request),
@@ -1303,7 +1310,14 @@ def _handle_update(request, cfg, pk_value):
             return Response({"detail": "Not found."}, status=404)
         return Response({"detail": "Update failed.", "warnings": warnings}, status=500)
 
-    record, _ = get_record(cfg.key, pk_value)
+    record, read_warnings = get_record(cfg.key, pk_value)
+    warnings.extend(read_warnings)
+    if record is None:
+        return _status_change_readback_failure_response(
+            action="updated",
+            table_key=cfg.key,
+            warnings=warnings,
+        )
     _link_ifrc_selection_if_present(
         request_data=data,
         actor_id=_actor_id(request),
@@ -1384,9 +1398,10 @@ def _handle_item_update(request, cfg, pk_value):
     record, record_warnings = get_item_record(pk_value)
     warnings.extend(record_warnings)
     if record is None:
-        return Response(
-            {"detail": "Failed to load updated item.", "warnings": warnings or ["db_error"]},
-            status=500,
+        return _status_change_readback_failure_response(
+            action="updated",
+            table_key=cfg.key,
+            warnings=warnings,
         )
     _link_ifrc_selection_if_present(
         request_data=data,

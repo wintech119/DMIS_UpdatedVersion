@@ -982,7 +982,7 @@ fieldset.form-grid {
   .catalog-governance__actions,
   .catalog-suggestion-preview__actions,
   .form-submit-alert__actions {
-    flex-direction: column-reverse;
+    flex-direction: column;
 
     button {
       width: 100%;
@@ -1003,7 +1003,7 @@ fieldset.form-grid {
     }
 
     .action-bar-buttons {
-      flex-direction: column-reverse;
+      flex-direction: column;
       width: 100%;
       gap: 8px;
       button { width: 100%; min-height: 42px; justify-content: center; }

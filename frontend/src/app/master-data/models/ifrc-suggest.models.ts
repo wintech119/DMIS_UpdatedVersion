@@ -32,7 +32,7 @@ export interface IFRCSuggestion {
   group_code: string;      // 1 letter
   family_code: string;     // 3 letters
   category_code: string;   // 4 letters
-  spec_segment: string;    // 0-5 chars
+  spec_segment: string;    // 0-7 chars, optional
   sequence?: number | null;
   auto_fill_threshold: number;
   resolution_status?: IFRCSuggestionResolutionStatus;

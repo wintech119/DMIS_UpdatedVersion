@@ -111,6 +111,40 @@ class ItemMasterSearchSqlTests(SimpleTestCase):
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
     @patch("masterdata.services.item_master.connection")
+    def test_list_item_records_ignores_malformed_numeric_filters(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (0,)
+        cursor.fetchall.return_value = []
+
+        rows, total, warnings = list_item_records(
+            category_id="abc",
+            ifrc_family_id="bad",
+            ifrc_item_ref_id="oops",
+        )
+
+        self.assertEqual(rows, [])
+        self.assertEqual(total, 0)
+        self.assertEqual(
+            warnings,
+            [
+                "invalid_category_id_filter",
+                "invalid_ifrc_family_id_filter",
+                "invalid_ifrc_item_ref_id_filter",
+            ],
+        )
+        executed_sql = cursor.execute.call_args_list[1].args[0]
+        query_params = cursor.execute.call_args_list[1].args[1]
+        self.assertNotIn("i.category_id = %s", executed_sql)
+        self.assertNotIn("i.ifrc_family_id = %s", executed_sql)
+        self.assertNotIn("i.ifrc_item_ref_id = %s", executed_sql)
+        self.assertEqual(query_params, [100, 0])
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master.connection")
     def test_list_ifrc_family_lookup_ignores_malformed_category_filter(
         self,
         mock_connection,
@@ -1209,6 +1243,47 @@ class ItemMasterViewDispatchTests(SimpleTestCase):
                 "db_message:connection lost during created-item reload",
             ],
         )
+
+    @patch(
+        "masterdata.views.get_item_record",
+        side_effect=[
+            (
+                {
+                    "item_id": 501,
+                    "item_code": "WWTRTABL01",
+                    "version_nbr": 1,
+                },
+                [],
+            ),
+            (None, ["db_unavailable"]),
+        ],
+    )
+    @patch("masterdata.views.update_item_record", return_value=(True, []))
+    @patch("masterdata.views.find_item_canonical_conflict", return_value=None)
+    @patch("masterdata.views.validate_item_payload", return_value=({}, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_handle_item_update_returns_503_when_updated_item_reload_is_transient(
+        self,
+        _mock_validate_record,
+        _mock_validate_item_payload,
+        _mock_find_conflict,
+        _mock_update_item_record,
+        _mock_get_item_record,
+    ):
+        request = SimpleNamespace(
+            data={"item_name": "WATER TABS", "version_nbr": 1},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_update(request, TABLE_REGISTRY["items"], 501)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.data["detail"],
+            "Loading the updated item is temporarily unavailable.",
+        )
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
 
 
 class ItemMasterLookupViewTests(SimpleTestCase):

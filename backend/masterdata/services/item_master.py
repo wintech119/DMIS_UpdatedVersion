@@ -142,19 +142,31 @@ def list_item_records(
     warnings: list[str] = []
     where_clauses: list[str] = []
     params: list[Any] = []
+    parsed_category_id = _parse_optional_int(category_id)
+    parsed_family_id = _parse_optional_int(ifrc_family_id)
+    parsed_reference_id = _parse_optional_int(ifrc_item_ref_id)
 
     if status_filter:
         where_clauses.append("i.status_code = %s")
         params.append(status_filter)
     if category_id not in (None, ""):
-        where_clauses.append("i.category_id = %s")
-        params.append(category_id)
+        if parsed_category_id is None:
+            warnings.append("invalid_category_id_filter")
+        else:
+            where_clauses.append("i.category_id = %s")
+            params.append(parsed_category_id)
     if ifrc_family_id not in (None, ""):
-        where_clauses.append("i.ifrc_family_id = %s")
-        params.append(ifrc_family_id)
+        if parsed_family_id is None:
+            warnings.append("invalid_ifrc_family_id_filter")
+        else:
+            where_clauses.append("i.ifrc_family_id = %s")
+            params.append(parsed_family_id)
     if ifrc_item_ref_id not in (None, ""):
-        where_clauses.append("i.ifrc_item_ref_id = %s")
-        params.append(ifrc_item_ref_id)
+        if parsed_reference_id is None:
+            warnings.append("invalid_ifrc_item_ref_id_filter")
+        else:
+            where_clauses.append("i.ifrc_item_ref_id = %s")
+            params.append(parsed_reference_id)
 
     if search:
         token = f"%{str(search).upper()}%"

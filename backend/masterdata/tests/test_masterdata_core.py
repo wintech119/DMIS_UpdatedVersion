@@ -278,7 +278,10 @@ class AutoPkSequenceRepairTests(SimpleTestCase):
         self.assertEqual(info["last_value"], 401)
         self.assertTrue(info["is_called"])
         self.assertEqual(info["next_value"], 402)
-        self.assertEqual(cursor.execute.call_args_list[0].args[1], ["public.item", "item_id"])
+        self.assertEqual(
+            cursor.execute.call_args_list[0].args[1],
+            [f"{_schema_name()}.item", "item_id"],
+        )
 
     @patch("masterdata.services.data_access.inspect_auto_pk_sequence")
     @patch("masterdata.services.data_access.transaction.atomic")
@@ -473,6 +476,73 @@ class ItemDetailReadFailureTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data, {"detail": "Not found."})
+
+
+class PostWriteReadbackFailureViewTests(SimpleTestCase):
+    def setUp(self):
+        self.cfg = TABLE_REGISTRY["uom"]
+
+    @patch("masterdata.views.get_record", return_value=(None, ["db_unavailable"]))
+    @patch("masterdata.views.create_record", return_value=("EA", []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_generic_create_returns_503_when_readback_is_transient(
+        self,
+        _mock_validate,
+        _mock_create,
+        _mock_get_record,
+    ):
+        request = SimpleNamespace(
+            data={"uom_code": "EA", "uom_desc": "Each"},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_create(request, self.cfg)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.data["detail"],
+            "Loading the created record is temporarily unavailable.",
+        )
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
+
+    @patch(
+        "masterdata.views.get_record",
+        return_value=(
+            None,
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:failed to reload updated record",
+            ],
+        ),
+    )
+    @patch("masterdata.views.update_record", return_value=(True, []))
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_generic_update_returns_500_when_readback_fails(
+        self,
+        _mock_validate,
+        _mock_update,
+        _mock_get_record,
+    ):
+        request = SimpleNamespace(
+            data={"uom_desc": "Each"},
+            user=SimpleNamespace(user_id="tester"),
+        )
+
+        response = views._handle_update(request, self.cfg, "EA")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.data["detail"], "Failed to load updated record.")
+        self.assertEqual(
+            response.data["warnings"],
+            [
+                "db_error",
+                "db_exception:OperationalError",
+                "db_message:failed to reload updated record",
+            ],
+        )
+        self.assertIn("OperationalError", response.data["diagnostic"])
 
 
 class InactiveItemForwardWriteTests(SimpleTestCase):
