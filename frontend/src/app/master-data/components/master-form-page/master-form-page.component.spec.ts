@@ -565,6 +565,104 @@ describe('MasterFormPageComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('IFRC Material Hint');
   });
 
+  it('ignores stale IFRC suggestion resolution lookups that arrive after a newer suggestion', () => {
+    const { component, ifrcSuggestService, masterDataService } = setup();
+    const firstFamilyResponse$ = new Subject<{
+      value: number;
+      label: string;
+      family_code: string;
+      group_code: string;
+      category_id: number;
+      category_desc: string;
+      category_code: string;
+    }[]>();
+    const secondFamilyResponse$ = new Subject<{
+      value: number;
+      label: string;
+      family_code: string;
+      group_code: string;
+      category_id: number;
+      category_desc: string;
+      category_code: string;
+    }[]>();
+    const firstSuggestion = buildResolvedSuggestion();
+    const secondSuggestion = buildResolvedSuggestion({
+      suggestion_id: 'suggest-2',
+      ifrc_code: 'SSHELTENTA01',
+      ifrc_description: 'Emergency shelter tent',
+      group_code: 'S',
+      family_code: 'SHEL',
+      ifrc_family_id: 302,
+      resolved_ifrc_item_ref_id: 402,
+      auto_highlight_candidate_id: 402,
+      candidates: [
+        {
+          ifrc_item_ref_id: 402,
+          ifrc_family_id: 302,
+          ifrc_code: 'SSHELTENTA01',
+          reference_desc: 'Emergency shelter tent',
+          group_code: 'S',
+          group_label: 'Shelter',
+          family_code: 'SHEL',
+          family_label: 'Emergency Shelter',
+          category_code: 'TENT',
+          category_label: 'Tent',
+          spec_segment: 'A',
+          rank: 1,
+          score: 1,
+          auto_highlight: true,
+          match_reasons: ['exact_generated_code_match'],
+        },
+      ],
+    });
+    ifrcSuggestService.suggest.and.returnValues(
+      of(firstSuggestion),
+      of(secondSuggestion),
+    );
+    masterDataService.lookupIfrcFamilies.and.returnValues(
+      firstFamilyResponse$.asObservable(),
+      secondFamilyResponse$.asObservable(),
+    );
+
+    component.form.patchValue({ item_name: 'Water purification tablet' }, { emitEvent: false });
+    component.onRequestIfrcSuggestion();
+
+    component.form.patchValue({ item_name: 'Emergency shelter tent' }, { emitEvent: false });
+    component.onRequestIfrcSuggestion();
+
+    secondFamilyResponse$.next([
+      {
+        value: 302,
+        label: 'Emergency Shelter',
+        family_code: 'SHEL',
+        group_code: 'S',
+        category_id: 103,
+        category_desc: 'Shelter',
+        category_code: 'SHELTER',
+      },
+    ]);
+
+    expect(component.ifrcSuggestion()?.suggestion_id).toBe('suggest-2');
+    expect(component.ifrcSuggestionResolution()?.family?.value).toBe(302);
+    expect(component.ifrcSuggestionResolution()?.reference?.value).toBe(402);
+
+    firstFamilyResponse$.next([
+      {
+        value: 301,
+        label: 'Water Treatment',
+        family_code: 'WTR',
+        group_code: 'W',
+        category_id: 102,
+        category_desc: 'WASH',
+        category_code: 'WASH',
+      },
+    ]);
+
+    expect(component.ifrcSuggestion()?.suggestion_id).toBe('suggest-2');
+    expect(component.ifrcSuggestionResolution()?.family?.value).toBe(302);
+    expect(component.ifrcSuggestionResolution()?.reference?.value).toBe(402);
+  });
+
   it('only requests IFRC helper suggestions when Find Match is used', fakeAsync(() => {
     const { component, ifrcSuggestService } = setup();
 
@@ -1497,7 +1595,7 @@ describe('MasterFormPageComponent', () => {
     expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('Create Replacement'))).toBeTrue();
   });
 
-  it('navigates to the record view when the governed edit warning dialog is cancelled', () => {
+  it('navigates to the list view when the governed edit warning dialog is cancelled', () => {
     const { component, router } = setup('ifrc-item-references', { pk: '77' });
     const dialogOpen = jasmine.createSpy('open').and.returnValue({ afterClosed: () => of(false) } as never);
     const internalComponent = component as unknown as {
@@ -1515,7 +1613,7 @@ describe('MasterFormPageComponent', () => {
 
     internalComponent.maybePromptGovernedEditWarning();
 
-    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', '77', 'view']);
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references']);
   });
 
   it('applies suggested IFRC family values during governed family creation', () => {

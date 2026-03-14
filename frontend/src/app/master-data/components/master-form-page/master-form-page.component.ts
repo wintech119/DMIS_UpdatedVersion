@@ -173,6 +173,7 @@ export class MasterFormPageComponent implements OnInit {
   private versionNbr: number | null = null;
   private acceptedIfrcSuggestLogId: string | null = null;
   private applyingTaxonomyPatch = false;
+  private currentIfrcResolveToken = 0;
   private selectedReferenceOption: IfrcReferenceLookup | null = null;
   private itemCodeFallbackValue: string | null = null;
   private legacyItemCodeValue: string | null = null;
@@ -536,6 +537,7 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     this.clearAcceptedSuggestion();
+    this.invalidateIfrcResolveToken();
     this.ifrcRejectedState.set(null);
     this.ifrcError.set(null);
     this.ifrcTrigger$.next(itemName);
@@ -1170,6 +1172,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private resolveIfrcSuggestion(suggestion: IFRCSuggestion): void {
+    const resolveToken = ++this.currentIfrcResolveToken;
     const candidateRows = suggestion.candidates ?? [];
     const familySearch = String(
       suggestion.family_code
@@ -1185,9 +1188,15 @@ export class MasterFormPageComponent implements OnInit {
     const shouldLookupAllFamilies = distinctFamilyIds.length > 1 || !familySearch;
     const fallbackResolution = this.buildSuggestionResolutionState(suggestion, []);
     this.selectedSuggestionCandidateId.set(null);
+    const applyResolution = (resolved: ResolvedIfrcSuggestion): void => {
+      if (resolveToken !== this.currentIfrcResolveToken) {
+        return;
+      }
+      this.ifrcSuggestionResolution.set(resolved);
+    };
 
     if (!familySearch && distinctFamilyIds.length === 0) {
-      this.ifrcSuggestionResolution.set({
+      applyResolution({
         ...fallbackResolution,
         warning: 'Suggestion did not include a resolvable IFRC family.',
       });
@@ -1205,7 +1214,7 @@ export class MasterFormPageComponent implements OnInit {
         warning: 'Failed to resolve the IFRC suggestion against the active taxonomy.',
       } satisfies ResolvedIfrcSuggestion)),
       takeUntilDestroyed(this.destroyRef),
-    ).subscribe((resolved) => this.ifrcSuggestionResolution.set(resolved));
+    ).subscribe((resolved) => applyResolution(resolved));
   }
 
   private resolveSuggestionAgainstLookups(
@@ -1412,10 +1421,15 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private clearIfrcSuggestionState(): void {
+    this.invalidateIfrcResolveToken();
     this.ifrcSuggestion.set(null);
     this.ifrcSuggestionResolution.set(null);
     this.ifrcError.set(null);
     this.ifrcRejectedState.set(null);
+  }
+
+  private invalidateIfrcResolveToken(): void {
+    this.currentIfrcResolveToken += 1;
   }
 
   private setLocalDraftMode(isActive: boolean): void {

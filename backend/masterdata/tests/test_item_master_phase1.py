@@ -37,6 +37,7 @@ from masterdata.services.item_master import (
     create_item_record,
     find_item_canonical_conflict,
     get_item_record,
+    list_ifrc_family_lookup,
     list_ifrc_reference_lookup,
     list_item_records,
     update_item_record,
@@ -107,6 +108,31 @@ class ItemMasterSearchSqlTests(SimpleTestCase):
         self.assertIn("UPPER(COALESCE(f.family_label, '')) LIKE %s", executed_sql)
         self.assertIn("UPPER(COALESCE(r.reference_desc, '')) LIKE %s", executed_sql)
         self.assertIn("ORDER BY ifrc_family_label ASC", executed_sql)
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master.connection")
+    def test_list_ifrc_family_lookup_can_include_requested_inactive_value(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            (11, "Water Treatment", "WTR", "W", "Water", 102, "WASH", "Water and Sanitation")
+        ]
+
+        rows, warnings = list_ifrc_family_lookup(
+            category_id=102,
+            active_only=True,
+            include_value=11,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(rows[0]["value"], 11)
+        executed_sql = cursor.execute.call_args.args[0]
+        query_params = cursor.execute.call_args.args[1]
+        self.assertIn("(f.status_code = 'A' OR f.ifrc_family_id = %s)", executed_sql)
+        self.assertEqual(query_params[:2], [102, 11])
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
     @patch("masterdata.services.item_master.connection")
@@ -1157,6 +1183,29 @@ class ItemMasterLookupViewTests(SimpleTestCase):
         self.assertEqual(response.data["items"][0]["label"], "Water Treatment")
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.list_ifrc_family_lookup", return_value=([], []))
+    def test_family_lookup_passes_include_current_value_for_inactive_saved_selection(
+        self,
+        mock_lookup,
+        _mock_permission,
+    ):
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-families/lookup",
+            {"category_id": "102", "include_current_value": "11", "active_only": "true"},
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.item_ifrc_family_lookup(request)
+
+        self.assertEqual(response.status_code, 200)
+        mock_lookup.assert_called_once_with(
+            category_id="102",
+            search=None,
+            active_only=True,
+            include_value="11",
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views.list_item_category_lookup", return_value=([{"value": 1, "label": "Food and Water Supplies", "status_code": "I"}], []))
     def test_category_lookup_can_include_legacy_inactive_value(self, _mock_lookup, _mock_permission):
         request = self.factory.get(
@@ -1218,6 +1267,30 @@ class ItemMasterLookupViewTests(SimpleTestCase):
         request = self.factory.get(
             "/api/v1/masterdata/items/ifrc-references/lookup",
             {"ifrc_family_id": "11", "include_value": "77", "active_only": "true"},
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.item_ifrc_reference_lookup(request)
+
+        self.assertEqual(response.status_code, 200)
+        mock_lookup.assert_called_once_with(
+            ifrc_family_id="11",
+            search=None,
+            active_only=True,
+            include_value="77",
+            limit=views.DEFAULT_PAGE_LIMIT,
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.list_ifrc_reference_lookup", return_value=([], []))
+    def test_reference_lookup_passes_include_current_value_for_inactive_saved_selection(
+        self,
+        mock_lookup,
+        _mock_permission,
+    ):
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-references/lookup",
+            {"ifrc_family_id": "11", "include_current_value": "77", "active_only": "true"},
         )
         force_authenticate(request, user=self.user)
 

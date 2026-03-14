@@ -311,6 +311,7 @@ def list_ifrc_family_lookup(
     category_id: Any | None = None,
     search: str | None = None,
     active_only: bool = True,
+    include_value: Any | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if _is_sqlite():
         return [], ["db_unavailable"]
@@ -322,7 +323,11 @@ def list_ifrc_family_lookup(
         where_clauses.append("f.category_id = %s")
         params.append(category_id)
     if active_only:
-        where_clauses.append("f.status_code = 'A'")
+        if include_value not in (None, ""):
+            where_clauses.append("(f.status_code = 'A' OR f.ifrc_family_id = %s)")
+            params.append(include_value)
+        else:
+            where_clauses.append("f.status_code = 'A'")
     if search:
         where_clauses.append(
             "(UPPER(f.family_label) LIKE %s OR UPPER(f.family_code) LIKE %s OR UPPER(f.group_label) LIKE %s)"
