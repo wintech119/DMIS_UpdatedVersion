@@ -1,7 +1,7 @@
 # Lessons Learned: Sprint 2026-S06 | DMIS | Master Data & Category Model
 
 **Date:** March 15, 2026  
-**Related Sprint Review:** [sprint_2026_s06_review.md](C:/Users/wbowe/OneDrive/Desktop/project/DMIS_UpdatedVersion/docs/reviews/sprint_2026_s06_review.md)
+**Related Sprint Review:** [sprint_2026_s06_review.md](./sprint_2026_s06_review.md)
 
 ## Purpose
 
