@@ -33,28 +33,22 @@
   <!-- Main content -->
   @if (!loading() && !error()) {
     <!-- Tab bar -->
-    <nav role="tablist" aria-label="Submission status tabs" class="md-tabs">
+    <nav aria-label="Submission status filters" class="md-tabs">
       <button
-        role="tab"
         type="button"
         class="md-tab"
         [class.md-tab--active]="activeTab() === 'all'"
-        [attr.aria-selected]="activeTab() === 'all'"
-        aria-controls="all-panel"
-        id="all-tab"
+        [attr.aria-pressed]="activeTab() === 'all'"
         (click)="onTabChange('all')">
         <mat-icon aria-hidden="true">list_alt</mat-icon>
         <span>All</span>
         <span class="md-tab__count">{{ tabCounts().all }}</span>
       </button>
       <button
-        role="tab"
         type="button"
         class="md-tab"
         [class.md-tab--active]="activeTab() === 'action'"
-        [attr.aria-selected]="activeTab() === 'action'"
-        aria-controls="action-panel"
-        id="action-tab"
+        [attr.aria-pressed]="activeTab() === 'action'"
         (click)="onTabChange('action')">
         <mat-icon aria-hidden="true">priority_high</mat-icon>
         <span>Action</span>
@@ -63,13 +57,10 @@
         }
       </button>
       <button
-        role="tab"
         type="button"
         class="md-tab"
         [class.md-tab--active]="activeTab() === 'progress'"
-        [attr.aria-selected]="activeTab() === 'progress'"
-        aria-controls="progress-panel"
-        id="progress-tab"
+        [attr.aria-pressed]="activeTab() === 'progress'"
         (click)="onTabChange('progress')">
         <mat-icon aria-hidden="true">hourglass_top</mat-icon>
         <span>In Progress</span>
@@ -78,13 +69,10 @@
         }
       </button>
       <button
-        role="tab"
         type="button"
         class="md-tab"
         [class.md-tab--active]="activeTab() === 'done'"
-        [attr.aria-selected]="activeTab() === 'done'"
-        aria-controls="done-panel"
-        id="done-tab"
+        [attr.aria-pressed]="activeTab() === 'done'"
         (click)="onTabChange('done')">
         <mat-icon aria-hidden="true">check_circle</mat-icon>
         <span>Done</span>

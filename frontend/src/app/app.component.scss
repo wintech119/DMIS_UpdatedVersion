@@ -95,7 +95,7 @@
   &:focus {
     outline: none;
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.15);
+    box-shadow: 0 0 0 1px var(--color-accent-shadow);
   }
 }
 

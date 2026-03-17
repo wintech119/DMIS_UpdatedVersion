@@ -515,7 +515,8 @@
   color: var(--color-text-primary);
   font-family: var(--dmis-font-mono, 'Roboto Mono', 'Courier New', monospace);
   font-size: var(--text-sm);
-  word-break: break-word;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 .source-icon {

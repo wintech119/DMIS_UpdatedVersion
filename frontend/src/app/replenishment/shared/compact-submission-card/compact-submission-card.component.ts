@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -49,6 +49,9 @@ const PRIMARY_ACTION_MAP: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class CompactSubmissionCardComponent {
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly now = signal(Date.now());
+
   readonly submission = input.required<NeedsListSummary>();
   readonly selected = input(false);
   readonly showSelection = input(false);
@@ -70,14 +73,18 @@ export class CompactSubmissionCardComponent {
     PRIMARY_ACTION_MAP[this.submission().status] ?? null
   );
 
+  constructor() {
+    const timerId = window.setInterval(() => this.now.set(Date.now()), 60_000);
+    this.destroyRef.onDestroy(() => window.clearInterval(timerId));
+  }
+
   readonly formattedDate = computed((): string => {
     const sub = this.submission();
     const raw = sub.submitted_at || sub.last_updated_at;
     if (!raw) return '';
 
     const date = new Date(raw);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = this.now() - date.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
