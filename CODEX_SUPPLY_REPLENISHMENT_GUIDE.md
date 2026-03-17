@@ -458,7 +458,7 @@ python manage.py test replenishment         # Run backend tests
 
 # Frontend
 cd frontend
-ng serve                                    # Angular dev server (port 4200), proxies /api -> :8001
+ng serve                                    # Angular dev server (port 4200), proxies /api -> localhost:8001
 ng build                                    # Production build
 ng test --watch=false                       # Run unit tests
 

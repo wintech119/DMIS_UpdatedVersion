@@ -8,7 +8,7 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
-  color: var(--dmis-text-primary, #1a1a1a);
+  color: var(--dmis-text-primary, #37352F);
 }
 
 .form-page-header {
@@ -18,8 +18,8 @@
   margin-bottom: 12px;
 
   .back-btn {
-    color: #6b7280;
-    &:hover { color: #374151; }
+    color: var(--color-text-secondary);
+    &:hover { color: var(--color-text-primary); }
     &:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
   }
 
@@ -28,14 +28,14 @@
 
     h2 {
       margin: 0;
-      font-size: 1.15rem;
-      font-weight: 600;
-      color: #1a1a1a;
+      font-size: var(--text-md);
+      font-weight: var(--weight-semibold);
+      color: var(--color-text-primary);
     }
 
     .header-subtitle {
-      font-size: 0.78rem;
-      color: #4b5563;
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
     }
   }
 }
@@ -72,8 +72,8 @@
 .form-submit-alert__title {
   margin: 0;
   color: #991b1b;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   line-height: 1.3;
 }
 
@@ -81,7 +81,7 @@
   margin: 6px 0 0;
   padding-left: 18px;
   color: #7f1d1d;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   line-height: 1.35;
 }
 
@@ -93,12 +93,12 @@
 }
 
 .managed-item-code-field input[readonly] {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .form-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 12px 14px;
 }
@@ -109,31 +109,29 @@
   gap: 5px;
   margin: 0 0 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #374151;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
 
   mat-icon {
     font-size: 15px;
     width: 15px;
     height: 15px;
-    color: #9ca3af;
+    color: var(--color-text-tertiary);
   }
 }
 
 .section-description {
   margin: 0 0 10px;
-  color: #4b5563;
-  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
 .governance-note-section {
-  border-left: 3px solid #1d4ed8;
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.98));
+  border-left: 3px solid var(--color-accent);
+  background: linear-gradient(180deg, var(--color-surface-muted), var(--color-surface));
 
   &.governance-note-section--compact {
     padding: 10px 14px;
@@ -142,9 +140,9 @@
 
 .governance-note-section__title {
   margin: 0 0 8px;
-  color: #0f172a;
-  font-size: 0.82rem;
-  font-weight: 700;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
 }
 
@@ -161,12 +159,12 @@
 
   p {
     margin: 0;
-    color: #334155;
-    font-size: 0.82rem;
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
     line-height: 1.45;
 
     strong {
-      color: #0f172a;
+      color: var(--color-text-primary);
     }
   }
 }
@@ -200,10 +198,10 @@ fieldset.form-grid {
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(248, 250, 252, 0.95));
+    linear-gradient(180deg, var(--color-surface-muted), var(--color-surface-muted));
 }
 
 .item-taxonomy-governance-note {
@@ -212,7 +210,7 @@ fieldset.form-grid {
   gap: 10px;
   align-items: start;
   padding: 12px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
 
@@ -223,8 +221,8 @@ fieldset.form-grid {
 
   p {
     margin: 0;
-    color: #334155;
-    font-size: 0.82rem;
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
     line-height: 1.45;
   }
 }
@@ -247,8 +245,8 @@ fieldset.form-grid {
   width: 100%;
 
   small {
-    color: #64748b;
-    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
   }
 }
 
@@ -258,8 +256,8 @@ fieldset.form-grid {
   gap: 12px;
   padding: 12px;
   border-radius: 8px;
-  background: #fff;
-  border: 1px solid #cbd5e1;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .ifrc-suggestion-card__header {
@@ -283,9 +281,9 @@ fieldset.form-grid {
 
 .ifrc-suggestion-card__eyebrow {
   margin: 0 0 4px;
-  color: #0f766e;
-  font-size: 0.72rem;
-  font-weight: 700;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -293,14 +291,14 @@ fieldset.form-grid {
 .ifrc-suggestion-card__confidence,
 .ifrc-suggestion-card__status {
   margin: 0;
-  color: #334155;
-  font-size: 0.82rem;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
 }
 
 .ifrc-suggestion-card__intro {
   margin: 0;
-  color: #475569;
-  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
@@ -322,17 +320,15 @@ fieldset.form-grid {
 
   dt {
     margin-bottom: 4px;
-    color: #475569;
-    font-size: 0.74rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
   }
 
   dd {
     margin: 0;
-    color: #0f172a;
-    font-size: 0.9rem;
+    color: var(--color-text-primary);
+    font-size: var(--text-base);
     line-height: 1.35;
   }
 
@@ -343,10 +339,10 @@ fieldset.form-grid {
 
 .ifrc-suggestion-card__message {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: var(--text-sm);
   line-height: 1.4;
   &.neutral {
-    color: #475569;
+    color: var(--color-text-secondary);
   }
   &.info {
     color: #1d4ed8;
@@ -368,14 +364,14 @@ fieldset.form-grid {
   gap: 8px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--color-surface-muted);
   text-align: left;
   transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
   &:hover {
-    border-color: #94a3b8;
-    background: #f1f5f9;
+    border-color: var(--color-text-tertiary);
+    background: var(--color-hover);
   }
   &:focus-visible {
     outline: 2px solid #1565c0;
@@ -385,7 +381,7 @@ fieldset.form-grid {
     border-style: dashed;
   }
   &.is-selected {
-    border-color: #0f766e;
+    border-color: var(--color-accent);
     background: #ecfeff;
     box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
   }
@@ -410,36 +406,34 @@ fieldset.form-grid {
   padding: 8px 10px;
   border: 1px solid #dbe4ee;
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-surface);
 }
 .ifrc-suggestion-candidate__variant-label {
-  color: #475569;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
 }
 .ifrc-suggestion-candidate__variant-value {
-  color: #0f172a;
-  font-size: 0.82rem;
-  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
 }
 .ifrc-suggestion-candidate__title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
 }
 .ifrc-suggestion-candidate__score,
 .ifrc-suggestion-candidate__meta,
 .ifrc-suggestion-candidate__reason {
-  color: #475569;
-  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 .ifrc-suggestion-candidate__code {
   margin: 0;
-  color: #0f172a;
-  font-size: 0.82rem;
-  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
 }
 .ifrc-suggestion-candidate__reason {
   margin: 0;
@@ -451,11 +445,11 @@ fieldset.form-grid {
   min-height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
   &.auto {
-    color: #0f766e;
+    color: var(--color-accent);
     background: #ccfbf1;
   }
   &.selected {
@@ -478,8 +472,8 @@ fieldset.form-grid {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border-left: 3px solid #0f766e;
-  background: linear-gradient(180deg, rgba(240, 253, 250, 0.75), rgba(255, 255, 255, 0.98));
+  border-left: 3px solid var(--color-accent);
+  background: linear-gradient(180deg, var(--color-surface-muted), var(--color-surface));
 }
 
 .catalog-governance__toggle {
@@ -490,11 +484,11 @@ fieldset.form-grid {
   gap: 6px;
 
   &:hover {
-    color: #0f766e;
+    color: var(--color-accent);
   }
 
   &:focus-visible {
-    outline: 2px solid #0f766e;
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -514,7 +508,7 @@ fieldset.form-grid {
 .catalog-governance__error,
 .catalog-governance__replacement-text {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
@@ -523,27 +517,27 @@ fieldset.form-grid {
 }
 
 .catalog-governance__locked {
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .catalog-governance__prereqs {
   padding: 12px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(239, 246, 255, 0.88);
 }
 
 .catalog-governance__prereqs-title {
   margin: 0 0 4px;
-  color: #0f172a;
-  font-size: 0.82rem;
-  font-weight: 700;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
 }
 
 .catalog-governance__prereqs-summary {
   margin: 0 0 10px;
-  color: #334155;
-  font-size: 0.8rem;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
@@ -561,7 +555,7 @@ fieldset.form-grid {
   gap: 10px;
   align-items: start;
   padding: 10px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
 }
@@ -577,10 +571,10 @@ fieldset.form-grid {
   min-height: 24px;
   padding: 0 8px;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #334155;
-  font-size: 0.72rem;
-  font-weight: 700;
+  background: var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.02em;
 }
 
@@ -597,20 +591,20 @@ fieldset.form-grid {
 }
 
 .catalog-governance__prereqs-label {
-  color: #0f172a;
-  font-size: 0.84rem;
-  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
 }
 
 .catalog-governance__prereqs-detail,
 .catalog-governance__prereqs-state {
-  color: #475569;
-  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
 .catalog-governance__prereqs-state {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-align: right;
 }
 
@@ -646,7 +640,7 @@ fieldset.form-grid {
   gap: 12px;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.96);
 }
 
@@ -656,16 +650,16 @@ fieldset.form-grid {
 }
 
 .catalog-suggestion-preview__eyebrow {
-  color: #0f766e;
-  font-size: 0.72rem;
-  font-weight: 700;
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .catalog-suggestion-preview__source {
-  color: #475569;
-  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 
 .catalog-suggestion-preview__grid {
@@ -679,9 +673,9 @@ fieldset.form-grid {
   flex-direction: column;
   gap: 4px;
   padding: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--color-surface-muted);
 }
 
 .catalog-suggestion-preview__entry.locked {
@@ -689,16 +683,14 @@ fieldset.form-grid {
 }
 
 .catalog-suggestion-preview__label {
-  color: #475569;
-  font-size: 0.74rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
 }
 
 .catalog-suggestion-preview__value {
-  color: #0f172a;
-  font-size: 0.88rem;
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
   line-height: 1.35;
 }
 
@@ -709,16 +701,16 @@ fieldset.form-grid {
   min-height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #475569;
-  font-size: 0.72rem;
-  font-weight: 700;
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
 }
 
 .catalog-suggestion-preview__messages {
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
 }
 
 .catalog-suggestion-preview__messages p,
@@ -744,7 +736,7 @@ fieldset.form-grid {
 }
 
 .field-help-button {
-  color: #475569;
+  color: var(--color-text-secondary);
   min-width: 44px;
   min-height: 44px;
 }
@@ -765,7 +757,7 @@ fieldset.form-grid {
   padding: 4px;
   vertical-align: middle;
   margin-left: 4px;
-  color: #475569;
+  color: var(--color-text-secondary);
 
   .mat-icon {
     font-size: 16px;
@@ -789,13 +781,13 @@ fieldset.form-grid {
   inset: 6px auto 6px 0;
   width: 4px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: var(--color-border);
 }
 
 .governed-field-note {
   margin: 6px 2px 0;
-  color: #475569;
-  font-size: 0.76rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
@@ -809,9 +801,9 @@ fieldset.form-grid {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: #f9fafb;
+  background: var(--color-surface-muted);
   width: 100%;
   box-sizing: border-box;
 }
@@ -824,34 +816,34 @@ fieldset.form-grid {
 }
 
 .toggle-row__label {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: #1a1a1a;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
 }
 
 .toggle-row__hint {
-  font-size: 0.775rem;
-  color: #4b5563;
-  line-height: 1.35;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-normal);
 }
 
 .toggle-error {
   margin: 6px 2px 0;
   color: #b3261e;
-  font-size: 0.75rem;
-  line-height: 1.2;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
 }
 
 .location-assignment-section {
-  border-left: 3px solid #0ea5e9;
+  border-left: 3px solid var(--color-accent);
   .section-title mat-icon { color: #0ea5e9; }
 }
 
 .assignment-item-id {
   margin: 0 0 10px;
-  font-size: 0.8rem;
-  color: #334155;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
 }
 
 .assignment-form {
@@ -877,7 +869,7 @@ fieldset.form-grid {
 
 .required-indicator {
   color: #dc2626;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   margin-left: 2px;
 }
 
@@ -899,8 +891,8 @@ fieldset.form-grid {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   position: sticky;
   bottom: 0;
@@ -922,13 +914,13 @@ fieldset.form-grid {
   }
 
   .cancel-btn {
-    color: #6b7280;
-    font-weight: 500;
+    color: var(--color-text-secondary);
+    font-weight: var(--weight-medium);
     &:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
   }
 
   .save-btn {
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     min-height: 36px;
     padding: 0 20px;
     border-radius: 6px;
@@ -1016,4 +1008,3 @@ fieldset.form-grid {
   .form-section { padding: 10px; }
   .item-taxonomy-card { padding: 10px; }
 }
-

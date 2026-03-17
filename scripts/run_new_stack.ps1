@@ -184,4 +184,5 @@ Start-EncodedProcess -Command $backendCmd -DbPasswordPlain $dbPasswordPlain
 Start-EncodedProcess -Command $frontendCmd
 
 Write-Host "Started Django API (http://localhost:8001) and Angular UI (http://localhost:4200)."
+Write-Host "Use HTTP only in local dev. If Django logs HTTPS errors, restart Angular with 'npm.cmd start -- --verbose' and inspect the proxy output."
 Write-Host "Close each window or press Ctrl+C to stop."

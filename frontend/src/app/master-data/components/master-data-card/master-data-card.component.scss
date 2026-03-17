@@ -3,22 +3,21 @@
 }
 
 .md-card {
-  --color-primary: #0f766e;
+  --color-primary: var(--color-accent);
   --color-primary-bg: #ecfdf5;
-  --color-border: #e2e8f0;
-  --color-text: #0f172a;
-  --color-muted: #475569;
+  --color-text: var(--color-text-primary);
+  --color-muted: var(--color-text-secondary);
   --color-badge-editable-bg: #dcfce7;
   --color-badge-editable-text: #166534;
-  --color-badge-readonly-bg: #f1f5f9;
-  --color-badge-readonly-text: #475569;
+  --color-badge-readonly-bg: var(--color-surface-muted);
+  --color-badge-readonly-text: var(--color-text-secondary);
 
   display: flex;
   flex-direction: column;
   height: 100%;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--color-surface);
   padding: 16px;
   box-sizing: border-box;
   transition: box-shadow 0.15s ease;
@@ -57,8 +56,8 @@
 }
 
 .md-card__title {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--color-text);
   flex: 1;
 }
@@ -68,8 +67,8 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
   border-width: 1px;
   border-style: solid;
@@ -83,14 +82,14 @@
   &--readonly {
     background: var(--color-badge-readonly-bg);
     color: var(--color-badge-readonly-text);
-    border-color: #cbd5e1;
+    border-color: var(--color-border);
   }
 }
 
 .md-card__description {
   margin: 0;
   color: var(--color-muted);
-  font-size: 0.875rem;
+  font-size: var(--text-base);
   line-height: 1.45;
   flex: 1;
 }
@@ -109,8 +108,8 @@
   justify-content: center;
   padding: 6px 16px;
   border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
   cursor: pointer;
   border: 1px solid transparent;
   white-space: nowrap;
@@ -135,7 +134,7 @@
 
   &--primary {
     background: #3f51b5;
-    color: #ffffff;
+    color: #fff;
     border-color: #3f51b5;
 
     &:hover {

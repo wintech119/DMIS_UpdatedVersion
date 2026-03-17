@@ -11,21 +11,21 @@
   font-size: 48px;
   width: 48px;
   height: 48px;
-  color: #94a3b8;
+  color: var(--color-text-tertiary);
   margin-bottom: 1rem;
 }
 
 .empty-title {
   margin: 0 0 0.5rem;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #334155;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
 }
 
 .empty-message {
   margin: 0 0 1.5rem;
-  font-size: 0.9rem;
-  color: #64748b;
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
   max-width: 400px;
   line-height: 1.5;
 }

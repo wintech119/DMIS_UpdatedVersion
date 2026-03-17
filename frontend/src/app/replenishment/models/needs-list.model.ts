@@ -111,6 +111,7 @@ export type NeedsListSummaryStatus =
   | 'APPROVED'
   | 'REJECTED'
   | 'IN_PROGRESS'
+  | 'IN_TRANSIT'
   | 'FULFILLED'
   | 'SUPERSEDED'
   | 'CANCELLED';
@@ -268,6 +269,7 @@ export type NeedsListStatus =
   | 'ESCALATED'
   | 'IN_PREPARATION'
   | 'DISPATCHED'
+  | 'IN_TRANSIT'
   | 'RECEIVED'
   | 'COMPLETED'
   | 'IN_PROGRESS'

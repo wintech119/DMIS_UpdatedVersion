@@ -1,5 +1,5 @@
-  .scope-step-container {
-  padding: 16px 0;
+.scope-step-container {
+padding: 16px 0;
 
   .step-card {
     max-width: 800px;
@@ -9,14 +9,14 @@
       margin-bottom: 24px;
 
       mat-card-title {
-        font-size: 20px;
-        font-weight: 600;
-        color: #1a1a1a;
+        font-size: var(--text-lg);
+        font-weight: var(--weight-semibold);
+        color: var(--color-text-primary);
       }
 
       mat-card-subtitle {
-        font-size: 14px;
-        color: #6b7280;
+        font-size: var(--text-base);
+        color: var(--color-text-secondary);
         margin-top: 4px;
       }
     }
@@ -56,9 +56,9 @@
       }
 
       .calculation-text {
-        font-size: 0.95rem;
-        color: #475569;
-        font-weight: 500;
+        font-size: var(--text-base);
+        color: var(--color-text-secondary);
+        font-weight: var(--weight-medium);
       }
 
       .scope-form {
@@ -80,13 +80,13 @@
         }
 
         mat-icon[matSuffix] {
-          color: #6b7280;
+          color: var(--color-text-secondary);
         }
       }
 
       .phase-info {
-        background: #f9fafb;
-        border-left: 4px solid #6b7280;
+        background: var(--color-surface-muted);
+        border-left: 4px solid var(--color-text-secondary);
         margin-bottom: 24px;
 
         // Phase-specific border and background tints
@@ -99,9 +99,9 @@
           align-items: center;
           gap: 8px;
           margin: 0 0 16px 0;
-          font-size: 16px;
-          font-weight: 600;
-          color: #1f2937;
+          font-size: var(--text-md);
+          font-weight: var(--weight-semibold);
+          color: var(--color-text-primary);
 
           mat-icon {
             font-size: 20px;
@@ -113,14 +113,14 @@
             display: inline-block;
             padding: 2px 10px;
             border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
+            font-size: var(--text-xs);
+            font-weight: var(--weight-semibold);
             text-transform: uppercase;
             letter-spacing: 0.02em;
             vertical-align: middle;
             // Default fallback
-            background: #f3f4f6;
-            color: #1f2937;
+            background: var(--color-hover);
+            color: var(--color-text-primary);
 
             &[data-phase='SURGE']      { background: #fce4ec; color: #b71c1c; }
             &[data-phase='STABILIZED'] { background: #fff8e1; color: #b45309; }
@@ -137,11 +137,11 @@
             align-items: center;
             gap: 12px;
             padding: 8px;
-            background: white;
+            background: var(--color-surface);
             border-radius: 4px;
 
             .detail-icon {
-              color: #4b5563;
+              color: var(--color-text-secondary);
               font-size: 24px;
               width: 24px;
               height: 24px;
@@ -155,13 +155,13 @@
               flex: 1;
 
               .label {
-                font-weight: 500;
-                color: #1f2937;
+                font-weight: var(--weight-medium);
+                color: var(--color-text-primary);
               }
 
               .value {
-                font-weight: 600;
-                color: #1f2937;
+                font-weight: var(--weight-semibold);
+                color: var(--color-text-primary);
               }
             }
           }
@@ -173,12 +173,12 @@
           gap: 8px;
           margin-top: 16px;
           padding: 12px;
-          background: white;
+          background: var(--color-surface);
           border-radius: 4px;
-          border: 1px solid #e5e7eb;
+          border: 1px solid var(--color-border);
 
           .note-icon {
-            color: #6b7280;
+            color: var(--color-text-secondary);
             font-size: 20px;
             width: 20px;
             height: 20px;
@@ -188,8 +188,8 @@
 
           p {
             margin: 0;
-            font-size: 13px;
-            color: #6b7280;
+            font-size: var(--text-base);
+            color: var(--color-text-secondary);
             line-height: 1.5;
           }
         }
@@ -219,7 +219,7 @@
 
             .error-item {
               color: #721c24;
-              font-size: 14px;
+              font-size: var(--text-base);
               margin-bottom: 4px;
 
               &:last-child {
@@ -233,7 +233,7 @@
 
     mat-card-actions {
       padding: 16px;
-      border-top: 1px solid #e5e7eb;
+      border-top: 1px solid var(--color-border);
 
       &.action-buttons {
         display: flex;
@@ -307,18 +307,18 @@
         margin-bottom: 16px;
 
         mat-card-title {
-          font-size: 18px;
+          font-size: var(--text-lg);
         }
 
         mat-card-subtitle {
-          font-size: 12px;
+          font-size: var(--text-sm);
         }
       }
 
       mat-card-content {
         .phase-info {
           h3 {
-            font-size: 14px;
+            font-size: var(--text-base);
           }
 
           .phase-details {
@@ -334,11 +334,11 @@
               }
 
               .detail-content {
-                font-size: 13px;
+                font-size: var(--text-base);
 
                 .label,
                 .value {
-                  font-size: 13px;
+                  font-size: var(--text-base);
                 }
               }
             }

@@ -12,6 +12,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmis_api.settings")
 # Keep MCP aligned with normal app runtime (PostgreSQL-first).
 os.environ.setdefault("DJANGO_USE_SQLITE", "0")
 os.environ.setdefault("DJANGO_DEBUG", "1")
+os.environ.setdefault("DMIS_LOAD_LOCAL_ENV", "1")
 
 from django_ai_boost import main
 

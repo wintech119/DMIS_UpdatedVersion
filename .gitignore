@@ -32,6 +32,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!backend/.env.local.example
 .venv
 *.pem
 *.key

@@ -1,0 +1,37 @@
+<div class="compact-card"
+     [class.selected]="selected()"
+     [class.recently-changed]="recentlyChanged()"
+     (click)="onCardClick()"
+     role="button"
+     tabindex="0"
+     (keydown.enter)="onCardKeydown($event)"
+     (keydown.space)="onCardKeydown($event)">
+
+  @if (showSelection()) {
+    <input
+      type="checkbox"
+      class="card-checkbox"
+      [checked]="selected()"
+      (change)="onSelectionInput($event)"
+      (click)="$event.stopPropagation()"
+      [attr.aria-label]="'Select submission ' + submission().reference_number" />
+  }
+
+  <div class="card-body">
+    <div class="card-line-1">
+      <span class="status-dot" [ngClass]="statusDotClass()"></span>
+      <span class="ref-number">{{ submission().reference_number }}</span>
+      <span class="warehouse">{{ submission().warehouse.name }}</span>
+      <span class="date">{{ formattedDate() }}</span>
+    </div>
+    <div class="card-line-2">
+      <span class="status-label" [ngClass]="statusDotClass()">{{ statusLabel() }}</span>
+      <span class="item-count">{{ submission().total_items }} items</span>
+      @if (primaryAction(); as action) {
+        <button mat-stroked-button class="action-btn" (click)="onActionClick($event)">
+          {{ action }}
+        </button>
+      }
+    </div>
+  </div>
+</div>

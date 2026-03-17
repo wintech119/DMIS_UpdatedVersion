@@ -8,9 +8,8 @@
       <h1>Needs List Submissions</h1>
       <p class="subtitle">View your drafts and approvals, plus submitted needs lists from other teams.</p>
     </div>
-    <button mat-stroked-button type="button" class="refresh-btn" (click)="loadSubmissions()">
+    <button mat-icon-button type="button" class="refresh-btn" aria-label="Refresh" (click)="loadSubmissions()">
       <mat-icon>refresh</mat-icon>
-      Refresh
     </button>
   </div>
 
@@ -31,121 +30,80 @@
     </dmis-empty-state>
   }
 
-  <!-- Main content (filters + results) -->
+  <!-- Main content -->
   @if (!loading() && !error()) {
-    <!-- Filters Bar -->
-    <div class="filters-panel" role="region" aria-label="Submission filters">
-      <!-- Collapsed bar: toggle + summary + active filter count -->
-      <div class="filters-bar">
-        <button
-          class="filters-toggle"
-          type="button"
-          (click)="toggleFilters()"
-          [attr.aria-expanded]="filtersExpanded()"
-          aria-controls="filtersContent">
-          <mat-icon class="filter-icon">filter_list</mat-icon>
-          <span class="filters-title">Filters</span>
-          @if (activeFilterCount() > 0) {
-            <span class="filter-count-badge">{{ activeFilterCount() }}</span>
-          }
-          <mat-icon class="chevron-icon" [class.expanded]="filtersExpanded()">expand_more</mat-icon>
-        </button>
+    <!-- Tab bar -->
+    <nav aria-label="Submission status filters" class="md-tabs">
+      <button
+        type="button"
+        class="md-tab"
+        [class.md-tab--active]="activeTab() === 'all'"
+        [attr.aria-pressed]="activeTab() === 'all'"
+        (click)="onTabChange('all')">
+        <mat-icon aria-hidden="true">list_alt</mat-icon>
+        <span>All</span>
+        <span class="md-tab__count">{{ tabCounts().all }}</span>
+      </button>
+      <button
+        type="button"
+        class="md-tab"
+        [class.md-tab--active]="activeTab() === 'action'"
+        [attr.aria-pressed]="activeTab() === 'action'"
+        (click)="onTabChange('action')">
+        <mat-icon aria-hidden="true">priority_high</mat-icon>
+        <span>Action</span>
+        @if (tabCounts().action > 0) {
+          <span class="md-tab__count md-tab__count--action">{{ tabCounts().action }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="md-tab"
+        [class.md-tab--active]="activeTab() === 'progress'"
+        [attr.aria-pressed]="activeTab() === 'progress'"
+        (click)="onTabChange('progress')">
+        <mat-icon aria-hidden="true">hourglass_top</mat-icon>
+        <span>In Progress</span>
+        @if (tabCounts().progress > 0) {
+          <span class="md-tab__count">{{ tabCounts().progress }}</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="md-tab"
+        [class.md-tab--active]="activeTab() === 'done'"
+        [attr.aria-pressed]="activeTab() === 'done'"
+        (click)="onTabChange('done')">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+        <span>Done</span>
+        @if (tabCounts().done > 0) {
+          <span class="md-tab__count">{{ tabCounts().done }}</span>
+        }
+      </button>
+    </nav>
 
-        <div class="filters-bar-right">
-          <span class="filter-summary" aria-live="polite">
-            {{ submissions().length }} of {{ totalCount() }} submissions
-          </span>
-          @if (hasActiveFilters()) {
-            <button mat-stroked-button class="clear-btn" type="button" (click)="clearFilters()">
-              <mat-icon>close</mat-icon>
-              Clear
-            </button>
-          }
-        </div>
+    <!-- Search row -->
+    <div class="search-row">
+      <div class="search-input-wrapper">
+        <mat-icon class="search-icon">search</mat-icon>
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Search by reference or warehouse..."
+          [value]="searchQuery()"
+          (input)="onSearchInput($event)"
+          aria-label="Search submissions" />
+        @if (searchQuery()) {
+          <button class="search-clear" type="button" (click)="searchQuery.set(''); pageIndex.set(0)" aria-label="Clear search">
+            <mat-icon>close</mat-icon>
+          </button>
+        }
       </div>
-
-      <!-- Expanded filter grid -->
-      @if (filtersExpanded()) {
-        <div class="filters-content" id="filtersContent">
-          <div class="filters-grid">
-            <label class="filter-field">
-              <span class="filter-label">Status</span>
-              <select class="filter-select" [value]="statusFilter()" (change)="onStatusFilterChange($event)">
-                <option value="ALL">All Statuses</option>
-                <option value="DRAFT">Draft</option>
-                <option value="MODIFIED">Modified</option>
-                <option value="PENDING_APPROVAL">Pending Approval</option>
-                <option value="APPROVED">Approved</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="FULFILLED">Fulfilled</option>
-                <option value="REJECTED">Rejected</option>
-                <option value="SUPERSEDED">Superseded</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Replenishment Method</span>
-              <select class="filter-select" [value]="methodFilter()" (change)="onMethodFilterChange($event)">
-                <option value="ALL">All Methods</option>
-                <option value="A">Transfer (A)</option>
-                <option value="B">Donation (B)</option>
-                <option value="C">Procurement (C)</option>
-              </select>
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Warehouse</span>
-              <select class="filter-select" [value]="warehouseFilter() !== null ? warehouseFilter() + '' : ''" (change)="onWarehouseFilterChange($event)">
-                <option value="">All Warehouses</option>
-                @for (warehouse of warehouseOptions(); track warehouse.warehouse_id) {
-                  <option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Event</span>
-              <select class="filter-select" [value]="eventFilter() !== null ? eventFilter() + '' : ''" (change)="onEventFilterChange($event)">
-                <option value="">All Events</option>
-                @for (event of eventOptions(); track event.id) {
-                  <option [value]="event.id">{{ event.name }}</option>
-                }
-              </select>
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Date From</span>
-              <input type="date" class="filter-input" [value]="dateFromFilter()" (change)="onDateFromChange($event)">
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Date To</span>
-              <input type="date" class="filter-input" [value]="dateToFilter()" (change)="onDateToChange($event)">
-            </label>
-
-            <label class="filter-field">
-              <span class="filter-label">Sort By</span>
-              <select class="filter-select" [value]="sortBy()" (change)="onSortByChange($event)">
-                <option value="date">Date</option>
-                <option value="status">Status</option>
-                <option value="warehouse">Warehouse</option>
-              </select>
-            </label>
-
-            <div class="filter-actions">
-              <button
-                mat-icon-button
-                type="button"
-                class="sort-toggle"
-                [attr.aria-label]="'Sort ' + (sortOrder() === 'desc' ? 'ascending' : 'descending')"
-                (click)="toggleSortOrder()">
-                <mat-icon>{{ sortOrder() === 'desc' ? 'arrow_downward' : 'arrow_upward' }}</mat-icon>
-              </button>
-            </div>
-          </div>
-        </div>
-      }
+      <button mat-icon-button class="sort-toggle" type="button"
+              [attr.aria-label]="sortNewest() ? 'Sort oldest first' : 'Sort newest first'"
+              (click)="toggleSort()">
+        <mat-icon>{{ sortNewest() ? 'arrow_downward' : 'arrow_upward' }}</mat-icon>
+      </button>
     </div>
 
     <!-- Batch actions toolbar -->
@@ -168,28 +126,89 @@
       </div>
     }
 
-    <!-- Submissions list -->
+    <!-- Grouped sections -->
     @if (hasResults()) {
-      <div class="submissions-list">
-        @for (submission of submissions(); track submission.id) {
-          <app-submission-card
-            [submission]="submission"
-            [showSelection]="canBatchSelect(submission.status)"
-            [selected]="isSelected(submission.id)"
-            [recentlyChanged]="recentlyChangedIds().has(submission.id)"
-            (selectedChange)="onDraftSelectionChange(submission.id, $event)"
-            (refresh)="refreshSubmission($event)"
-            (openAction)="onOpenAction($event)"
-            (horizonAction)="onHorizonAction($event)">
-          </app-submission-card>
-        }
-      </div>
+      <!-- Needs Your Action -->
+      @if (paginatedSubmissions().action.length > 0) {
+        <section class="group-section group--action">
+          <div class="group-header">
+            <span class="group-border-accent"></span>
+            <mat-icon class="group-icon">priority_high</mat-icon>
+            <span class="group-title">Needs Your Action</span>
+            <span class="group-count">{{ paginatedSubmissions().action.length }}</span>
+          </div>
+          <div class="group-cards">
+            @for (submission of paginatedSubmissions().action; track submission.id) {
+              <app-compact-submission-card
+                [submission]="submission"
+                [showSelection]="canBatchSelect(submission.status)"
+                [selected]="isSelected(submission.id)"
+                [recentlyChanged]="recentlyChangedIds().has(submission.id)"
+                (cardClick)="onCardClick($event)"
+                (actionClick)="onCardAction($event)"
+                (selectionToggle)="onSelectionToggle($event)">
+              </app-compact-submission-card>
+            }
+          </div>
+        </section>
+      }
+
+      <!-- In Progress -->
+      @if (paginatedSubmissions().progress.length > 0) {
+        <section class="group-section group--progress">
+          <div class="group-header">
+            <span class="group-border-accent"></span>
+            <mat-icon class="group-icon">hourglass_top</mat-icon>
+            <span class="group-title">In Progress</span>
+            <span class="group-count">{{ paginatedSubmissions().progress.length }}</span>
+          </div>
+          <div class="group-cards">
+            @for (submission of paginatedSubmissions().progress; track submission.id) {
+              <app-compact-submission-card
+                [submission]="submission"
+                [selected]="false"
+                [recentlyChanged]="recentlyChangedIds().has(submission.id)"
+                (cardClick)="onCardClick($event)"
+                (actionClick)="onCardAction($event)">
+              </app-compact-submission-card>
+            }
+          </div>
+        </section>
+      }
+
+      <!-- Completed -->
+      @if (paginatedSubmissions().done.length > 0) {
+        <section class="group-section group--done">
+          <button class="group-header group-header--collapsible" type="button"
+                  (click)="toggleCompleted()"
+                  [attr.aria-expanded]="completedExpanded()">
+            <span class="group-border-accent"></span>
+            <mat-icon class="group-icon">check_circle</mat-icon>
+            <span class="group-title">Completed</span>
+            <span class="group-count">{{ paginatedSubmissions().done.length }}</span>
+            <mat-icon class="group-chevron" [class.expanded]="completedExpanded()">expand_more</mat-icon>
+          </button>
+          @if (completedExpanded()) {
+            <div class="group-cards">
+              @for (submission of paginatedSubmissions().done; track submission.id) {
+                <app-compact-submission-card
+                  [submission]="submission"
+                  [selected]="false"
+                  [recentlyChanged]="recentlyChangedIds().has(submission.id)"
+                  (cardClick)="onCardClick($event)"
+                  (actionClick)="onCardAction($event)">
+                </app-compact-submission-card>
+              }
+            </div>
+          }
+        </section>
+      }
 
       <mat-paginator
-        [length]="totalCount()"
+        [length]="filteredSubmissions().length"
         [pageSize]="pageSize()"
         [pageIndex]="pageIndex()"
-        [pageSizeOptions]="[5, 10, 20, 50]"
+        [pageSizeOptions]="[10, 20, 50]"
         (page)="onPageChange($event)">
       </mat-paginator>
     }
@@ -200,7 +219,7 @@
         <dmis-empty-state
           icon="filter_alt_off"
           title="No submissions match your filters"
-          message="Try adjusting or clearing the current filters to see more submissions."
+          message="Try adjusting your search or switching tabs to see more submissions."
           actionLabel="Clear Filters"
           actionIcon="restart_alt"
           (action)="clearFilters()">

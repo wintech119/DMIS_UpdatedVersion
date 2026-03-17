@@ -2,7 +2,7 @@
   max-width: 1400px;
   margin: 0 auto;
   padding: 20px;
-  color: var(--dmis-text-primary, #1a1a1a);
+  color: var(--color-text-primary);
 }
 
 .page-header {
@@ -13,8 +13,8 @@
   padding: 16px;
 
   .back-btn {
-    color: #666;
-    &:hover { color: #333; }
+    color: var(--color-text-secondary);
+    &:hover { color: var(--color-text-primary); }
   }
 
   .header-text {
@@ -22,14 +22,14 @@
 
     h1 {
       margin: 0 0 4px;
-      font-size: 24px;
-      font-weight: 600;
+      font-size: var(--text-xl);
+      font-weight: var(--weight-semibold);
     }
 
     .subtitle {
       margin: 0;
-      color: #666;
-      font-size: 14px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-base);
     }
   }
 }
@@ -57,8 +57,8 @@
     flex-direction: column;
     gap: 2px;
 
-    strong { font-size: 0.9375rem; color: #1e293b; }
-    span { font-size: 0.8125rem; color: #64748b; }
+    strong { font-size: var(--text-base); color: var(--color-text-primary); }
+    span { font-size: var(--text-sm); color: var(--color-text-secondary); }
   }
 }
 
@@ -77,8 +77,8 @@
 .items-table-container {
   overflow-x: auto;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
 }
 
@@ -87,12 +87,11 @@
   width: 100%;
 
   th {
-    background: #f8fafc;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
+    background: var(--color-surface-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.03em;
-    color: #5f6368;
+    color: var(--color-text-secondary);
     padding: 10px 14px;
     text-align: left;
     white-space: nowrap;
@@ -100,48 +99,48 @@
 
   td {
     padding: 12px 14px;
-    font-size: 0.875rem;
-    border-top: 1px solid #f0f0f0;
+    font-size: var(--text-base);
+    border-top: 1px solid var(--color-hover);
     vertical-align: middle;
   }
 
   tbody tr:hover {
-    background-color: #f8fafc;
+    background-color: var(--color-surface-muted);
   }
 
   tfoot td {
-    border-top: 2px solid #e2e8f0;
-    font-weight: 600;
-    background: #f8fafc;
+    border-top: 2px solid var(--color-border);
+    font-weight: var(--weight-semibold);
+    background: var(--color-surface-muted);
   }
 }
 
 .qty-cell {
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .cost-cell {
   font-variant-numeric: tabular-nums;
   color: #1976d2;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .total-label {
   text-align: right;
-  font-size: 0.8125rem;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.03em;
-  color: #5f6368;
+  color: var(--color-text-secondary);
 }
 
 .total-value {
-  font-size: 1rem;
+  font-size: var(--text-md);
   color: #1976d2;
 }
 
 .na {
-  color: #94a3b8;
+  color: var(--color-text-tertiary);
   font-style: italic;
 }
 
@@ -153,8 +152,8 @@
 }
 
 .item-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px 14px;
   border-left: 4px solid #f59e0b;
@@ -166,11 +165,11 @@
     align-items: center;
     margin-bottom: 8px;
 
-    strong { font-size: 0.9375rem; }
+    strong { font-size: var(--text-base); }
 
     .item-uom {
-      font-size: 0.75rem;
-      color: #64748b;
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
     }
   }
 
@@ -183,16 +182,16 @@
   .item-field {
     display: flex;
     justify-content: space-between;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     padding: 2px 0;
 
     &:not(:last-child) {
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--color-hover);
     }
 
     .field-label {
-      color: #64748b;
-      font-weight: 500;
+      color: var(--color-text-secondary);
+      font-weight: var(--weight-medium);
     }
   }
 }
@@ -217,7 +216,7 @@
   }
 
   .page-header .header-text h1 {
-    font-size: 18px;
+    font-size: var(--text-lg);
   }
 
   .info-banner {
