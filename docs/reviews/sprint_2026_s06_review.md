@@ -3,7 +3,7 @@
 **Review Date:** March 15, 2026  
 **Sprint Status Recommendation:** Complete as intended  
 **Primary GitHub Evidence:** PR [#39](https://github.com/wintech119/DMIS_UpdatedVersion/pull/39)  
-**Primary Repo Artifact:** [item_master_phase1_summary.md](C:/Users/wbowe/OneDrive/Desktop/project/DMIS_UpdatedVersion/docs/implementation/item_master_phase1_summary.md)
+**Primary Repo Artifact:** [item_master_phase1_summary.md](../implementation/item_master_phase1_summary.md)
 
 ## Conclusion
 
