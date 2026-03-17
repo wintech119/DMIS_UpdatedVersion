@@ -76,8 +76,8 @@ def _build_debug_secret_key() -> str:
         [
             str(BASE_DIR),
             sys.executable,
-            os.getenv("USERNAME", ""),
-            os.getenv("COMPUTERNAME", ""),
+            os.getenv("USERNAME", os.getenv("USER", "")),
+            os.getenv("COMPUTERNAME", os.getenv("HOSTNAME", "")),
         ]
     )
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()

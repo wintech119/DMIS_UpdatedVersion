@@ -93,6 +93,19 @@ export class CompactSubmissionCardComponent {
     this.cardClick.emit(this.submission());
   }
 
+  onCardKeydown(event: Event): void {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    event.preventDefault();
+    this.onCardClick();
+  }
+
   onActionClick(event: MouseEvent): void {
     event.stopPropagation();
     const action = this.primaryAction();

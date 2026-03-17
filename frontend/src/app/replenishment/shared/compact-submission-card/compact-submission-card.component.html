@@ -4,8 +4,8 @@
      (click)="onCardClick()"
      role="button"
      tabindex="0"
-     (keydown.enter)="onCardClick()"
-     (keydown.space)="onCardClick(); $event.preventDefault()">
+     (keydown.enter)="onCardKeydown($event)"
+     (keydown.space)="onCardKeydown($event)">
 
   @if (showSelection()) {
     <input
@@ -14,14 +14,14 @@
       [checked]="selected()"
       (change)="onSelectionInput($event)"
       (click)="$event.stopPropagation()"
-      aria-label="Select submission" />
+      [attr.aria-label]="'Select submission ' + submission().reference_number" />
   }
 
   <div class="card-body">
     <div class="card-line-1">
       <span class="status-dot" [ngClass]="statusDotClass()"></span>
       <span class="ref-number">{{ submission().reference_number }}</span>
-      <span class="warehouse">{{ submission().warehouse?.name }}</span>
+      <span class="warehouse">{{ submission().warehouse.name }}</span>
       <span class="date">{{ formattedDate() }}</span>
     </div>
     <div class="card-line-2">

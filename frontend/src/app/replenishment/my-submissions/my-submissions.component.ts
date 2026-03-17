@@ -4,10 +4,10 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { EMPTY, Subject } from 'rxjs';
-import { catchError, switchMap, tap } from 'rxjs/operators';
+import { EMPTY, Observable, Subject, forkJoin, of } from 'rxjs';
+import { catchError, map, switchMap, tap } from 'rxjs/operators';
 
-import { NeedsListSummary } from '../models/needs-list.model';
+import { MySubmissionsResponse, NeedsListSummary } from '../models/needs-list.model';
 import {
   MySubmissionsQueryParams,
   ReplenishmentService
@@ -32,6 +32,8 @@ interface GroupedSubmissions {
   progress: NeedsListSummary[];
   done: NeedsListSummary[];
 }
+
+const CLIENT_SIDE_SUBMISSIONS_PAGE_SIZE = 100;
 
 @Component({
   selector: 'app-my-submissions',
@@ -179,7 +181,7 @@ export class MySubmissionsComponent {
         this.error.set(false);
       }),
       switchMap(() =>
-        this.replenishmentService.getMySubmissions(this.buildQueryParams()).pipe(
+        this.loadAllSubmissions(this.buildQueryParams()).pipe(
           catchError(() => {
             this.loading.set(false);
             this.error.set(true);
@@ -363,7 +365,47 @@ export class MySubmissionsComponent {
       sort_by: 'date',
       sort_order: 'desc',
       page: 1,
-      page_size: 200
+      page_size: CLIENT_SIDE_SUBMISSIONS_PAGE_SIZE
     };
+  }
+
+  private loadAllSubmissions(
+    params: MySubmissionsQueryParams
+  ): Observable<MySubmissionsResponse> {
+    const firstPageParams: MySubmissionsQueryParams = {
+      ...params,
+      page: 1,
+      page_size: CLIENT_SIDE_SUBMISSIONS_PAGE_SIZE
+    };
+
+    return this.replenishmentService.getMySubmissions(firstPageParams).pipe(
+      switchMap((firstPage) => {
+        const firstResults = firstPage.results || [];
+        const totalPages = Math.max(
+          1,
+          Math.ceil((firstPage.count || firstResults.length) / CLIENT_SIDE_SUBMISSIONS_PAGE_SIZE)
+        );
+
+        if (totalPages === 1) {
+          return of(firstPage);
+        }
+
+        const remainingPages = Array.from({ length: totalPages - 1 }, (_, index) =>
+          this.replenishmentService.getMySubmissions({
+            ...firstPageParams,
+            page: index + 2
+          })
+        );
+
+        return forkJoin(remainingPages).pipe(
+          map((responses) => ({
+            count: firstPage.count,
+            next: null,
+            previous: null,
+            results: [firstPage, ...responses].flatMap((response) => response.results || [])
+          }))
+        );
+      })
+    );
   }
 }
