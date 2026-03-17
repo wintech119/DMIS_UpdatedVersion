@@ -19,14 +19,14 @@
 
 h2[mat-dialog-title] {
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: #1e293b;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
 }
 
 .error-dialog-message {
-  color: #475569;
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
   line-height: 1.5;
   margin: 0 0 1rem;
 }
@@ -36,9 +36,9 @@ h2[mat-dialog-title] {
 
   summary {
     cursor: pointer;
-    font-size: 0.8rem;
-    color: #64748b;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    font-weight: var(--weight-semibold);
     user-select: none;
   }
 }
@@ -46,11 +46,11 @@ h2[mat-dialog-title] {
 .error-details-content {
   margin-top: 0.5rem;
   padding: 0.75rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  font-size: 0.75rem;
-  color: #475569;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;

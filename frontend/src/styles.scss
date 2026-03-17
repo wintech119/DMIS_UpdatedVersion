@@ -1,10 +1,49 @@
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 
 :root {
+  // ── Font stacks ──
   --dmis-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --dmis-font-mono: 'Roboto Mono', 'Courier New', monospace;
-  --dmis-text-primary: #1a1a1a;
-  --dmis-text-secondary: #495057;
+
+  // ── Type scale (8-step) ──
+  --text-xs: 0.75rem;     // 12px — badges, metadata
+  --text-sm: 0.8125rem;   // 13px — secondary text, captions, labels
+  --text-base: 0.875rem;  // 14px — body, form fields, table cells
+  --text-md: 1rem;        // 16px — section headings, card titles
+  --text-lg: 1.25rem;     // 20px — page headings
+  --text-xl: 1.5rem;      // 24px — major page titles (rare)
+  --text-2xl: 1.75rem;    // 28px — stat values, display numbers
+  --text-3xl: 2rem;       // 32px — large stat values
+
+  // ── Font weights ──
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  // ── Line-height scale ──
+  --leading-tight: 1.25;   // headings, compact UI, stat values
+  --leading-normal: 1.45;  // body text, descriptions
+  --leading-relaxed: 1.6;  // readable blocks, form hints
+
+  // ── Letter-spacing scale ──
+  --tracking-tight: 0.02em;   // badges, tags, pills
+  --tracking-normal: 0.03em;  // labels, small caps
+  --tracking-wide: 0.08em;    // eyebrow text, uppercase headings
+
+  // ── Notion-inspired warm color palette ──
+  --color-text-primary: #37352F;
+  --color-text-secondary: #787774;
+  --color-text-tertiary: #B4B4B0;
+  --color-border: #E3E3E0;
+  --color-surface: #ffffff;
+  --color-surface-muted: #F7F6F3;
+  --color-hover: #F1F1EF;
+  --color-accent: #0f766e;
+
+  // ── Legacy aliases (mapped to new tokens) ──
+  --dmis-text-primary: var(--color-text-primary);
+  --dmis-text-secondary: var(--color-text-secondary);
   --dmis-focus-ring: #1565c0;
 }
 
@@ -13,9 +52,10 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #f9fafb;
+  background: var(--color-surface-muted);
   font-family: var(--dmis-font-sans);
-  color: var(--dmis-text-primary);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
 
   // Inter-specific rendering improvements
   font-optical-sizing: auto;
@@ -61,13 +101,13 @@ p, span, a, label, td, th, li {
 .mat-mdc-tooltip {
   .mdc-tooltip__surface {
     max-width: 320px;
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     padding: 10px 14px;
-    background-color: #2c3e50;
+    background-color: var(--color-text-primary);
     color: #ffffff;
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   }
 }
 
@@ -97,7 +137,7 @@ p, span, a, label, td, th, li {
 }
 
 // ===== GLOBAL PAGE HEADER STYLE =====
-// Clean page title + separator line (OpenAI/LangSmith style)
+// Clean page title + separator line
 .page-header,
 .wizard-header {
   background: transparent !important;
@@ -105,7 +145,7 @@ p, span, a, label, td, th, li {
   border-radius: 0 !important;
   padding: 0 0 12px !important;
   margin-bottom: 20px !important;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--color-border);
 
   .header-content {
     padding: 0 !important;
@@ -114,33 +154,70 @@ p, span, a, label, td, th, li {
   // Pattern: .header-text > h1 (review queue, my-submissions, wizard, etc.)
   .header-text {
     h1 {
-      font-size: 1.25rem !important;
-      font-weight: 600 !important;
-      color: #0d0d0d !important;
+      font-size: var(--text-lg) !important;
+      font-weight: var(--weight-semibold) !important;
+      color: var(--color-text-primary) !important;
       margin: 0 0 2px !important;
     }
 
     .subtitle,
     p {
-      font-size: 0.8125rem !important;
-      color: #6b7280 !important;
+      font-size: var(--text-sm) !important;
+      color: var(--color-text-secondary) !important;
       margin: 0 !important;
     }
   }
 
   // Pattern: .page-title / .page-subtitle (stock dashboard)
   .page-title {
-    font-size: 1.25rem !important;
-    font-weight: 600 !important;
-    color: #0d0d0d !important;
+    font-size: var(--text-lg) !important;
+    font-weight: var(--weight-semibold) !important;
+    color: var(--color-text-primary) !important;
     margin: 0 0 2px !important;
   }
 
   .page-subtitle {
-    font-size: 0.8125rem !important;
-    color: #6b7280 !important;
+    font-size: var(--text-sm) !important;
+    color: var(--color-text-secondary) !important;
     margin: 0 !important;
   }
+}
+
+// ===== MATERIAL COMPONENT OVERRIDES (Warm palette) =====
+
+// Form field labels & hints
+.mat-mdc-form-field {
+  --mdc-filled-text-field-label-text-color: var(--color-text-secondary);
+  --mdc-outlined-text-field-label-text-color: var(--color-text-secondary);
+  --mdc-filled-text-field-input-text-color: var(--color-text-primary);
+  --mdc-outlined-text-field-input-text-color: var(--color-text-primary);
+  --mat-form-field-subscript-text-color: var(--color-text-secondary);
+}
+
+// Table header cells
+.mat-mdc-header-cell {
+  color: var(--color-text-primary) !important;
+  background: var(--color-surface-muted) !important;
+  font-weight: var(--weight-semibold) !important;
+  font-size: var(--text-sm) !important;
+}
+
+// Table body cells
+.mat-mdc-cell {
+  color: var(--color-text-primary) !important;
+  font-size: var(--text-base) !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+// Paginator
+.mat-mdc-paginator {
+  color: var(--color-text-secondary) !important;
+  font-size: var(--text-sm) !important;
+}
+
+// Card borders
+.mat-mdc-card {
+  --mdc-elevated-card-container-color: var(--color-surface);
 }
 
 // ===== GLOBAL ACCESSIBILITY =====
@@ -205,7 +282,7 @@ mat-select:focus-visible,
   // Disable hover tooltips on mobile (no hover on touch)
   .mat-mdc-tooltip {
     .mdc-tooltip__surface {
-      font-size: 12px;
+      font-size: var(--text-xs);
       padding: 8px 12px;
     }
   }

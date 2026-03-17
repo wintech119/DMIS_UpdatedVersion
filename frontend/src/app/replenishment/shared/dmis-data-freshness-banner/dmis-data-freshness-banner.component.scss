@@ -8,7 +8,7 @@
   position: sticky;
   top: 48px;
   z-index: 9;
-  font-size: 0.8125rem;
+  font-size: var(--text-base);
   transition: background-color 0.3s ease;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 
@@ -56,8 +56,8 @@
   padding: 0.25rem 0.375rem;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
   line-height: 1.4;
   transition: background 0.15s ease;
 
@@ -102,8 +102,8 @@
   height: 20px;
   padding: 0 5px;
   border-radius: 10px;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   line-height: 1;
 
   .banner-critical & {
@@ -138,7 +138,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   opacity: 0.6;
   white-space: nowrap;
 }
@@ -150,7 +150,7 @@
 }
 
 .refresh-btn {
-  font-size: 0.75rem !important;
+  font-size: var(--text-sm) !important;
   line-height: 1.6;
   padding: 0.125rem 0.75rem !important;
   min-height: 28px !important;
@@ -241,9 +241,9 @@
 }
 
 .item-name {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: #1f2937;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -257,8 +257,8 @@
 }
 
 .item-age {
-  font-size: 0.75rem;
-  color: #6b7280;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
@@ -267,8 +267,8 @@
   align-items: center;
   padding: 0.0625rem 0.4375rem;
   border-radius: 10px;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.025em;
 
@@ -319,7 +319,7 @@
   }
 
   .item-name {
-    font-size: 0.75rem;
+    font-size: var(--text-sm);
     max-width: 200px;
   }
 }
@@ -330,7 +330,7 @@
   }
 
   .banner-message {
-    font-size: 0.75rem;
+    font-size: var(--text-sm);
   }
 
   .item-badge {

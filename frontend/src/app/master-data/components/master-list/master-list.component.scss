@@ -12,7 +12,7 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
-  color: var(--dmis-text-primary, #1a1a1a);
+  color: var(--dmis-text-primary, #37352F);
 }
 
 // ── Page Header ─────────────────────────────────────────────────────────────
@@ -28,15 +28,15 @@
 
     h1 {
       margin: 0 0 4px;
-      font-size: 24px;
-      font-weight: 600;
-      color: #1a1a1a;
+      font-size: var(--text-lg);
+      font-weight: var(--weight-semibold);
+      color: var(--color-text-primary);
     }
 
     .subtitle {
       margin: 0;
-      color: #6b7280;
-      font-size: 14px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-base);
     }
   }
 
@@ -50,8 +50,8 @@
 // ── Filters Panel ───────────────────────────────────────────────────────────
 .filters-panel {
   margin-bottom: 16px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 
@@ -73,13 +73,13 @@
   padding: 0.25rem 0.5rem;
   border-radius: 6px;
   font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: #374151;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
   transition: background 0.15s ease;
 
   &:hover {
-    background: #f3f4f6;
+    background: var(--color-hover);
   }
 
   &:focus-visible {
@@ -92,11 +92,11 @@
   font-size: 18px;
   width: 18px;
   height: 18px;
-  color: #6b7280;
+  color: var(--color-text-secondary);
 }
 
 .filters-title {
-  color: #374151;
+  color: var(--color-text-primary);
 }
 
 .filter-count-badge {
@@ -107,10 +107,10 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  background: #0f766e;
-  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  background: var(--color-accent);
+  color: var(--color-surface);
   line-height: 1;
 }
 
@@ -118,7 +118,7 @@
   font-size: 18px;
   width: 18px;
   height: 18px;
-  color: #9ca3af;
+  color: var(--color-text-tertiary);
   transition: transform 0.2s ease;
 
   &.expanded {
@@ -133,18 +133,18 @@
 }
 
 .filter-summary {
-  font-size: 0.8125rem;
-  color: #6b7280;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
 .clear-btn {
-  font-size: 0.75rem !important;
+  font-size: var(--text-sm) !important;
   line-height: 1.6;
   padding: 0.125rem 0.625rem !important;
   min-height: 28px !important;
   border-radius: 6px !important;
-  color: #6b7280;
+  color: var(--color-text-secondary);
 
   mat-icon {
     font-size: 14px;
@@ -157,7 +157,7 @@
 // ── Expanded Filters Content ────────────────────────────────────────────────
 .filters-content {
   padding: 0 0.75rem 0.75rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--color-hover);
 }
 
 .filters-grid {
@@ -185,11 +185,10 @@
 }
 
 .filter-label {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   letter-spacing: 0.03em;
-  color: #6b7280;
+  color: var(--color-text-secondary);
 }
 
 .filter-input,
@@ -198,17 +197,17 @@
   width: 100%;
   max-width: 100%;
   min-height: 34px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-surface);
   padding: 6px 10px;
-  color: #1f2937;
-  font-size: 0.8125rem;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
   font-family: inherit;
 
   &:focus {
     outline: none;
-    border-color: #0f766e;
+    border-color: var(--color-accent);
     box-shadow: 0 0 0 3px rgb(15 118 110 / 10%);
   }
 }
@@ -230,9 +229,9 @@
 
 // ── Desktop Table (matches review queue .table-container + .review-table) ───
 .table-container {
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   overflow: auto;
   max-height: 72vh;
   margin-bottom: 12px;
@@ -243,19 +242,19 @@
   table-layout: auto;
 
   th {
-    background: #f9fafb;
-    font-weight: 600;
-    color: #1f2937;
+    background: var(--color-surface-muted);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
     padding: 10px 12px;
-    font-size: 13px;
+    font-size: var(--text-base);
     white-space: nowrap;
   }
 
   td {
     padding: 10px 12px;
-    background: #fff;
+    background: var(--color-surface);
     vertical-align: middle;
-    font-size: 0.875rem;
+    font-size: var(--text-base);
   }
 
   th, td {
@@ -282,11 +281,11 @@
   transition: all 0.2s ease;
 
   &:hover {
-    box-shadow: inset 3px 0 0 #0f766e;
+    box-shadow: inset 3px 0 0 var(--color-accent);
   }
 
   &:hover td {
-    background-color: #f9fafb;
+    background-color: var(--color-surface-muted);
   }
 
   &:focus-visible {
@@ -308,8 +307,8 @@
   gap: 4px;
   padding: 4px 10px;
   border-radius: 16px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 
   .status-icon {
@@ -349,13 +348,13 @@
 
 .record-card {
   cursor: pointer;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   transition: all 0.2s ease;
 
   &:hover {
-    border-color: #9ca3af;
+    border-color: var(--color-text-tertiary);
   }
 
   &:focus-visible {
@@ -379,18 +378,18 @@
   ::ng-deep mat-card-actions {
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid #f3f4f6;
+    border-top: 1px solid var(--color-hover);
 
     button {
-      font-weight: 500;
+      font-weight: var(--weight-medium);
     }
   }
 }
 
 .card-title {
-  font-weight: 600;
-  font-size: 0.9375rem;
-  color: #1a1a1a;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
 }
 
 .card-field {
@@ -399,10 +398,10 @@
   align-items: flex-start;
   gap: 12px;
   padding: 4px 0;
-  font-size: 0.875rem;
+  font-size: var(--text-base);
 
   &:not(:last-child) {
-    border-bottom: 1px solid #f3f4f6;
+    border-bottom: 1px solid var(--color-hover);
   }
 
   span:last-child {
@@ -414,9 +413,9 @@
 
 .card-label {
   flex: 0 0 auto;
-  font-size: 0.8125rem;
-  color: #6b7280;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
 }
 
 // ── Paginator ───────────────────────────────────────────────────────────────
@@ -443,11 +442,11 @@
 
   .page-header {
     h1 {
-      font-size: 18px;
+      font-size: var(--text-lg);
     }
 
     .subtitle {
-      font-size: 12px;
+      font-size: var(--text-xs);
     }
   }
 
@@ -467,7 +466,7 @@
 
   .page-header {
     .header-text h1 {
-      font-size: 16px;
+      font-size: var(--text-md);
     }
   }
 }

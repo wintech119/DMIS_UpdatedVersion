@@ -16,7 +16,7 @@
 // ── Header (wizard-header) ──
 .wizard-header {
   margin-bottom: 1.5rem;
-  background: white;
+  background: var(--color-surface);
   border-radius: 0.5rem;
 
   .header-content {
@@ -26,10 +26,10 @@
     padding: 1rem;
 
     .back-btn {
-      color: #6b7280;
+      color: var(--color-text-secondary);
 
       &:hover {
-        color: #1f2937;
+        color: var(--color-text-primary);
       }
     }
 
@@ -38,15 +38,15 @@
 
       h1 {
         margin: 0 0 0.25rem;
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #1a1a1a;
+        font-size: var(--text-xl);
+        font-weight: var(--weight-semibold);
+        color: var(--color-text-primary);
       }
 
       p {
         margin: 0;
-        font-size: 0.875rem;
-        color: #6b7280;
+        font-size: var(--text-base);
+        color: var(--color-text-secondary);
       }
     }
   }
@@ -60,7 +60,7 @@
 
   .nl-id {
     font-family: var(--dmis-font-mono);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     color: var(--dmis-text-secondary);
     cursor: help;
     letter-spacing: 0.02em;
@@ -74,8 +74,8 @@
   gap: 0.25rem;
   padding: 0.25rem 0.75rem;
   border-radius: 1rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: capitalize;
   letter-spacing: 0.01em;
 
@@ -96,8 +96,8 @@
   display: inline-block;
   padding: 0.125rem 0.625rem;
   border-radius: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.02em;
 
@@ -109,8 +109,8 @@
 // ── KPI Summary Card ──
 .summary-card {
   margin-bottom: 1.5rem;
-  background: #0f766e;
-  color: white;
+  background: var(--color-accent);
+  color: var(--color-surface);
   border-radius: 0.5rem;
 
   .summary-content {
@@ -151,18 +151,17 @@
 
         // Large text (>=18pt rendered) – 3:1 ratio passes on gradient
         .label {
-          font-size: 0.75rem;
-          font-weight: 500;
+          font-size: var(--text-sm);
+          font-weight: var(--weight-medium);
           color: #ffffff;
           margin-bottom: 0.125rem;
           white-space: nowrap;
-          text-transform: uppercase;
           letter-spacing: 0.04em;
         }
 
         .value {
-          font-size: 1.5rem;
-          font-weight: 600;
+          font-size: var(--text-xl);
+          font-weight: var(--weight-semibold);
           line-height: 1.2;
         }
       }
@@ -187,7 +186,7 @@
 
 // ── Card Icon ──
 .card-icon {
-  color: #4b5563;
+  color: var(--color-text-secondary);
   font-size: 1.5rem;
   width: 1.5rem;
   height: 1.5rem;
@@ -211,20 +210,20 @@
     padding: 0.75rem 0;
 
     &:not(:last-child) {
-      border-bottom: 1px solid #f3f4f6;
+      border-bottom: 1px solid var(--color-hover);
     }
   }
 
   .info-label {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #6b7280; // 5.5:1 on white
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary); // 5.5:1 on white
   }
 
   .info-value {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #1a1a1a;
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-primary);
   }
 }
 
@@ -254,8 +253,8 @@
   margin-bottom: 0.375rem;
   background: #fff3e0;
   border-radius: 0.375rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: #bf360c; // 7.3:1 on #fff3e0
 
   &:last-child { margin-bottom: 0; }
@@ -279,8 +278,8 @@
   border: 1px solid #ffcc80;
   border-left: 4px solid #e65100;
   border-radius: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
   color: #bf360c; // 7.3:1 on #fff3e0
 
   mat-icon {
@@ -313,14 +312,14 @@
     margin-bottom: 1rem;
 
     mat-card-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: #1a1a1a;
+      font-size: var(--text-lg);
+      font-weight: var(--weight-semibold);
+      color: var(--color-text-primary);
     }
 
     mat-card-subtitle {
-      font-size: 0.875rem;
-      color: #6b7280;
+      font-size: var(--text-base);
+      color: var(--color-text-secondary);
       margin-top: 0.25rem;
     }
   }
@@ -335,31 +334,31 @@
 // ── Preview Table (matches wizard preview-table) ──
 .preview-table {
   width: 100%;
-  background: white;
+  background: var(--color-surface);
   table-layout: fixed;
 
   th {
-    background: #f9fafb;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #1f2937; // 14.5:1 on #f9fafb
+    background: var(--color-surface-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary); // 14.5:1 on #f9fafb
     padding: 0.625rem 0.5rem;
     white-space: nowrap;
   }
 
   td {
     padding: 0.625rem 0.5rem;
-    background: white;
+    background: var(--color-surface);
     vertical-align: middle;
-    font-size: 0.8125rem;
-    color: #374151;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
   }
 
   tr {
     transition: background-color 0.15s ease;
 
     &:hover {
-      background-color: #f9fafb !important;
+      background-color: var(--color-surface-muted) !important;
     }
   }
 
@@ -369,16 +368,16 @@
     overflow: hidden;
 
     .item-name {
-      font-size: 0.8125rem;
-      font-weight: 500;
-      color: #1a1a1a;
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--color-text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
     .item-code {
-      font-size: 0.625rem;
+      font-size: var(--text-xs);
       font-family: var(--dmis-font-mono);
       color: var(--dmis-text-secondary);
       margin-top: 0.125rem;
@@ -388,7 +387,7 @@
 
   .warehouse-cell span {
     display: block;
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -402,8 +401,8 @@
 
 // ── Gap Value ──
 .gap-value {
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   padding: 0.1875rem 0.375rem;
   border-radius: 0.1875rem;
   display: inline-block;
@@ -421,8 +420,8 @@
   gap: 0.25rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
 
   .severity-icon {
     font-size: 1rem;
@@ -445,14 +444,14 @@
 }
 
 .mobile-preview-card {
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   padding: 0.75rem;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover {
-    border-color: #9ca3af;
+    border-color: var(--color-text-tertiary);
   }
 
   .mobile-preview-header {
@@ -479,9 +478,9 @@
 
       .item-name {
         display: block;
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: #1a1a1a;
+        font-size: var(--text-base);
+        font-weight: var(--weight-semibold);
+        color: var(--color-text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -489,7 +488,7 @@
 
       .item-code {
         display: block;
-        font-size: 0.6875rem;
+        font-size: var(--text-xs);
         font-family: var(--dmis-font-mono);
         color: var(--dmis-text-secondary);
         margin-top: 0.0625rem;
@@ -506,21 +505,20 @@
       display: flex;
       flex-direction: column;
       padding: 0.25rem 0.5rem;
-      background: #f8f9fa;
+      background: var(--color-surface-muted);
       border-radius: 0.25rem;
 
       .metric-label {
-        font-size: 0.625rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
+        font-size: var(--text-xs);
+        font-weight: var(--weight-medium);
+        color: var(--color-text-secondary);
         letter-spacing: 0.04em;
       }
 
       .metric-value {
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: #1f2937;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-semibold);
+        color: var(--color-text-primary);
         display: flex;
         align-items: center;
         gap: 0.25rem;
@@ -536,15 +534,15 @@
   gap: 0.5rem;
   margin-bottom: 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
-  background: #f9fafb;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #1f2937; // 14.5:1 on #f9fafb
+  background: var(--color-surface-muted);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary); // 14.5:1 on #f9fafb
 
   mat-icon {
-    color: #6b7280;
+    color: var(--color-text-secondary);
     flex-shrink: 0;
   }
 }
@@ -567,7 +565,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      font-weight: 500;
+      font-weight: var(--weight-medium);
     }
 
     .primary-actions {
@@ -578,7 +576,7 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        font-weight: 500;
+        font-weight: var(--weight-medium);
         min-width: 8.75rem;
       }
 
@@ -630,7 +628,7 @@
       flex-wrap: wrap;
 
       .header-text h1 { font-size: 1.125rem; }
-      .header-text p  { font-size: 0.75rem; }
+      .header-text p  { font-size: var(--text-sm); }
     }
 
     .header-badges {
@@ -650,8 +648,8 @@
       }
 
       .summary-text {
-        .label { font-size: 0.6875rem; }
-        .value { font-size: 1.25rem; }
+        .label { font-size: var(--text-xs); }
+        .value { font-size: var(--text-lg); }
       }
     }
   }
@@ -697,7 +695,7 @@
   }
 
   .wizard-header .header-content .header-text h1 {
-    font-size: 1rem;
+    font-size: var(--text-md);
   }
 
   .summary-card .summary-content .summary-item .summary-text .value {

@@ -1,15 +1,6 @@
-$nav-font: 0.875rem;
 $icon-size: 20px;
 $expanded-width: 260px;
 $collapsed-width: 56px;
-$text-primary: #0d0d0d;
-$text-secondary: #353740;
-$text-muted: #8e8ea0;
-$icon-color: #555;
-$bg-hover: #ececec;
-$bg-active: #f0fdf4;
-$accent: #0f766e;
-$border-color: #e5e5e5;
 
 :host {
   display: block;
@@ -21,8 +12,8 @@ $border-color: #e5e5e5;
   flex-direction: column;
   width: $expanded-width;
   height: 100%;
-  background: #f9f9f9;
-  border-right: 1px solid $border-color;
+  background: var(--color-surface-muted);
+  border-right: 1px solid var(--color-border);
   overflow: hidden;
   transition: width 0.2s ease;
 
@@ -59,10 +50,10 @@ $border-color: #e5e5e5;
 }
 
 .sidenav-brand {
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: $text-primary;
-  letter-spacing: 0.04em;
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+  letter-spacing: var(--tracking-wide);
 }
 
 .collapse-btn {
@@ -74,14 +65,14 @@ $border-color: #e5e5e5;
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: $text-muted;
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
   flex-shrink: 0;
 
   &:hover {
-    background: $bg-hover;
-    color: $text-primary;
+    background: var(--color-hover);
+    color: var(--color-text-primary);
   }
 
   mat-icon {
@@ -125,17 +116,17 @@ $border-color: #e5e5e5;
 }
 
 .nav-section-header {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  color: $text-muted;
+  color: var(--color-text-secondary);
   padding: 0.875rem 1rem 0.25rem;
 }
 
 .nav-section-divider {
   height: 1px;
-  background: $border-color;
+  background: var(--color-border);
   margin: 0.5rem 0.75rem;
 }
 
@@ -146,8 +137,8 @@ $border-color: #e5e5e5;
   gap: 0.625rem;
   padding: 0 0.875rem;
   height: 36px;
-  color: $text-secondary;
-  font-size: $nav-font;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
   text-decoration: none;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
@@ -155,16 +146,16 @@ $border-color: #e5e5e5;
   margin: 1px 0.5rem;
 
   &:hover:not(.disabled) {
-    background: $bg-hover;
-    color: $text-primary;
+    background: var(--color-hover);
+    color: var(--color-text-primary);
   }
 
   &.active {
-    background: $bg-active;
-    color: $accent;
-    font-weight: 600;
+    background: #f0fdf4;
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
 
-    .nav-icon { color: $accent; }
+    .nav-icon { color: var(--color-accent); }
   }
 
   &.disabled {
@@ -190,23 +181,23 @@ $border-color: #e5e5e5;
   &::ng-deep .mat-expansion-panel-header {
     padding: 0 0.875rem;
     height: 36px !important;
-    font-size: $nav-font !important;
+    font-size: var(--text-base) !important;
     background: transparent !important;
     border-radius: 6px;
     margin: 1px 0.5rem;
 
     &:hover {
-      background: $bg-hover !important;
+      background: var(--color-hover) !important;
     }
   }
 
   &::ng-deep .mat-expansion-panel-header.mat-expanded {
     height: 36px !important;
-    font-size: $nav-font !important;
+    font-size: var(--text-base) !important;
   }
 
   &::ng-deep .mat-expansion-indicator::after {
-    color: $text-muted;
+    color: var(--color-text-secondary);
     transform: rotate(0deg) !important;
     border-width: 0 1.5px 1.5px 0;
     padding: 2.5px;
@@ -217,7 +208,7 @@ $border-color: #e5e5e5;
   }
 
   &::ng-deep .mat-content {
-    font-size: $nav-font !important;
+    font-size: var(--text-base) !important;
     flex: unset;
   }
 
@@ -230,15 +221,15 @@ $border-color: #e5e5e5;
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  color: $text-secondary;
-  font-size: $nav-font !important;
-  font-weight: 500;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base) !important;
+  font-weight: var(--weight-medium);
 
   &.disabled-title { opacity: 0.35; }
 
   .active-group & {
-    color: $accent;
-    font-weight: 600;
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
   }
 }
 
@@ -249,8 +240,8 @@ $border-color: #e5e5e5;
   gap: 0.5rem;
   padding: 0 0.875rem 0 2.75rem;
   height: 32px;
-  color: $text-secondary;
-  font-size: $nav-font;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
   text-decoration: none;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
@@ -258,16 +249,16 @@ $border-color: #e5e5e5;
   margin: 1px 0.5rem;
 
   &:hover:not(.disabled) {
-    background: $bg-hover;
-    color: $text-primary;
+    background: var(--color-hover);
+    color: var(--color-text-primary);
   }
 
   &.active {
-    background: $bg-active;
-    color: $accent;
-    font-weight: 600;
+    background: #f0fdf4;
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
 
-    .nav-icon-sm { color: $accent; }
+    .nav-icon-sm { color: var(--color-accent); }
   }
 
   &.disabled {
@@ -279,23 +270,23 @@ $border-color: #e5e5e5;
 
 // Icons
 .nav-icon {
-  color: $icon-color;
+  color: var(--color-text-secondary);
   font-size: $icon-size;
   width: $icon-size;
   height: $icon-size;
   flex-shrink: 0;
 
-  .active & { color: $accent; }
+  .active & { color: var(--color-accent); }
 }
 
 .nav-icon-sm {
-  color: $icon-color;
+  color: var(--color-text-secondary);
   font-size: 18px;
   width: 18px;
   height: 18px;
   flex-shrink: 0;
 
-  .active & { color: $accent; }
+  .active & { color: var(--color-accent); }
 }
 
 .nav-label {
@@ -307,7 +298,7 @@ $border-color: #e5e5e5;
 
 // Footer: user card + collapse toggle
 .sidenav-footer {
-  border-top: 1px solid $border-color;
+  border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
@@ -324,7 +315,7 @@ $border-color: #e5e5e5;
       font-size: 32px;
       width: 32px;
       height: 32px;
-      color: $icon-color;
+      color: var(--color-text-secondary);
     }
   }
 
@@ -335,17 +326,17 @@ $border-color: #e5e5e5;
   }
 
   .user-name {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: $text-primary;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .user-role {
-    font-size: 0.6875rem;
-    color: $text-muted;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -363,7 +354,6 @@ $border-color: #e5e5e5;
     font-size: 24px;
     width: 24px;
     height: 24px;
-    color: $icon-color;
+    color: var(--color-text-secondary);
   }
 }
-

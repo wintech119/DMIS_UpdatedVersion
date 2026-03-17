@@ -7,38 +7,31 @@ import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { EMPTY, Subject } from 'rxjs';
 import { catchError, switchMap, tap } from 'rxjs/operators';
 
-import { NeedsListSummary, NeedsListSummaryStatus } from '../models/needs-list.model';
+import { NeedsListSummary } from '../models/needs-list.model';
 import {
   MySubmissionsQueryParams,
-  ReplenishmentService,
-  Warehouse
+  ReplenishmentService
 } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { SubmissionSnapshotService } from '../services/submission-snapshot.service';
-import { SubmissionCardComponent } from '../shared/submission-card/submission-card.component';
+import { CompactSubmissionCardComponent } from '../shared/compact-submission-card/compact-submission-card.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { getNeedsListActionTarget, HorizonActionTarget } from '../shared/needs-list-action.util';
 
-interface EventOption {
-  id: number | null;
-  name: string;
+export type SubmissionTab = 'all' | 'action' | 'progress' | 'done';
+
+const TAB_STATUSES: Record<Exclude<SubmissionTab, 'all'>, ReadonlySet<string>> = {
+  action: new Set(['DRAFT', 'MODIFIED', 'RETURNED']),
+  progress: new Set(['PENDING_APPROVAL', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS', 'DISPATCHED', 'IN_TRANSIT']),
+  done: new Set(['FULFILLED', 'RECEIVED', 'COMPLETED', 'REJECTED', 'CANCELLED', 'SUPERSEDED'])
+};
+
+interface GroupedSubmissions {
+  action: NeedsListSummary[];
+  progress: NeedsListSummary[];
+  done: NeedsListSummary[];
 }
-
-type ReplenishmentMethodFilter = 'ALL' | 'A' | 'B' | 'C';
-
-const VALID_STATUSES: ReadonlySet<NeedsListSummaryStatus> = new Set([
-  'DRAFT',
-  'MODIFIED',
-  'RETURNED',
-  'PENDING_APPROVAL',
-  'APPROVED',
-  'REJECTED',
-  'IN_PROGRESS',
-  'FULFILLED',
-  'SUPERSEDED',
-  'CANCELLED'
-]);
 
 @Component({
   selector: 'app-my-submissions',
@@ -47,7 +40,7 @@ const VALID_STATUSES: ReadonlySet<NeedsListSummaryStatus> = new Set([
     MatButtonModule,
     MatIconModule,
     MatPaginatorModule,
-    SubmissionCardComponent,
+    CompactSubmissionCardComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent
   ],
@@ -67,70 +60,119 @@ export class MySubmissionsComponent {
 
   readonly loading = signal(false);
   readonly error = signal(false);
-  readonly submissions = signal<NeedsListSummary[]>([]);
+  readonly allSubmissions = signal<NeedsListSummary[]>([]);
   readonly totalCount = signal(0);
   readonly recentlyChangedIds = signal<Set<string>>(new Set());
 
-  readonly statusFilter = signal<string>('ALL');
-  readonly methodFilter = signal<ReplenishmentMethodFilter>('ALL');
-  readonly warehouseFilter = signal<number | null>(null);
-  readonly eventFilter = signal<number | null>(null);
-  readonly dateFromFilter = signal<string>('');
-  readonly dateToFilter = signal<string>('');
-  readonly sortBy = signal<'date' | 'status' | 'warehouse'>('date');
-  readonly sortOrder = signal<'asc' | 'desc'>('desc');
-  readonly pageSize = signal(10);
+  // New simplified filters
+  readonly activeTab = signal<SubmissionTab>('all');
+  readonly searchQuery = signal('');
+  readonly sortNewest = signal(true);
+
+  // Pagination
+  readonly pageSize = signal(20);
   readonly pageIndex = signal(0);
 
+  // Batch selection
   readonly selectedDraftIds = signal<Set<string>>(new Set<string>());
-  readonly warehouseOptions = signal<Warehouse[]>([]);
-  readonly eventOptions = signal<EventOption[]>([]);
-  readonly filtersExpanded = signal(false);
-
   readonly selectedCount = computed(() => this.selectedDraftIds().size);
-  readonly hasResults = computed(() => this.submissions().length > 0);
-  readonly hasActiveFilters = computed(() =>
-    this.statusFilter() !== 'ALL' ||
-    this.methodFilter() !== 'ALL' ||
-    this.warehouseFilter() !== null ||
-    this.eventFilter() !== null ||
-    this.dateFromFilter() !== '' ||
-    this.dateToFilter() !== ''
-  );
-  readonly activeFilterCount = computed(() => {
-    let count = 0;
-    if (this.statusFilter() !== 'ALL') count++;
-    if (this.methodFilter() !== 'ALL') count++;
-    if (this.warehouseFilter() !== null) count++;
-    if (this.eventFilter() !== null) count++;
-    if (this.dateFromFilter() !== '') count++;
-    if (this.dateToFilter() !== '') count++;
-    return count;
+
+  // Completed group collapse
+  readonly completedExpanded = signal(false);
+
+  // Filtered + grouped submissions (client-side)
+  readonly filteredSubmissions = computed((): NeedsListSummary[] => {
+    let items = this.allSubmissions();
+    const tab = this.activeTab();
+    const query = this.searchQuery().trim().toLowerCase();
+
+    // Tab filter
+    if (tab !== 'all') {
+      const allowedStatuses = TAB_STATUSES[tab];
+      items = items.filter(s => allowedStatuses.has(s.status));
+    }
+
+    // Search filter
+    if (query) {
+      items = items.filter(s =>
+        s.reference_number.toLowerCase().includes(query) ||
+        (s.warehouse?.name || '').toLowerCase().includes(query)
+      );
+    }
+
+    // Sort
+    items = [...items].sort((a, b) => {
+      const dateA = new Date(a.last_updated_at || a.submitted_at || 0).getTime();
+      const dateB = new Date(b.last_updated_at || b.submitted_at || 0).getTime();
+      return this.sortNewest() ? dateB - dateA : dateA - dateB;
+    });
+
+    return items;
   });
 
-  toggleFilters(): void {
-    this.filtersExpanded.set(!this.filtersExpanded());
-  }
+  readonly groupedSubmissions = computed((): GroupedSubmissions => {
+    const items = this.filteredSubmissions();
+    const groups: GroupedSubmissions = { action: [], progress: [], done: [] };
 
-  constructor() {
-    const statusParam = this.route.snapshot.queryParamMap.get('status');
-    if (statusParam) {
-      if (statusParam === 'ALL') {
-        this.statusFilter.set('ALL');
+    for (const item of items) {
+      if (TAB_STATUSES.action.has(item.status)) {
+        groups.action.push(item);
+      } else if (TAB_STATUSES.done.has(item.status)) {
+        groups.done.push(item);
       } else {
-        const parsedStatuses = statusParam
-          .split(',')
-          .map((value) => value.trim().toUpperCase())
-          .filter(Boolean);
-        if (parsedStatuses.length > 0 && parsedStatuses.every((value) => VALID_STATUSES.has(value as NeedsListSummaryStatus))) {
-          this.statusFilter.set(parsedStatuses.join(','));
-        }
+        groups.progress.push(item);
       }
     }
-    const methodParam = String(this.route.snapshot.queryParamMap.get('method') || '').trim().toUpperCase();
-    if (methodParam === 'A' || methodParam === 'B' || methodParam === 'C') {
-      this.methodFilter.set(methodParam);
+
+    return groups;
+  });
+
+  // Tab counts (from all submissions, ignoring search)
+  readonly tabCounts = computed(() => {
+    const items = this.allSubmissions();
+    let action = 0, progress = 0, done = 0;
+    for (const item of items) {
+      if (TAB_STATUSES.action.has(item.status)) action++;
+      else if (TAB_STATUSES.done.has(item.status)) done++;
+      else progress++;
     }
+    return { all: items.length, action, progress, done };
+  });
+
+  readonly hasResults = computed(() => this.filteredSubmissions().length > 0);
+  readonly hasActiveFilters = computed(() =>
+    this.activeTab() !== 'all' || this.searchQuery().trim() !== ''
+  );
+
+  // Paginated view
+  readonly paginatedSubmissions = computed((): GroupedSubmissions => {
+    const groups = this.groupedSubmissions();
+    const start = this.pageIndex() * this.pageSize();
+    const end = start + this.pageSize();
+
+    // Flatten, paginate, then re-group
+    const allFlat = [...groups.action, ...groups.progress, ...groups.done];
+    const page = allFlat.slice(start, end);
+
+    const result: GroupedSubmissions = { action: [], progress: [], done: [] };
+    for (const item of page) {
+      if (TAB_STATUSES.action.has(item.status)) result.action.push(item);
+      else if (TAB_STATUSES.done.has(item.status)) result.done.push(item);
+      else result.progress.push(item);
+    }
+    return result;
+  });
+
+  constructor() {
+    // Apply initial tab from query params
+    const statusParam = this.route.snapshot.queryParamMap.get('status');
+    if (statusParam) {
+      const upper = statusParam.toUpperCase();
+      if (TAB_STATUSES.action.has(upper)) this.activeTab.set('action');
+      else if (TAB_STATUSES.progress.has(upper)) this.activeTab.set('progress');
+      else if (TAB_STATUSES.done.has(upper)) this.activeTab.set('done');
+    }
+
     this.loadRequests.pipe(
       tap(() => {
         this.loading.set(true);
@@ -141,7 +183,7 @@ export class MySubmissionsComponent {
           catchError(() => {
             this.loading.set(false);
             this.error.set(true);
-            this.submissions.set([]);
+            this.allSubmissions.set([]);
             this.totalCount.set(0);
             this.selectedDraftIds.set(new Set<string>());
             this.notifications.showError('Failed to load needs list submissions.');
@@ -157,43 +199,38 @@ export class MySubmissionsComponent {
       const changed = this.snapshotService.detectChanges(results);
       this.recentlyChangedIds.set(changed);
 
-      // Sort changed submissions to the top, preserving relative order within each group
+      // Sort changed submissions to the top within their groups
       if (changed.size > 0) {
-        const changedItems = results.filter((r) => changed.has(r.id));
-        const otherItems = results.filter((r) => !changed.has(r.id));
-        this.submissions.set([...changedItems, ...otherItems]);
+        const changedItems = results.filter(r => changed.has(r.id));
+        const otherItems = results.filter(r => !changed.has(r.id));
+        this.allSubmissions.set([...changedItems, ...otherItems]);
       } else {
-        this.submissions.set(results);
+        this.allSubmissions.set(results);
       }
 
       this.totalCount.set(response.count || 0);
-      this.mergeWarehouseOptions(results);
-      this.mergeEventOptions(results);
       this.loading.set(false);
 
+      // Prune batch selection to items still on page
       const allowedOnPage = new Set(
         results
-          .filter((row) => this.canBatchSelect(row.status))
-          .map((row) => row.id)
+          .filter(row => this.canBatchSelect(row.status))
+          .map(row => row.id)
       );
       const nextSelection = new Set<string>();
       for (const id of this.selectedDraftIds()) {
-        if (allowedOnPage.has(id)) {
-          nextSelection.add(id);
-        }
+        if (allowedOnPage.has(id)) nextSelection.add(id);
       }
       this.selectedDraftIds.set(nextSelection);
 
-      // Mark as seen after 5 seconds so highlights clear on next visit
-      if (this.seenTimer !== null) {
-        clearTimeout(this.seenTimer);
-      }
+      // Mark as seen after 5 seconds
+      if (this.seenTimer !== null) clearTimeout(this.seenTimer);
       this.seenTimer = setTimeout(() => {
         this.snapshotService.markAsSeen(results);
         this.seenTimer = null;
       }, 5000);
     });
-    this.loadWarehouseOptions();
+
     this.loadSubmissions();
   }
 
@@ -201,13 +238,40 @@ export class MySubmissionsComponent {
     this.loadRequests.next();
   }
 
-  refreshSubmission(_id: string): void {
-    void _id;
-    this.loadSubmissions();
+  onTabChange(tab: SubmissionTab): void {
+    this.activeTab.set(tab);
+    this.pageIndex.set(0);
   }
 
-  onOpenAction(event: { id: string; status: NeedsListSummaryStatus }): void {
-    const target = getNeedsListActionTarget(event.id, event.status);
+  onSearchInput(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.searchQuery.set(target?.value || '');
+    this.pageIndex.set(0);
+  }
+
+  toggleSort(): void {
+    this.sortNewest.update(v => !v);
+  }
+
+  toggleCompleted(): void {
+    this.completedExpanded.update(v => !v);
+  }
+
+  clearFilters(): void {
+    this.activeTab.set('all');
+    this.searchQuery.set('');
+    this.sortNewest.set(true);
+    this.pageIndex.set(0);
+  }
+
+  // Card event handlers
+  onCardClick(submission: NeedsListSummary): void {
+    const target = getNeedsListActionTarget(submission.id, submission.status);
+    this.router.navigate(target.commands, { queryParams: target.queryParams });
+  }
+
+  onCardAction(event: { submission: NeedsListSummary; action: string }): void {
+    const target = getNeedsListActionTarget(event.submission.id, event.submission.status);
     this.router.navigate(target.commands, { queryParams: target.queryParams });
   }
 
@@ -215,82 +279,7 @@ export class MySubmissionsComponent {
     this.router.navigate(target.commands);
   }
 
-  onStatusFilterChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    this.statusFilter.set(target?.value || 'ALL');
-    this.resetPageAndReload();
-  }
-
-  onWarehouseFilterChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    const raw = target?.value || '';
-    this.warehouseFilter.set(this.parsePositiveIntFilter(raw));
-    this.resetPageAndReload();
-  }
-
-  onEventFilterChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    const raw = target?.value || '';
-    this.eventFilter.set(this.parsePositiveIntFilter(raw));
-    this.resetPageAndReload();
-  }
-
-  onMethodFilterChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    const raw = String(target?.value || 'ALL').trim().toUpperCase();
-    if (raw === 'A' || raw === 'B' || raw === 'C') {
-      this.methodFilter.set(raw);
-    } else {
-      this.methodFilter.set('ALL');
-    }
-    this.resetPageAndReload();
-  }
-
-  onDateFromChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    this.dateFromFilter.set(target?.value || '');
-    this.resetPageAndReload();
-  }
-
-  onDateToChange(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    this.dateToFilter.set(target?.value || '');
-    this.resetPageAndReload();
-  }
-
-  onSortByChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    const value = target?.value;
-    if (value === 'date' || value === 'status' || value === 'warehouse') {
-      this.sortBy.set(value);
-      this.resetPageAndReload();
-    }
-  }
-
-  toggleSortOrder(): void {
-    this.sortOrder.set(this.sortOrder() === 'desc' ? 'asc' : 'desc');
-    this.resetPageAndReload();
-  }
-
-  onPageChange(event: PageEvent): void {
-    this.pageIndex.set(event.pageIndex);
-    this.pageSize.set(event.pageSize);
-    this.loadSubmissions();
-  }
-
-  clearFilters(): void {
-    this.statusFilter.set('ALL');
-    this.methodFilter.set('ALL');
-    this.warehouseFilter.set(null);
-    this.eventFilter.set(null);
-    this.dateFromFilter.set('');
-    this.dateToFilter.set('');
-    this.sortBy.set('date');
-    this.sortOrder.set('desc');
-    this.pageIndex.set(0);
-    this.loadSubmissions();
-  }
-
+  // Batch selection
   canBatchSelect(status: string): boolean {
     return status === 'DRAFT' || status === 'MODIFIED';
   }
@@ -299,21 +288,19 @@ export class MySubmissionsComponent {
     return this.selectedDraftIds().has(id);
   }
 
-  onDraftSelectionChange(id: string, selected: boolean): void {
+  onSelectionToggle(event: { id: string; selected: boolean }): void {
     const next = new Set(this.selectedDraftIds());
-    if (selected) {
-      next.add(id);
+    if (event.selected) {
+      next.add(event.id);
     } else {
-      next.delete(id);
+      next.delete(event.id);
     }
     this.selectedDraftIds.set(next);
   }
 
   submitSelectedDrafts(): void {
     const ids = [...this.selectedDraftIds()];
-    if (!ids.length) {
-      return;
-    }
+    if (!ids.length) return;
 
     this.replenishmentService
       .bulkSubmitDrafts(ids)
@@ -338,9 +325,7 @@ export class MySubmissionsComponent {
 
   deleteSelectedDrafts(): void {
     const ids = [...this.selectedDraftIds()];
-    if (!ids.length) {
-      return;
-    }
+    if (!ids.length) return;
 
     this.replenishmentService
       .bulkDeleteDrafts(ids)
@@ -363,129 +348,22 @@ export class MySubmissionsComponent {
       });
   }
 
+  onPageChange(event: PageEvent): void {
+    this.pageIndex.set(event.pageIndex);
+    this.pageSize.set(event.pageSize);
+  }
+
   backToDashboard(): void {
     this.router.navigate(['/replenishment/dashboard']);
   }
 
-  private resetPageAndReload(): void {
-    this.pageIndex.set(0);
-    this.loadSubmissions();
-  }
-
   private buildQueryParams(): MySubmissionsQueryParams {
-    const method = this.methodFilter();
+    // Fetch all submissions from server (no server-side filtering — client handles it)
     return {
-      status: this.statusFilter() === 'ALL' ? undefined : this.statusFilter(),
-      method: method === 'ALL' ? undefined : method,
-      warehouse_id: this.warehouseFilter() ?? undefined,
-      event_id: this.eventFilter() ?? undefined,
-      date_from: this.dateFromFilter() || undefined,
-      date_to: this.dateToFilter() || undefined,
-      sort_by: this.sortBy(),
-      sort_order: this.sortOrder(),
-      page: this.pageIndex() + 1,
-      page_size: this.pageSize()
+      sort_by: 'date',
+      sort_order: 'desc',
+      page: 1,
+      page_size: 200
     };
-  }
-
-  private loadWarehouseOptions(): void {
-    this.replenishmentService
-      .getAllWarehouses()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (warehouses) => {
-          const merged = new Map<number, Warehouse>();
-          for (const warehouse of this.warehouseOptions()) {
-            if (this.isValidWarehouse(warehouse)) {
-              merged.set(warehouse.warehouse_id, warehouse);
-            }
-          }
-          for (const warehouse of warehouses || []) {
-            if (this.isValidWarehouse(warehouse)) {
-              merged.set(warehouse.warehouse_id, warehouse);
-            }
-          }
-          this.warehouseOptions.set(
-            [...merged.values()].sort((left, right) =>
-              left.warehouse_name.localeCompare(right.warehouse_name)
-            )
-          );
-        },
-        error: () => {
-          // Keep any already-cached options to avoid collapsing filters on transient failures.
-        }
-      });
-  }
-
-  private mergeWarehouseOptions(rows: NeedsListSummary[]): void {
-    const merged = new Map<number, Warehouse>();
-    for (const warehouse of this.warehouseOptions()) {
-      if (this.isValidWarehouse(warehouse)) {
-        merged.set(warehouse.warehouse_id, warehouse);
-      }
-    }
-
-    for (const row of rows) {
-      const id = row.warehouse?.id;
-      if (id == null || !Number.isInteger(id) || id <= 0) {
-        continue;
-      }
-      const name = String(row.warehouse?.name || `Warehouse ${id}`).trim();
-      merged.set(id, {
-        warehouse_id: id,
-        warehouse_name: name || `Warehouse ${id}`
-      });
-    }
-
-    this.warehouseOptions.set(
-      [...merged.values()].sort((left, right) =>
-        left.warehouse_name.localeCompare(right.warehouse_name)
-      )
-    );
-  }
-
-  private mergeEventOptions(rows: NeedsListSummary[]): void {
-    const existing = new Map<number, EventOption>();
-
-    for (const option of this.eventOptions()) {
-      const id = option.id;
-      if (typeof id === 'number' && Number.isInteger(id) && id > 0) {
-        existing.set(id, { id, name: option.name || `Event ${id}` });
-      }
-    }
-
-    for (const row of rows) {
-      const id = row.event.id;
-      if (typeof id === 'number' && Number.isInteger(id) && id > 0 && !existing.has(id)) {
-        existing.set(id, { id, name: row.event.name || `Event ${id}` });
-      }
-    }
-
-    const merged = [...existing.values()].sort((left, right) =>
-      left.name.localeCompare(right.name)
-    );
-    this.eventOptions.set(merged);
-  }
-
-  private parsePositiveIntFilter(raw: string): number | null {
-    const normalized = String(raw || '').trim();
-    if (!normalized) {
-      return null;
-    }
-    const parsed = Number(normalized);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return null;
-    }
-    return parsed;
-  }
-
-  private isValidWarehouse(value: Warehouse | null | undefined): value is Warehouse {
-    if (!value) {
-      return false;
-    }
-    if (!Number.isInteger(value.warehouse_id) || value.warehouse_id <= 0) {
-      return false;
-    }
-    return String(value.warehouse_name || '').trim().length > 0;
   }
 }

@@ -179,8 +179,10 @@ Notes:
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe manage.py runserver
+..\.venv\Scripts\python.exe manage.py runserver 0.0.0.0:8001
 ```
+
+Use `http://localhost:8001`, not `https://localhost:8001`. The Django dev server in this repo is HTTP-only for local development.
 
 ### Frontend
 
@@ -188,6 +190,10 @@ cd backend
 cd frontend
 npm.cmd start
 ```
+
+Open `http://localhost:4200`. Angular proxies `/api` to the backend on `http://localhost:8001`.
+
+If Django still logs HTTPS handshake errors while the UI is open, run the frontend with `npm.cmd start -- --verbose` and watch the proxy output. The dev proxy now logs the exact upstream URL for every `/api` request.
 
 ## Verification commands
 

@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import os
 import sys
 import warnings
@@ -29,7 +30,7 @@ if TESTING:
     )
 
 
-def _load_env_file(path: Path) -> None:
+def _load_env_file(path: Path, *, override: bool = False) -> None:
     """
     Lightweight .env loader to keep local Postgres settings in one place without
     requiring an external dependency in backend requirements.
@@ -47,24 +48,70 @@ def _load_env_file(path: Path) -> None:
         if not key:
             continue
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if override:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_int_env(name: str, default: int | None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
+
+
+def _build_debug_secret_key() -> str:
+    seed = "|".join(
+        [
+            str(BASE_DIR),
+            sys.executable,
+            os.getenv("USERNAME", ""),
+            os.getenv("COMPUTERNAME", ""),
+        ]
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return f"debug-{digest}{digest[:24]}"
+
+
+_LOCAL_ENV_COMMANDS = {"runserver", "shell", "dbshell"}
+
+
+def _should_load_local_env() -> bool:
+    if _get_bool_env("DMIS_LOAD_LOCAL_ENV", False):
+        return True
+    return any(arg in _LOCAL_ENV_COMMANDS for arg in sys.argv[1:])
 
 
 _load_env_file(BASE_DIR / ".env")
+if _should_load_local_env():
+    _load_env_file(BASE_DIR / ".env.local", override=True)
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-key")
+_env_secret_key = os.getenv("DJANGO_SECRET_KEY", "").strip()
+SECRET_KEY = _env_secret_key or _build_debug_secret_key()
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 ENABLE_TEST_ROLES = os.getenv("ENABLE_TEST_ROLES", "0") == "1"
+_allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS")
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    for host in (_allowed_hosts_env or "localhost,127.0.0.1,[::1]").split(",")
     if host.strip()
 ]
 
 if not DEBUG:
-    if SECRET_KEY == "dev-only-insecure-key":
-        raise RuntimeError("DEBUG is False but DJANGO_SECRET_KEY is still the dev default.")
-    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+    if not _env_secret_key:
+        raise RuntimeError("DEBUG is False but DJANGO_SECRET_KEY is not set.")
+    if _allowed_hosts_env is None or not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
         raise RuntimeError("DEBUG is False but DJANGO_ALLOWED_HOSTS is empty or contains '*'.")
 
 INSTALLED_APPS = [
@@ -86,6 +133,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "dmis_api.urls"
@@ -148,6 +196,33 @@ USE_TZ = True
 STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+SECURE_CONTENT_TYPE_NOSNIFF = _get_bool_env("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", True)
+SECURE_SSL_REDIRECT = _get_bool_env("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
+SESSION_COOKIE_SECURE = _get_bool_env("DJANGO_SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = _get_bool_env("DJANGO_CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_HSTS_SECONDS = _get_int_env(
+    "DJANGO_SECURE_HSTS_SECONDS",
+    31536000 if not DEBUG else 0,
+) or 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _get_bool_env(
+    "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    SECURE_HSTS_SECONDS > 0 and not DEBUG,
+)
+SECURE_HSTS_PRELOAD = _get_bool_env(
+    "DJANGO_SECURE_HSTS_PRELOAD",
+    SECURE_HSTS_SECONDS > 0 and not DEBUG,
+)
+X_FRAME_OPTIONS = os.getenv("DJANGO_X_FRAME_OPTIONS", "DENY").upper()
+SECURE_REFERRER_POLICY = os.getenv("DJANGO_SECURE_REFERRER_POLICY", "same-origin")
+
+if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
+    # Keep local and CI tests aligned with Django's default test client behavior.
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 # Cache — Redis in production/staging, LocMemCache fallback for dev without Redis.
 _redis_url = os.getenv("REDIS_URL", "")
@@ -253,23 +328,6 @@ def _get_float_env(name: str, default: float) -> float:
         return float(raw)
     except ValueError as exc:
         raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
-
-
-def _get_int_env(name: str, default: int | None) -> int | None:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
-
-
-def _get_bool_env(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Only these national tenants may manage event phase demand/planning windows.
