@@ -51,6 +51,7 @@ export function getNeedsListActionTarget(
     case 'IN_PROGRESS':
     case 'IN_PREPARATION':
     case 'DISPATCHED':
+    case 'IN_TRANSIT':
     case 'RECEIVED':
       return {
         label: 'Track Fulfillment',
@@ -161,6 +162,7 @@ const STATUS_LABELS: Record<string, string> = {
   UNDER_REVIEW: 'Under Review',
   IN_PREPARATION: 'In Preparation',
   DISPATCHED: 'Dispatched',
+  IN_TRANSIT: 'In Transit',
   RECEIVED: 'Received',
   COMPLETED: 'Completed',
   ESCALATED: 'Escalated'
