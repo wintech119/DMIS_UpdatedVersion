@@ -2780,6 +2780,26 @@ def assign_storage_location(request):
 @permission_classes([NeedsListPermission])
 def inventory_repackaging(request):
     if request.method == "GET":
+        warehouse_id_filter = request.query_params.get("warehouse_id")
+        if _should_enforce_tenant_scope(request) and warehouse_id_filter in (None, ""):
+            return Response(
+                {
+                    "errors": {
+                        "warehouse_id": (
+                            "warehouse_id is required when tenant scope enforcement is enabled."
+                        )
+                    }
+                },
+                status=400,
+            )
+        scope_error = _require_warehouse_scope(
+            request,
+            warehouse_id_filter,
+            write=False,
+        )
+        if scope_error:
+            return scope_error
+
         try:
             limit = int(request.query_params.get("limit", 100))
             limit = max(1, min(limit, 500))
@@ -2788,12 +2808,28 @@ def inventory_repackaging(request):
             limit, offset = 100, 0
 
         rows, total, warnings = repackaging_service.list_repackaging_transactions(
-            warehouse_id=request.query_params.get("warehouse_id"),
+            warehouse_id=warehouse_id_filter,
             item_id=request.query_params.get("item_id"),
             batch_id=request.query_params.get("batch_id"),
             limit=limit,
             offset=offset,
         )
+        if "db_unavailable" in warnings:
+            return Response(
+                {
+                    "detail": "Repackaging is unavailable in this environment.",
+                    "warnings": warnings,
+                },
+                status=503,
+            )
+        if "db_error" in warnings:
+            return Response(
+                {
+                    "detail": "Failed to load repackaging transactions.",
+                    "warnings": warnings,
+                },
+                status=500,
+            )
         return Response(
             {
                 "results": rows,
@@ -2836,6 +2872,14 @@ def inventory_repackaging(request):
     assert warehouse_id is not None
     assert item_id is not None
 
+    scope_error = _require_warehouse_scope(
+        request,
+        warehouse_id,
+        write=True,
+    )
+    if scope_error:
+        return scope_error
+
     try:
         record, warnings = repackaging_service.create_repackaging_transaction(
             warehouse_id=warehouse_id,
@@ -2870,12 +2914,27 @@ def inventory_repackaging(request):
 def inventory_repackaging_detail(request, repackaging_id: int):
     record, warnings = repackaging_service.get_repackaging_transaction(repackaging_id)
     if record is None:
+        if "db_unavailable" in warnings:
+            return Response(
+                {
+                    "detail": "Repackaging is unavailable in this environment.",
+                    "warnings": warnings,
+                },
+                status=503,
+            )
         if "db_error" in warnings:
             return Response(
                 {"detail": "Failed to load repackaging detail.", "warnings": warnings},
                 status=500,
             )
         return Response({"detail": "Not found."}, status=404)
+    scope_error = _require_warehouse_scope(
+        request,
+        record.get("warehouse_id"),
+        write=False,
+    )
+    if scope_error:
+        return scope_error
     return Response({"record": record, "warnings": warnings})
 
 

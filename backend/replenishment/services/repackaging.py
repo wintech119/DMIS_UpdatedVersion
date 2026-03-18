@@ -122,13 +122,23 @@ def create_repackaging_transaction(
                 )
 
             if client_target_qty is not None:
-                normalized_client_target = _quantize_qty(client_target_qty)
-                if normalized_client_target != computation.target_qty:
+                try:
+                    normalized_client_target = _quantize_qty(client_target_qty)
+                except (InvalidOperation, TypeError, ValueError):
                     warnings.append("client_target_qty_ignored")
+                else:
+                    if normalized_client_target != computation.target_qty:
+                        warnings.append("client_target_qty_ignored")
             if client_equivalent_default_qty is not None:
-                normalized_client_equivalent = _quantize_qty(client_equivalent_default_qty)
-                if normalized_client_equivalent != computation.equivalent_default_qty:
+                try:
+                    normalized_client_equivalent = _quantize_qty(
+                        client_equivalent_default_qty
+                    )
+                except (InvalidOperation, TypeError, ValueError):
                     warnings.append("client_equivalent_qty_ignored")
+                else:
+                    if normalized_client_equivalent != computation.equivalent_default_qty:
+                        warnings.append("client_equivalent_qty_ignored")
 
             repackaging_id = _insert_repackaging_txn(
                 schema=schema,
@@ -879,6 +889,11 @@ def _normalize_positive_decimal(value: Any, *, field_name: str) -> Decimal:
             f"{field_name}_invalid",
             f"{field_name} must be a numeric value.",
         ) from exc
+    if not normalized.is_finite():
+        raise RepackagingError(
+            f"{field_name}_invalid",
+            f"{field_name} must be a finite numeric value.",
+        )
     if normalized <= 0:
         raise RepackagingError(
             f"{field_name}_invalid",
@@ -888,7 +903,10 @@ def _normalize_positive_decimal(value: Any, *, field_name: str) -> Decimal:
 
 
 def _quantize_qty(value: Any) -> Decimal:
-    return Decimal(str(value)).quantize(_QTY_SCALE)
+    normalized = Decimal(str(value))
+    if not normalized.is_finite():
+        raise InvalidOperation("quantity must be finite")
+    return normalized.quantize(_QTY_SCALE)
 
 
 def _parse_optional_int(value: Any) -> int | None:
