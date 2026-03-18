@@ -122,8 +122,17 @@ dmis_schema.sql
 # Claude/Cursor local settings (may contain paths or tokens)
 .claude
 .claude/
+.cursor/
 .mcp.json
+.mcp.example.json
+mcp.example.json
 docs/ops/mcp-postgres-troubleshooting.md
+
+# Local assistant workflow notes / sandbox metadata
+.replit
+CLAUDE_CODE_SUPPLY*
+CODEX_SUPPLY*
+DASHBOARD_IMPLEMENTATION*
 
 # ---------------------------------------------------------------------------
 # Non-application / generated or downloaded data
