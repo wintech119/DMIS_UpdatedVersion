@@ -27,7 +27,10 @@
               [expanded]="group.expanded ?? false"
               [class.active-group]="isGroupActive(group)"
               class="nav-panel">
-              <mat-expansion-panel-header>
+              <mat-expansion-panel-header
+                [matTooltip]="getGroupTooltip(group)"
+                matTooltipPosition="right"
+                matTooltipShowDelay="300">
                 <mat-panel-title class="nav-group-title" [class.disabled-title]="group.disabled">
                   <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
                   <span class="nav-label">{{ group.label }}</span>
@@ -37,8 +40,9 @@
               @for (child of visibleChildren(group); track child.label) {
                 @if (child.disabled) {
                   <a class="nav-child disabled"
-                     matTooltip="Coming Soon"
-                     matTooltipPosition="right">
+                     [matTooltip]="getChildTooltip(child)"
+                     matTooltipPosition="right"
+                     matTooltipShowDelay="300">
                     <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
                     <span class="nav-label">{{ child.label }}</span>
                   </a>
@@ -47,6 +51,9 @@
                      [routerLink]="child.route"
                      [queryParams]="child.queryParams"
                      [class.active]="isRouteActive(child.route!, child.queryParams)"
+                     [matTooltip]="getChildTooltip(child)"
+                     matTooltipPosition="right"
+                     matTooltipShowDelay="300"
                      (click)="onItemClick()">
                     <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
                     <span class="nav-label">{{ child.label }}</span>
@@ -61,8 +68,9 @@
                  [class.disabled]="group.disabled"
                  [routerLink]="firstChild.route"
                  [queryParams]="firstChild.queryParams"
-                 [matTooltip]="group.label"
+                 [matTooltip]="getGroupTooltip(group)"
                  matTooltipPosition="right"
+                 matTooltipShowDelay="300"
                  tabindex="0"
                  (click)="group.disabled ? null : onItemClick()"
                  (keydown.enter)="group.disabled ? null : onItemClick()"
@@ -71,16 +79,18 @@
               </a>
             } @else {
               <a class="nav-item disabled"
-                 [matTooltip]="group.label + ' (Coming Soon)'"
-                 matTooltipPosition="right">
+                 [matTooltip]="getGroupTooltip(group)"
+                 matTooltipPosition="right"
+                 matTooltipShowDelay="300">
                 <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
               </a>
             }
           } @else {
             @if (group.disabled) {
               <a class="nav-item disabled"
-                 [matTooltip]="collapsed() ? group.label + ' (Coming Soon)' : 'Coming Soon'"
-                 matTooltipPosition="right">
+                 [matTooltip]="getGroupTooltip(group)"
+                 matTooltipPosition="right"
+                 matTooltipShowDelay="300">
                 <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
                 @if (!collapsed()) {
                   <span class="nav-label">{{ group.label }}</span>
@@ -91,8 +101,9 @@
                  [routerLink]="group.route"
                  [queryParams]="group.queryParams"
                  [class.active]="isRouteActive(group.route!, group.queryParams)"
-                 [matTooltip]="collapsed() ? group.label : ''"
+                 [matTooltip]="getGroupTooltip(group)"
                  matTooltipPosition="right"
+                 matTooltipShowDelay="300"
                  (click)="onItemClick()">
                 <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
                 @if (!collapsed()) {

@@ -1,24 +1,26 @@
 .submit-step-container {
   padding: 1.5rem;
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
 }
 
-// Summary Card
+// Summary Card — flat bordered style (Notion-inspired)
 .summary-card {
   margin-bottom: 2rem;
-  background: var(--color-accent);
-  color: white;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
 
   ::ng-deep .mat-mdc-card-header {
     .mat-mdc-card-title {
-      color: white;
+      color: var(--color-text-primary);
       font-size: var(--text-xl);
       font-weight: var(--weight-medium);
     }
 
     .mat-mdc-card-subtitle {
-      color: rgba(255, 255, 255, 0.9);
+      color: var(--color-text-secondary);
     }
   }
 
@@ -34,15 +36,15 @@
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    backdrop-filter: blur(10px);
+    background: var(--color-surface-muted);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--color-border);
 
     .summary-icon {
       font-size: 2.5rem;
       width: 2.5rem;
       height: 2.5rem;
-      color: white;
+      color: var(--color-accent);
     }
 
     .summary-text {
@@ -50,19 +52,20 @@
       flex-direction: column;
 
       .label {
-        font-size: var(--text-base);
-        opacity: 0.9;
+        font-size: var(--text-sm);
+        color: var(--color-text-secondary);
         margin-bottom: 0.25rem;
       }
 
       .value {
         font-size: var(--text-xl);
         font-weight: var(--weight-semibold);
+        color: var(--color-text-primary);
       }
 
       .context {
         font-size: var(--text-xs);
-        opacity: 0.8;
+        color: var(--color-text-tertiary);
         margin-top: 0.25rem;
       }
     }
@@ -109,7 +112,7 @@
   .warehouse-item {
     padding: 1rem;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--radius-card);
     transition: all 0.2s;
 
     &:hover,
@@ -147,21 +150,21 @@
     padding: 1rem;
     border-left: 4px solid;
     background: rgba(0, 0, 0, 0.02);
-    border-radius: 4px;
+    border-radius: var(--radius-inner);
 
     &.horizon-A {
-      border-color: #16a34a;
-      background: #f0fdf4;
+      border-color: var(--color-horizon-a);
+      background: var(--color-bg-success);
     }
 
     &.horizon-B {
-      border-color: #d97706;
-      background: #fffbeb;
+      border-color: var(--color-horizon-b);
+      background: var(--color-bg-warning);
     }
 
     &.horizon-C {
-      border-color: #2563eb;
-      background: #eff6ff;
+      border-color: var(--color-horizon-c);
+      background: var(--color-bg-info);
     }
 
     .horizon-header {
@@ -334,7 +337,7 @@
         .item-id {
           font-size: var(--text-sm);
           color: var(--color-text-secondary);
-          font-family: 'Roboto Mono', 'Courier New', monospace;
+          font-family: var(--dmis-font-mono);
           margin-top: 0.125rem;
           letter-spacing: 0.02em;
         }
@@ -381,7 +384,7 @@
 
         .item-cost {
           font-weight: var(--weight-semibold);
-          color: #2e7d32;
+          color: var(--color-success);
         }
       }
     }
@@ -469,8 +472,8 @@
     }
 
     &.selected {
-      border-color: #16a34a;
-      background: #f0fdf4;
+      border-color: var(--color-horizon-a);
+      background: var(--color-bg-success);
     }
 
     &:last-child {
@@ -609,26 +612,26 @@
     }
 
     &.horizon-A {
-      border-left-color: #16a34a;
+      border-left-color: var(--color-horizon-a);
 
       .workflow-header .horizon-icon-A {
-        color: #16a34a;
+        color: var(--color-horizon-a);
       }
     }
 
     &.horizon-B {
-      border-left-color: #d97706;
+      border-left-color: var(--color-horizon-b);
 
       .workflow-header .horizon-icon-B {
-        color: #d97706;
+        color: var(--color-horizon-b);
       }
     }
 
     &.horizon-C {
-      border-left-color: #2563eb;
+      border-left-color: var(--color-horizon-c);
 
       .workflow-header .horizon-icon-C {
-        color: #2563eb;
+        color: var(--color-horizon-c);
       }
     }
 

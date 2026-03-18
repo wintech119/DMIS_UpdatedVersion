@@ -78,7 +78,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 }
@@ -299,13 +299,13 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: -2px;
   }
 }
 
 .id-cell {
-  font-family: 'Roboto Mono', 'Courier New', monospace;
+  font-family: var(--dmis-font-mono);
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
   letter-spacing: 0.02em;
@@ -375,7 +375,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 

@@ -4,15 +4,15 @@
 
 :host {
   display: block;
-  font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(--dmis-font-sans);
 }
 
 // ── Page Container (matches my-submissions-page) ────────────────────────────
 .master-list-page {
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 20px;
-  color: var(--dmis-text-primary, #37352F);
+  color: var(--color-text-primary);
 }
 
 // ── Page Header ─────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 }
@@ -289,7 +289,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: -2px;
   }
 }
@@ -358,7 +358,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 

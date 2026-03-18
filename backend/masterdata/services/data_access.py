@@ -33,6 +33,12 @@ _FORWARD_WRITE_STATE_TABLES = {
     "reliefrqst_item": {"DRAFT"},
 }
 _WORKFLOW_STATE_ALIASES = {
+    "0": "DRAFT",
+    "1": "SUBMITTED",
+    "2": "APPROVED",
+    "3": "REJECTED",
+    "4": "CANCELLED",
+    "5": "FULFILLED",
     "P": "PENDING",
     "PENDING_APPROVAL": "PENDING",
     "PENDING_REVIEW": "PENDING",
@@ -441,7 +447,7 @@ _register(TableConfig(
         FieldDef("category_label", required=True, max_length=160,
                  searchable=True, label="Reference Category Label"),
         FieldDef("spec_segment", required=False, uppercase=True, max_length=7,
-                 searchable=True, empty_as_null=True, label="Spec Segment"),
+                 searchable=True, label="Spec Segment"),
         FieldDef("size_weight", required=False, uppercase=True, max_length=40,
                  searchable=True, empty_as_null=True, label="Size or Weight"),
         FieldDef("form", required=False, uppercase=True, max_length=40,
@@ -1576,7 +1582,10 @@ def _run_dependency_count(
     final_params = list(params)
     if status_column and statuses:
         placeholders = ", ".join(["%s"] * len(statuses))
-        where_sql += f" AND UPPER(COALESCE({status_column}, '')) IN ({placeholders})"
+        where_sql += (
+            f" AND UPPER(COALESCE(CAST({status_column} AS TEXT), '')) "
+            f"IN ({placeholders})"
+        )
         final_params.extend(statuses)
 
     with connection.cursor() as cursor:

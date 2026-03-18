@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input
 import { NgClass } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { NeedsListSummary } from '../../models/needs-list.model';
 import { toNeedsListStatusLabel } from '../needs-list-action.util';
@@ -34,16 +35,16 @@ const PRIMARY_ACTION_MAP: Record<string, string> = {
   PENDING_APPROVAL: 'Review',
   SUBMITTED: 'Review',
   UNDER_REVIEW: 'Review',
-  APPROVED: 'Track',
-  IN_PROGRESS: 'Track',
-  DISPATCHED: 'Track',
-  IN_TRANSIT: 'Track'
+  APPROVED: 'View Progress',
+  IN_PROGRESS: 'View Progress',
+  DISPATCHED: 'View Progress',
+  IN_TRANSIT: 'View Progress'
 };
 
 @Component({
   selector: 'app-compact-submission-card',
   standalone: true,
-  imports: [NgClass, MatButtonModule, MatIconModule],
+  imports: [NgClass, MatButtonModule, MatIconModule, MatTooltipModule],
   templateUrl: './compact-submission-card.component.html',
   styleUrl: './compact-submission-card.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -72,6 +73,13 @@ export class CompactSubmissionCardComponent {
   readonly primaryAction = computed((): string | null =>
     PRIMARY_ACTION_MAP[this.submission().status] ?? null
   );
+
+  readonly itemCountLabel = computed(() => {
+    const totalItems = this.submission().total_items;
+    return `${totalItems} ${totalItems === 1 ? 'item' : 'items'}`;
+  });
+
+  readonly showsProgressAction = computed(() => this.primaryAction() === 'View Progress');
 
   constructor() {
     const timerId = window.setInterval(() => this.now.set(Date.now()), 60_000);

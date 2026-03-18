@@ -53,7 +53,8 @@ h2[mat-dialog-title] {
   color: var(--color-text-secondary);
   overflow-x: auto;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: normal;
+  overflow-wrap: anywhere;
   max-height: 200px;
   overflow-y: auto;
 }

@@ -133,6 +133,28 @@ export class NeedsListFulfillmentTrackerComponent {
     return 'none';
   });
 
+  readonly dataFreshness = computed<'high' | 'medium' | 'low'>(() => {
+    const synced = this.lastSyncedAt();
+    if (!synced) return 'low';
+    const ageMs = Date.now() - new Date(synced).getTime();
+    const ageHours = ageMs / (1000 * 60 * 60);
+    if (ageHours < 2) return 'high';
+    if (ageHours < 6) return 'medium';
+    return 'low';
+  });
+
+  readonly lastSyncedRelative = computed<string>(() => {
+    const synced = this.lastSyncedAt();
+    if (!synced) return 'N/A';
+    const ageMs = Date.now() - new Date(synced).getTime();
+    const totalMinutes = Math.floor(ageMs / 60000);
+    if (totalMinutes < 1) return 'Just now';
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m ago`;
+    return `${hours}h ${minutes}m ago`;
+  });
+
   readonly showApprovalSuccess = signal(false);
   readonly expandedLineIds = signal<Set<number | null>>(new Set());
 

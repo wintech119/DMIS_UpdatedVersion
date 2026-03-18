@@ -696,6 +696,10 @@ export class StockStatusDashboardComponent implements OnInit {
     return tooltip;
   }
 
+  getStockItemTooltip(item: StockStatusItem): string {
+    return item.item_name?.trim() || `Item ${item.item_id}`;
+  }
+
   isStaleDataBurnRate(item: StockStatusItem): boolean {
     return item.freshness?.state === 'LOW';
   }

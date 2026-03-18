@@ -981,7 +981,7 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         executed = [call.args[0] for call in cursor.execute.call_args_list]
         self.assertEqual(len(executed), 9)
         self.assertTrue(any(f"JOIN {schema}.transfer t" in sql for sql in executed))
-        self.assertTrue(all("UPPER(COALESCE(" in sql for sql in executed))
+        self.assertTrue(all("UPPER(COALESCE(CAST(" in sql for sql in executed))
 
         transfer_call = next(
             call for call in cursor.execute.call_args_list
@@ -991,6 +991,15 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         self.assertIn(15, transfer_params)
         self.assertIn("DRAFT", transfer_params)
         self.assertIn("PENDING", transfer_params)
+
+        relief_request_call = next(
+            call for call in cursor.execute.call_args_list
+            if f"JOIN {schema}.reliefrqst rr" in call.args[0]
+        )
+        relief_request_params = relief_request_call.args[1]
+        self.assertIn(15, relief_request_params)
+        self.assertIn("0", relief_request_params)
+        self.assertIn("DRAFT", relief_request_params)
 
     @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
@@ -1148,6 +1157,16 @@ class IFRCAgentTests(SimpleTestCase):
                 category_code="ACON",
             ),
             "CW18",
+        )
+        self.assertEqual(
+            _encode_generated_spec(
+                "Tarpaulin",
+                size_weight="12x16 ft",
+                form="sheet",
+                material="polyethylene",
+                category_code="GENR",
+            ),
+            "SH26",
         )
 
     def test_empty_input_returns_none(self):

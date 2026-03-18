@@ -1,14 +1,14 @@
 
 :host {
   display: block;
-  font-family: var(--dmis-font-sans, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(--dmis-font-sans);
 }
 
 .form-page-container {
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 16px;
-  color: var(--dmis-text-primary, #37352F);
+  color: var(--color-text-primary);
 }
 
 .form-page-header {

@@ -61,6 +61,22 @@ describe('CompactSubmissionCardComponent', () => {
     expect(checkbox?.getAttribute('aria-label')).toBe('Select submission REF-100');
   });
 
+  it('shows the full reference and warehouse name as tooltips', () => {
+    const reference: HTMLElement | null = fixture.nativeElement.querySelector('.ref-number');
+    const warehouse: HTMLElement | null = fixture.nativeElement.querySelector('.warehouse');
+
+    expect(reference?.getAttribute('ng-reflect-message')).toBe('REF-100');
+    expect(warehouse?.getAttribute('ng-reflect-message')).toBe('Central Warehouse');
+  });
+
+  it('uses clearer progress action wording and pluralized item counts', () => {
+    const itemCount: HTMLElement | null = fixture.nativeElement.querySelector('.item-count');
+    const actionButton: HTMLButtonElement | null = fixture.nativeElement.querySelector('.action-btn');
+
+    expect(itemCount?.textContent?.trim()).toBe('4 items');
+    expect(actionButton?.textContent?.trim()).toBe('View Progress');
+  });
+
   it('opens the card when keyboard activation originates on the card container', () => {
     const card = fixture.nativeElement.querySelector('.compact-card') as HTMLDivElement;
     const emitSpy = spyOn(component.cardClick, 'emit');
@@ -79,5 +95,17 @@ describe('CompactSubmissionCardComponent', () => {
     checkbox.dispatchEvent(event);
 
     expect(emitSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders a singular item count when there is only one item', () => {
+    fixture.componentRef.setInput('submission', {
+      ...submission,
+      total_items: 1
+    });
+    fixture.detectChanges();
+
+    const itemCount: HTMLElement | null = fixture.nativeElement.querySelector('.item-count');
+
+    expect(itemCount?.textContent?.trim()).toBe('1 item');
   });
 });

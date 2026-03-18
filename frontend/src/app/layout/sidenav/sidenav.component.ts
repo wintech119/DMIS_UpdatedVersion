@@ -6,7 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatButtonModule } from '@angular/material/button';
 import { Subscription, filter } from 'rxjs';
-import { NAV_SECTIONS, NavSection, NavGroup } from './nav-config';
+import { NAV_SECTIONS, NavSection, NavGroup, NavItem } from './nav-config';
 import { DevUser } from '../../app.component';
 
 const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
@@ -114,6 +114,14 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   onClearUser(): void {
     this.clearUser.emit();
+  }
+
+  getGroupTooltip(group: NavGroup): string {
+    return group.disabled ? `${group.label} (Coming Soon)` : group.label;
+  }
+
+  getChildTooltip(child: NavItem): string {
+    return child.disabled ? `${child.label} (Coming Soon)` : child.label;
   }
 
   private canViewSysadminOnly(sysadminOnly?: boolean): boolean {

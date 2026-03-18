@@ -337,7 +337,13 @@
                           </span>
                         </td>
                         <td class="col-item">
-                          <div class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</div>
+                          <div
+                            class="item-name"
+                            [matTooltip]="getStockItemTooltip(item)"
+                            matTooltipPosition="above"
+                            matTooltipShowDelay="300">
+                            {{ item.item_name || 'Item ' + item.item_id }}
+                          </div>
                           @if (item.item_code) {
                             <div class="item-code">{{ item.item_code }}</div>
                           }
@@ -415,7 +421,13 @@
                         {{ item.severity || 'OK' }}
                       </span>
                       <div class="mobile-card-title">
-                        <span class="item-name">{{ item.item_name || 'Item ' + item.item_id }}</span>
+                        <span
+                          class="item-name"
+                          [matTooltip]="getStockItemTooltip(item)"
+                          matTooltipPosition="above"
+                          matTooltipShowDelay="300">
+                          {{ item.item_name || 'Item ' + item.item_id }}
+                        </span>
                         @if (item.category) {
                           <span class="item-category">{{ item.category }}</span>
                         }

@@ -410,6 +410,25 @@ describe('StockStatusDashboardComponent', () => {
     expect(component['toSummaryStatus']('RETURNED')).toBe('RETURNED');
   });
 
+  it('returns the full stock item name for item tooltips', () => {
+    expect(component.getStockItemTooltip({
+      item_id: 42,
+      item_name: 'Emergency Shelter Tarp Heavy Duty',
+      available_qty: 0,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0,
+      gap_qty: 0
+    })).toBe('Emergency Shelter Tarp Heavy Duty');
+
+    expect(component.getStockItemTooltip({
+      item_id: 7,
+      available_qty: 0,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0,
+      gap_qty: 0
+    })).toBe('Item 7');
+  });
+
   it('loads my drafts panel collapsed preference from localStorage', () => {
     localStorage.setItem('dmis_stock_dashboard_my_needs_lists_collapsed', 'true');
 

@@ -1014,6 +1014,19 @@ def _handle_create(request, cfg):
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
             return guard_response
+        if "db_unique_violation" in warnings:
+            return Response(
+                {
+                    "detail": "Record already exists.",
+                    "diagnostic": _warning_diagnostic_message(
+                        warnings,
+                        operation="create",
+                        target="record",
+                    ),
+                    "warnings": warnings,
+                },
+                status=409,
+            )
         return _create_failure_response(
             target="record",
             warnings=warnings,

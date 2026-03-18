@@ -96,11 +96,14 @@
           <span class="stat-value">{{ lines().length }}</span>
         </div>
       </div>
-      <div class="summary-stat">
+      <div class="summary-stat stat-freshness" [attr.data-freshness]="dataFreshness()">
         <mat-icon aria-hidden="true">schedule</mat-icon>
         <div class="stat-text">
           <span class="stat-label">Last Synced</span>
-          <span class="stat-value">{{ lastSyncedAt() ? (lastSyncedAt() | date:'mediumTime') : 'N/A' }}</span>
+          <span class="stat-value">
+            <span class="freshness-dot" [attr.data-freshness]="dataFreshness()"></span>
+            {{ lastSyncedRelative() }}
+          </span>
         </div>
       </div>
     </div>
