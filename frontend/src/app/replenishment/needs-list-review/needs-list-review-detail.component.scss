@@ -454,7 +454,8 @@
   .warehouse-cell span {
     display: block;
     font-size: var(--text-sm);
-    word-break: break-word;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 
   .numeric-cell {
@@ -495,10 +496,6 @@
 
   app-time-to-stockout {
     display: block;
-    // Compact display for table context
-    ::ng-deep .stockout-container {
-      padding: 0;
-    }
   }
 }
 
@@ -662,10 +659,6 @@
 
       &.stockout-metric app-time-to-stockout {
         display: block;
-
-        ::ng-deep .stockout-container {
-          padding: 0;
-        }
       }
     }
   }

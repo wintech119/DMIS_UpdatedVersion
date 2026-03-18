@@ -290,7 +290,7 @@
             <ng-container matColumnDef="stockout">
               <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
               <td mat-cell *matCellDef="let item" class="stockout-cell">
-                <app-time-to-stockout [data]="stockoutData(item)"></app-time-to-stockout>
+                <app-time-to-stockout [data]="stockoutData(item)" [compactMode]="true"></app-time-to-stockout>
               </td>
             </ng-container>
 
@@ -366,7 +366,7 @@
                 </div>
                 <div class="metric stockout-metric">
                   <span class="metric-label">Stockout</span>
-                  <app-time-to-stockout [data]="stockoutData(item)"></app-time-to-stockout>
+                  <app-time-to-stockout [data]="stockoutData(item)" [compactMode]="true"></app-time-to-stockout>
                 </div>
                 <div class="metric">
                   <span class="metric-label">Horizon A / B / C</span>

@@ -32,6 +32,7 @@ export interface TimeToStockoutData {
 })
 export class TimeToStockoutComponent {
   @Input() data!: TimeToStockoutData;
+  @Input() compactMode = false;
 
   getDisplayText(): string {
     if (!this.data.hasBurnRate || this.data.hours === null) {

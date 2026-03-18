@@ -1,6 +1,7 @@
 <div
   class="time-to-stockout-container"
   [ngClass]="getSeverityClass()"
+  [class.compact-mode]="compactMode"
   [matTooltip]="getTooltip()"
   matTooltipPosition="above"
   [attr.aria-label]="getDisplayText() + '. ' + getActionLabel()"
