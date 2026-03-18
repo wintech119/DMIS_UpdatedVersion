@@ -88,7 +88,7 @@ _IFRC_RESOLVED_CANDIDATE_MIN = 0.55
 _IFRC_PLAUSIBLE_CANDIDATE_MIN = 0.35
 _IFRC_RESPONSE_CANDIDATE_LIMIT = 5
 _SCALAR_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(KG|MG|G|L|ML|KVA|KW|CM|MM|M2)$")
-_DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*M2$")
+_DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*(M2|FT)$")
 
 
 def _actor_id(request) -> str:
@@ -305,7 +305,7 @@ def _normalized_measure_key(value: str) -> tuple[str, ...] | None:
         except (InvalidOperation, ValueError):
             return ("text", text)
         first, second = sorted((_decimal_text(left), _decimal_text(right)))
-        return ("dimension", first, second, "M2")
+        return ("dimension", first, second, dimension_match.group(3))
 
     scalar_match = _SCALAR_MEASURE_RE.fullmatch(text)
     if not scalar_match:
@@ -1014,6 +1014,19 @@ def _handle_create(request, cfg):
         guard_response = _inactive_item_guard_response(warnings, cfg.key)
         if guard_response:
             return guard_response
+        if "db_unique_violation" in warnings:
+            return Response(
+                {
+                    "detail": "Record already exists.",
+                    "diagnostic": _warning_diagnostic_message(
+                        warnings,
+                        operation="create",
+                        target="record",
+                    ),
+                    "warnings": warnings,
+                },
+                status=409,
+            )
         return _create_failure_response(
             target="record",
             warnings=warnings,

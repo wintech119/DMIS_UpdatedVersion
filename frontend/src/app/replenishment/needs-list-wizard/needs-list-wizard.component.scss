@@ -1,7 +1,7 @@
 .wizard-container {
-  max-width: 1400px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--page-padding);
 
   .wizard-header {
     margin-bottom: 24px;
@@ -39,8 +39,8 @@
 
   .wizard-stepper {
     background: var(--color-surface);
-    border-radius: 8px;
-    padding: 24px;
+    border-radius: var(--radius-card);
+    padding: var(--page-padding);
     border: 1px solid var(--color-border);
 
     .step-content {
@@ -102,11 +102,11 @@
         }
 
         &.mat-step-icon-state-done {
-          background-color: #28a745;
+          background-color: var(--color-success);
         }
 
         &.mat-step-icon-state-error {
-          background-color: #dc3545;
+          background-color: var(--color-critical);
         }
       }
 

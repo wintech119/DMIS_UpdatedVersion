@@ -90,9 +90,9 @@ padding: 16px 0;
         margin-bottom: 24px;
 
         // Phase-specific border and background tints
-        &[data-phase='SURGE']      { border-left-color: #b71c1c; background: #fef2f2; }
-        &[data-phase='STABILIZED'] { border-left-color: #b45309; background: #fffbeb; }
-        &[data-phase='BASELINE']   { border-left-color: #1b5e20; background: #f0fdf4; }
+        &[data-phase='SURGE']      { border-left-color: #b71c1c; background: var(--color-bg-critical); }
+        &[data-phase='STABILIZED'] { border-left-color: #b45309; background: var(--color-bg-warning); }
+        &[data-phase='BASELINE']   { border-left-color: #1b5e20; background: var(--color-bg-success); }
 
         h3 {
           display: flex;
@@ -200,14 +200,14 @@ padding: 16px 0;
 
         .error-card {
           background: #fff3cd;
-          border-left: 4px solid #dc3545;
+          border-left: 4px solid var(--color-critical);
           padding: 16px;
           display: flex;
           align-items: flex-start;
           gap: 12px;
 
           .error-icon {
-            color: #dc3545;
+            color: var(--color-critical);
             font-size: 24px;
             width: 24px;
             height: 24px;

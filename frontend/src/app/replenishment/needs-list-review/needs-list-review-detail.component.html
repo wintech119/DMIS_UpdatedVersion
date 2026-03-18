@@ -43,6 +43,31 @@
 
   @if (!loading() && !error() && needsList(); as nl) {
 
+    <!-- Data Freshness Banner -->
+    @if (hasFreshnessData()) {
+      <dmis-data-freshness-banner></dmis-data-freshness-banner>
+    }
+
+    <!-- Urgency Summary Strip -->
+    <div class="urgency-strip" role="status" aria-label="Severity distribution">
+      <span class="urgency-pill urgency-critical" [class.urgency-zero]="severityCounts()['CRITICAL'] === 0">
+        <mat-icon aria-hidden="true">error</mat-icon>
+        {{ severityCounts()['CRITICAL'] }} CRITICAL
+      </span>
+      <span class="urgency-pill urgency-warning" [class.urgency-zero]="severityCounts()['WARNING'] === 0">
+        <mat-icon aria-hidden="true">warning</mat-icon>
+        {{ severityCounts()['WARNING'] }} WARNING
+      </span>
+      <span class="urgency-pill urgency-watch" [class.urgency-zero]="severityCounts()['WATCH'] === 0">
+        <mat-icon aria-hidden="true">visibility</mat-icon>
+        {{ severityCounts()['WATCH'] }} WATCH
+      </span>
+      <span class="urgency-pill urgency-ok" [class.urgency-zero]="severityCounts()['OK'] === 0">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+        {{ severityCounts()['OK'] }} OK
+      </span>
+    </div>
+
     <!-- KPI Summary Card (purple gradient - matches wizard summary-card) -->
     <mat-card class="summary-card">
       <div class="summary-content">
@@ -53,6 +78,15 @@
             <span class="value">{{ items().length }}</span>
           </div>
         </div>
+        @if (criticalCount() > 0) {
+          <div class="summary-item critical-kpi">
+            <mat-icon aria-hidden="true">error</mat-icon>
+            <div class="summary-text">
+              <span class="label">Critical Items</span>
+              <span class="value">{{ criticalCount() }}</span>
+            </div>
+          </div>
+        }
         @if (nl.approval_summary; as summary) {
           <div class="summary-item">
             <mat-icon aria-hidden="true">production_quantity_limits</mat-icon>
@@ -165,21 +199,27 @@
         }
       </div>
 
-      <!-- Right Column: Approval Tracker -->
+      <!-- Right Column: Approval Tracker (collapsible) -->
       <div class="right-column">
         <mat-card class="tracker-card">
-          <mat-card-header>
+          <mat-card-header class="tracker-header-toggle" (click)="trackerExpanded = !trackerExpanded"
+                           role="button" tabindex="0" [attr.aria-expanded]="trackerExpanded"
+                           (keydown.enter)="trackerExpanded = !trackerExpanded"
+                           (keydown.space)="trackerExpanded = !trackerExpanded; $event.preventDefault()">
             <mat-icon class="card-icon" aria-hidden="true">track_changes</mat-icon>
             <mat-card-title>Approval Progress</mat-card-title>
+            <mat-icon class="toggle-icon" aria-hidden="true">{{ trackerExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
           </mat-card-header>
-          <mat-card-content>
-            <dmis-approval-status-tracker
-              [needsList]="nl"
-              [horizon]="approvalHorizon()"
-              [showReminder]="false"
-              (sendReminder)="onSendReminder()">
-            </dmis-approval-status-tracker>
-          </mat-card-content>
+          @if (trackerExpanded) {
+            <mat-card-content>
+              <dmis-approval-status-tracker
+                [needsList]="nl"
+                [horizon]="approvalHorizon()"
+                [showReminder]="false"
+                (sendReminder)="onSendReminder()">
+              </dmis-approval-status-tracker>
+            </mat-card-content>
+          }
         </mat-card>
       </div>
     </div>
@@ -195,7 +235,7 @@
       <mat-card-content>
         <!-- Desktop table -->
         <div class="table-container desktop-only" role="region" aria-label="Line items table" tabindex="0">
-          <table mat-table [dataSource]="items()" class="preview-table">
+          <table mat-table [dataSource]="sortedItems()" class="preview-table">
 
             <ng-container matColumnDef="item_name">
               <th mat-header-cell *matHeaderCellDef>Item</th>
@@ -249,22 +289,24 @@
 
             <ng-container matColumnDef="stockout">
               <th mat-header-cell *matHeaderCellDef>Time to Stockout</th>
-              <td mat-cell *matCellDef="let item">{{ timeToStockout(item) }}</td>
+              <td mat-cell *matCellDef="let item" class="stockout-cell">
+                <app-time-to-stockout [data]="stockoutData(item)" [compactMode]="true"></app-time-to-stockout>
+              </td>
             </ng-container>
 
             <ng-container matColumnDef="horizon_a">
-              <th mat-header-cell *matHeaderCellDef>Horizon A</th>
-              <td mat-cell *matCellDef="let item" class="numeric-cell">{{ horizonQty(item.horizon, 'A') }}</td>
+              <th mat-header-cell *matHeaderCellDef matTooltip="Horizon A — Transfers (6-8hr lead time)">A</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell horizon-cell">{{ horizonQty(item.horizon, 'A') }}</td>
             </ng-container>
 
             <ng-container matColumnDef="horizon_b">
-              <th mat-header-cell *matHeaderCellDef>Horizon B</th>
-              <td mat-cell *matCellDef="let item" class="numeric-cell">{{ horizonQty(item.horizon, 'B') }}</td>
+              <th mat-header-cell *matHeaderCellDef matTooltip="Horizon B — Donations (2-7 day lead time)">B</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell horizon-cell">{{ horizonQty(item.horizon, 'B') }}</td>
             </ng-container>
 
             <ng-container matColumnDef="horizon_c">
-              <th mat-header-cell *matHeaderCellDef>Horizon C</th>
-              <td mat-cell *matCellDef="let item" class="numeric-cell">{{ horizonQty(item.horizon, 'C') }}</td>
+              <th mat-header-cell *matHeaderCellDef matTooltip="Horizon C — Procurement (14+ day lead time)">C</th>
+              <td mat-cell *matCellDef="let item" class="numeric-cell horizon-cell">{{ horizonQty(item.horizon, 'C') }}</td>
             </ng-container>
 
             <ng-container matColumnDef="severity">
@@ -277,15 +319,30 @@
               </td>
             </ng-container>
 
+            <!-- Grouped header columns -->
+            <ng-container matColumnDef="group-spacer-left">
+              <th mat-header-cell *matHeaderCellDef [attr.colspan]="8" class="group-header-spacer"></th>
+            </ng-container>
+            <ng-container matColumnDef="group-horizon">
+              <th mat-header-cell *matHeaderCellDef [attr.colspan]="3" class="group-header-horizon">
+                Replenishment Allocation
+              </th>
+            </ng-container>
+            <ng-container matColumnDef="group-spacer-right">
+              <th mat-header-cell *matHeaderCellDef class="group-header-spacer"></th>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="['group-spacer-left', 'group-horizon', 'group-spacer-right']" class="group-header-row"></tr>
             <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
-            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns;"
+                [class]="'severity-row-' + (row.severity ?? 'unknown')"></tr>
           </table>
         </div>
 
         <!-- Mobile card list -->
         <div class="mobile-card-list mobile-only" role="list" aria-label="Line items">
-          @for (item of items(); track item.item_id) {
-            <div class="mobile-preview-card" role="listitem">
+          @for (item of sortedItems(); track item.item_id) {
+            <div class="mobile-preview-card severity-row-{{ item.severity ?? 'unknown' }}" role="listitem">
               <div class="mobile-preview-header">
                 <mat-icon [attr.data-severity]="item.severity" class="mobile-severity-icon" aria-hidden="true">{{ severityIcon(item) }}</mat-icon>
                 <div class="mobile-preview-title">
@@ -307,9 +364,9 @@
                   <span class="metric-label">Burn Rate</span>
                   <span class="metric-value">{{ item.burn_rate_per_hour | number:'1.0-2' }} /hr</span>
                 </div>
-                <div class="metric">
+                <div class="metric stockout-metric">
                   <span class="metric-label">Stockout</span>
-                  <span class="metric-value">{{ timeToStockout(item) }}</span>
+                  <app-time-to-stockout [data]="stockoutData(item)" [compactMode]="true"></app-time-to-stockout>
                 </div>
                 <div class="metric">
                   <span class="metric-label">Horizon A / B / C</span>
@@ -333,6 +390,20 @@
     @if (hasActions()) {
       <mat-card class="actions-card" role="toolbar" aria-label="Approval actions">
         <mat-card-content>
+          <div class="action-summary" aria-label="Approval summary">
+            <span class="action-summary-text">
+              {{ items().length }} items
+              @if (criticalCount() > 0) {
+                <span class="action-summary-dot dot-critical"></span> {{ criticalCount() }} critical
+              }
+              @if (severityCounts()['WARNING'] > 0) {
+                <span class="action-summary-dot dot-warning"></span> {{ severityCounts()['WARNING'] }} warning
+              }
+              @if (nl.approval_summary?.total_estimated_cost !== null && nl.approval_summary?.total_estimated_cost !== undefined) {
+                &middot; J${{ nl.approval_summary!.total_estimated_cost | number:'1.0-0' }} est.
+              }
+            </span>
+          </div>
           <div class="step-actions">
             <button mat-button (click)="backToQueue()" class="back-btn">
               <mat-icon aria-hidden="true">arrow_back</mat-icon>

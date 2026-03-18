@@ -1110,7 +1110,7 @@
 // Filters Panel (Expansion Panel)
 .filters-panel {
   margin-bottom: 20px;
-  box-shadow: none !important;
+  box-shadow: none;
 
   mat-expansion-panel-header {
     mat-panel-title {
@@ -1337,14 +1337,14 @@
 // Accessibility Improvements
 button {
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 }
 
 mat-chip-option {
   &:focus-visible {
-    outline: 2px solid var(--dmis-focus-ring, #1565c0);
+    outline: 2px solid var(--color-focus-ring, #1565c0);
     outline-offset: 2px;
   }
 }
@@ -1405,7 +1405,7 @@ mat-chip-option {
 }
 
 .mobile-only {
-  display: none !important;
+  display: none;
 }
 
 // ===== MOBILE CARD LIST =====

@@ -44,6 +44,7 @@ export class NeedsListFulfillmentTrackerComponent {
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly notifications = inject(DmisNotificationService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly now = signal(Date.now());
 
   readonly loading = signal(true);
   readonly error = signal(false);
@@ -131,6 +132,28 @@ export class NeedsListFulfillmentTrackerComponent {
     if (pct >= 100) return 'full';
     if (pct > 0) return 'partial';
     return 'none';
+  });
+
+  readonly dataFreshness = computed<'high' | 'medium' | 'low'>(() => {
+    const synced = this.lastSyncedAt();
+    if (!synced) return 'low';
+    const ageMs = this.now() - new Date(synced).getTime();
+    const ageHours = ageMs / (1000 * 60 * 60);
+    if (ageHours < 2) return 'high';
+    if (ageHours < 6) return 'medium';
+    return 'low';
+  });
+
+  readonly lastSyncedRelative = computed<string>(() => {
+    const synced = this.lastSyncedAt();
+    if (!synced) return 'N/A';
+    const ageMs = this.now() - new Date(synced).getTime();
+    const totalMinutes = Math.floor(ageMs / 60000);
+    if (totalMinutes < 1) return 'Just now';
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m ago`;
+    return `${hours}h ${minutes}m ago`;
   });
 
   readonly showApprovalSuccess = signal(false);
@@ -253,6 +276,9 @@ export class NeedsListFulfillmentTrackerComponent {
   }
 
   constructor() {
+    const timerId = window.setInterval(() => this.now.set(Date.now()), 60_000);
+    this.destroyRef.onDestroy(() => window.clearInterval(timerId));
+
     // Show approval success overlay if navigated here after approving
     const approvedParam = this.route.snapshot.queryParamMap.get('approved');
     if (approvedParam === 'true') {

@@ -69,6 +69,10 @@ export class DataFreshnessService {
     this.computeAndEmit(entries);
   }
 
+  updateFromWarehouseEntries(entries: WarehouseFreshnessEntry[]): void {
+    this.computeAndEmit(entries);
+  }
+
   triggerRefresh(): void {
     this.refreshing$.next(true);
     if (!this.refreshRequested$.observed) {

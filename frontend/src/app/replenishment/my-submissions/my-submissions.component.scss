@@ -6,7 +6,7 @@
   --color-text: var(--color-text-primary);
   --color-muted: var(--color-text-secondary);
 
-  max-width: 1280px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
   padding: 20px;
   display: flex;
@@ -135,7 +135,7 @@
 .md-tab--active .md-tab__count {
   background: var(--color-primary-bg);
   color: var(--color-primary);
-  border-color: rgba(15, 118, 110, 0.2);
+  border-color: var(--color-accent-shadow);
 
   &--action {
     background: #fef3c7;
@@ -187,7 +187,7 @@
   &:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+    box-shadow: 0 0 0 3px var(--color-accent-shadow);
   }
 }
 
@@ -261,7 +261,7 @@
 .group-section {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -302,7 +302,7 @@
 
 .group--action .group-border-accent { background: #f59e0b; }
 .group--progress .group-border-accent { background: #3b82f6; }
-.group--done .group-border-accent { background: #16a34a; }
+.group--done .group-border-accent { background: var(--color-horizon-a); }
 
 .group-icon {
   font-size: 18px;
@@ -310,9 +310,9 @@
   height: 18px;
 }
 
-.group--action .group-icon { color: #b45309; }
-.group--progress .group-icon { color: #2563eb; }
-.group--done .group-icon { color: #16a34a; }
+.group--action .group-icon { color: var(--color-watch); }
+.group--progress .group-icon { color: var(--color-horizon-c); }
+.group--done .group-icon { color: var(--color-horizon-a); }
 
 .group-title {
   font-size: var(--text-base);
@@ -354,7 +354,7 @@
 mat-paginator {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
 }
 
 /* ── Reduced motion ───────────────────────────────────────────────────────── */

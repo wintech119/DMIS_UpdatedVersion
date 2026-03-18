@@ -256,6 +256,11 @@ class TestSegmentExtraction(TestCase):
 
         self.assertEqual(metadata["size_weight"], "4X5 M2")
 
+    def test_extract_reference_metadata_preserves_imperial_dimension_value(self):
+        metadata = extract_reference_metadata("tarpaulin", size_weight="12 x 16 ft")
+
+        self.assertEqual(metadata["size_weight"], "12X16 FT")
+
     def test_extract_reference_metadata_preserves_explicit_material_metadata(self):
         metadata = extract_reference_metadata(
             "water purification tablet, aquatab",

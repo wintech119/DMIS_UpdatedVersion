@@ -24,6 +24,7 @@ from masterdata.services.catalog_governance import (
     _write_catalog_audit,
     _match_reference_category,
     catalog_detail_metadata,
+    create_catalog_record,
     suggest_ifrc_family_authoring,
     suggest_ifrc_reference_authoring,
     validate_catalog_update,
@@ -948,6 +949,70 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         self.assertEqual(payload["normalized"]["spec_segment"], "TB00")
         self.assertEqual(payload["normalized"]["ifrc_code"], "WWTRTABLTB00")
 
+    @patch("masterdata.services.catalog_governance._is_sqlite", return_value=False)
+    @patch(
+        "masterdata.services.catalog_governance._reference_conflicts",
+        return_value=({"exact_code_match": None, "exact_desc_match": None, "near_matches": []}, []),
+    )
+    @patch("masterdata.services.catalog_governance._reference_ai_candidate", return_value=None)
+    @patch(
+        "masterdata.services.catalog_governance._fetch_ifrc_family",
+        return_value={
+            "ifrc_family_id": 11,
+            "group_code": "H",
+            "family_code": "KIT",
+            "family_label": "Shelter Kits",
+        },
+    )
+    def test_reference_authoring_uses_imperial_dimension_digits_in_generated_spec(
+        self,
+        _mock_family,
+        _mock_ai_candidate,
+        _mock_conflicts,
+        _mock_sqlite,
+    ):
+        payload, errors, warnings = suggest_ifrc_reference_authoring(
+            {
+                "ifrc_family_id": 11,
+                "reference_desc": "Tarpaulin",
+                "size_weight": "12x16 ft",
+                "form": "sheet",
+                "material": "POLYETHYLENE",
+            }
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(warnings, [])
+        self.assertEqual(payload["source"], "deterministic")
+        self.assertEqual(payload["normalized"]["size_weight"], "12X16 FT")
+        self.assertEqual(payload["normalized"]["form"], "SHEET")
+        self.assertEqual(payload["normalized"]["material"], "POLYETHYLENE")
+        self.assertEqual(payload["normalized"]["spec_segment"], "SH26")
+        self.assertEqual(payload["normalized"]["ifrc_code"], "HKITGENRSH26")
+
+    @patch("masterdata.services.catalog_governance.create_record")
+    @patch("masterdata.services.catalog_governance.transaction.atomic")
+    @patch("masterdata.services.catalog_governance._is_sqlite", return_value=False)
+    def test_create_catalog_record_does_not_expose_raw_db_detail_warning(
+        self,
+        _mock_sqlite,
+        _mock_atomic,
+        mock_create_record,
+    ):
+        mock_create_record.side_effect = DatabaseError(
+            "duplicate key value violates unique constraint ux_ifrc_item_reference_ifrc_code"
+        )
+
+        pk_value, warnings = create_catalog_record(
+            "ifrc_item_references",
+            {"ifrc_code": "WWTRTABLTB01"},
+            "tester",
+        )
+
+        self.assertIsNone(pk_value)
+        self.assertIn("db_error", warnings)
+        self.assertFalse(any(warning.startswith("db_detail:") for warning in warnings))
+
 
 class ItemMasterSeedPayloadTests(SimpleTestCase):
     def test_seed_payload_is_deterministic(self):
@@ -1609,6 +1674,49 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
         self.assertEqual(forwarded_payload["form"], "tablet")
         self.assertEqual(forwarded_payload["material"], "chlorine")
         self.assertEqual(response.data["record"]["ifrc_item_ref_id"], 77)
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.create_catalog_record",
+        return_value=(
+            None,
+            ["db_error", "db_constraint", "db_unique_violation"],
+        ),
+    )
+    @patch("masterdata.views.validate_record", return_value={})
+    def test_ifrc_reference_create_returns_409_for_unique_code_conflict(
+        self,
+        _mock_validate_record,
+        _mock_create_catalog_record,
+        _mock_permission,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/ifrc_item_references/",
+            {
+                "ifrc_family_id": 11,
+                "ifrc_code": "HKITGENRSH26",
+                "reference_desc": "Tarpaulin",
+                "category_code": "GENR",
+                "category_label": "General",
+                "spec_segment": "SH26",
+                "size_weight": "12x16 ft",
+                "form": "sheet",
+                "material": "polyethylene",
+                "status_code": "A",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "ifrc_item_references")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["detail"], "Record already exists.")
+        self.assertEqual(
+            response.data["warnings"],
+            ["db_error", "db_constraint", "db_unique_violation"],
+        )
+        self.assertIn("unique database constraint", response.data["diagnostic"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch("masterdata.views.validate_record", return_value={})

@@ -372,7 +372,7 @@ _SIZE_RE = re.compile(
 )
 _BTU_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(btu)\b", re.IGNORECASE)
 _DIMENSION_RE = re.compile(
-    r"(\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m)\b",
+    r"(\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?)\s*(m\^2|m2|sqm|sq\s*m|m|ft|foot|feet)\b",
     re.IGNORECASE,
 )
 _AREA_RE = re.compile(
@@ -595,6 +595,9 @@ def _extract_size_weight_metadata(item_name: str, *, size_weight: str = "") -> s
         "m^2": "M2",
         "sqm": "M2",
         "sq m": "M2",
+        "ft": "FT",
+        "foot": "FT",
+        "feet": "FT",
     }
     if raw_unit == "m" and "x" in raw_value.lower():
         unit = "M2"
@@ -707,7 +710,7 @@ def _compact_quantity_code(item_name: str, *, size_weight: str = "") -> str:
     if not normalized_size:
         return "00"
 
-    dimension_match = re.fullmatch(r"(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s+M2", normalized_size)
+    dimension_match = re.fullmatch(r"(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s+(M2|FT)", normalized_size)
     if dimension_match:
         try:
             left = int(Decimal(dimension_match.group(1)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))

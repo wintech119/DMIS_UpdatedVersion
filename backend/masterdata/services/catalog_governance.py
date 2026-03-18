@@ -18,6 +18,7 @@ from masterdata.ifrc_code_agent import (
     _extract_size_weight_metadata,
 )
 from masterdata.services.data_access import (
+    _db_error_warnings,
     _is_sqlite,
     _normalize_field_value,
     _safe_rollback,
@@ -172,7 +173,7 @@ def create_catalog_record(table_key: str, data: dict[str, Any], actor_id: str) -
     except DatabaseError as exc:
         logger.warning("create_catalog_record(%s) failed: %s", table_key, exc)
         _safe_rollback()
-        return None, ["db_error"]
+        return None, _db_error_warnings(exc)
 
 
 def update_catalog_record(

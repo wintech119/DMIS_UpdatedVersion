@@ -1,19 +1,19 @@
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 
 :root {
-  // ── Font stacks ──
-  --dmis-font-sans: 'Inter', -apple-system, 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', sans-serif;
-  --dmis-font-mono: 'Roboto Mono', 'Courier New', monospace;
+  // ── Font stacks (Notion-style system font stack) ──
+  --dmis-font-sans: ui-sans-serif, -apple-system, "BlinkMacSystemFont", "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial", sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --dmis-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
 
   // ── Type scale (8-step) ──
-  --text-xs: 0.75rem;     // 12px — badges, metadata
-  --text-sm: 0.8125rem;   // 13px — secondary text, captions, labels
-  --text-base: 0.875rem;  // 14px — body, form fields, table cells
-  --text-md: 1rem;        // 16px — section headings, card titles
-  --text-lg: 1.25rem;     // 20px — page headings
-  --text-xl: 1.5rem;      // 24px — major page titles (rare)
-  --text-2xl: 1.75rem;    // 28px — stat values, display numbers
-  --text-3xl: 2rem;       // 32px — large stat values
+  --text-xs: 0.75rem;      // 12px — badges, metadata
+  --text-sm: 0.8125rem;    // 13px — secondary text, captions, labels
+  --text-base: 1rem;       // 16px — body, form fields, table cells (Notion default)
+  --text-md: 1.125rem;     // 18px — section headings, card titles
+  --text-lg: 1.25rem;      // 20px — page headings
+  --text-xl: 1.5rem;       // 24px — major page titles (rare)
+  --text-2xl: 1.75rem;     // 28px — stat values, display numbers
+  --text-3xl: 2rem;        // 32px — large stat values
 
   // ── Font weights ──
   --weight-normal: 400;
@@ -23,7 +23,7 @@
 
   // ── Line-height scale ──
   --leading-tight: 1.25;   // headings, compact UI, stat values
-  --leading-normal: 1.45;  // body text, descriptions
+  --leading-normal: 1.5;   // body text, descriptions (Notion default)
   --leading-relaxed: 1.6;  // readable blocks, form hints
 
   // ── Letter-spacing scale ──
@@ -42,10 +42,33 @@
   --color-accent: #0f766e;
   --color-accent-shadow: color-mix(in srgb, var(--color-accent) 15%, transparent);
 
-  // ── Legacy aliases (mapped to new tokens) ──
-  --dmis-text-primary: var(--color-text-primary);
-  --dmis-text-secondary: var(--color-text-secondary);
-  --dmis-focus-ring: #1565c0;
+  // ── Status severity colors ──
+  --color-critical: #dc3545;
+  --color-warning: #d97706;
+  --color-watch: #b45309;
+  --color-success: #059669;
+  --color-info: #1e3a8a;
+
+  // ── Horizon colors ──
+  --color-horizon-a: #16a34a;
+  --color-horizon-b: #d97706;
+  --color-horizon-c: #2563eb;
+
+  // ── Semantic backgrounds ──
+  --color-bg-critical: #fef2f2;
+  --color-bg-warning: #fffbeb;
+  --color-bg-success: #f0fdf4;
+  --color-bg-info: #eff6ff;
+
+  // ── Layout tokens ──
+  --radius-card: 8px;
+  --radius-inner: 6px;
+  --radius-pill: 9999px;
+  --page-max-width: 1280px;
+  --page-padding: 24px;
+
+  // ── Focus ring ──
+  --color-focus-ring: #1565c0;
 }
 
 html,
@@ -57,9 +80,7 @@ body {
   font-family: var(--dmis-font-sans);
   font-size: var(--text-base);
   color: var(--color-text-primary);
-
-  // Inter-specific rendering improvements
-  font-optical-sizing: auto;
+  line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -72,7 +93,7 @@ body {
   font-family: inherit;
 }
 
-// Force Material components to inherit Inter from body
+// Force Material components to inherit system font from body
 .mat-typography,
 .mdc-button,
 .mdc-tab,
@@ -95,7 +116,7 @@ body {
 .mdc-data-table__header-cell,
 h1, h2, h3, h4, h5, h6,
 p, span, a, label, td, th, li {
-  font-family: var(--dmis-font-sans) !important;
+  font-family: var(--dmis-font-sans);
 }
 
 // Angular Material tooltip defaults
@@ -138,7 +159,7 @@ p, span, a, label, td, th, li {
 }
 
 // ===== GLOBAL PAGE HEADER STYLE =====
-// Clean page title + separator line
+// Clean page title + separator line — no !important, uses cascade ordering
 .page-header,
 .wizard-header {
   background: transparent !important;
@@ -146,7 +167,7 @@ p, span, a, label, td, th, li {
   border-radius: 0 !important;
   padding: 0 0 12px !important;
   margin-bottom: 20px !important;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border) !important;
 
   .header-content {
     padding: 0 !important;
@@ -197,23 +218,23 @@ p, span, a, label, td, th, li {
 
 // Table header cells
 .mat-mdc-header-cell {
-  color: var(--color-text-primary) !important;
-  background: var(--color-surface-muted) !important;
-  font-weight: var(--weight-semibold) !important;
-  font-size: var(--text-sm) !important;
+  color: var(--color-text-primary);
+  background: var(--color-surface-muted);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
 }
 
 // Table body cells
 .mat-mdc-cell {
-  color: var(--color-text-primary) !important;
-  font-size: var(--text-base) !important;
-  border-bottom-color: var(--color-border) !important;
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
+  border-bottom-color: var(--color-border);
 }
 
 // Paginator
 .mat-mdc-paginator {
-  color: var(--color-text-secondary) !important;
-  font-size: var(--text-sm) !important;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 
 // Card borders
@@ -239,7 +260,7 @@ mat-select:focus-visible,
 .mat-mdc-checkbox.cdk-keyboard-focused .mdc-checkbox__background,
 .mat-mdc-radio-button.cdk-keyboard-focused .mdc-radio__background,
 .mat-mdc-select.cdk-keyboard-focused .mat-mdc-select-trigger {
-  outline: 2px solid var(--dmis-focus-ring);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
