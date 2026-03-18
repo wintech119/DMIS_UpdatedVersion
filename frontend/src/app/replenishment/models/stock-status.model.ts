@@ -1,6 +1,13 @@
 export type EventPhase = 'SURGE' | 'STABILIZED' | 'BASELINE';
 export type SeverityLevel = 'CRITICAL' | 'WARNING' | 'WATCH' | 'OK';
 export type FreshnessLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+export type StockHealthLevel = 'GREEN' | 'AMBER' | 'RED' | 'UNAVAILABLE';
+
+export interface StockHealthIndicator {
+  level: StockHealthLevel;
+  label: string;
+  reason: string;
+}
 
 export interface StockStatusItem {
   item_id: number;
@@ -27,6 +34,7 @@ export interface StockStatusItem {
     age_hours: number | null;
     inventory_as_of: string | null;
   };
+  stock_health?: StockHealthIndicator;
   warnings?: string[];
   is_estimated?: boolean;
 }

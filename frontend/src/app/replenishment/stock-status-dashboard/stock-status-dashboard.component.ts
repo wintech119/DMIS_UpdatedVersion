@@ -151,6 +151,7 @@ export class StockStatusDashboardComponent implements OnInit {
   private requestedPhase: EventPhase | null = null;
 
   displayedColumns = [
+    'stock_health',
     'severity',
     'item',
     'available',
@@ -601,6 +602,22 @@ export class StockStatusDashboardComponent implements OnInit {
     return `severity-${severity?.toLowerCase() ?? 'unknown'}`;
   }
 
+  getStockHealthClass(item: StockStatusItem): string {
+    return `stock-health-${item.stock_health?.level?.toLowerCase() ?? 'unavailable'}`;
+  }
+
+  getStockHealthLabel(item: StockStatusItem): string {
+    return item.stock_health?.label ?? 'Unavailable';
+  }
+
+  getStockHealthTooltip(item: StockStatusItem): string {
+    const stockHealth = item.stock_health;
+    if (!stockHealth) {
+      return 'Stock health baseline is unavailable for this row.';
+    }
+    return `${stockHealth.level}: ${stockHealth.reason}`;
+  }
+
   getSeverityTooltip(severity: SeverityLevel): string {
     switch (severity) {
       case 'CRITICAL':
@@ -698,6 +715,25 @@ export class StockStatusDashboardComponent implements OnInit {
 
   getStockItemTooltip(item: StockStatusItem): string {
     return item.item_name?.trim() || `Item ${item.item_id}`;
+  }
+
+  getWarehouseHealthSummary(group: WarehouseStockGroup): string {
+    const summary = { GREEN: 0, AMBER: 0, RED: 0 };
+
+    for (const item of group.all_items ?? group.items) {
+      const level = item.stock_health?.level;
+      if (level === 'GREEN' || level === 'AMBER' || level === 'RED') {
+        summary[level] += 1;
+      }
+    }
+
+    const parts = [
+      summary.GREEN > 0 ? `${summary.GREEN} Green` : '',
+      summary.AMBER > 0 ? `${summary.AMBER} Amber` : '',
+      summary.RED > 0 ? `${summary.RED} Red` : '',
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(' • ') : 'Stock health baseline unavailable';
   }
 
   isStaleDataBurnRate(item: StockStatusItem): boolean {

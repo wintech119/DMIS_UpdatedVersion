@@ -33,6 +33,10 @@ function buildBaseItemRecord(overrides: Record<string, unknown> = {}) {
     units_size_vary_flag: false,
     ifrc_family_id: null,
     ifrc_item_ref_id: null,
+    uom_options: [
+      { item_uom_option_id: 1, uom_code: 'EA', conversion_factor: 1, is_default: true, sort_order: 0, status_code: 'A' },
+      { item_uom_option_id: 2, uom_code: 'BOX', conversion_factor: 12, is_default: false, sort_order: 1, status_code: 'A' },
+    ],
     version_nbr: 2,
     ...overrides,
   };
@@ -150,7 +154,11 @@ describe('MasterFormPageComponent', () => {
 
     masterDataService.lookup.and.callFake((tableKey: string) => {
       if (tableKey === 'uom') {
-        return of([{ value: 'EA', label: 'Each' }]);
+        return of([
+          { value: 'EA', label: 'Each' },
+          { value: 'BOX', label: 'Box' },
+          { value: 'CS', label: 'Case' },
+        ]);
       }
       if (tableKey === 'item_categories') {
         return of([
@@ -313,6 +321,7 @@ describe('MasterFormPageComponent', () => {
       category_id: 102,
       ifrc_family_id: 301,
     }, { emitEvent: false });
+    component.form.get('default_uom_code')?.setValue('EA');
     component.onSelectIfrcReference({
       value: 401,
       label: 'Water purification tablet',
@@ -1431,6 +1440,94 @@ describe('MasterFormPageComponent', () => {
     expect(masterDataService.create.calls.mostRecent().args[1]).not.toEqual(jasmine.objectContaining({
       item_code: 'USER-TYPED',
     }));
+  });
+
+  it('hydrates item UOM conversions from item detail responses', () => {
+    const { component } = setup('items', { pk: '17' });
+
+    expect(component.defaultItemUomOption()?.uom_code).toBe('EA');
+    expect(component.alternateItemUomOptions().map((option) => option.uom_code)).toEqual(['BOX']);
+  });
+
+  it('resets alternate UOM conversions when the default UOM changes and the user confirms', () => {
+    const { component, dialog, notificationService } = setup('items', { pk: '17' });
+
+    dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
+
+    component.form.get('default_uom_code')?.setValue('BOX');
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(component.defaultItemUomOption()?.uom_code).toBe('BOX');
+    expect(component.alternateItemUomOptions().length).toBe(0);
+    expect(notificationService.showWarning).toHaveBeenCalledWith(
+      'Alternate item UOM conversions were cleared. Re-enter them for the new default UOM.',
+    );
+  });
+
+  it('reverts the default UOM change when the user cancels the conversion reset', () => {
+    const { component, dialog } = setup('items', { pk: '17' });
+
+    dialog.open.and.returnValue({ afterClosed: () => of(false) } as never);
+
+    component.form.get('default_uom_code')?.setValue('BOX');
+
+    expect(component.form.get('default_uom_code')?.value).toBe('EA');
+    expect(component.defaultItemUomOption()?.uom_code).toBe('EA');
+    expect(component.alternateItemUomOptions().map((option) => option.uom_code)).toEqual(['BOX']);
+  });
+
+  it('includes item UOM conversions in create payloads', () => {
+    const { component, masterDataService } = setup();
+
+    populateRequiredCreateFields(component);
+    component.addItemUomOption();
+    const alternateOption = component.alternateItemUomOptions()[0];
+    component.updateItemUomOptionUom(alternateOption.localId, 'BOX');
+    component.updateItemUomOptionConversionFactor(alternateOption.localId, '12');
+
+    component.onSave();
+
+    const payload = masterDataService.create.calls.mostRecent().args[1] as Record<string, unknown>;
+    expect(payload['uom_options']).toEqual([
+      jasmine.objectContaining({
+        uom_code: 'EA',
+        conversion_factor: 1,
+        is_default: true,
+        status_code: 'A',
+      }),
+      jasmine.objectContaining({
+        uom_code: 'BOX',
+        conversion_factor: 12,
+        is_default: false,
+        status_code: 'A',
+      }),
+    ]);
+  });
+
+  it('maps nested backend uom_options validation errors onto the affected alternate row', () => {
+    const { component, masterDataService } = setup();
+
+    masterDataService.create.and.returnValue(throwError(() => ({
+      status: 400,
+      error: {
+        errors: {
+          'uom_options.1.conversion_factor': 'Conversion factor must be greater than zero.',
+        },
+      },
+    })));
+
+    populateRequiredCreateFields(component);
+    component.addItemUomOption();
+    const alternateOption = component.alternateItemUomOptions()[0];
+    component.updateItemUomOptionUom(alternateOption.localId, 'BOX');
+    component.updateItemUomOptionConversionFactor(alternateOption.localId, '12');
+
+    component.onSave();
+
+    expect(component.submissionError()).toBe('Please review the item UOM conversions before saving.');
+    expect(component.getItemUomServerFieldError(alternateOption.localId, 'conversion_factor')).toBe(
+      'Conversion factor must be greater than zero.',
+    );
   });
 
   it('clears isSaving after a successful save completes', () => {

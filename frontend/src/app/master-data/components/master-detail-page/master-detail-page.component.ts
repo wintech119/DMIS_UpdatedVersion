@@ -22,6 +22,14 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 
+interface ItemUomOptionDisplay {
+  item_uom_option_id?: number;
+  uom_code: string;
+  conversion_factor: number | null;
+  is_default: boolean;
+  status_code: string;
+}
+
 @Component({
   selector: 'dmis-master-detail-page',
   standalone: true,
@@ -305,6 +313,47 @@ export class MasterDetailPageComponent implements OnInit {
       return opt?.label || String(displayValue);
     }
     return String(displayValue);
+  }
+
+  getItemUomOptions(): ItemUomOptionDisplay[] {
+    const rawOptions = this.record()?.['uom_options'];
+    if (!Array.isArray(rawOptions)) {
+      return [];
+    }
+
+    return rawOptions
+      .filter((option): option is Record<string, unknown> => option != null && typeof option === 'object')
+      .map((option) => {
+        const conversionFactor = Number(option['conversion_factor']);
+        const itemUomOptionId = Number(option['item_uom_option_id']);
+        return {
+          item_uom_option_id: Number.isFinite(itemUomOptionId) && itemUomOptionId > 0 ? itemUomOptionId : undefined,
+          uom_code: String(option['uom_code'] ?? '').trim().toUpperCase(),
+          conversion_factor: Number.isFinite(conversionFactor) ? conversionFactor : null,
+          is_default: option['is_default'] === true,
+          status_code: String(option['status_code'] ?? 'A').trim().toUpperCase() || 'A',
+        };
+      })
+      .filter((option) => option.uom_code.length > 0)
+      .sort((left, right) => {
+        if (left.is_default !== right.is_default) {
+          return left.is_default ? -1 : 1;
+        }
+        return left.uom_code.localeCompare(right.uom_code);
+      });
+  }
+
+  getItemUomStatusLabel(option: ItemUomOptionDisplay): string {
+    return option.status_code === 'I' ? 'Inactive' : 'Active';
+  }
+
+  getItemUomConversionLabel(option: ItemUomOptionDisplay): string {
+    if (option.is_default) {
+      return 'Base unit (1.0)';
+    }
+    return option.conversion_factor != null
+      ? `1 ${option.uom_code} = ${option.conversion_factor} default units`
+      : 'Conversion unavailable';
   }
 
   getStatusLabel(): string {

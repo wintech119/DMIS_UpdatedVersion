@@ -67,6 +67,34 @@
       }
 
       @if (isItemRecord()) {
+        @if (getItemUomOptions().length > 0) {
+          <section class="detail-section item-uom-section" aria-label="Item UOM conversions section">
+            <h3 class="section-title">
+              <mat-icon>straighten</mat-icon>
+              Item UOM Conversions
+            </h3>
+            <p class="section-description">
+              Sprint 07 uses these per-item conversions as the authoritative source for controlled repackaging and alternate handling units.
+            </p>
+            <div class="item-uom-grid">
+              @for (option of getItemUomOptions(); track option.item_uom_option_id ?? option.uom_code) {
+                <article class="item-uom-card" [class.is-default]="option.is_default">
+                  <div class="item-uom-card__header">
+                    <div>
+                      <p class="item-uom-card__eyebrow">{{ option.is_default ? 'Default UOM' : 'Alternate UOM' }}</p>
+                      <p class="item-uom-card__title">{{ option.uom_code }}</p>
+                    </div>
+                    <span class="item-uom-card__badge" [class.is-inactive]="option.status_code === 'I'">
+                      {{ getItemUomStatusLabel(option) }}
+                    </span>
+                  </div>
+                  <p class="item-uom-card__conversion">{{ getItemUomConversionLabel(option) }}</p>
+                </article>
+              }
+            </div>
+          </section>
+        }
+
         <section class="detail-section location-assignment-section" aria-label="Storage location assignment section">
           <h3 class="section-title">
             <mat-icon>shelves</mat-icon>

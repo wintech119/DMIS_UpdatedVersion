@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
@@ -116,6 +116,71 @@ export interface AssignStorageLocationResponse {
   inventory_id: number;
   location_id: number;
   batch_id: number | null;
+}
+
+export interface UomRepackagingPreviewPayload {
+  warehouse_id: number;
+  item_id: number;
+  batch_or_lot?: string | null;
+  source_uom_code: string;
+  source_qty: number;
+  target_uom_code: string;
+}
+
+export interface CreateUomRepackagingPayload extends UomRepackagingPreviewPayload {
+  reason_code: string;
+  note?: string | null;
+}
+
+export interface UomRepackagingRecord {
+  repackaging_id: string | number;
+  warehouse_id: number;
+  warehouse_name?: string | null;
+  item_id: number;
+  item_name?: string | null;
+  item_code?: string | null;
+  batch_or_lot?: string | null;
+  source_uom_code: string;
+  source_qty: number;
+  target_uom_code: string;
+  target_qty: number;
+  equivalent_default_qty: number;
+  reason_code: string;
+  note?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  warnings?: string[];
+  detail?: string | null;
+  diagnostic?: string | null;
+  audit_metadata?: Record<string, unknown> | null;
+}
+
+export interface UomRepackagingPreviewResponse {
+  warehouse_id: number;
+  warehouse_name?: string | null;
+  item_id: number;
+  item_name?: string | null;
+  item_code?: string | null;
+  batch_or_lot?: string | null;
+  source_uom_code: string;
+  source_qty: number;
+  target_uom_code: string;
+  target_qty: number;
+  equivalent_default_qty: number;
+  warnings: string[];
+  detail?: string | null;
+  diagnostic?: string | null;
+}
+
+export interface UomRepackagingListResponse {
+  results: UomRepackagingRecord[];
+  count: number;
+  warnings: string[];
+}
+
+export interface UomRepackagingMutationResponse {
+  record: UomRepackagingRecord;
+  warnings: string[];
 }
 
 @Injectable({
@@ -414,6 +479,52 @@ export class ReplenishmentService {
     return this.http.post<AssignStorageLocationResponse>(
       `${this.apiUrl}/inventory/location-assignment`,
       payload
+    );
+  }
+
+  previewUomRepackaging(
+    payload: UomRepackagingPreviewPayload
+  ): Observable<UomRepackagingPreviewResponse> {
+    return this.http.post<UomRepackagingPreviewResponse>(
+      `${this.apiUrl}/repackaging/preview`,
+      payload
+    );
+  }
+
+  createUomRepackaging(
+    payload: CreateUomRepackagingPayload
+  ): Observable<UomRepackagingMutationResponse> {
+    return this.http.post<UomRepackagingMutationResponse>(
+      `${this.apiUrl}/repackaging`,
+      payload
+    );
+  }
+
+  listUomRepackaging(filters?: {
+    warehouse_id?: number;
+    item_id?: number;
+    limit?: number;
+  }): Observable<UomRepackagingListResponse> {
+    let params = new HttpParams();
+    if (Number.isInteger(filters?.warehouse_id) && (filters?.warehouse_id ?? 0) > 0) {
+      params = params.set('warehouse_id', String(filters?.warehouse_id));
+    }
+    if (Number.isInteger(filters?.item_id) && (filters?.item_id ?? 0) > 0) {
+      params = params.set('item_id', String(filters?.item_id));
+    }
+    if (Number.isInteger(filters?.limit) && (filters?.limit ?? 0) > 0) {
+      params = params.set('limit', String(filters?.limit));
+    }
+
+    return this.http.get<UomRepackagingListResponse>(
+      `${this.apiUrl}/repackaging`,
+      { params }
+    );
+  }
+
+  getUomRepackaging(repackagingId: string | number): Observable<UomRepackagingMutationResponse> {
+    return this.http.get<UomRepackagingMutationResponse>(
+      `${this.apiUrl}/repackaging/${encodeURIComponent(String(repackagingId))}`
     );
   }
 

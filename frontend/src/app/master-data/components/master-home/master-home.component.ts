@@ -65,7 +65,10 @@ export class MasterHomeComponent {
     'ifrc-families': 'Maintain Level 2 IFRC families and keep each family aligned to one Level 1 category.',
     'ifrc-item-references': 'Maintain Level 3 IFRC references, including spec attributes used during match review.',
     inventory: 'Read-only for now. Manage source transactions and policies via operational workflows.',
-    locations: 'No locations found yet. Create locations before running item-location assignment tests.',
+    items: 'Item Master now includes per-item UOM conversion setup used by controlled repackaging.',
+    warehouses: 'Manage main hubs and sub-hubs here without creating a separate warehouse-management shell.',
+    agencies: 'Keep agency records aligned to the warehouse or hub baseline used by logistics operations.',
+    locations: 'Location scope stays limited to the existing storage-location and assignment flows in Sprint 07.',
   };
 
   isSystemAdmin = computed(() =>

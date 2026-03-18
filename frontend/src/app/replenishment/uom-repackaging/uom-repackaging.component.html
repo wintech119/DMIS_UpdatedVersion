@@ -1,0 +1,359 @@
+<div class="repackaging-page">
+  <header class="page-header">
+    <div>
+      <h1>UOM Repackaging</h1>
+      <p class="page-subtitle">
+        Create-only warehouse-internal repackaging for the same item and the same warehouse.
+        This flow is auditable and does not replace transfers, procurement, or donation intake.
+      </p>
+    </div>
+  </header>
+
+  @if (pageLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  } @else {
+    @if (pageError(); as pageErrorMessage) {
+      <section class="alert-card error" role="alert">
+        <mat-icon>error</mat-icon>
+        <p>{{ pageErrorMessage }}</p>
+      </section>
+    }
+
+    @if (!canExecute()) {
+      <section class="alert-card warning" role="note">
+        <mat-icon>policy</mat-icon>
+        <p>
+          Repackaging is restricted to authorized warehouse-operational users. You can still review the workflow
+          shape here, but transaction submission may be blocked until the correct role or permission is present.
+        </p>
+      </section>
+    }
+
+    <section class="guidance-grid">
+      <mat-card class="guidance-card">
+        <mat-card-header>
+          <mat-icon mat-card-avatar>inventory_2</mat-icon>
+          <mat-card-title>Sprint 07 Guardrails</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <ul>
+            <li>Same item only.</li>
+            <li>Same warehouse only.</li>
+            <li>Source and target UOM must both be active for the selected item.</li>
+            <li>Preview values are system-calculated and still subject to backend validation at save time.</li>
+            <li>Reversal or void is intentionally out of scope for Sprint 07.</li>
+          </ul>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card class="guidance-card">
+        <mat-card-header>
+          <mat-icon mat-card-avatar>fact_check</mat-icon>
+          <mat-card-title>Audit Expectations</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          <ul>
+            <li>Reason is required for every repackaging action.</li>
+            <li>Batch or lot context should be provided whenever the operational stock requires it.</li>
+            <li>Recent activity below is meant for operational visibility, not a dedicated reporting module.</li>
+          </ul>
+        </mat-card-content>
+      </mat-card>
+    </section>
+
+    <div class="content-grid">
+      <mat-card class="transaction-card">
+        <mat-card-header>
+          <mat-icon mat-card-avatar>sync_alt</mat-icon>
+          <mat-card-title>Create Repackaging</mat-card-title>
+          <mat-card-subtitle>Preview first, then confirm the create-only transaction.</mat-card-subtitle>
+        </mat-card-header>
+
+        <mat-card-content>
+          <form [formGroup]="form" class="transaction-form">
+            <div class="form-grid">
+              <mat-form-field appearance="outline">
+                <mat-label>Warehouse</mat-label>
+                <mat-select formControlName="warehouse_id">
+                  @for (warehouse of warehouses(); track warehouse.warehouse_id) {
+                    <mat-option [value]="warehouse.warehouse_id">{{ warehouse.warehouse_name }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>The transaction remains inside this warehouse.</mat-hint>
+                @if (getControlError('warehouse_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Item</mat-label>
+                <mat-select formControlName="item_id">
+                  @for (item of items(); track item.item_id) {
+                    <mat-option [value]="item.item_id">{{ getItemLabel(item) }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>Only the selected item can be repackaged in this transaction.</mat-hint>
+                @if (getControlError('item_id'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Batch or Lot</mat-label>
+                <input matInput formControlName="batch_or_lot" placeholder="Optional batch / lot reference" />
+                <mat-hint>Include batch-sensitive context when the warehouse stock requires it.</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Source UOM</mat-label>
+                <mat-select formControlName="source_uom_code" [disabled]="itemLoading() || allowedUomOptions().length === 0">
+                  @for (option of allowedUomOptions(); track option.uom_code) {
+                    <mat-option [value]="option.uom_code">{{ getUomLabel(option) }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>Choose the current stock unit being repackaged.</mat-hint>
+                @if (getControlError('source_uom_code'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Source Quantity</mat-label>
+                <input matInput type="number" min="0.000001" formControlName="source_qty" />
+                <mat-hint>Quantity in the selected source UOM.</mat-hint>
+                @if (getControlError('source_qty'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Target UOM</mat-label>
+                <mat-select formControlName="target_uom_code" [disabled]="itemLoading() || allowedUomOptions().length === 0">
+                  @for (option of allowedUomOptions(); track option.uom_code) {
+                    <mat-option [value]="option.uom_code">{{ getUomLabel(option) }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>Target UOM must differ from the source UOM.</mat-hint>
+                @if (getControlError('target_uom_code'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Reason</mat-label>
+                <mat-select formControlName="reason_code">
+                  @for (reason of reasonOptions; track reason.value) {
+                    <mat-option [value]="reason.value">{{ reason.label }}</mat-option>
+                  }
+                </mat-select>
+                <mat-hint>This reason is stored with the transaction audit trail.</mat-hint>
+                @if (getControlError('reason_code'); as error) {
+                  <mat-error>{{ error }}</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Operational Note</mat-label>
+                <textarea
+                  matInput
+                  rows="3"
+                  formControlName="note"
+                  placeholder="Optional operational note or handling detail"></textarea>
+                <mat-hint>Use this for extra context, not to replace the required reason.</mat-hint>
+              </mat-form-field>
+            </div>
+
+            @if (allowedUomOptions().length > 0) {
+              <div class="uom-summary" aria-live="polite">
+                <span class="uom-summary__label">Allowed UOMs</span>
+                <div class="uom-summary__chips">
+                  @for (option of allowedUomOptions(); track option.uom_code) {
+                    <span class="uom-chip" [class.is-default]="option.is_default">{{ getUomLabel(option) }}</span>
+                  }
+                </div>
+              </div>
+            }
+
+            <div class="action-row">
+              <button mat-stroked-button type="button" (click)="onPreview()" [disabled]="!canPreview()">
+                @if (previewLoading()) {
+                  <mat-icon class="spin">sync</mat-icon>
+                  Previewing...
+                } @else {
+                  <mat-icon>preview</mat-icon>
+                  Preview Repackaging
+                }
+              </button>
+
+              <button mat-flat-button color="primary" type="button" (click)="onSubmit()" [disabled]="submitLoading() || preview() == null">
+                @if (submitLoading()) {
+                  <mat-icon class="spin">sync</mat-icon>
+                  Saving...
+                } @else {
+                  <mat-icon>check_circle</mat-icon>
+                  Confirm Create
+                }
+              </button>
+            </div>
+          </form>
+        </mat-card-content>
+      </mat-card>
+
+      <mat-card class="preview-card">
+        <mat-card-header>
+          <mat-icon mat-card-avatar>visibility</mat-icon>
+          <mat-card-title>System Preview</mat-card-title>
+          <mat-card-subtitle>Computed values stay preview-only until the transaction is saved.</mat-card-subtitle>
+        </mat-card-header>
+
+        <mat-card-content>
+          @if (previewError(); as previewErrorState) {
+            <section class="alert-card error" role="alert">
+              <mat-icon>error</mat-icon>
+              <div>
+                <p>{{ previewErrorState.message }}</p>
+                @if (getPreviewErrorDetails().length > 0) {
+                  <ul>
+                    @for (detail of getPreviewErrorDetails(); track detail) {
+                      <li>{{ detail }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+            </section>
+          }
+
+          @if (submitError(); as submitErrorState) {
+            <section class="alert-card error" role="alert">
+              <mat-icon>report</mat-icon>
+              <div>
+                <p>{{ submitErrorState.message }}</p>
+                @if (getSubmitErrorDetails().length > 0) {
+                  <ul>
+                    @for (detail of getSubmitErrorDetails(); track detail) {
+                      <li>{{ detail }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+            </section>
+          }
+
+          @if (preview(); as previewRecord) {
+            <div class="preview-grid">
+              <div class="preview-metric">
+                <span class="label">Warehouse</span>
+                <span class="value">{{ previewRecord.warehouse_name || form.controls.warehouse_id.value }}</span>
+              </div>
+              <div class="preview-metric">
+                <span class="label">Item</span>
+                <span class="value">{{ previewRecord.item_name || previewRecord.item_code || previewRecord.item_id }}</span>
+              </div>
+              <div class="preview-metric">
+                <span class="label">Source</span>
+                <span class="value">{{ previewRecord.source_qty }} {{ previewRecord.source_uom_code }}</span>
+              </div>
+              <div class="preview-metric">
+                <span class="label">System-calculated Target</span>
+                <span class="value">{{ previewRecord.target_qty }} {{ previewRecord.target_uom_code }}</span>
+              </div>
+              <div class="preview-metric">
+                <span class="label">Equivalent Default Quantity</span>
+                <span class="value">{{ previewRecord.equivalent_default_qty }}</span>
+              </div>
+              <div class="preview-metric">
+                <span class="label">Batch / Lot</span>
+                <span class="value">{{ previewRecord.batch_or_lot || 'Not provided' }}</span>
+              </div>
+            </div>
+
+            @if (previewRecord.warnings.length > 0) {
+              <section class="alert-card warning" role="note">
+                <mat-icon>warning</mat-icon>
+                <div>
+                  <p>Preview warnings</p>
+                  <ul>
+                    @for (warning of previewRecord.warnings; track warning) {
+                      <li>{{ warning }}</li>
+                    }
+                  </ul>
+                </div>
+              </section>
+            }
+
+            <p class="preview-note">
+              The backend remains the source of truth for target quantity and quantity-conservation validation.
+              Saving will persist audit metadata for the create action only.
+            </p>
+          } @else {
+            <div class="empty-preview">
+              <mat-icon>inventory</mat-icon>
+              <p>Select warehouse, item, source UOM, source quantity, and target UOM to generate a system preview.</p>
+            </div>
+          }
+        </mat-card-content>
+      </mat-card>
+    </div>
+
+    <mat-card class="activity-card">
+      <mat-card-header>
+        <mat-icon mat-card-avatar>history</mat-icon>
+        <mat-card-title>Recent Repackaging Activity</mat-card-title>
+        <mat-card-subtitle>Lightweight audit visibility for Sprint 07.</mat-card-subtitle>
+      </mat-card-header>
+
+      <mat-card-content>
+        @if (activityLoading()) {
+          <mat-progress-bar mode="indeterminate" />
+        } @else if (recentRecords().length === 0) {
+          <div class="empty-preview">
+            <mat-icon>history_toggle_off</mat-icon>
+            <p>No repackaging activity is visible yet for the current scope.</p>
+          </div>
+        } @else {
+          <div class="table-wrap">
+            <table mat-table [dataSource]="recentRecords()" class="activity-table">
+              <ng-container matColumnDef="created_at">
+                <th mat-header-cell *matHeaderCellDef>Created</th>
+                <td mat-cell *matCellDef="let row">{{ row.created_at || '-' }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="warehouse_name">
+                <th mat-header-cell *matHeaderCellDef>Warehouse</th>
+                <td mat-cell *matCellDef="let row">{{ row.warehouse_name || row.warehouse_id }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="item_name">
+                <th mat-header-cell *matHeaderCellDef>Item</th>
+                <td mat-cell *matCellDef="let row">{{ row.item_name || row.item_code || row.item_id }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="source">
+                <th mat-header-cell *matHeaderCellDef>Source</th>
+                <td mat-cell *matCellDef="let row">{{ row.source_qty }} {{ row.source_uom_code }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="target">
+                <th mat-header-cell *matHeaderCellDef>Target</th>
+                <td mat-cell *matCellDef="let row">{{ row.target_qty }} {{ row.target_uom_code }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="reason_code">
+                <th mat-header-cell *matHeaderCellDef>Reason</th>
+                <td mat-cell *matCellDef="let row">{{ row.reason_code }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="created_by">
+                <th mat-header-cell *matHeaderCellDef>Actor</th>
+                <td mat-cell *matCellDef="let row">{{ row.created_by || '-' }}</td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+            </table>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
+</div>

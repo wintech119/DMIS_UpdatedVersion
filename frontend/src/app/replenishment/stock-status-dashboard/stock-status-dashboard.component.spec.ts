@@ -458,6 +458,60 @@ describe('StockStatusDashboardComponent', () => {
     expect(localStorage.getItem('dmis_stock_dashboard_my_needs_lists_collapsed')).toBe('false');
   });
 
+  it('returns stock health labels, classes, and warehouse summaries for Sprint 07 visibility', () => {
+    const greenItem = {
+      item_id: 1,
+      item_name: 'Water Tabs',
+      available_qty: 100,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0,
+      gap_qty: 0,
+      stock_health: {
+        level: 'GREEN' as const,
+        label: 'Green',
+        reason: 'Coverage meets the required quantity.',
+      },
+    };
+    const amberItem = {
+      item_id: 2,
+      item_name: 'Rice',
+      available_qty: 25,
+      inbound_strict_qty: 10,
+      burn_rate_per_hour: 0,
+      gap_qty: 0,
+      stock_health: {
+        level: 'AMBER' as const,
+        label: 'Amber',
+        reason: 'Coverage exists but does not fully meet the required quantity.',
+      },
+    };
+    const redItem = {
+      item_id: 3,
+      item_name: 'Blankets',
+      available_qty: 0,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0,
+      gap_qty: 0,
+      stock_health: {
+        level: 'RED' as const,
+        label: 'Red',
+        reason: 'No usable coverage is currently available.',
+      },
+    };
+
+    expect(component.getStockHealthClass(greenItem)).toBe('stock-health-green');
+    expect(component.getStockHealthLabel(amberItem)).toBe('Amber');
+    expect(component.getStockHealthTooltip(redItem)).toContain('RED');
+
+    const summary = component.getWarehouseHealthSummary({
+      ...createGroup(1, 'North Depot'),
+      items: [greenItem, amberItem, redItem],
+      all_items: [greenItem, amberItem, redItem],
+    } as WarehouseStockGroup);
+
+    expect(summary).toBe('1 Green â€¢ 1 Amber â€¢ 1 Red');
+  });
+
   it('migrates legacy seen-state and reloads when current user changes', () => {
     localStorage.setItem('dmis_needs_list_submitter_updates_seen', JSON.stringify(['legacy-key']));
 

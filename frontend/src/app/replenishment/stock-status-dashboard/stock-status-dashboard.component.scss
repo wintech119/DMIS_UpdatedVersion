@@ -507,6 +507,26 @@
     background-color: #e2e3e5;
     color: #383d41;
   }
+
+  &.stock-health-green {
+    background-color: #198754;
+    color: #fff;
+  }
+
+  &.stock-health-amber {
+    background-color: #b7791f;
+    color: #fff;
+  }
+
+  &.stock-health-red {
+    background-color: #c82333;
+    color: #fff;
+  }
+
+  &.stock-health-unavailable {
+    background-color: #6c757d;
+    color: #fff;
+  }
 }
 
 // Burn Rate Display
@@ -1445,6 +1465,13 @@ mat-chip-option {
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
+
+    .mobile-card-badges {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
 
     .mobile-card-title {
       flex: 1;

@@ -24,6 +24,7 @@ interface BreadcrumbSegment {
 const ROUTE_BREADCRUMBS: { pattern: RegExp; crumbs: (match: RegExpMatchArray) => BreadcrumbSegment[] }[] = [
   // Replenishment sub-pages
   { pattern: /^\/replenishment\/dashboard$/,              crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Stock Status Dashboard' }] },
+  { pattern: /^\/replenishment\/repackaging$/,            crumbs: () => [{ label: 'Inventory' }, { label: 'UOM Repackaging' }] },
   { pattern: /^\/replenishment\/my-submissions$/,         crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'My Drafts & Submissions' }] },
   { pattern: /^\/replenishment\/needs-list-wizard$/,      crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Needs List Wizard' }] },
   { pattern: /^\/replenishment\/needs-list-review$/,      crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Review Queue' }] },

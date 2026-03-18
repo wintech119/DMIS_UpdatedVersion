@@ -54,6 +54,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     sectionLabel: 'INVENTORY',
     groups: [
+      { label: 'UOM Repackaging', icon: 'sync_alt', route: '/replenishment/repackaging' },
       { label: 'View Inventory', icon: 'inventory_2', disabled: true },
       { label: 'Donations', icon: 'volunteer_activism', disabled: true },
       { label: 'Donation Intake', icon: 'move_to_inbox', disabled: true },

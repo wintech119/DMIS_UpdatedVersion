@@ -1,0 +1,241 @@
+:host {
+  display: block;
+  font-family: var(--dmis-font-sans);
+}
+
+.repackaging-page {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--color-text-primary);
+}
+
+.page-header {
+  margin-bottom: 16px;
+}
+
+.page-header h1 {
+  margin: 0 0 6px;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.page-subtitle {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.guidance-grid,
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.transaction-card,
+.preview-card,
+.activity-card,
+.guidance-card {
+  border-radius: 10px;
+}
+
+.activity-card {
+  margin-top: 16px;
+}
+
+.transaction-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.uom-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.uom-summary__label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.uom-summary__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.uom-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.uom-chip.is-default {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.preview-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.preview-metric .label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.preview-metric .value {
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.preview-note {
+  margin: 12px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.alert-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.alert-card p,
+.alert-card ul {
+  margin: 0;
+}
+
+.alert-card ul {
+  margin-top: 6px;
+  padding-left: 18px;
+}
+
+.alert-card.error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.alert-card.warning {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.empty-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 220px;
+  padding: 20px;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.empty-preview mat-icon {
+  width: 32px;
+  height: 32px;
+  font-size: 32px;
+  color: var(--color-text-tertiary);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.activity-table {
+  width: 100%;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .guidance-grid,
+  .content-grid,
+  .form-grid,
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .repackaging-page {
+    padding: 10px;
+  }
+
+  .action-row {
+    flex-direction: column;
+  }
+
+  .action-row button {
+    width: 100%;
+  }
+}

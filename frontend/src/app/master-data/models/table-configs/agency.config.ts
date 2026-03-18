@@ -7,6 +7,9 @@ export const AGENCY_CONFIG: MasterTableConfig = {
   pkField: 'agency_id',
   routePath: 'agencies',
   formMode: 'page',
+  formDescription:
+    'Maintain agency and downstream distribution-point records that depend on the approved warehouse baseline. ' +
+    'Keep each agency tied to the operational warehouse or hub it draws from when applicable.',
   searchPlaceholder: 'Search by name or contact...',
   columns: [
     { field: 'agency_name', header: 'Name', type: 'text', sortable: true },
@@ -17,16 +20,20 @@ export const AGENCY_CONFIG: MasterTableConfig = {
   ],
   formFields: [
     { field: 'agency_name', label: 'Agency Name', type: 'text', required: true, maxLength: 120, uppercase: true,
+      hint: 'Use the operational name shown in logistics workflows and downstream coordination.',
       group: 'Basic Information' },
     { field: 'agency_type', label: 'Type', type: 'select', required: true,
       options: [
         { value: 'SHELTER', label: 'Shelter' },
         { value: 'DISTRIBUTOR', label: 'Distributor' },
       ],
+      hint: 'Shelter is a service point. Distributor is a downstream fulfillment or issue point.',
       group: 'Basic Information' },
     { field: 'warehouse_id', label: 'Warehouse', type: 'lookup', lookupTable: 'warehouses',
+      hint: 'Link the agency to the warehouse or hub that typically fulfills its stock needs.',
       group: 'Basic Information' },
     { field: 'agency_priority', label: 'Priority', type: 'number',
+      hint: 'Optional operational priority used by later allocation and dispatch planning.',
       group: 'Basic Information' },
     { field: 'ineligible_event_id', label: 'Ineligible Event', type: 'lookup', lookupTable: 'events',
       group: 'Basic Information' },
@@ -36,6 +43,7 @@ export const AGENCY_CONFIG: MasterTableConfig = {
     { field: 'address2_text', label: 'Address Line 2', type: 'text', maxLength: 255,
       group: 'Address' },
     { field: 'parish_code', label: 'Parish', type: 'lookup', required: true, lookupTable: 'parishes',
+      hint: 'Use the parish where the agency or service point operates.',
       group: 'Address' },
 
     { field: 'contact_name', label: 'Contact Name', type: 'text', required: true, maxLength: 50, uppercase: true,

@@ -12,7 +12,7 @@
         ></mat-progress-spinner>
       }
     </div>
-    <p class="page-subtitle">Monitor burn rates and replenishment needs across all warehouses</p>
+    <p class="page-subtitle">Monitor stock health, burn rates, and replenishment needs across all warehouses</p>
   </div>
 
   <!-- Context Display -->
@@ -274,6 +274,10 @@
                   All OK
                 </span>
               }
+              <span class="stat-chip" matTooltip="GREEN / AMBER / RED stock-health baseline from backend-required quantities">
+                <mat-icon>traffic</mat-icon>
+                {{ getWarehouseHealthSummary(group) }}
+              </span>
             </div>
             <div class="warehouse-actions">
               <button
@@ -317,7 +321,8 @@
                   <caption class="sr-only">Stock status items for {{ group.warehouse_name }}</caption>
                   <thead>
                     <tr>
-                      <th scope="col" class="col-status" matTooltip="Stock health status based on hours until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
+                      <th scope="col" class="col-status" matTooltip="GREEN / AMBER / RED stock-health baseline from backend-required quantities" matTooltipPosition="above" matTooltipShowDelay="300">Health</th>
+                      <th scope="col" class="col-status" matTooltip="Urgency based on hours until stockout" matTooltipPosition="above" matTooltipShowDelay="300">Status</th>
                       <th scope="col" class="col-item" matTooltip="Item name and category" matTooltipPosition="above" matTooltipShowDelay="300">Item</th>
                       <th scope="col" class="col-available" matTooltip="Current quantity on hand at this warehouse" matTooltipPosition="above" matTooltipShowDelay="300">Available</th>
                       <th scope="col" class="col-inbound" matTooltip="Confirmed incoming stock (dispatched transfers + in-transit donations)" matTooltipPosition="above" matTooltipShowDelay="300">Inbound</th>
@@ -332,12 +337,21 @@
                     @for (item of group.items; track item.item_id) {
                       <tr [ngClass]="'row-' + getSeverityClass(item.severity)">
                         <td class="col-status">
+                          <span
+                            class="badge"
+                            [ngClass]="getStockHealthClass(item)"
+                            [attr.aria-label]="'Stock health: ' + getStockHealthLabel(item)"
+                            [matTooltip]="getStockHealthTooltip(item)"
+                            matTooltipPosition="above">
+                            {{ getStockHealthLabel(item) }}
+                          </span>
+                        </td>
+                        <td class="col-status">
                           <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
                             {{ item.severity || 'OK' }}
                           </span>
                         </td>
                         <td class="col-item">
-                          <div
                           <div
                             class="item-name"
                             tabindex="0"
@@ -420,9 +434,20 @@
                   <div class="mobile-item-card"
                     [ngClass]="'card-' + getSeverityClass(item.severity)">
                     <div class="mobile-card-header">
-                      <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
-                        {{ item.severity || 'OK' }}
-                      </span>
+                      <div class="mobile-card-badges">
+                        <span
+                          class="badge"
+                          [ngClass]="getStockHealthClass(item)"
+                          [attr.aria-label]="'Stock health: ' + getStockHealthLabel(item)"
+                          [matTooltip]="getStockHealthTooltip(item)"
+                          matTooltipPosition="above"
+                          matTooltipShowDelay="300">
+                          {{ getStockHealthLabel(item) }}
+                        </span>
+                        <span class="badge" [ngClass]="'badge-' + (item.severity?.toLowerCase() || 'ok')" [attr.aria-label]="'Status: ' + (item.severity || 'OK')">
+                          {{ item.severity || 'OK' }}
+                        </span>
+                      </div>
                       <div class="mobile-card-title">
                         <span
                           class="item-name"
@@ -500,7 +525,7 @@
     <dmis-empty-state
       icon="verified"
       title="All Clear"
-      message="All items have healthy stock levels. No replenishment action needed."
+      message="All visible items are currently Green or otherwise do not require replenishment action."
       actionLabel="Refresh Data"
       actionIcon="refresh"
       (action)="loadMultiWarehouseStatus()"

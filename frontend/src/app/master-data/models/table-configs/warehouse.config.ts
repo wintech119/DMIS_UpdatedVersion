@@ -7,6 +7,9 @@ export const WAREHOUSE_CONFIG: MasterTableConfig = {
   pkField: 'warehouse_id',
   routePath: 'warehouses',
   formMode: 'page',
+  formDescription:
+    'Maintain warehouse and hub records used by stock visibility, needs-list routing, and controlled repackaging. ' +
+    'Use the warehouse type to distinguish main hubs from downstream sub-hubs.',
   searchPlaceholder: 'Search by name or contact...',
   columns: [
     { field: 'warehouse_name', header: 'Name', type: 'text', sortable: true },
@@ -18,16 +21,21 @@ export const WAREHOUSE_CONFIG: MasterTableConfig = {
   ],
   formFields: [
     { field: 'warehouse_name', label: 'Warehouse Name', type: 'text', required: true, maxLength: 255,
+      hint: 'Use the operational name that appears in stock dashboards and warehouse selection lists.',
       group: 'Basic Information' },
     { field: 'warehouse_type', label: 'Type', type: 'select', required: true,
       options: [
         { value: 'MAIN-HUB', label: 'Main Hub' },
         { value: 'SUB-HUB', label: 'Sub Hub' },
       ],
+      hint: 'Main Hub is the primary warehouse. Sub Hub is a downstream logistics point that still participates in the same stock baseline.',
+      tooltip: 'Sprint 07 keeps hub hierarchy within the warehouse master instead of introducing a separate hub module.',
       group: 'Basic Information' },
     { field: 'custodian_id', label: 'Custodian', type: 'lookup', required: true, lookupTable: 'custodians',
+      hint: 'Assign the operational owner responsible for this warehouse or hub.',
       group: 'Basic Information' },
     { field: 'min_stock_threshold', label: 'Min Stock Threshold', type: 'number', defaultValue: 0,
+      hint: 'Warehouse-level floor used by stock-health visibility when available for this site.',
       group: 'Basic Information' },
 
     { field: 'address1_text', label: 'Address Line 1', type: 'text', required: true, maxLength: 255,
@@ -35,6 +43,7 @@ export const WAREHOUSE_CONFIG: MasterTableConfig = {
     { field: 'address2_text', label: 'Address Line 2', type: 'text', maxLength: 255,
       group: 'Address' },
     { field: 'parish_code', label: 'Parish', type: 'lookup', required: true, lookupTable: 'parishes',
+      hint: 'Use the physical parish for the warehouse or hub site.',
       group: 'Address' },
 
     { field: 'contact_name', label: 'Contact Name', type: 'text', required: true, maxLength: 50, uppercase: true,

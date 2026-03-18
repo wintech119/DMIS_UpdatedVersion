@@ -10,6 +10,7 @@ import {
   FreshnessLevel,
   WarehouseStockGroup,
   ActionUrgency,
+  StockHealthIndicator,
   calculateSeverity,
   getRecommendedAction
 } from '../models/stock-status.model';
@@ -163,6 +164,11 @@ export class DashboardDataService {
       const severity = item.severity ?? calculateSeverity(parsedStockout);
       const { action, urgency } = getRecommendedAction(severity);
       const stockStatusFields = item as Partial<StockStatusItem>;
+      const stockHealth = this.computeStockHealth(
+        item.available_qty,
+        item.inbound_strict_qty,
+        item.required_qty
+      );
 
       return {
         item_id: item.item_id,
@@ -182,6 +188,7 @@ export class DashboardDataService {
         severity,
         confidence: item.confidence,
         freshness: freshness ?? undefined,
+        stock_health: stockHealth,
         warnings: item.warnings,
         is_estimated: (item.warnings ?? []).includes('burn_rate_estimated'),
         recommended_action: action,
@@ -326,6 +333,47 @@ export class DashboardDataService {
     if (typeof value === 'number') return value;
     const parsed = parseFloat(value);
     return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private computeStockHealth(
+    availableQty: number,
+    inboundQty: number,
+    requiredQty: number | undefined
+  ): StockHealthIndicator {
+    const normalizedRequiredQty = Number(requiredQty);
+    if (!Number.isFinite(normalizedRequiredQty) || normalizedRequiredQty < 0) {
+      return {
+        level: 'UNAVAILABLE',
+        label: 'Unavailable',
+        reason: 'No backend-required quantity is available yet for the GREEN / AMBER / RED baseline.'
+      };
+    }
+
+    const available = Number(availableQty) || 0;
+    const inbound = Number(inboundQty) || 0;
+    const coverage = available + inbound;
+
+    if (coverage >= normalizedRequiredQty) {
+      return {
+        level: 'GREEN',
+        label: 'Green',
+        reason: 'Available and confirmed inbound stock currently cover the backend-required quantity.'
+      };
+    }
+
+    if (available > 0 || inbound > 0) {
+      return {
+        level: 'AMBER',
+        label: 'Amber',
+        reason: 'There is some stock or inbound coverage, but it does not yet meet the backend-required quantity.'
+      };
+    }
+
+    return {
+      level: 'RED',
+      label: 'Red',
+      reason: 'No usable coverage is currently available against the backend-required quantity.'
+    };
   }
 
   private normalizeFreshness(

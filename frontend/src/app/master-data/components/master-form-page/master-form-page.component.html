@@ -926,6 +926,145 @@
           </section>
         }
 
+        @if (isItemRecord()) {
+          <section class="form-section item-uom-section" aria-label="Item UOM conversions section">
+            <h3 class="section-title">
+              <mat-icon aria-hidden="true">straighten</mat-icon>
+              Item UOM Conversions
+            </h3>
+            <p class="section-description">
+              Maintain the approved per-item UOM conversions for Sprint 07. The default UOM is mirrored from
+              Inventory Rules and alternate UOMs stay configuration-only until an operational repackaging transaction uses them.
+            </p>
+
+            <div class="item-uom-default-card" role="note">
+              <div>
+                <p class="item-uom-default-card__eyebrow">Default UOM</p>
+                <p class="item-uom-default-card__title">
+                  {{ defaultItemUomOption()?.uom_code || 'Select the Default UOM above' }}
+                </p>
+                <p class="item-uom-default-card__body">
+                  This default row is generated from the Default UOM field and always converts at `1.0`.
+                </p>
+              </div>
+              <span class="item-uom-default-card__badge">Authoritative Base</span>
+            </div>
+
+            @if (alternateItemUomOptions().length === 0) {
+              <div class="item-uom-empty-state">
+                <mat-icon aria-hidden="true">inventory_2</mat-icon>
+                <p>No alternate UOM conversions are configured yet. Add one when this item needs controlled repackaging or alternate handling units.</p>
+              </div>
+            } @else {
+              <div class="item-uom-grid">
+                @for (option of alternateItemUomOptions(); track option.localId; let index = $index) {
+                  <article class="item-uom-row">
+                    <div class="item-uom-row__header">
+                      <div>
+                        <p class="item-uom-row__eyebrow">Alternate UOM {{ index + 1 }}</p>
+                        <p class="item-uom-row__title">
+                          {{ option.uom_code || 'Select UOM' }}
+                        </p>
+                      </div>
+                      <button
+                        mat-icon-button
+                        type="button"
+                        (click)="removeItemUomOption(option.localId)"
+                        aria-label="Remove alternate UOM">
+                        <mat-icon>delete</mat-icon>
+                      </button>
+                    </div>
+
+                    <div class="item-uom-row__fields">
+                      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                        <mat-label>Alternate UOM</mat-label>
+                        <mat-select
+                          [value]="option.uom_code"
+                          (valueChange)="updateItemUomOptionUom(option.localId, $event)">
+                          @for (lookupOption of getItemUomOptionChoices(option.localId); track lookupOption.value) {
+                            <mat-option [value]="lookupOption.value">{{ getItemUomOptionLabel(lookupOption) }}</mat-option>
+                          }
+                        </mat-select>
+                        <mat-hint>Choose an approved alternate handling or counting unit.</mat-hint>
+                        @if (getItemUomServerFieldError(option.localId, 'uom_code'); as error) {
+                          <mat-error>{{ error }}</mat-error>
+                        }
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                        <mat-label>Conversion Factor</mat-label>
+                        <input
+                          matInput
+                          type="number"
+                          min="0.000001"
+                          [value]="option.conversion_factor ?? ''"
+                          (input)="updateItemUomOptionConversionFactor(option.localId, $any($event.target).value)" />
+                        <mat-hint>How many default units equal one of this alternate UOM.</mat-hint>
+                        @if (getItemUomServerFieldError(option.localId, 'conversion_factor'); as error) {
+                          <mat-error>{{ error }}</mat-error>
+                        }
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                        <mat-label>Status</mat-label>
+                        <mat-select
+                          [value]="option.status_code"
+                          (valueChange)="updateItemUomOptionStatus(option.localId, $event)">
+                          <mat-option value="A">Active</mat-option>
+                          <mat-option value="I">Inactive</mat-option>
+                        </mat-select>
+                        <mat-hint>Inactive rows stay visible for history but should not be used for new repackaging.</mat-hint>
+                        @if (getItemUomServerFieldError(option.localId, 'status_code'); as error) {
+                          <mat-error>{{ error }}</mat-error>
+                        }
+                      </mat-form-field>
+                    </div>
+
+                    @if (getItemUomServerRowErrors(option.localId).length > 0) {
+                      <div class="item-uom-row__errors" role="alert">
+                        <ul>
+                          @for (error of getItemUomServerRowErrors(option.localId); track error) {
+                            <li>{{ error }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  </article>
+                }
+              </div>
+            }
+
+            @if (itemUomServerSummaryErrors().length > 0) {
+              <div class="item-uom-validation" role="alert">
+                <p class="item-uom-validation__title">Backend validation reported these UOM conversion issues</p>
+                <ul>
+                  @for (error of itemUomServerSummaryErrors(); track error) {
+                    <li>{{ error }}</li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (shouldShowItemUomValidationErrors()) {
+              <div class="item-uom-validation" role="alert">
+                <p class="item-uom-validation__title">Fix these UOM conversion issues before saving</p>
+                <ul>
+                  @for (error of getItemUomValidationErrors(); track error) {
+                    <li>{{ error }}</li>
+                  }
+                </ul>
+              </div>
+            }
+
+            <div class="item-uom-actions">
+              <button mat-stroked-button type="button" (click)="addItemUomOption()">
+                <mat-icon aria-hidden="true">add</mat-icon>
+                Add Alternate UOM
+              </button>
+            </div>
+          </section>
+        }
+
         <!-- Storage Location Assignment (edit mode only) -->
         @if (canAssignLocation()) {
           <section class="form-section location-assignment-section"

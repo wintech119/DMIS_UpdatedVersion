@@ -110,6 +110,16 @@ interface FormFieldGroup {
   fields: MasterFieldConfig[];
 }
 
+interface ItemUomOptionEditorRow {
+  localId: string;
+  item_uom_option_id?: number;
+  uom_code: string;
+  conversion_factor: number | null;
+  is_default: boolean;
+  sort_order: number;
+  status_code: string;
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -163,6 +173,17 @@ export class MasterFormPageComponent implements OnInit {
   ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
+  itemUomOptions = signal<ItemUomOptionEditorRow[]>([]);
+  itemUomOptionsTouched = signal(false);
+  itemUomServerErrors = signal<Record<string, Record<string, string[]>>>({});
+  itemUomServerSummaryErrors = signal<string[]>([]);
+
+  readonly defaultItemUomOption = computed(() => (
+    this.itemUomOptions().find((option) => option.is_default) ?? null
+  ));
+  readonly alternateItemUomOptions = computed(() => (
+    this.itemUomOptions().filter((option) => !option.is_default)
+  ));
 
   private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
@@ -183,6 +204,8 @@ export class MasterFormPageComponent implements OnInit {
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   private readonly lookupRequestIds: Record<string, number> = {};
+  private itemUomOptionDraftSequence = 0;
+  private suppressDefaultUomResetPrompt = false;
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -292,11 +315,20 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     if (cfg.tableKey === 'items') {
+      const defaultUomControl = this.form.get('default_uom_code');
       this.form.setValidators([
         validateFefoRequiresExpiry,
         (control) => this.validateItemClassification(control),
       ]);
+      this.initializeItemUomOptions();
       this.updateLocalDraftFieldValidators();
+      defaultUomControl?.valueChanges.pipe(
+        startWith(defaultUomControl.value),
+        pairwise(),
+        takeUntilDestroyed(this.destroyRef),
+      ).subscribe(([previousValue, currentValue]) => {
+        this.handleDefaultUomChange(previousValue, currentValue);
+      });
       this.form.updateValueAndValidity({ emitEvent: false });
     }
 
@@ -305,6 +337,9 @@ export class MasterFormPageComponent implements OnInit {
     ).subscribe(() => {
       if (this.submissionError()) {
         this.clearSubmissionError();
+      }
+      if (this.itemUomServerSummaryErrors().length > 0 || Object.keys(this.itemUomServerErrors()).length > 0) {
+        this.clearItemUomServerErrors();
       }
 
       if (this.isGovernedCatalogAuthoringTable() && this.catalogSuggestion()) {
@@ -1523,6 +1558,7 @@ export class MasterFormPageComponent implements OnInit {
             this.selectedReferenceOption = null;
             this.referenceSearchControl.setValue('', { emitEvent: false });
           }
+          this.initializeItemUomOptionsFromRecord(record);
           this.syncDisplayedItemCode();
         }
 
@@ -1547,6 +1583,20 @@ export class MasterFormPageComponent implements OnInit {
     if (!this.form.valid) {
       this.form.markAllAsTouched();
       return;
+    }
+
+    if (this.isItemRecord()) {
+      const itemUomValidationErrors = this.getItemUomValidationErrors();
+      if (itemUomValidationErrors.length > 0) {
+        this.itemUomOptionsTouched.set(true);
+        this.setSubmissionError(
+          'Review item UOM conversions before saving.',
+          itemUomValidationErrors,
+          'itemUomOptionsInvalid',
+        );
+        this.notify.showWarning('Review item UOM conversions before saving.');
+        return;
+      }
     }
 
     const cfg = this.config();
@@ -1615,25 +1665,38 @@ export class MasterFormPageComponent implements OnInit {
       },
       error: (err) => {
         if (err.status === 400 && err.error?.errors) {
-          const errors = err.error.errors as Record<string, string>;
+          const errors = err.error.errors as Record<string, unknown>;
           this.applyServerErrors(errors);
 
           const classificationErrorFields = ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id', 'item_code'];
           const classificationDetails = Object.entries(errors)
             .filter(([field]) => classificationErrorFields.includes(field))
-            .map(([, message]) => message);
+            .map(([, message]) => String(message));
+          const itemUomErrorDetails = [
+            ...this.itemUomServerSummaryErrors(),
+            ...Object.values(this.itemUomServerErrors()).flatMap((rowErrors) => (
+              Object.values(rowErrors).flatMap((messages) => messages)
+            )),
+          ];
           if (classificationDetails.length > 0) {
             this.setSubmissionError(
               'Please review the item classification and canonical item code details.',
               classificationDetails,
               'submitFailure',
             );
+          } else if (itemUomErrorDetails.length > 0) {
+            this.itemUomOptionsTouched.set(true);
+            this.setSubmissionError(
+              'Please review the item UOM conversions before saving.',
+              [...new Set(itemUomErrorDetails)],
+              'itemUomOptionsInvalid',
+            );
           } else if (this.isGovernedCatalogAuthoringTable()) {
             this.setSubmissionError(
               isReplacementSave
                 ? 'Please review the governed replacement draft before saving.'
                 : 'Please review the governed catalog fields before saving.',
-              Object.values(errors),
+              Object.values(errors).map((value) => String(value)),
               'submitFailure',
             );
           }
@@ -1724,9 +1787,9 @@ export class MasterFormPageComponent implements OnInit {
       },
       error: (err) => {
         if (err.status === 400 && err.error?.errors) {
-          const errors = err.error.errors as Record<string, string>;
+          const errors = err.error.errors as Record<string, unknown>;
           this.applyServerErrors(errors);
-          const messages = Object.values(errors);
+          const messages = Object.values(errors).map((value) => String(value));
           this.catalogAssistError.set(messages[0] ?? 'Please fix the required fields before requesting suggestions.');
           this.notify.showWarning('Please fix the required fields before requesting suggestions.');
           return;
@@ -2098,6 +2161,7 @@ export class MasterFormPageComponent implements OnInit {
 
     if (cfg.tableKey === 'items') {
       delete rawData['item_code'];
+      rawData['uom_options'] = this.buildItemUomOptionPayload();
 
       if (this.shouldPersistLocalItemCode()) {
         const normalizedLegacyCode = String(rawData['legacy_item_code'] ?? '').trim().toUpperCase();
@@ -2114,8 +2178,11 @@ export class MasterFormPageComponent implements OnInit {
     return rawData;
   }
 
-  private applyServerErrors(errors: Record<string, string>): void {
+  private applyServerErrors(errors: Record<string, unknown>): void {
     for (const [field, msg] of Object.entries(errors)) {
+      if (this.applyItemUomServerError(field, msg)) {
+        continue;
+      }
       const control = this.form.get(field);
       if (control) {
         control.setErrors({ server: msg });
@@ -2435,6 +2502,131 @@ export class MasterFormPageComponent implements OnInit {
 
   shouldShowIfrcHelperPanel(): boolean {
     return this.isItemRecord();
+  }
+
+  addItemUomOption(): void {
+    if (!this.isItemRecord()) {
+      return;
+    }
+
+    this.itemUomOptions.update((rows) => ([
+      ...rows,
+      {
+        localId: this.nextItemUomOptionDraftId(),
+        uom_code: '',
+        conversion_factor: null,
+        is_default: false,
+        sort_order: rows.filter((option) => !option.is_default).length + 1,
+        status_code: 'A',
+      },
+    ]));
+    this.itemUomOptionsTouched.set(true);
+    this.clearItemUomServerErrors();
+    if (this.submissionError()) {
+      this.clearSubmissionError();
+    }
+  }
+
+  removeItemUomOption(localId: string): void {
+    this.itemUomOptions.update((rows) => rows
+      .filter((option) => option.localId !== localId)
+      .map((option, index) => ({
+        ...option,
+        sort_order: option.is_default ? 0 : index,
+      })));
+    this.itemUomOptionsTouched.set(true);
+    this.clearItemUomServerErrors();
+    if (this.submissionError()) {
+      this.clearSubmissionError();
+    }
+  }
+
+  updateItemUomOptionUom(localId: string, value: unknown): void {
+    this.updateItemUomOption(localId, {
+      uom_code: String(value ?? '').trim().toUpperCase(),
+    });
+  }
+
+  updateItemUomOptionConversionFactor(localId: string, value: unknown): void {
+    const normalized = String(value ?? '').trim();
+    const conversionFactor = normalized.length === 0 ? null : Number(normalized);
+    this.updateItemUomOption(localId, {
+      conversion_factor: Number.isFinite(conversionFactor) ? conversionFactor : null,
+    });
+  }
+
+  updateItemUomOptionStatus(localId: string, value: unknown): void {
+    this.updateItemUomOption(localId, {
+      status_code: String(value ?? 'A').trim().toUpperCase() || 'A',
+    });
+  }
+
+  getItemUomOptionChoices(localId: string): LookupItem[] {
+    const selectedCodes = new Set(
+      this.itemUomOptions()
+        .filter((option) => option.localId !== localId)
+        .map((option) => String(option.uom_code ?? '').trim().toUpperCase())
+        .filter((value) => value.length > 0),
+    );
+
+    return this.readLookup('uom').filter((item) => {
+      const code = String(item.value ?? '').trim().toUpperCase();
+      return code.length > 0 && !selectedCodes.has(code);
+    });
+  }
+
+  getItemUomValidationErrors(): string[] {
+    if (!this.isItemRecord()) {
+      return [];
+    }
+
+    const defaultUomCode = String(this.form.get('default_uom_code')?.value ?? '').trim().toUpperCase();
+    const seenCodes = new Set<string>();
+    const errors: string[] = [];
+
+    if (!defaultUomCode) {
+      return [];
+    }
+
+    for (const [index, option] of this.alternateItemUomOptions().entries()) {
+      const rowNumber = index + 1;
+      const uomCode = String(option.uom_code ?? '').trim().toUpperCase();
+      const conversionFactor = Number(option.conversion_factor ?? 0);
+
+      if (!uomCode) {
+        errors.push(`Select an alternate UOM for row ${rowNumber}.`);
+      } else if (uomCode === defaultUomCode) {
+        errors.push(`Alternate UOM row ${rowNumber} duplicates the default UOM.`);
+      } else if (seenCodes.has(uomCode)) {
+        errors.push(`Alternate UOM ${uomCode} is listed more than once.`);
+      } else {
+        seenCodes.add(uomCode);
+      }
+
+      if (!Number.isFinite(conversionFactor) || conversionFactor <= 0) {
+        errors.push(`Enter a conversion factor greater than zero for row ${rowNumber}.`);
+      }
+    }
+
+    return [...new Set(errors)];
+  }
+
+  shouldShowItemUomValidationErrors(): boolean {
+    return this.itemUomOptionsTouched() && this.getItemUomValidationErrors().length > 0;
+  }
+
+  getItemUomOptionLabel(item: LookupItem): string {
+    return String(item.label ?? item.value ?? '').trim();
+  }
+
+  getItemUomServerFieldError(localId: string, fieldName: 'uom_code' | 'conversion_factor' | 'status_code'): string | null {
+    const rowErrors = this.itemUomServerErrors()[localId];
+    const messages = rowErrors?.[fieldName] ?? [];
+    return messages[0] ?? null;
+  }
+
+  getItemUomServerRowErrors(localId: string): string[] {
+    return this.itemUomServerErrors()[localId]?.['row'] ?? [];
   }
 
   canRequestIfrcSuggestion(): boolean {
@@ -3021,6 +3213,7 @@ export class MasterFormPageComponent implements OnInit {
     this.submissionError.set(null);
     this.submissionErrorDetails.set([]);
     this.duplicateCanonicalConflict.set(null);
+    this.clearItemUomServerErrors();
 
     const formErrors = this.form.errors;
     if (!formErrors) return;
@@ -3028,9 +3221,352 @@ export class MasterFormPageComponent implements OnInit {
     const nextErrors: Record<string, unknown> = { ...formErrors };
     delete nextErrors[this.inactiveItemForwardWriteCode];
     delete nextErrors[this.duplicateCanonicalItemCodeError];
+    delete nextErrors['itemUomOptionsInvalid'];
     delete nextErrors['versionConflict'];
     delete nextErrors['submitFailure'];
     this.form.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
+  }
+
+  private initializeItemUomOptions(): void {
+    this.itemUomOptionsTouched.set(false);
+    this.itemUomOptions.set([]);
+    this.clearItemUomServerErrors();
+    this.syncDefaultItemUomOption();
+  }
+
+  private initializeItemUomOptionsFromRecord(record: MasterRecord): void {
+    const rawOptions = Array.isArray(record['uom_options']) ? record['uom_options'] : [];
+    const nextOptions = rawOptions
+      .map((option, index) => this.toItemUomOptionEditorRow(option, index))
+      .filter((option): option is ItemUomOptionEditorRow => option != null);
+
+    this.itemUomOptions.set(nextOptions);
+    this.itemUomOptionsTouched.set(false);
+    this.clearItemUomServerErrors();
+    this.syncDefaultItemUomOption();
+  }
+
+  private toItemUomOptionEditorRow(value: unknown, index: number): ItemUomOptionEditorRow | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const uomCode = String(record['uom_code'] ?? '').trim().toUpperCase();
+    if (!uomCode) {
+      return null;
+    }
+
+    const itemUomOptionId = Number(record['item_uom_option_id']);
+    const sortOrder = Number(record['sort_order']);
+    const conversionFactor = Number(record['conversion_factor']);
+    return {
+      localId: this.nextItemUomOptionDraftId(),
+      item_uom_option_id: Number.isFinite(itemUomOptionId) && itemUomOptionId > 0 ? itemUomOptionId : undefined,
+      uom_code: uomCode,
+      conversion_factor: Number.isFinite(conversionFactor) ? conversionFactor : null,
+      is_default: record['is_default'] === true,
+      sort_order: Number.isFinite(sortOrder) ? sortOrder : index,
+      status_code: String(record['status_code'] ?? 'A').trim().toUpperCase() || 'A',
+    };
+  }
+
+  private syncDefaultItemUomOption(): void {
+    if (!this.isItemRecord()) {
+      return;
+    }
+
+    const defaultUomCode = String(this.form.get('default_uom_code')?.value ?? '').trim().toUpperCase();
+
+    this.itemUomOptions.update((rows) => {
+      const existingDefault = rows.find((option) => option.is_default) ?? null;
+      const alternateRows = rows
+        .filter((option) => !option.is_default)
+        .filter((option) => String(option.uom_code ?? '').trim().toUpperCase() !== defaultUomCode)
+        .map((option, index) => ({
+          ...option,
+          uom_code: String(option.uom_code ?? '').trim().toUpperCase(),
+          sort_order: index + 1,
+          is_default: false,
+        }));
+
+      if (!defaultUomCode) {
+        return alternateRows;
+      }
+
+      const defaultRow: ItemUomOptionEditorRow = {
+        localId: existingDefault?.localId ?? this.nextItemUomOptionDraftId(),
+        item_uom_option_id: existingDefault?.item_uom_option_id,
+        uom_code: defaultUomCode,
+        conversion_factor: 1,
+        is_default: true,
+        sort_order: 0,
+        status_code: 'A',
+      };
+
+      return [defaultRow, ...alternateRows];
+    });
+  }
+
+  private updateItemUomOption(localId: string, patch: Partial<ItemUomOptionEditorRow>): void {
+    this.itemUomOptions.update((rows) => rows.map((option) => (
+      option.localId === localId
+        ? {
+            ...option,
+            ...patch,
+          }
+        : option
+    )));
+    this.itemUomOptionsTouched.set(true);
+    this.clearItemUomServerErrors();
+    if (this.submissionError()) {
+      this.clearSubmissionError();
+    }
+  }
+
+  private handleDefaultUomChange(previousValue: unknown, currentValue: unknown): void {
+    const previousCode = String(previousValue ?? '').trim().toUpperCase();
+    const currentCode = String(currentValue ?? '').trim().toUpperCase();
+
+    if (previousCode === currentCode) {
+      return;
+    }
+
+    if (this.suppressDefaultUomResetPrompt) {
+      this.syncDefaultItemUomOption();
+      return;
+    }
+
+    const hasAlternateOptions = this.alternateItemUomOptions().length > 0;
+    if (!hasAlternateOptions || !previousCode || !currentCode) {
+      this.syncDefaultItemUomOption();
+      return;
+    }
+
+    const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
+      data: {
+        title: 'Reset Alternate UOM Conversions?',
+        message: 'Changing the default UOM requires rebuilding the alternate item UOM conversions so their math stays valid.',
+        confirmLabel: 'Reset Conversions',
+        cancelLabel: 'Keep Current Default',
+        icon: 'sync_alt',
+        iconColor: '#0f766e',
+        details: [
+          { label: 'Previous Default', value: previousCode, icon: 'history' },
+          { label: 'New Default', value: currentCode, icon: 'straighten' },
+          { label: 'Impact', value: 'All alternate UOM rows will be cleared and must be re-entered.', icon: 'warning' },
+        ],
+      } as ConfirmDialogData,
+      width: '460px',
+    });
+
+    dialogRef.afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((confirmed) => {
+      if (!confirmed) {
+        this.suppressDefaultUomResetPrompt = true;
+        this.form.get('default_uom_code')?.setValue(previousValue, { emitEvent: true });
+        this.suppressDefaultUomResetPrompt = false;
+        return;
+      }
+
+      this.clearAlternateItemUomOptions();
+      this.syncDefaultItemUomOption();
+      this.itemUomOptionsTouched.set(true);
+      this.notify.showWarning('Alternate item UOM conversions were cleared. Re-enter them for the new default UOM.');
+    });
+  }
+
+  private clearAlternateItemUomOptions(): void {
+    this.itemUomOptions.update((rows) => rows.filter((option) => option.is_default));
+    this.clearItemUomServerErrors();
+  }
+
+  private clearItemUomServerErrors(): void {
+    this.itemUomServerErrors.set({});
+    this.itemUomServerSummaryErrors.set([]);
+  }
+
+  private applyItemUomServerError(fieldPath: string, rawValue: unknown): boolean {
+    const normalizedFieldPath = String(fieldPath ?? '').trim();
+    if (!normalizedFieldPath.startsWith('uom_options')) {
+      return false;
+    }
+
+    if (normalizedFieldPath === 'uom_options') {
+      this.applyItemUomServerErrorValue(rawValue);
+      return true;
+    }
+
+    const match = normalizedFieldPath.match(/^uom_options\.(\d+)(?:\.(.+))?$/);
+    if (!match) {
+      this.addItemUomServerSummaryError(String(rawValue));
+      return true;
+    }
+
+    const payloadIndex = Number(match[1]);
+    const rawFieldName = String(match[2] ?? 'row');
+    const option = this.itemUomOptions()[payloadIndex];
+    const message = this.normalizeItemUomServerMessage(rawValue);
+    if (!message) {
+      return true;
+    }
+
+    if (!option || option.is_default) {
+      this.addItemUomServerSummaryError(message);
+      return true;
+    }
+
+    this.addItemUomServerFieldError(option.localId, this.normalizeItemUomServerFieldName(rawFieldName), message);
+    return true;
+  }
+
+  private applyItemUomServerErrorValue(value: unknown): void {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        if (typeof entry === 'string') {
+          this.addItemUomServerSummaryError(entry);
+          return;
+        }
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+
+        const record = entry as Record<string, unknown>;
+        const payloadIndex = Number(record['index']);
+        const rowOption = Number.isInteger(payloadIndex) ? this.itemUomOptions()[payloadIndex] : null;
+        const fieldName = this.normalizeItemUomServerFieldName(String(record['field'] ?? 'row'));
+        const message = this.normalizeItemUomServerMessage(record['message'] ?? record['detail'] ?? record['error']);
+
+        if (!message) {
+          return;
+        }
+
+        if (rowOption && !rowOption.is_default) {
+          this.addItemUomServerFieldError(rowOption.localId, fieldName, message);
+        } else {
+          this.addItemUomServerSummaryError(message);
+        }
+      });
+      return;
+    }
+
+    if (!value || typeof value !== 'object') {
+      const message = this.normalizeItemUomServerMessage(value);
+      if (message) {
+        this.addItemUomServerSummaryError(message);
+      }
+      return;
+    }
+
+    for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
+      if (/^\d+$/.test(key)) {
+        const payloadIndex = Number(key);
+        const rowOption = this.itemUomOptions()[payloadIndex];
+        if (!rowOption || rowOption.is_default || !entryValue || typeof entryValue !== 'object') {
+          const message = this.normalizeItemUomServerMessage(entryValue);
+          if (message) {
+            this.addItemUomServerSummaryError(message);
+          }
+          continue;
+        }
+
+        for (const [fieldName, fieldValue] of Object.entries(entryValue as Record<string, unknown>)) {
+          const message = this.normalizeItemUomServerMessage(fieldValue);
+          if (message) {
+            this.addItemUomServerFieldError(
+              rowOption.localId,
+              this.normalizeItemUomServerFieldName(fieldName),
+              message,
+            );
+          }
+        }
+        continue;
+      }
+
+      const message = this.normalizeItemUomServerMessage(entryValue);
+      if (message) {
+        this.addItemUomServerSummaryError(message);
+      }
+    }
+  }
+
+  private addItemUomServerFieldError(
+    localId: string,
+    fieldName: 'uom_code' | 'conversion_factor' | 'status_code' | 'row',
+    message: string,
+  ): void {
+    const normalizedMessage = String(message ?? '').trim();
+    if (!normalizedMessage) {
+      return;
+    }
+
+    const nextErrors = { ...this.itemUomServerErrors() };
+    const nextRow = { ...(nextErrors[localId] ?? {}) };
+    const existingMessages = nextRow[fieldName] ?? [];
+    if (!existingMessages.includes(normalizedMessage)) {
+      nextRow[fieldName] = [...existingMessages, normalizedMessage];
+    }
+    nextErrors[localId] = nextRow;
+    this.itemUomServerErrors.set(nextErrors);
+  }
+
+  private addItemUomServerSummaryError(message: string): void {
+    const normalizedMessage = String(message ?? '').trim();
+    if (!normalizedMessage) {
+      return;
+    }
+
+    this.itemUomServerSummaryErrors.update((messages) => (
+      messages.includes(normalizedMessage) ? messages : [...messages, normalizedMessage]
+    ));
+  }
+
+  private normalizeItemUomServerMessage(value: unknown): string {
+    if (Array.isArray(value)) {
+      return value.map((entry) => String(entry ?? '').trim()).filter(Boolean).join(' ');
+    }
+    return String(value ?? '').trim();
+  }
+
+  private normalizeItemUomServerFieldName(
+    rawFieldName: string,
+  ): 'uom_code' | 'conversion_factor' | 'status_code' | 'row' {
+    switch (String(rawFieldName ?? '').trim()) {
+      case 'uom_code':
+        return 'uom_code';
+      case 'conversion_factor':
+        return 'conversion_factor';
+      case 'status_code':
+        return 'status_code';
+      default:
+        return 'row';
+    }
+  }
+
+  private buildItemUomOptionPayload(): MasterRecord[] {
+    return this.itemUomOptions()
+      .filter((option) => option.is_default || String(option.uom_code ?? '').trim().length > 0)
+      .map((option, index) => {
+        const payload: MasterRecord = {
+          uom_code: String(option.uom_code ?? '').trim().toUpperCase(),
+          conversion_factor: option.is_default ? 1 : Number(option.conversion_factor ?? 0),
+          is_default: option.is_default,
+          sort_order: option.is_default ? 0 : index,
+          status_code: String(option.status_code ?? 'A').trim().toUpperCase() || 'A',
+        };
+
+        if (option.item_uom_option_id != null) {
+          payload['item_uom_option_id'] = option.item_uom_option_id;
+        }
+
+        return payload;
+      });
+  }
+
+  private nextItemUomOptionDraftId(): string {
+    this.itemUomOptionDraftSequence += 1;
+    return `item-uom-${this.itemUomOptionDraftSequence}`;
   }
 
   private extractDuplicateCanonicalItemConflict(error: unknown): DuplicateCanonicalItemConflict | null {

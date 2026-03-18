@@ -12,10 +12,12 @@ import { ProcurementListComponent } from './replenishment/procurement-list/procu
 import { ProcurementDetailComponent } from './replenishment/procurement-detail/procurement-detail.component';
 import { ProcurementFormComponent } from './replenishment/procurement-form/procurement-form.component';
 import { ProcurementIntakeComponent } from './replenishment/procurement-intake/procurement-intake.component';
+import { UomRepackagingComponent } from './replenishment/uom-repackaging/uom-repackaging.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'replenishment/dashboard', pathMatch: 'full' },
   { path: 'replenishment/dashboard', component: StockStatusDashboardComponent },
+  { path: 'replenishment/repackaging', component: UomRepackagingComponent },
   { path: 'replenishment/my-submissions', component: MySubmissionsComponent },
   { path: 'replenishment/needs-list-wizard', component: NeedsListWizardComponent },
   { path: 'replenishment/needs-list/:id/wizard', component: NeedsListWizardComponent },
