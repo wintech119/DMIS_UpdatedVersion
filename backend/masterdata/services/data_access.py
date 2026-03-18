@@ -1331,9 +1331,6 @@ def create_record(
                     exc = retry_exc
         logger.warning("create_record(%s) failed: %s", table_key, exc)
         warnings.extend(_db_error_warnings(exc))
-        db_msg = str(exc).strip()
-        if db_msg:
-            warnings.append(f"db_detail:{db_msg}")
         return None, warnings
 
 

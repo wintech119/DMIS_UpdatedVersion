@@ -86,6 +86,34 @@ class DataAccessErrorWarningTests(SimpleTestCase):
             ["db_error", "db_constraint", "db_unique_violation"],
         )
 
+    @patch("masterdata.services.data_access._execute_create_insert")
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_create_record_does_not_expose_raw_db_detail_warning(
+        self,
+        _mock_sqlite,
+        mock_execute_insert,
+    ):
+        mock_execute_insert.side_effect = IntegrityError(
+            "duplicate key value violates unique constraint ux_item_item_code"
+        )
+
+        pk_val, warnings = create_record("items", {"item_name": "Blanket"}, "tester")
+
+        self.assertIsNone(pk_val)
+        self.assertEqual(
+            warnings,
+            ["db_error", "db_constraint", "db_unique_violation"],
+        )
+        self.assertFalse(any(warning.startswith("db_detail:") for warning in warnings))
+
+
+class IFRCMeasureNormalizationTests(SimpleTestCase):
+    def test_normalized_measure_key_supports_imperial_dimensions(self):
+        self.assertEqual(
+            views._normalized_measure_key("12X16 FT"),
+            ("dimension", "12", "16", "FT"),
+        )
+
 
 class PaginationLimitClampTests(SimpleTestCase):
     def setUp(self):

@@ -41,6 +41,13 @@ const PRIMARY_ACTION_MAP: Record<string, string> = {
   IN_TRANSIT: 'View Progress'
 };
 
+const PROGRESS_ACTION_STATUSES = new Set([
+  'APPROVED',
+  'IN_PROGRESS',
+  'DISPATCHED',
+  'IN_TRANSIT'
+]);
+
 @Component({
   selector: 'app-compact-submission-card',
   standalone: true,
@@ -79,7 +86,7 @@ export class CompactSubmissionCardComponent {
     return `${totalItems} ${totalItems === 1 ? 'item' : 'items'}`;
   });
 
-  readonly showsProgressAction = computed(() => this.primaryAction() === 'View Progress');
+  readonly showsProgressAction = computed(() => PROGRESS_ACTION_STATUSES.has(this.submission().status));
 
   constructor() {
     const timerId = window.setInterval(() => this.now.set(Date.now()), 60_000);

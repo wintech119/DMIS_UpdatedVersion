@@ -427,6 +427,15 @@ describe('StockStatusDashboardComponent', () => {
       burn_rate_per_hour: 0,
       gap_qty: 0
     })).toBe('Item 7');
+
+    expect(component.getStockItemTooltip({
+      item_id: 9,
+      item_name: '   ',
+      available_qty: 0,
+      inbound_strict_qty: 0,
+      burn_rate_per_hour: 0,
+      gap_qty: 0
+    })).toBe('Item 9');
   });
 
   it('loads my drafts panel collapsed preference from localStorage', () => {

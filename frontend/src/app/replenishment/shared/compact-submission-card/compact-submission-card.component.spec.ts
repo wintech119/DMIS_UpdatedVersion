@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { MatTooltip } from '@angular/material/tooltip';
 
 import { NeedsListSummary } from '../../models/needs-list.model';
 import { CompactSubmissionCardComponent } from './compact-submission-card.component';
@@ -62,11 +64,11 @@ describe('CompactSubmissionCardComponent', () => {
   });
 
   it('shows the full reference and warehouse name as tooltips', () => {
-    const reference: HTMLElement | null = fixture.nativeElement.querySelector('.ref-number');
-    const warehouse: HTMLElement | null = fixture.nativeElement.querySelector('.warehouse');
+    const referenceTooltip = fixture.debugElement.query(By.css('.ref-number')).injector.get(MatTooltip);
+    const warehouseTooltip = fixture.debugElement.query(By.css('.warehouse')).injector.get(MatTooltip);
 
-    expect(reference?.getAttribute('ng-reflect-message')).toBe('REF-100');
-    expect(warehouse?.getAttribute('ng-reflect-message')).toBe('Central Warehouse');
+    expect(referenceTooltip.message).toBe('REF-100');
+    expect(warehouseTooltip.message).toBe('Central Warehouse');
   });
 
   it('uses clearer progress action wording and pluralized item counts', () => {

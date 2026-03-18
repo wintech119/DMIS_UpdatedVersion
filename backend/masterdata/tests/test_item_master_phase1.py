@@ -24,6 +24,7 @@ from masterdata.services.catalog_governance import (
     _write_catalog_audit,
     _match_reference_category,
     catalog_detail_metadata,
+    create_catalog_record,
     suggest_ifrc_family_authoring,
     suggest_ifrc_reference_authoring,
     validate_catalog_update,
@@ -988,6 +989,29 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         self.assertEqual(payload["normalized"]["material"], "POLYETHYLENE")
         self.assertEqual(payload["normalized"]["spec_segment"], "SH26")
         self.assertEqual(payload["normalized"]["ifrc_code"], "HKITGENRSH26")
+
+    @patch("masterdata.services.catalog_governance.create_record")
+    @patch("masterdata.services.catalog_governance.transaction.atomic")
+    @patch("masterdata.services.catalog_governance._is_sqlite", return_value=False)
+    def test_create_catalog_record_does_not_expose_raw_db_detail_warning(
+        self,
+        _mock_sqlite,
+        _mock_atomic,
+        mock_create_record,
+    ):
+        mock_create_record.side_effect = DatabaseError(
+            "duplicate key value violates unique constraint ux_ifrc_item_reference_ifrc_code"
+        )
+
+        pk_value, warnings = create_catalog_record(
+            "ifrc_item_references",
+            {"ifrc_code": "WWTRTABLTB01"},
+            "tester",
+        )
+
+        self.assertIsNone(pk_value)
+        self.assertEqual(warnings, ["db_error"])
+        self.assertFalse(any(warning.startswith("db_detail:") for warning in warnings))
 
 
 class ItemMasterSeedPayloadTests(SimpleTestCase):
