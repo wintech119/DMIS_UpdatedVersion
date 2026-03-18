@@ -424,6 +424,28 @@ class RepackagingApiTests(TestCase):
         AUTH_USE_DB_RBAC=False,
         TENANT_SCOPE_ENFORCEMENT=True,
     )
+    @patch("replenishment.views.repackaging_service.list_repackaging_transactions")
+    def test_get_repackaging_list_rejects_invalid_warehouse_filter_when_scope_enabled(
+        self,
+        mock_list,
+    ) -> None:
+        response = self.client.get(self.ENDPOINT, {"warehouse_id": "abc"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("warehouse_id", response.json()["errors"])
+        mock_list.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="viewer-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["masterdata.view", "replenishment.needs_list.execute"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
     @patch(
         "replenishment.views._require_warehouse_scope",
         return_value=Response({"errors": {"tenant_scope": "denied"}}, status=403),

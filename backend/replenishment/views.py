@@ -2781,7 +2781,15 @@ def assign_storage_location(request):
 def inventory_repackaging(request):
     if request.method == "GET":
         warehouse_id_filter = request.query_params.get("warehouse_id")
-        if _should_enforce_tenant_scope(request) and warehouse_id_filter in (None, ""):
+        errors: Dict[str, str] = {}
+        parsed_warehouse_id = (
+            _parse_positive_int(warehouse_id_filter, "warehouse_id", errors)
+            if warehouse_id_filter not in (None, "")
+            else None
+        )
+        if errors:
+            return Response({"errors": errors}, status=400)
+        if _should_enforce_tenant_scope(request) and parsed_warehouse_id is None:
             return Response(
                 {
                     "errors": {
@@ -2794,7 +2802,7 @@ def inventory_repackaging(request):
             )
         scope_error = _require_warehouse_scope(
             request,
-            warehouse_id_filter,
+            parsed_warehouse_id,
             write=False,
         )
         if scope_error:
@@ -2808,7 +2816,7 @@ def inventory_repackaging(request):
             limit, offset = 100, 0
 
         rows, total, warnings = repackaging_service.list_repackaging_transactions(
-            warehouse_id=warehouse_id_filter,
+            warehouse_id=parsed_warehouse_id,
             item_id=request.query_params.get("item_id"),
             batch_id=request.query_params.get("batch_id"),
             limit=limit,
