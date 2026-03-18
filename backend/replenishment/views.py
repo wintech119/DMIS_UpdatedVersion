@@ -21,6 +21,7 @@ from api.authentication import LegacyCompatAuthentication
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
     PERM_MASTERDATA_EDIT,
+    PERM_MASTERDATA_VIEW,
     PERM_CRITICALITY_OVERRIDE_VIEW,
     PERM_CRITICALITY_OVERRIDE_MANAGE,
     PERM_CRITICALITY_HAZARD_VIEW,
@@ -62,7 +63,9 @@ from replenishment.services import criticality_governance
 from replenishment.services import data_access, needs_list, phase_window_policy
 from replenishment.services import location_storage
 from replenishment.services import procurement as procurement_service
+from replenishment.services import repackaging as repackaging_service
 from replenishment.services.procurement import ProcurementError
+from replenishment.services.repackaging import RepackagingError
 
 logger = logging.getLogger("dmis.audit")
 
@@ -2772,6 +2775,110 @@ def assign_storage_location(request):
     return Response(result, status=status_code)
 
 
+@api_view(["GET", "POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def inventory_repackaging(request):
+    if request.method == "GET":
+        try:
+            limit = int(request.query_params.get("limit", 100))
+            limit = max(1, min(limit, 500))
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except (TypeError, ValueError):
+            limit, offset = 100, 0
+
+        rows, total, warnings = repackaging_service.list_repackaging_transactions(
+            warehouse_id=request.query_params.get("warehouse_id"),
+            item_id=request.query_params.get("item_id"),
+            batch_id=request.query_params.get("batch_id"),
+            limit=limit,
+            offset=offset,
+        )
+        return Response(
+            {
+                "results": rows,
+                "count": total,
+                "limit": limit,
+                "offset": offset,
+                "warnings": warnings,
+            }
+        )
+
+    body = request.data if isinstance(request.data, Mapping) else {}
+    errors: Dict[str, str] = {}
+
+    warehouse_id = _parse_positive_int(body.get("warehouse_id"), "warehouse_id", errors)
+    item_id = _parse_positive_int(body.get("item_id"), "item_id", errors)
+
+    source_uom_code = str(body.get("source_uom_code") or "").strip()
+    if not source_uom_code:
+        errors["source_uom_code"] = "source_uom_code is required."
+
+    target_uom_code = str(body.get("target_uom_code") or "").strip()
+    if not target_uom_code:
+        errors["target_uom_code"] = "target_uom_code is required."
+
+    if body.get("source_qty") in (None, ""):
+        errors["source_qty"] = "source_qty is required."
+
+    reason_code = str(body.get("reason_code") or "").strip()
+    if not reason_code:
+        errors["reason_code"] = "reason_code is required."
+
+    batch_id: int | None = None
+    raw_batch_id = body.get("batch_id")
+    if raw_batch_id not in (None, ""):
+        batch_id = _parse_positive_int(raw_batch_id, "batch_id", errors)
+
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    assert warehouse_id is not None
+    assert item_id is not None
+
+    try:
+        record, warnings = repackaging_service.create_repackaging_transaction(
+            warehouse_id=warehouse_id,
+            item_id=item_id,
+            source_uom_code=source_uom_code,
+            source_qty=body.get("source_qty"),
+            target_uom_code=target_uom_code,
+            reason_code=reason_code,
+            note_text=str(body.get("note_text") or body.get("note") or "").strip(),
+            batch_id=batch_id,
+            batch_or_lot=str(body.get("batch_or_lot") or "").strip(),
+            client_target_qty=body.get("target_qty"),
+            client_equivalent_default_qty=body.get("equivalent_default_qty"),
+            actor_id=_actor_id(request),
+        )
+    except RepackagingError as exc:
+        response_payload: Dict[str, Any] = {
+            "detail": exc.detail,
+            "errors": {exc.code: exc.payload},
+            "warnings": exc.warnings,
+        }
+        if exc.diagnostic:
+            response_payload["diagnostic"] = exc.diagnostic
+        return Response(response_payload, status=exc.status_code)
+
+    return Response({"record": record, "warnings": warnings}, status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def inventory_repackaging_detail(request, repackaging_id: int):
+    record, warnings = repackaging_service.get_repackaging_transaction(repackaging_id)
+    if record is None:
+        if "db_error" in warnings:
+            return Response(
+                {"detail": "Failed to load repackaging detail.", "warnings": warnings},
+                status=500,
+            )
+        return Response({"detail": "Not found."}, status=404)
+    return Response({"record": record, "warnings": warnings})
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPreviewPermission])
@@ -4474,9 +4581,16 @@ criticality_hazard_default_submit.required_permission = PERM_CRITICALITY_HAZARD_
 criticality_hazard_default_approve.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
 criticality_hazard_default_reject.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
 assign_storage_location.required_permission = [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT]
+inventory_repackaging.required_permission = {
+    "GET": [PERM_MASTERDATA_VIEW, PERM_NEEDS_LIST_EXECUTE],
+    "POST": [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT],
+}
+inventory_repackaging_detail.required_permission = [PERM_MASTERDATA_VIEW, PERM_NEEDS_LIST_EXECUTE]
 
 for view_func in (
     assign_storage_location,
+    inventory_repackaging,
+    inventory_repackaging_detail,
     criticality_event_overrides,
     criticality_event_override_detail,
     criticality_hazard_defaults,

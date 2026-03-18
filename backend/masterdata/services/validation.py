@@ -172,10 +172,16 @@ def _cross_field_validation(
     # Warehouses: reason required when status=I
     if cfg.key == "warehouses":
         status = data.get("status_code")
+        warehouse_type = data.get("warehouse_type")
+        parent_warehouse_id = data.get("parent_warehouse_id")
         if status == "I" and not data.get("reason_desc"):
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
         if status == "A" and data.get("reason_desc"):
             errors["reason_desc"] = "Reason must be empty for active warehouses."
+        if warehouse_type == "SUB-HUB" and not parent_warehouse_id:
+            errors["parent_warehouse_id"] = "Parent Warehouse is required for SUB-HUB warehouses."
+        if warehouse_type == "MAIN-HUB" and parent_warehouse_id:
+            errors["parent_warehouse_id"] = "MAIN-HUB warehouses cannot have a Parent Warehouse."
 
     # Items: FEFO/perishable validation is bidirectional.
     if cfg.key == "items":
