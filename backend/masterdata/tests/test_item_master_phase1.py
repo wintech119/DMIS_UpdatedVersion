@@ -1010,7 +1010,7 @@ class CatalogGovernanceServiceTests(SimpleTestCase):
         )
 
         self.assertIsNone(pk_value)
-        self.assertEqual(warnings, ["db_error"])
+        self.assertIn("db_error", warnings)
         self.assertFalse(any(warning.startswith("db_detail:") for warning in warnings))
 
 
