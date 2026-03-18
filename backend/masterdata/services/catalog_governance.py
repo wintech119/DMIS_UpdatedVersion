@@ -172,7 +172,8 @@ def create_catalog_record(table_key: str, data: dict[str, Any], actor_id: str) -
     except DatabaseError as exc:
         logger.warning("create_catalog_record(%s) failed: %s", table_key, exc)
         _safe_rollback()
-        return None, ["db_error"]
+        db_msg = str(exc).strip()
+        return None, ["db_error"] + ([f"db_detail:{db_msg}"] if db_msg else [])
 
 
 def update_catalog_record(

@@ -1269,6 +1269,10 @@ def create_record(
             continue
         if fd.name in data:
             val = _normalize_field_value(fd, data[fd.name])
+            # Skip None for non-required fields without empty_as_null
+            # — let the DB default handle it instead of inserting NULL
+            if val is None and not fd.required and not fd.empty_as_null:
+                continue
             columns.append(fd.name)
             values.append(val)
         elif fd.default is not None:
@@ -1327,6 +1331,9 @@ def create_record(
                     exc = retry_exc
         logger.warning("create_record(%s) failed: %s", table_key, exc)
         warnings.extend(_db_error_warnings(exc))
+        db_msg = str(exc).strip()
+        if db_msg:
+            warnings.append(f"db_detail:{db_msg}")
         return None, warnings
 
 
