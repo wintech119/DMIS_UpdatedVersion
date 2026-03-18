@@ -16,9 +16,13 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { NeedsListResponse, NeedsListItem, HorizonAllocation } from '../models/needs-list.model';
 import { HorizonType } from '../models/approval-workflows.model';
+import { FreshnessLevel, SeverityLevel, WarehouseFreshnessEntry } from '../models/stock-status.model';
 import { ReplenishmentService } from '../services/replenishment.service';
+import { DataFreshnessService } from '../services/data-freshness.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
+import { DmisDataFreshnessBannerComponent } from '../shared/dmis-data-freshness-banner/dmis-data-freshness-banner.component';
+import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import {
   RejectReasonDialogComponent,
   RejectReasonDialogResult
@@ -31,6 +35,13 @@ import {
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { formatStatusLabel } from './status-label.util';
+
+const SEVERITY_ORDER: Record<string, number> = {
+  CRITICAL: 0,
+  WARNING: 1,
+  WATCH: 2,
+  OK: 3
+};
 
 const PENDING_APPROVAL_STATUSES = new Set(['SUBMITTED', 'PENDING_APPROVAL', 'PENDING', 'UNDER_REVIEW']);
 const PROCUREMENT_APPROVER_ROLE_CODES = new Set([
@@ -68,6 +79,30 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
     'Donation restriction value is unrecognized and requires review.'
 };
 
+const FRESHNESS_RANK: Record<FreshnessLevel, number> = {
+  HIGH: 0,
+  MEDIUM: 1,
+  LOW: 2
+};
+
+const HORIZON_ACTIONS = {
+  A: {
+    label: 'Transfer (Horizon A)',
+    icon: 'local_shipping',
+    detail: 'Use the transfer allocation shown in the Horizon A column.'
+  },
+  B: {
+    label: 'Donation (Horizon B)',
+    icon: 'inventory_2',
+    detail: 'Use the donation allocation shown in the Horizon B column.'
+  },
+  C: {
+    label: 'Procurement (Horizon C)',
+    icon: 'shopping_cart',
+    detail: 'Use the procurement allocation shown in the Horizon C column.'
+  }
+} as const;
+
 @Component({
   selector: 'app-needs-list-review-detail',
   imports: [
@@ -82,6 +117,8 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
     MatTableModule,
     MatTooltipModule,
     DmisApprovalStatusTrackerComponent,
+    DmisDataFreshnessBannerComponent,
+    TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
     DmisEmptyStateComponent
   ],
@@ -96,6 +133,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
   private readonly replenishmentService = inject(ReplenishmentService);
+  private readonly dataFreshnessService = inject(DataFreshnessService);
   private readonly notifications = inject(DmisNotificationService);
 
   readonly loading = signal(true);
@@ -105,9 +143,34 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly roles = signal<string[]>([]);
   readonly permissions = signal<string[]>([]);
   readonly currentUser = signal<string | null>(null);
+  readonly hasFreshnessData = signal(false);
 
   readonly items = computed(() => this.needsList()?.items ?? []);
   readonly status = computed(() => this.needsList()?.status ?? 'DRAFT');
+
+  readonly sortedItems = computed(() => {
+    const list = [...this.items()];
+    list.sort((a, b) => {
+      const sa = SEVERITY_ORDER[a.severity ?? ''] ?? 99;
+      const sb = SEVERITY_ORDER[b.severity ?? ''] ?? 99;
+      if (sa !== sb) return sa - sb;
+      const ta = this.parseStockoutHours(a);
+      const tb = this.parseStockoutHours(b);
+      return ta - tb;
+    });
+    return list;
+  });
+
+  readonly severityCounts = computed(() => {
+    const counts: Record<string, number> = { CRITICAL: 0, WARNING: 0, WATCH: 0, OK: 0 };
+    for (const item of this.items()) {
+      const sev = item.severity ?? 'UNKNOWN';
+      if (sev in counts) counts[sev]++;
+    }
+    return counts;
+  });
+
+  readonly criticalCount = computed(() => this.severityCounts()['CRITICAL']);
 
   readonly approvalHorizon = computed<HorizonType>(() => {
     const selectedMethod = this.normalizeHorizon(this.needsList()?.selected_method);
@@ -182,6 +245,8 @@ export class NeedsListReviewDetailComponent implements OnInit {
     'item_name', 'gap', 'severity'
   ];
 
+  trackerExpanded = false;
+
   private needsListId = '';
 
   private normalizeHorizon(value: unknown): HorizonType | null {
@@ -234,6 +299,8 @@ export class NeedsListReviewDetailComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.dataFreshnessService.clear();
+    this.destroyRef.onDestroy(() => this.dataFreshnessService.clear());
     this.loadPermissions();
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
       this.needsListId = params.get('id') ?? '';
@@ -249,9 +316,12 @@ export class NeedsListReviewDetailComponent implements OnInit {
     this.replenishmentService.getNeedsList(this.needsListId).subscribe({
       next: (data) => {
         this.needsList.set(data);
+        this.syncFreshnessBanner(data);
         this.loading.set(false);
       },
       error: () => {
+        this.dataFreshnessService.clear();
+        this.hasFreshnessData.set(false);
         this.loading.set(false);
         this.error.set(true);
         this.notifications.showError('Failed to load needs list.');
@@ -424,6 +494,28 @@ export class NeedsListReviewDetailComponent implements OnInit {
 
   // ── Display helpers ──
 
+  stockoutData(item: NeedsListItem): TimeToStockoutData {
+    const hours = this.parseStockoutHours(item);
+    const hasBurnRate = (item.burn_rate_per_hour ?? 0) > 0;
+    return {
+      hours: hasBurnRate ? hours : null,
+      severity: (item.severity as SeverityLevel) ?? 'OK',
+      hasBurnRate,
+      recommendedAction: this.getRecommendedStockoutAction(item.horizon)
+    };
+  }
+
+  private parseStockoutHours(item: NeedsListItem): number {
+    if (item.time_to_stockout_hours !== undefined && item.time_to_stockout_hours !== null) {
+      return item.time_to_stockout_hours;
+    }
+    const val = item.time_to_stockout;
+    if (val === undefined || val === null || val === 'N/A') return Infinity;
+    if (typeof val === 'number') return val;
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? Infinity : parsed;
+  }
+
   horizonQty(horizon: HorizonAllocation | undefined, key: 'A' | 'B' | 'C'): string {
     const val = horizon?.[key]?.recommended_qty;
     if (val === null || val === undefined) return '—';
@@ -518,5 +610,94 @@ export class NeedsListReviewDetailComponent implements OnInit {
       typeof error.error?.message === 'string' ? error.error.message.trim() : '';
     const statusText = typeof error.statusText === 'string' ? error.statusText.trim() : '';
     return apiMessage || statusText || fallback || 'An unexpected error occurred';
+  }
+
+  private syncFreshnessBanner(needsList: NeedsListResponse): void {
+    const entries = this.buildFreshnessEntries(needsList);
+    this.hasFreshnessData.set(entries.length > 0);
+    if (entries.length === 0) {
+      this.dataFreshnessService.clear();
+      return;
+    }
+    this.dataFreshnessService.updateFromWarehouseEntries(entries);
+  }
+
+  private buildFreshnessEntries(needsList: NeedsListResponse): WarehouseFreshnessEntry[] {
+    const entries = new Map<string, WarehouseFreshnessEntry>();
+
+    for (const item of needsList.items ?? []) {
+      const freshnessLevel = this.normalizeFreshnessLevel(item.freshness?.state ?? item.freshness_state);
+      const ageHours = item.freshness?.age_hours ?? null;
+      const inventoryAsOf = item.freshness?.inventory_as_of ?? null;
+      if (!freshnessLevel && ageHours === null && !inventoryAsOf) {
+        continue;
+      }
+
+      const warehouseId = item.warehouse_id ?? needsList.warehouse_id ?? null;
+      const warehouseName =
+        item.warehouse_name?.trim() ||
+        needsList.warehouses?.find((warehouse) => warehouse.warehouse_id === warehouseId)?.warehouse_name ||
+        this.warehouseLabel(needsList);
+      const entryKey = warehouseId !== null ? `id:${warehouseId}` : `name:${warehouseName}`;
+      const nextLevel = freshnessLevel ?? 'HIGH';
+      const existingEntry = entries.get(entryKey);
+
+      if (!existingEntry) {
+        entries.set(entryKey, {
+          warehouse_id: warehouseId ?? 0,
+          warehouse_name: warehouseName,
+          freshness: nextLevel,
+          last_sync: inventoryAsOf,
+          age_hours: ageHours
+        });
+        continue;
+      }
+
+      if (FRESHNESS_RANK[nextLevel] > FRESHNESS_RANK[existingEntry.freshness]) {
+        existingEntry.freshness = nextLevel;
+      }
+      if (ageHours !== null && (existingEntry.age_hours === null || ageHours > existingEntry.age_hours)) {
+        existingEntry.age_hours = ageHours;
+      }
+      if (inventoryAsOf && (!existingEntry.last_sync || inventoryAsOf > existingEntry.last_sync)) {
+        existingEntry.last_sync = inventoryAsOf;
+      }
+    }
+
+    return [...entries.values()];
+  }
+
+  private normalizeFreshnessLevel(value: unknown): FreshnessLevel | null {
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (normalized === 'HIGH' || normalized === 'MEDIUM' || normalized === 'LOW') {
+      return normalized;
+    }
+    return null;
+  }
+
+  private getRecommendedStockoutAction(horizon: HorizonAllocation | undefined): TimeToStockoutData['recommendedAction'] {
+    if (!horizon) {
+      return null;
+    }
+
+    const activeHorizons = (['A', 'B', 'C'] as const).filter((key) => {
+      const quantity = horizon[key]?.recommended_qty;
+      return quantity !== null && quantity !== undefined && quantity > 0;
+    });
+
+    if (activeHorizons.length === 0) {
+      return null;
+    }
+
+    if (activeHorizons.length === 1) {
+      return HORIZON_ACTIONS[activeHorizons[0]];
+    }
+
+    const horizonList = activeHorizons.join('/');
+    return {
+      label: `Mixed allocation (Horizons ${horizonList})`,
+      icon: 'alt_route',
+      detail: `This line uses multiple replenishment paths based on the backend allocation shown in the Horizon A/B/C columns: ${horizonList}.`
+    };
   }
 }

@@ -5,10 +5,17 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { SeverityLevel } from '../models/stock-status.model';
 
+export interface TimeToStockoutAction {
+  label: string;
+  icon: string;
+  detail: string;
+}
+
 export interface TimeToStockoutData {
   hours: number | null;
   severity: SeverityLevel;
   hasBurnRate: boolean;
+  recommendedAction?: TimeToStockoutAction | null;
 }
 
 @Component({
@@ -81,6 +88,11 @@ export class TimeToStockoutComponent {
   }
 
   getActionIcon(): string {
+    const explicitAction = this.data.recommendedAction;
+    if (explicitAction) {
+      return explicitAction.icon;
+    }
+
     switch (this.data.severity) {
       case 'CRITICAL':
         return 'local_shipping'; // Truck for transfers
@@ -95,6 +107,11 @@ export class TimeToStockoutComponent {
   }
 
   getActionLabel(): string {
+    const explicitAction = this.data.recommendedAction;
+    if (explicitAction) {
+      return explicitAction.label;
+    }
+
     switch (this.data.severity) {
       case 'CRITICAL':
         return 'Transfer (Horizon A)';
@@ -114,10 +131,16 @@ export class TimeToStockoutComponent {
     }
 
     const actionLabel = this.getActionLabel();
+    const explicitAction = this.data.recommendedAction;
     const severity = this.data.severity;
 
     let tooltip = `Status: ${severity}\n`;
     tooltip += `Recommended Action: ${actionLabel}\n\n`;
+
+    if (explicitAction) {
+      tooltip += explicitAction.detail;
+      return tooltip;
+    }
 
     switch (severity) {
       case 'CRITICAL':
