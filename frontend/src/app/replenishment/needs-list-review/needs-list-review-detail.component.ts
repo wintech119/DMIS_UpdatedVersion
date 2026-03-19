@@ -20,7 +20,6 @@ import { FreshnessLevel, SeverityLevel, WarehouseFreshnessEntry } from '../model
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DmisNotificationService } from '../services/notification.service';
-import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
 import { DmisDataFreshnessBannerComponent } from '../shared/dmis-data-freshness-banner/dmis-data-freshness-banner.component';
 import { TimeToStockoutComponent, TimeToStockoutData } from '../time-to-stockout/time-to-stockout.component';
 import {
@@ -79,6 +78,13 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
     'Donation restriction value is unrecognized and requires review.'
 };
 
+interface WorkflowStep {
+  id: string;
+  label: string;
+  icon: string;
+  state: 'completed' | 'active' | 'pending' | 'terminal';
+}
+
 const FRESHNESS_RANK: Record<FreshnessLevel, number> = {
   HIGH: 0,
   MEDIUM: 1,
@@ -116,7 +122,6 @@ const HORIZON_ACTIONS = {
     MatIconModule,
     MatTableModule,
     MatTooltipModule,
-    DmisApprovalStatusTrackerComponent,
     DmisDataFreshnessBannerComponent,
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
@@ -236,6 +241,60 @@ export class NeedsListReviewDetailComponent implements OnInit {
     return 'No approval actions are available for your current permissions.';
   });
 
+  readonly workflowSteps = computed<WorkflowStep[]>(() => {
+    const status = this.status();
+    const steps: { id: string; label: string; icon: string }[] = [
+      { id: 'SUBMITTED', label: 'Submitted', icon: 'send' },
+      { id: 'UNDER_REVIEW', label: 'Under Review', icon: 'rate_review' },
+      { id: 'APPROVED', label: 'Approved', icon: 'verified' },
+      { id: 'FULFILLED', label: 'Fulfilled', icon: 'task_alt' },
+    ];
+
+    let activeIndex: number;
+    let isTerminal = false;
+    switch (status) {
+      case 'DRAFT': case 'MODIFIED': case 'RETURNED':
+        activeIndex = -1; break;
+      case 'SUBMITTED': case 'PENDING': case 'PENDING_APPROVAL':
+        activeIndex = 0; break;
+      case 'UNDER_REVIEW': case 'ESCALATED':
+        activeIndex = 1; break;
+      case 'APPROVED':
+        activeIndex = 2; break;
+      case 'IN_PREPARATION': case 'DISPATCHED': case 'RECEIVED': case 'IN_PROGRESS':
+        activeIndex = 2; break;
+      case 'COMPLETED': case 'FULFILLED':
+        activeIndex = 3; break;
+      case 'REJECTED': case 'CANCELLED':
+        activeIndex = 1; isTerminal = true; break;
+      default:
+        activeIndex = 0; break;
+    }
+
+    return steps.map((s, i) => ({
+      ...s,
+      state: i < activeIndex ? 'completed' as const
+           : i === activeIndex ? (isTerminal ? 'terminal' as const : 'active' as const)
+           : 'pending' as const
+    }));
+  });
+
+  readonly itemTotals = computed(() => {
+    const list = this.items();
+    let available = 0, inbound = 0, required = 0, gap = 0;
+    let horizonA = 0, horizonB = 0, horizonC = 0;
+    for (const item of list) {
+      available += item.available_qty ?? 0;
+      inbound += item.inbound_strict_qty ?? 0;
+      required += item.required_qty ?? 0;
+      gap += item.gap_qty ?? 0;
+      horizonA += item.horizon?.A?.recommended_qty ?? 0;
+      horizonB += item.horizon?.B?.recommended_qty ?? 0;
+      horizonC += item.horizon?.C?.recommended_qty ?? 0;
+    }
+    return { available, inbound, required, gap, horizonA, horizonB, horizonC };
+  });
+
   readonly displayedColumns = [
     'item_name', 'warehouse', 'available', 'inbound', 'burn_rate',
     'required', 'gap', 'stockout', 'horizon_a', 'horizon_b', 'horizon_c', 'severity'
@@ -244,8 +303,6 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly mobileDisplayedColumns = [
     'item_name', 'gap', 'severity'
   ];
-
-  trackerExpanded = false;
 
   private needsListId = '';
 
