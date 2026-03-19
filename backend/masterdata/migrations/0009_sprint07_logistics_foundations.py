@@ -112,7 +112,9 @@ BEFORE UPDATE OR DELETE ON "{schema}".uom_repackaging_audit
 FOR EACH ROW
 EXECUTE FUNCTION "{schema}".fn_prevent_uom_repackaging_audit_mutation();
 
-CREATE OR REPLACE VIEW "{schema}".v_stock_status AS
+DROP VIEW IF EXISTS "{schema}".v_stock_status;
+
+CREATE VIEW "{schema}".v_stock_status AS
 WITH stock_rows AS (
     SELECT
         w.warehouse_id,
