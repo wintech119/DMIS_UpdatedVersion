@@ -73,7 +73,7 @@ Use the following values unless they already exist. If a value already exists, a
 | Warehouse Name | `S07 TEST MAIN HUB` |
 | Warehouse Type | `MAIN-HUB` |
 | Location Description | `S07-AISLE-01-BIN-01` |
-| Repackaging Reason | `Convert eaches into smaller operational issue unit for distribution prep` |
+| Repackaging Reason | `SPLIT_EACHES` |
 
 ## Preconditions
 
@@ -421,7 +421,7 @@ Evidence to capture:
 5. In `Source Quantity`, type `10`.
 6. In `Target UOM`, select the alternate UOM created in Step 8.
 7. Verify that `Computed Target Quantity` is shown by the system.
-8. In `Reason`, type `Convert eaches into smaller operational issue unit for distribution prep`.
+8. In `Reason`, type `SPLIT_EACHES`.
 9. Click `Preview`, `Validate`, or the equivalent pre-submit action if present.
 10. Review the computed values.
 11. Click `Submit`, `Save`, or `Confirm`.
