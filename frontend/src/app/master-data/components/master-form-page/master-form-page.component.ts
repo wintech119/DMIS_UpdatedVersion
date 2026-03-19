@@ -54,6 +54,7 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 import {
   IFRCSuggestion,
   IFRCSuggestionCandidate,
@@ -1818,8 +1819,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   isGovernedCatalogAuthoringTable(): boolean {
-    const tableKey = this.config()?.tableKey;
-    return tableKey === 'ifrc_families' || tableKey === 'ifrc_item_references';
+    return this.editGate.isGovernedCatalogTable(this.config()?.tableKey);
   }
 
   getGuidedStepNumber(groupIndex: number): number {
@@ -1860,21 +1860,17 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getCatalogWarningText(): string | null {
-    return this.catalogEditGuidance()?.warning_text
-      ?? this.getDefaultCatalogEditGuidance(this.config()?.tableKey ?? '')?.warning_text
-      ?? null;
+    return this.editGate.getEffectiveCatalogEditGuidance(this.config(), this.catalogEditGuidance())?.warning_text ?? null;
   }
 
   getCatalogLockedFieldLabels(): string[] {
-    const cfg = this.config();
-    if (!cfg) {
-      return [];
-    }
-
-    const lockedFieldNames = this.getLockedCatalogFieldNames();
-    return cfg.formFields
-      .filter((field) => lockedFieldNames.has(field.field))
-      .map((field) => field.label);
+    return this.editGate.getDisabledFieldLabels({
+      config: this.config(),
+      editGuidance: this.catalogEditGuidance(),
+      isEdit: this.isEdit(),
+      replacementMode: this.replacementMode(),
+      alwaysEnabledFieldNames: this.getAlwaysEnabledFieldNames(),
+    });
   }
 
   getCatalogSuggestActionLabel(): string {
@@ -2174,15 +2170,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private getLockedCatalogFieldNames(): Set<string> {
-    const guidanceFields = this.catalogEditGuidance()?.locked_fields ?? [];
-    if (guidanceFields.length > 0) {
-      return new Set(guidanceFields);
-    }
-
-    const cfg = this.config();
-    return new Set((cfg?.formFields ?? [])
-      .filter((field) => field.readonlyOnEdit)
-      .map((field) => field.field));
+    return this.editGate.getLockedCatalogFieldNames(this.config(), this.catalogEditGuidance());
   }
 
   private applyGovernedCatalogFieldState(): void {
@@ -2211,41 +2199,17 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private shouldDisableField(field: MasterFieldConfig): boolean {
-    if (this.isManagedItemCodeField(field.field)) {
-      return false;
-    }
-
-    if (!this.isEdit()) {
-      return false;
-    }
-
-    if (this.isGovernedCatalogAuthoringTable() && !this.replacementMode() && this.getLockedCatalogFieldNames().has(field.field)) {
-      return true;
-    }
-
-    return field.readonlyOnEdit === true;
+    return this.editGate.shouldDisableField(field, {
+      config: this.config(),
+      editGuidance: this.catalogEditGuidance(),
+      isEdit: this.isEdit(),
+      replacementMode: this.replacementMode(),
+      alwaysEnabledFieldNames: this.getAlwaysEnabledFieldNames(),
+    });
   }
 
   private getDefaultCatalogEditGuidance(tableKey: string): CatalogEditGuidance | null {
-    if (tableKey === 'ifrc_families') {
-      return {
-        warning_required: true,
-        warning_text: 'You are modifying governed IFRC Family data. Changes may affect classification, search, and future item selection. Canonical code-bearing fields stay locked, and code corrections must use replacement instead of overwrite.',
-        locked_fields: ['group_code', 'family_code'],
-        replacement_supported: true,
-      };
-    }
-
-    if (tableKey === 'ifrc_item_references') {
-      return {
-        warning_required: true,
-        warning_text: 'You are modifying governed IFRC Item Reference data. Changes may affect classification, search, and future item selection. Canonical code-bearing fields stay locked, and code corrections must use replacement instead of overwrite.',
-        locked_fields: ['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment'],
-        replacement_supported: true,
-      };
-    }
-
-    return null;
+    return this.editGate.getDefaultCatalogEditGuidance(tableKey);
   }
 
   private maybePromptGovernedEditWarning(): void {
@@ -2264,44 +2228,24 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     const cfg = this.config();
-    const warningText = this.getCatalogWarningText();
-    if (!cfg || !warningText) {
+    if (!cfg) {
       return;
     }
 
     this.promptedGovernedEditWarning = true;
-    const lockedFieldPreview = this.getCatalogLockedFieldLabels().slice(0, 4).join(', ');
-    const details = [
-      {
-        label: 'Impact',
-        value: 'Changes may affect classification, search, and future item selection.',
-        icon: 'policy',
-      },
-      {
-        label: 'Code Corrections',
-        value: 'Use Create Replacement instead of overwriting canonical fields.',
-        icon: 'content_copy',
-      },
-    ];
-    if (lockedFieldPreview) {
-      details.splice(1, 0, {
-        label: 'Locked Fields',
-        value: lockedFieldPreview,
-        icon: 'lock',
-      });
-    }
-
-    const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
-      data: {
-        title: 'Governed Catalog Edit',
-        message: warningText,
-        confirmLabel: 'Continue to Edit',
-        cancelLabel: 'Cancel',
-        icon: 'warning_amber',
-        iconColor: '#d97706',
-        details,
-      } as ConfirmDialogData,
+    const dialogRef = this.dialog.open(MasterEditGateDialogComponent, {
+      data: this.editGate.buildDialogData({
+        config: cfg,
+        recordName: this.editGate.getRecordTitle(this.loadedRecordSnapshot, cfg, this.pk()),
+        editGuidance: this.catalogEditGuidance(),
+        isEdit: true,
+        replacementMode: this.replacementMode(),
+        alwaysEnabledFieldNames: this.getAlwaysEnabledFieldNames(),
+      }),
       width: '460px',
+      panelClass: 'dmis-edit-gate-panel',
+      autoFocus: 'first-tabbable',
+      ariaLabelledBy: 'gate-dialog-title',
     });
 
     dialogRef.afterClosed().pipe(
@@ -2311,6 +2255,10 @@ export class MasterFormPageComponent implements OnInit {
         this.router.navigate(['/master-data', cfg.routePath]);
       }
     });
+  }
+
+  private getAlwaysEnabledFieldNames(): readonly string[] {
+    return this.isItemRecord() ? ['item_code'] : [];
   }
 
   private primeGovernedEditState(): void {

@@ -5,6 +5,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatDialog } from '@angular/material/dialog';
 
 import { MasterFormPageComponent } from './master-form-page.component';
+import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
@@ -1585,15 +1586,21 @@ describe('MasterFormPageComponent', () => {
 
     const openArgs = dialogOpen.calls.mostRecent().args;
     const dialogData = openArgs[1]?.data as {
-      confirmLabel?: string;
-      cancelLabel?: string;
-      details?: { value?: string }[];
+      warningText?: string;
+      lockedFields?: string[];
+      impactModules?: string[];
     };
 
-    expect(dialogData.confirmLabel).toBe('Continue to Edit');
-    expect(dialogData.cancelLabel).toBe('Cancel');
-    expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('classification, search, and future item selection'))).toBeTrue();
-    expect(dialogData.details?.some((detail) => String(detail.value ?? '').includes('Create Replacement'))).toBeTrue();
+    expect(openArgs[0]).toBe(MasterEditGateDialogComponent);
+    expect(openArgs[1]?.ariaLabelledBy).toBe('gate-dialog-title');
+    expect(dialogData.warningText).toContain('classification, search, and future item selection');
+    expect(dialogData.lockedFields).toEqual(jasmine.arrayContaining([
+      'IFRC Family',
+      'IFRC Code',
+      'Category Code',
+      'Spec Segment',
+    ]));
+    expect(dialogData.impactModules?.length).toBeGreaterThan(0);
   });
 
   it('navigates to the list view when the governed edit warning dialog is cancelled', () => {

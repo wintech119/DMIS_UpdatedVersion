@@ -45,7 +45,7 @@ export interface EditGateDialogData {
             <mat-icon>close</mat-icon>
           </button>
         </div>
-        <h2 class="gate-title">
+        <h2 id="gate-dialog-title" mat-dialog-title class="gate-title">
           {{ data.isGoverned ? 'Governed Catalog Edit' : 'Edit ' + data.tableName }}
         </h2>
         <p class="gate-subtitle">{{ data.recordName }}</p>
