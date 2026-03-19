@@ -2942,7 +2942,7 @@ def inventory_repackaging_detail(request, repackaging_id: int):
         write=False,
     )
     if scope_error:
-        return scope_error
+        return Response({"detail": "Not found."}, status=404)
     return Response({"record": record, "warnings": warnings})
 
 

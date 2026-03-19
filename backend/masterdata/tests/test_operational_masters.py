@@ -468,6 +468,37 @@ class WarehouseViewDispatchTests(SimpleTestCase):
             "You do not have access to modify this warehouse.",
         )
 
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch("masterdata.views.can_access_tenant", return_value=False)
+    @patch(
+        "masterdata.views.resolve_tenant_context",
+        return_value=SimpleNamespace(active_tenant_id=2),
+    )
+    @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
+    def test_prepare_warehouse_write_payload_rejects_cross_tenant_create_without_write_access(
+        self,
+        _mock_roles,
+        _mock_context,
+        _mock_can_access,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/warehouses/",
+            {"warehouse_name": "Renamed"},
+            format="json",
+        )
+        request.user = self.user
+
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"warehouse_name": "Renamed"},
+        )
+
+        self.assertEqual(payload, {"warehouse_name": "Renamed"})
+        self.assertEqual(
+            errors["tenant_scope"],
+            "You do not have access to create warehouses for this tenant.",
+        )
+
 
 class Sprint07MigrationTests(SimpleTestCase):
     @classmethod
@@ -496,17 +527,52 @@ class Sprint07MigrationTests(SimpleTestCase):
         self.assertIn('stock_health_status', executed_sql)
         self.assertIn('reorder_level_qty', executed_sql)
 
-    def test_forward_sql_skips_when_required_relations_are_missing(self):
+    def test_forward_sql_still_runs_general_changes_without_repackaging_relations(self):
         schema_editor = SimpleNamespace(
             connection=SimpleNamespace(vendor="postgresql"),
             execute=MagicMock(),
         )
 
         def relation_exists(_schema_editor, relation):
-            return relation != "inventory"
+            return relation not in {"itembatch", "unitofmeasure"}
 
         with patch.object(self.migration, "_relation_exists", side_effect=relation_exists):
             with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
                 self.migration._forwards(None, schema_editor)
 
-        schema_editor.execute.assert_not_called()
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn('ADD COLUMN IF NOT EXISTS parent_warehouse_id', executed_sql)
+        self.assertIn('stock_health_status', executed_sql)
+        self.assertNotIn('CREATE TABLE IF NOT EXISTS "tenant_a".uom_repackaging_txn', executed_sql)
+
+    def test_relation_exists_checks_schema_and_relation_separately(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        schema_editor = SimpleNamespace(connection=connection)
+
+        with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "TenantA"}):
+            exists = self.migration._relation_exists(schema_editor, "Warehouse")
+
+        self.assertTrue(exists)
+        executed_sql, params = cursor.execute.call_args.args
+        self.assertIn("FROM pg_class c", executed_sql)
+        self.assertEqual(params, ["TenantA", "Warehouse"])
+
+    def test_reverse_sql_drops_tables_before_functions_without_trigger_drops(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+
+        with patch.object(self.migration, "_relation_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration._backwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertNotIn("DROP TRIGGER", executed_sql)
+        self.assertLess(
+            executed_sql.index('DROP TABLE IF EXISTS "tenant_a".uom_repackaging_audit;'),
+            executed_sql.index('DROP FUNCTION IF EXISTS "tenant_a".fn_prevent_uom_repackaging_audit_mutation();'),
+        )

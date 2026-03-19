@@ -1270,7 +1270,7 @@ def create_record(
     values: list[Any] = []
 
     for fd in cfg.data_fields:
-        if fd.auto_pk:
+        if fd.auto_pk or fd.readonly:
             continue
         if fd.name in data:
             val = _normalize_field_value(fd, data[fd.name])

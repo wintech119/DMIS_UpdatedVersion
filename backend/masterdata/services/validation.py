@@ -125,6 +125,13 @@ def _cross_field_validation(
     """Business rules that span multiple fields."""
     errors: Dict[str, str] = {}
 
+    def _merged_value(field_name: str):
+        if field_name in data:
+            return data.get(field_name)
+        if is_update and existing_record is not None:
+            return existing_record.get(field_name)
+        return None
+
     # Events: closed_date/reason required when status=C
     if cfg.key == "events":
         status = data.get("status_code")
@@ -171,12 +178,13 @@ def _cross_field_validation(
 
     # Warehouses: reason required when status=I
     if cfg.key == "warehouses":
-        status = data.get("status_code")
-        warehouse_type = data.get("warehouse_type")
-        parent_warehouse_id = data.get("parent_warehouse_id")
-        if status == "I" and not data.get("reason_desc"):
+        status = str(_merged_value("status_code") or "").strip().upper()
+        warehouse_type = str(_merged_value("warehouse_type") or "").strip().upper()
+        parent_warehouse_id = _merged_value("parent_warehouse_id")
+        reason_desc = _merged_value("reason_desc")
+        if status == "I" and not reason_desc:
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
-        if status == "A" and data.get("reason_desc"):
+        if status == "A" and reason_desc:
             errors["reason_desc"] = "Reason must be empty for active warehouses."
         if warehouse_type == "SUB-HUB" and not parent_warehouse_id:
             errors["parent_warehouse_id"] = "Parent Warehouse is required for SUB-HUB warehouses."
@@ -185,15 +193,8 @@ def _cross_field_validation(
 
     # Items: FEFO/perishable validation is bidirectional.
     if cfg.key == "items":
-        def _merged_item_value(field_name: str):
-            if field_name in data:
-                return data.get(field_name)
-            if is_update and existing_record is not None:
-                return existing_record.get(field_name)
-            return None
-
-        issuance_order = str(_merged_item_value("issuance_order") or "").upper().strip()
-        can_expire = _merged_item_value("can_expire_flag")
+        issuance_order = str(_merged_value("issuance_order") or "").upper().strip()
+        can_expire = _merged_value("can_expire_flag")
         if issuance_order == "FEFO" and can_expire is not True:
             errors["can_expire_flag"] = (
                 "Can Expire must be enabled when Issuance Order is FEFO."

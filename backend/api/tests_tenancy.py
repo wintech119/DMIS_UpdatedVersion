@@ -39,6 +39,29 @@ class TenancyAccessTests(SimpleTestCase):
         self.assertTrue(can_access_tenant(context, 20, write=False))
         self.assertTrue(can_access_tenant(context, 20, write=True))
 
+    def test_read_only_member_cannot_write_own_tenant(self) -> None:
+        context = TenantContext(
+            requested_tenant_id=None,
+            active_tenant_id=20,
+            active_tenant_code="PAR20",
+            active_tenant_type="PARISH",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="PAR20",
+                    tenant_name="Parish 20",
+                    tenant_type="PARISH",
+                    is_primary=True,
+                    access_level="READ_ONLY",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        self.assertTrue(can_access_tenant(context, 20, write=False))
+        self.assertFalse(can_access_tenant(context, 20, write=True))
+
     def test_non_neoc_cannot_access_other_tenant(self) -> None:
         context = TenantContext(
             requested_tenant_id=None,

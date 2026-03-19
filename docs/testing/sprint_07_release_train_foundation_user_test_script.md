@@ -69,7 +69,7 @@ Use the following values unless they already exist. If a value already exists, a
 | Baseline Burn Rate | `10` |
 | Min Stock Threshold | `75` |
 | Criticality Level | `CRITICAL` |
-| Agency Name | `S07 TEST SHELTER AGENCY` |
+| Agency Name | `S07 TEST DISTRIBUTOR AGENCY` |
 | Warehouse Name | `S07 TEST MAIN HUB` |
 | Warehouse Type | `MAIN-HUB` |
 | Location Description | `S07-AISLE-01-BIN-01` |
@@ -231,8 +231,8 @@ Evidence to capture:
 
 1. In `Master Data`, click `Agencies`.
 2. Click `New` or `Add Agency`.
-3. In `Agency Name`, type `S07 TEST SHELTER AGENCY`.
-4. In `Type`, select `Shelter`.
+3. In `Agency Name`, type `S07 TEST DISTRIBUTOR AGENCY`.
+4. In `Type`, select `Distributor`.
 5. In `Warehouse`, select `S07 TEST MAIN HUB`.
 6. In `Priority`, type `1`.
 7. Leave `Ineligible Event` blank unless required by the environment.

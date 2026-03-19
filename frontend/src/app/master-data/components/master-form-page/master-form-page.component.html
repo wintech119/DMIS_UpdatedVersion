@@ -83,7 +83,7 @@
                 <mat-icon class="guided-banner__icon" aria-hidden="true">lightbulb</mat-icon>
                 <p class="guided-banner__text">{{ cfg.formDescription }}</p>
                 <button mat-icon-button class="guided-banner__close"
-                  (click)="guidedBannerDismissed.set(true)" aria-label="Dismiss guidance">
+                  type="button" (click)="guidedBannerDismissed.set(true)" aria-label="Dismiss guidance">
                   <mat-icon>close</mat-icon>
                 </button>
               </div>
@@ -100,7 +100,7 @@
           <!-- Wrap optional attributes in collapsible <details> for governed catalog tables -->
           @if (isGovernedCatalogAuthoringTable() && isOptionalAttributesGroup(group)) {
             <details class="optional-attributes-details" open>
-              <summary class="optional-attributes-summary">
+              <summary class="optional-attributes-summary" [id]="'section-heading-' + group.key">
                 <mat-icon aria-hidden="true">tune</mat-icon>
                 Show Optional Details ({{ group.label }})
                 <mat-icon class="expand-chevron" aria-hidden="true">expand_more</mat-icon>

@@ -106,6 +106,28 @@ class DataAccessErrorWarningTests(SimpleTestCase):
         )
         self.assertFalse(any(warning.startswith("db_detail:") for warning in warnings))
 
+    @patch("masterdata.services.data_access._execute_create_insert", return_value=11)
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    def test_create_record_ignores_readonly_fields_on_insert(
+        self,
+        _mock_sqlite,
+        mock_execute_insert,
+    ):
+        pk_val, warnings = create_record(
+            "warehouses",
+            {
+                "warehouse_name": "Kingston Hub",
+                "warehouse_type": "MAIN-HUB",
+                "tenant_id": 99,
+            },
+            "tester",
+        )
+
+        self.assertEqual(pk_val, 11)
+        self.assertEqual(warnings, [])
+        self.assertNotIn("tenant_id", mock_execute_insert.call_args.args[2])
+        self.assertNotIn(99, mock_execute_insert.call_args.args[4])
+
 
 class IFRCMeasureNormalizationTests(SimpleTestCase):
     def test_normalized_measure_key_supports_imperial_dimensions(self):
@@ -205,6 +227,46 @@ class ItemCrossFieldValidationTests(SimpleTestCase):
         self.assertEqual(
             errors.get("issuance_order"),
             "Issuance Order must be FEFO when Can Expire is enabled.",
+        )
+
+
+class WarehouseCrossFieldValidationTests(SimpleTestCase):
+    def test_sub_hub_patch_requires_parent_from_merged_state(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+        errors = _cross_field_validation(
+            cfg,
+            {"warehouse_name": "Renamed"},
+            is_update=True,
+            existing_record={
+                "warehouse_type": "SUB-HUB",
+                "parent_warehouse_id": None,
+                "status_code": "A",
+                "reason_desc": None,
+            },
+        )
+
+        self.assertEqual(
+            errors.get("parent_warehouse_id"),
+            "Parent Warehouse is required for SUB-HUB warehouses.",
+        )
+
+    def test_main_hub_patch_rejects_existing_parent_from_merged_state(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+        errors = _cross_field_validation(
+            cfg,
+            {"warehouse_name": "Renamed"},
+            is_update=True,
+            existing_record={
+                "warehouse_type": "MAIN-HUB",
+                "parent_warehouse_id": 7,
+                "status_code": "A",
+                "reason_desc": None,
+            },
+        )
+
+        self.assertEqual(
+            errors.get("parent_warehouse_id"),
+            "MAIN-HUB warehouses cannot have a Parent Warehouse.",
         )
 
     def test_can_expire_without_issuance_does_not_override_required_message(self):

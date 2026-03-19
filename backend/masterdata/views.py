@@ -20,7 +20,12 @@ from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
 from api.rbac import resolve_roles_and_permissions
-from api.tenancy import can_access_warehouse, resolve_tenant_context, tenant_context_to_dict
+from api.tenancy import (
+    can_access_tenant,
+    can_access_warehouse,
+    resolve_tenant_context,
+    tenant_context_to_dict,
+)
 from masterdata.ifrc_code_agent import (
     IFRCCodeSuggestion,
     IFRCAgent,
@@ -174,6 +179,14 @@ def _prepare_warehouse_write_payload(
     if context.active_tenant_id is None:
         return payload, {
             "tenant_id": "Active tenant context is required for warehouse maintenance."
+        }
+    if _should_enforce_tenant_scope() and not can_access_tenant(
+        context,
+        context.active_tenant_id,
+        write=True,
+    ):
+        return payload, {
+            "tenant_scope": "You do not have access to create warehouses for this tenant."
         }
 
     payload["tenant_id"] = context.active_tenant_id
