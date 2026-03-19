@@ -6,6 +6,7 @@ import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Clipboard } from '@angular/cdk/clipboard';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -21,6 +22,51 @@ import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import { MasterEditGateDialogComponent, EditGateDialogData } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
+
+/** Maps table keys to downstream modules that depend on them */
+const TABLE_IMPACT_MAP: Record<string, { modules: string[]; description: string }> = {
+  items: {
+    modules: ['Replenishment', 'Needs Lists', 'Transfers', 'Procurement', 'Donations', 'Stock Monitoring'],
+    description: 'Changes to this item will propagate to all supply chain modules and active workflows.',
+  },
+  warehouses: {
+    modules: ['Inventory', 'Replenishment', 'Transfers', 'Stock Monitoring'],
+    description: 'Warehouse changes affect inventory tracking and active transfer operations.',
+  },
+  item_categories: {
+    modules: ['Items', 'Classification', 'Replenishment'],
+    description: 'Category changes cascade to all items in this classification group.',
+  },
+  uom: {
+    modules: ['Items', 'Replenishment', 'Procurement'],
+    description: 'Unit of measure changes affect quantity calculations across the system.',
+  },
+  agencies: {
+    modules: ['Warehouses', 'Transfers', 'Events'],
+    description: 'Agency changes affect associated warehouses and coordination assignments.',
+  },
+  events: {
+    modules: ['Replenishment', 'Needs Lists', 'Stock Monitoring'],
+    description: 'Event changes affect active response operations and planning windows.',
+  },
+  donors: {
+    modules: ['Donations', 'Procurement'],
+    description: 'Donor changes affect active and historical donation records.',
+  },
+  suppliers: {
+    modules: ['Procurement'],
+    description: 'Supplier changes affect active and pending procurement orders.',
+  },
+  ifrc_families: {
+    modules: ['Items', 'Classification'],
+    description: 'Changes to governed IFRC families cascade to item references and mapped items.',
+  },
+  ifrc_item_references: {
+    modules: ['Items', 'Classification'],
+    description: 'Changes to governed IFRC references affect all items mapped to this reference.',
+  },
+};
 
 @Component({
   selector: 'dmis-master-detail-page',
@@ -41,6 +87,7 @@ export class MasterDetailPageComponent implements OnInit {
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
+  private clipboard = inject(Clipboard);
   private destroyRef = inject(DestroyRef);
   private latestRecordRequestId = 0;
 
@@ -65,11 +112,45 @@ export class MasterDetailPageComponent implements OnInit {
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
   isBatchedItem = computed(() => Boolean(this.record()?.['is_batched_flag']));
 
+  auditExpanded = signal(false);
+
   isActive = computed(() => {
     const r = this.record();
     const cfg = this.config();
     if (!r || !cfg) return false;
     return r[cfg.statusField || 'status_code'] === 'A';
+  });
+
+  readonly recordTitle = computed(() => {
+    const r = this.record();
+    const cfg = this.config();
+    if (!r || !cfg) return '';
+
+    const nameFields = [
+      'item_name', 'warehouse_name', 'agency_name', 'event_name',
+      'donor_name', 'supplier_name', 'custodian_name', 'country_name',
+      'currency_name', 'parish_name', 'family_label', 'reference_desc',
+      'category_desc', 'uom_desc', 'description', 'name',
+      'item_code', 'category_code', 'uom_code', 'warehouse_code',
+    ];
+
+    for (const field of nameFields) {
+      const val = r[field];
+      if (val != null && String(val).trim()) return String(val).trim();
+    }
+
+    return `${cfg.displayName} ${this.pk()}`;
+  });
+
+  readonly statusGroup = computed(() => {
+    const cfg = this.config();
+    if (!cfg || cfg.hasStatus === false) return null;
+    const statusFields = cfg.formFields.filter(f =>
+      f.field === (cfg.statusField || 'status_code') ||
+      (f.group === 'Status' && f.type === 'select')
+    );
+    if (statusFields.length === 0) return null;
+    return statusFields;
   });
 
   /** Group form fields for display sections */
@@ -80,6 +161,7 @@ export class MasterDetailPageComponent implements OnInit {
     const seen = new Map<string, MasterFieldConfig[]>();
 
     for (const f of cfg.formFields) {
+      if (f.group === 'Status') continue;
       const groupLabel = f.group || 'General';
       if (!seen.has(groupLabel)) {
         seen.set(groupLabel, []);
@@ -135,9 +217,39 @@ export class MasterDetailPageComponent implements OnInit {
 
   onEdit(): void {
     const cfg = this.config();
-    if (cfg && this.pk()) {
-      this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
-    }
+    if (!cfg || !this.pk()) return;
+
+    const isGoverned = cfg.tableKey === 'ifrc_families' || cfg.tableKey === 'ifrc_item_references';
+    const lockedFields = cfg.formFields
+      .filter(f => f.readonlyOnEdit)
+      .map(f => f.label);
+    const impact = TABLE_IMPACT_MAP[cfg.tableKey];
+
+    const dialogRef = this.dialog.open(MasterEditGateDialogComponent, {
+      data: {
+        recordName: this.recordTitle() || `${cfg.displayName} Record`,
+        tableName: cfg.displayName,
+        tableIcon: cfg.icon,
+        warningText: isGoverned
+          ? 'This record is under active governance. Modifications may require administrative approval and will be audited.'
+          : `You are about to edit ${cfg.displayName.toLowerCase()} master data. Changes will be audited and may affect dependent modules.`,
+        isGoverned,
+        lockedFields,
+        impactModules: impact?.modules ?? [],
+        impactDescription: impact?.description ?? `Changes to this ${cfg.displayName.toLowerCase()} record will be tracked in the audit log.`,
+      } as EditGateDialogData,
+      width: '460px',
+      panelClass: 'dmis-edit-gate-panel',
+      autoFocus: 'first-tabbable',
+    });
+
+    dialogRef.afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(confirmed => {
+      if (confirmed) {
+        this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
+      }
+    });
   }
 
   onAssignStorageLocation(): void {
@@ -267,26 +379,27 @@ export class MasterDetailPageComponent implements OnInit {
   }
 
   /** Map section group labels to Material icons */
+  private readonly sectionIconMap: Record<string, string> = {
+    'Basic Information': 'info',
+    'General': 'info',
+    'Details': 'description',
+    'Contact': 'contact_phone',
+    'Contact Information': 'contact_phone',
+    'Address': 'location_on',
+    'Location': 'location_on',
+    'Status': 'toggle_on',
+    'Inventory Settings': 'inventory_2',
+    'Procurement': 'shopping_cart',
+    'Financial': 'payments',
+    'Item Identity': 'label',
+    'Classification': 'category',
+    'Inventory Rules': 'inventory_2',
+    'Tracking & Behaviour': 'track_changes',
+    'Notes & Storage': 'notes',
+  };
+
   getSectionIcon(groupLabel: string): string {
-    const iconMap: Record<string, string> = {
-      'Basic Information': 'info',
-      'General': 'info',
-      'Details': 'description',
-      'Contact': 'contact_phone',
-      'Contact Information': 'contact_phone',
-      'Address': 'location_on',
-      'Location': 'location_on',
-      'Status': 'toggle_on',
-      'Inventory Settings': 'inventory_2',
-      'Procurement': 'shopping_cart',
-      'Financial': 'payments',
-      'Item Identity': 'label',
-      'Classification': 'category',
-      'Inventory Rules': 'inventory_2',
-      'Tracking & Behaviour': 'track_changes',
-      'Notes & Storage': 'notes',
-    };
-    return iconMap[groupLabel] || 'folder';
+    return this.sectionIconMap[groupLabel] || 'folder';
   }
 
   getDisplayValue(field: MasterFieldConfig, value: unknown): string {
@@ -382,6 +495,20 @@ export class MasterDetailPageComponent implements OnInit {
     }
 
     this.notify.showError(fallbackMessage || 'Storage location assignment failed.');
+  }
+
+  isEmptyValue(value: unknown): boolean {
+    return value == null || value === '';
+  }
+
+  isCopyableField(fieldName: string): boolean {
+    return fieldName.endsWith('_code') || fieldName.endsWith('_id');
+  }
+
+  copyValue(value: unknown): void {
+    if (value == null || value === '') return;
+    this.clipboard.copy(String(value));
+    this.notify.showSuccess('Copied to clipboard');
   }
 
   navigateBack(): void {

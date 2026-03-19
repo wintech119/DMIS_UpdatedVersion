@@ -3,7 +3,8 @@
   "enabledMcpjsonServers": [
     "angular",
     "snyk",
-    "django-ai-boost"
+    "django-ai-boost",
+    "stitch"
   ],
   "permissions": {
     "allow": [

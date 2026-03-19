@@ -151,7 +151,13 @@ echo ""
 echo -e "${BLUE}[3/4] Running Semgrep security scanner...${NC}"
 
 # Build Semgrep arguments - flags first, then targets
-SEMGREP_BASE_ARGS="--config $SEMGREP_CONFIG --config p/python --config p/flask"
+SEMGREP_BASE_ARGS="--config p/python --config p/flask"
+
+# Optionally include the project-specific semgrep config if it exists.
+# This keeps the script working even when semgrep.yml is removed.
+if [ -f "$SEMGREP_CONFIG" ]; then
+    SEMGREP_BASE_ARGS="$SEMGREP_BASE_ARGS --config $SEMGREP_CONFIG"
+fi
 
 # Quick mode: only errors
 if [ "$QUICK_MODE" = true ]; then

@@ -2246,64 +2246,13 @@ export class MasterFormPageComponent implements OnInit {
     return null;
   }
 
+  /**
+   * Governance warning is now handled by the edit-gate dialog on the detail
+   * page *before* navigation, so this method is intentionally a no-op.
+   * Keeping the call-sites intact avoids a larger refactor.
+   */
   private maybePromptGovernedEditWarning(): void {
-    if (
-      !this.isEdit()
-      || !this.isGovernedCatalogAuthoringTable()
-      || this.promptedGovernedEditWarning
-      || this.catalogEditGuidance()?.warning_required === false
-    ) {
-      return;
-    }
-
-    const cfg = this.config();
-    const warningText = this.getCatalogWarningText();
-    if (!cfg || !warningText) {
-      return;
-    }
-
-    this.promptedGovernedEditWarning = true;
-    const lockedFieldPreview = this.getCatalogLockedFieldLabels().slice(0, 4).join(', ');
-    const details = [
-      {
-        label: 'Impact',
-        value: 'Changes may affect classification, search, and future item selection.',
-        icon: 'policy',
-      },
-      {
-        label: 'Code Corrections',
-        value: 'Use Create Replacement instead of overwriting canonical fields.',
-        icon: 'content_copy',
-      },
-    ];
-    if (lockedFieldPreview) {
-      details.splice(1, 0, {
-        label: 'Locked Fields',
-        value: lockedFieldPreview,
-        icon: 'lock',
-      });
-    }
-
-    const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
-      data: {
-        title: 'Governed Catalog Edit',
-        message: warningText,
-        confirmLabel: 'Continue to Edit',
-        cancelLabel: 'Cancel',
-        icon: 'warning_amber',
-        iconColor: '#d97706',
-        details,
-      } as ConfirmDialogData,
-      width: '460px',
-    });
-
-    dialogRef.afterClosed().pipe(
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe((confirmed) => {
-      if (!confirmed) {
-        this.router.navigate(['/master-data', cfg.routePath]);
-      }
-    });
+    // Gate dialog already shown — nothing to do here.
   }
 
   private primeGovernedEditState(): void {
