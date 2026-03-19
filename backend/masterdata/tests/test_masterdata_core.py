@@ -231,6 +231,22 @@ class ItemCrossFieldValidationTests(SimpleTestCase):
 
 
 class WarehouseCrossFieldValidationTests(SimpleTestCase):
+    def test_sub_hub_whitespace_parent_is_treated_as_missing(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "warehouse_type": "SUB-HUB",
+                "parent_warehouse_id": "   ",
+                "status_code": "A",
+            },
+        )
+
+        self.assertEqual(
+            errors.get("parent_warehouse_id"),
+            "Parent Warehouse is required for SUB-HUB warehouses.",
+        )
+
     def test_sub_hub_patch_requires_parent_from_merged_state(self):
         cfg = TABLE_REGISTRY["warehouses"]
         errors = _cross_field_validation(
@@ -269,6 +285,23 @@ class WarehouseCrossFieldValidationTests(SimpleTestCase):
             "MAIN-HUB warehouses cannot have a Parent Warehouse.",
         )
 
+    def test_self_parent_is_rejected(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "warehouse_id": 7,
+                "warehouse_type": "SUB-HUB",
+                "parent_warehouse_id": 7,
+                "status_code": "A",
+            },
+        )
+
+        self.assertEqual(
+            errors.get("parent_warehouse_id"),
+            "A warehouse cannot be its own parent.",
+        )
+
     def test_inactive_warehouse_patch_treats_blank_reason_as_missing(self):
         cfg = TABLE_REGISTRY["warehouses"]
         errors = _cross_field_validation(
@@ -290,6 +323,21 @@ class WarehouseCrossFieldValidationTests(SimpleTestCase):
 
 
 class AgencyCrossFieldValidationTests(SimpleTestCase):
+    def test_distributor_whitespace_warehouse_is_treated_as_missing(self):
+        cfg = TABLE_REGISTRY["agencies"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "agency_type": "DISTRIBUTOR",
+                "warehouse_id": "   ",
+            },
+        )
+
+        self.assertEqual(
+            errors.get("warehouse_id"),
+            "Warehouse is required for DISTRIBUTOR agencies.",
+        )
+
     def test_distributor_patch_requires_existing_warehouse_from_merged_state(self):
         cfg = TABLE_REGISTRY["agencies"]
         errors = _cross_field_validation(
@@ -323,6 +371,18 @@ class AgencyCrossFieldValidationTests(SimpleTestCase):
             errors.get("warehouse_id"),
             "SHELTER agencies cannot have a warehouse.",
         )
+
+    def test_shelter_whitespace_warehouse_is_treated_as_empty(self):
+        cfg = TABLE_REGISTRY["agencies"]
+        errors = _cross_field_validation(
+            cfg,
+            {
+                "agency_type": "SHELTER",
+                "warehouse_id": "   ",
+            },
+        )
+
+        self.assertNotIn("warehouse_id", errors)
 
 
 class EventCrossFieldValidationTests(SimpleTestCase):

@@ -175,7 +175,7 @@ def _cross_field_validation(
     # Agencies: DISTRIBUTOR requires warehouse, SHELTER must not have warehouse
     if cfg.key == "agencies":
         agency_type = _merged_text("agency_type").upper()
-        warehouse_id = _merged_value("warehouse_id")
+        warehouse_id = _merged_text("warehouse_id")
         if agency_type == "DISTRIBUTOR" and not warehouse_id:
             errors["warehouse_id"] = "Warehouse is required for DISTRIBUTOR agencies."
         if agency_type == "SHELTER" and warehouse_id:
@@ -185,7 +185,8 @@ def _cross_field_validation(
     if cfg.key == "warehouses":
         status = str(_merged_value("status_code") or "").strip().upper()
         warehouse_type = str(_merged_value("warehouse_type") or "").strip().upper()
-        parent_warehouse_id = _merged_value("parent_warehouse_id")
+        current_warehouse_id = _merged_text("warehouse_id")
+        parent_warehouse_id = _merged_text("parent_warehouse_id")
         reason_desc = _merged_text("reason_desc")
         if status == "I" and not reason_desc:
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
@@ -195,6 +196,8 @@ def _cross_field_validation(
             errors["parent_warehouse_id"] = "Parent Warehouse is required for SUB-HUB warehouses."
         if warehouse_type == "MAIN-HUB" and parent_warehouse_id:
             errors["parent_warehouse_id"] = "MAIN-HUB warehouses cannot have a Parent Warehouse."
+        if current_warehouse_id and parent_warehouse_id == current_warehouse_id:
+            errors["parent_warehouse_id"] = "A warehouse cannot be its own parent."
 
     # Items: FEFO/perishable validation is bidirectional.
     if cfg.key == "items":

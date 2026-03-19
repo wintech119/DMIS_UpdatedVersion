@@ -31,19 +31,25 @@ It is written to be:
 ## Test Users
 
 Use the existing test accounts from `docs/testing/role_based_system_testing_guide.md`.
+Retrieve the current email addresses and passwords from the QA admin or approved secret store for the target environment. Do not store plaintext credentials in this document.
 
-| Role | Email | Password | Main Use In This Script |
-| --- | --- | --- | --- |
-| System Administrator | `admin@odpem.gov.jm` or environment equivalent | `admin123` | Create and maintain master data |
-| Inventory Clerk | `test.inventory@odpem.gov.jm` | `test123` | Verify stock visibility and execute repackaging |
-| Logistics Manager | `test.logistics@odpem.gov.jm` | `test123` | Optional cross-check of operational visibility |
-| Agency User | `test.agency@gmail.com` | `test123` | Negative permission check |
+| Role | Account Retrieval Method | Main Use In This Script |
+| --- | --- | --- |
+| System Administrator | Obtain the current admin test account from QA admin or the approved secret store | Create and maintain master data |
+| Inventory Clerk | Obtain the current inventory-clerk test account from QA admin or the approved secret store | Verify stock visibility and execute repackaging |
+| Logistics Manager | Obtain the current logistics-manager test account from QA admin or the approved secret store | Optional cross-check of operational visibility |
+| Agency User | Obtain the current agency-user test account from QA admin or the approved secret store | Negative permission check |
 
 If the environment uses masked emails, use the equivalent active account for the same role.
 
 ## Test Data To Use
 
-Use the following values unless they already exist. If a value already exists, append `-B` to the code and continue.
+Use the following values unless they already exist. If a value already exists, generate the next valid test-specific value for that field:
+
+- for code or name fields, append a suffix such as `-B` or `-02`
+- for email fields, use the environment's approved test-account alias pattern
+- for enumerations, keep the documented valid enum and choose a different field value elsewhere
+- for numeric identifiers, use the next available seeded test value rather than changing the format
 
 | Field | Value |
 | --- | --- |
@@ -86,7 +92,7 @@ Before executing the use case, confirm:
 5. At least one UOM such as `EA` exists and is active.
 6. UOM conversion setup and UOM repackaging UI are available in the environment.
 7. Inventory stock exists for the test item before running the repackaging steps.
-8. A stock-health view is available either in Item Master, Inventory, or the Stock Status Dashboard.
+8. A stock-health view is available either in Item detail, Inventory, or the Stock Status Dashboard.
 
 If stock does not yet exist for the test item, stop and request a seeded stock record before continuing with the repackaging steps.
 
@@ -107,8 +113,8 @@ This test script follows one realistic Sprint 07 flow:
 ### Step 1. Login as System Administrator
 
 1. Open the application login page.
-2. In the email field, type the admin email.
-3. In the password field, type `admin123`.
+2. In the email field, enter the current System Administrator test account email retrieved for this environment.
+3. In the password field, enter the corresponding password retrieved from the approved secure source.
 4. Click `Login`.
 
 Expected result:
@@ -384,8 +390,8 @@ Evidence to capture:
 
 1. Logout from the admin account.
 2. Return to the login page.
-3. In the email field, type `test.inventory@odpem.gov.jm`.
-4. In the password field, type `test123`.
+3. In the email field, enter the current Inventory Clerk test account email retrieved for this environment.
+4. In the password field, enter the corresponding password retrieved from the approved secure source.
 5. Click `Login`.
 
 Expected result:
@@ -420,7 +426,7 @@ Evidence to capture:
 4. In `Source UOM`, select `EA`.
 5. In `Source Quantity`, type `10`.
 6. In `Target UOM`, select the alternate UOM created in Step 8.
-7. Verify that `Computed Target Quantity` is shown by the system.
+7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `10 EA` converts at `10:1`, the computed target quantity should display `1` in the target UOM.
 8. In `Reason`, type `SPLIT_EACHES`.
 9. Click `Preview`, `Validate`, or the equivalent pre-submit action if present.
 10. Review the computed values.

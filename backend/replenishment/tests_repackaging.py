@@ -40,6 +40,17 @@ class RepackagingComputationTests(SimpleTestCase):
 
         self.assertEqual(raised.exception.code, "source_qty_invalid")
 
+    @patch("replenishment.services.repackaging.logger")
+    @patch("replenishment.services.repackaging.connection.rollback", side_effect=RuntimeError("no tx"))
+    def test_safe_rollback_logs_debug_when_rollback_fails(
+        self,
+        _mock_rollback,
+        mock_logger,
+    ) -> None:
+        repackaging._safe_rollback()
+
+        mock_logger.debug.assert_called_once()
+
 
 class RepackagingServiceTests(SimpleTestCase):
     @patch(
@@ -461,7 +472,8 @@ class RepackagingApiTests(TestCase):
     ) -> None:
         response = self.client.get(f"{self.ENDPOINT}/33")
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Not found.")
         mock_get.assert_called_once_with(33)
         mock_scope.assert_called_once_with(ANY, 2, write=False)
 

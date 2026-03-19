@@ -190,6 +190,26 @@ class WarehouseViewDispatchTests(SimpleTestCase):
         self.assertEqual(response.data["record"]["child_warehouse_count"], 2)
         self.assertEqual(response.data["record"]["stock_health_summary"]["overall_status"], "AMBER")
 
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch("masterdata.views.get_warehouse_record", return_value=(None, ["db_unavailable"]))
+    def test_master_detail_update_returns_503_for_transient_warehouse_read_failure(
+        self,
+        _mock_get_warehouse_record,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/warehouses/5")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_detail_update(request, "warehouses", "5")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.data["detail"],
+            "Warehouse detail lookup is temporarily unavailable.",
+        )
+        self.assertEqual(response.data["warnings"], ["db_unavailable"])
+        self.assertIn("db_unavailable", response.data["diagnostic"])
+
     @patch(
         "masterdata.views.get_warehouse_record",
         return_value=(

@@ -31,7 +31,7 @@
             <mat-icon aria-hidden="true">error</mat-icon>
             <div class="form-submit-alert__content">
               <p class="form-submit-alert__title">{{ message }}</p>
-              @if (submissionErrorDetails().length > 0) {
+              @if (submissionErrorDetails().length) {
                 <ul class="form-submit-alert__details">
                   @for (detail of submissionErrorDetails(); track detail) {
                     <li>{{ detail }}</li>
@@ -102,7 +102,7 @@
             <details class="optional-attributes-details" open>
               <summary class="optional-attributes-summary" [id]="'section-heading-' + group.key">
                 <mat-icon aria-hidden="true">tune</mat-icon>
-                Show Optional Details ({{ group.label }})
+                Optional Details ({{ group.label }})
                 <mat-icon class="expand-chevron" aria-hidden="true">expand_more</mat-icon>
               </summary>
               <section class="form-section optional-attributes-content"
@@ -218,6 +218,17 @@
                               <div class="toggle-row__text">
                                 <span class="toggle-row__label" [id]="field.field + '-label'">
                                   {{ getRenderedFieldLabel(field) }}
+                                  @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                                  @if (getFieldTooltip(field); as fieldTooltip) {
+                                    <button
+                                      mat-icon-button
+                                      type="button"
+                                      class="toggle-help-button"
+                                      [matTooltip]="fieldTooltip"
+                                      [attr.aria-label]="'More information about ' + field.label">
+                                      <mat-icon>help_outline</mat-icon>
+                                    </button>
+                                  }
                                 </span>
                                 @if (field.hint) {
                                   <span class="toggle-row__hint" [id]="field.field + '-hint'">{{ field.hint }}</span>
@@ -226,7 +237,8 @@
                               <mat-slide-toggle
                                 [formControlName]="field.field"
                                 [attr.aria-labelledby]="field.field + '-label'"
-                                [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                                [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                                color="primary">
                               </mat-slide-toggle>
                             </div>
                             @if (form.get(field.field)?.hasError('server')) {
@@ -658,7 +670,7 @@
                                   <p class="ifrc-suggestion-candidate__code">{{ candidate.reference.ifrc_code }}</p>
                                 }
                                 @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
-                                  @if (variantDetails.length > 0) {
+                                  @if (variantDetails.length) {
                                     <div class="ifrc-suggestion-candidate__variant-grid">
                                       @for (detail of variantDetails; track detail.label) {
                                         <div class="ifrc-suggestion-candidate__variant">
@@ -1094,7 +1106,7 @@
               @if (getCatalogWarningText(); as warningText) {
                 <p class="catalog-suggest-cta__info">{{ warningText }}</p>
               }
-              @if (getCatalogLockedFieldLabels().length > 0) {
+              @if (getCatalogLockedFieldLabels().length) {
                 <p class="catalog-suggest-cta__info">Locked fields: {{ getCatalogLockedFieldLabels().join(', ') }}</p>
               }
 
@@ -1155,7 +1167,7 @@
                   </div>
 
                   @if (getCatalogSuggestionConflictMessages(); as conflictMessages) {
-                    @if (conflictMessages.length > 0) {
+                    @if (conflictMessages.length) {
                       <div class="catalog-suggestion-preview__messages warning">
                         <p>Possible duplicates found</p>
                         <ul>
@@ -1168,7 +1180,7 @@
                   }
 
                   @if (getCatalogSuggestionWarnings(); as suggestionWarnings) {
-                    @if (suggestionWarnings.length > 0) {
+                    @if (suggestionWarnings.length) {
                       <div class="catalog-suggestion-preview__messages info">
                         <p>Notes</p>
                         <ul>

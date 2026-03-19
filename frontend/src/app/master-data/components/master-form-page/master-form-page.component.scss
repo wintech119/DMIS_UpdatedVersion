@@ -402,7 +402,7 @@ fieldset.form-grid {
     background: var(--color-hover);
   }
   &:focus-visible {
-    outline: 2px solid #1565c0;
+    outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
   }
   &.is-auto-highlight {
@@ -599,6 +599,7 @@ fieldset.form-grid {
   color: var(--color-accent);
   list-style: none;
   user-select: none;
+  &::marker { content: ''; }
   &::-webkit-details-marker { display: none; }
   &:hover { color: var(--color-text-primary); }
 

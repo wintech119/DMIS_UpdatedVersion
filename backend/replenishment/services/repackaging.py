@@ -922,7 +922,10 @@ def _safe_rollback() -> None:
     try:
         connection.rollback()
     except Exception:
-        pass
+        logger.debug(
+            "Rollback failed while handling a repackaging error.",
+            exc_info=True,
+        )
 
 
 def _to_jsonable(value: Any) -> Any:

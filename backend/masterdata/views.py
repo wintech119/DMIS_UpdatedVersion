@@ -1391,6 +1391,27 @@ def _handle_detail(cfg, pk_value):
     if cfg.key == "warehouses":
         record, warnings = get_warehouse_record(pk_value)
         if record is None:
+            transient_warning = next(
+                (
+                    warning
+                    for warning in warnings
+                    if warning == "db_unavailable" or warning.startswith("transient")
+                ),
+                None,
+            )
+            if transient_warning is not None:
+                return Response(
+                    {
+                        "detail": "Warehouse detail lookup is temporarily unavailable.",
+                        "diagnostic": (
+                            "get_warehouse_record returned no record and a transient read warning "
+                            "while loading warehouse detail: "
+                            f"{transient_warning}"
+                        ),
+                        "warnings": warnings,
+                    },
+                    status=503,
+                )
             if "db_error" in warnings:
                 return Response(
                     {"detail": "Failed to load warehouse detail.", "warnings": warnings},
