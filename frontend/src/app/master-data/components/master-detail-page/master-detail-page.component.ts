@@ -185,7 +185,9 @@ export class MasterDetailPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(confirmed => {
       if (confirmed) {
-        this.editGate.markDetailEditGatePassed();
+        if (this.editGate.isGovernedCatalogTable(cfg.tableKey)) {
+          this.editGate.markDetailEditGatePassed();
+        }
         this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
       }
     });

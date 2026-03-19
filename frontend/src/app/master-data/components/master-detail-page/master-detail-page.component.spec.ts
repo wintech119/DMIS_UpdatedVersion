@@ -125,6 +125,17 @@ describe('MasterDetailPageComponent', () => {
     expect(editGate.consumeGovernedEditWarningSkip()).toBeTrue();
   });
 
+  it('does not arm the governed-edit skip token for non-governed tables', () => {
+    const { component, editGate, router } = setup('events');
+    const editGateMarkSpy = spyOn(editGate, 'markDetailEditGatePassed').and.callThrough();
+
+    component.onEdit();
+
+    expect(editGateMarkSpy).not.toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'events', '14', 'edit']);
+    expect(editGate.consumeGovernedEditWarningSkip()).toBeFalse();
+  });
+
   it('only shows copy success feedback when the clipboard write succeeds', () => {
     const { component, fixture } = setup();
     const clipboard = TestBed.inject(Clipboard) as jasmine.SpyObj<Clipboard>;
