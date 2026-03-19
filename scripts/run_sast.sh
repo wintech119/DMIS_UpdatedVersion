@@ -151,22 +151,31 @@ echo ""
 echo -e "${BLUE}[3/4] Running Semgrep security scanner...${NC}"
 
 # Build Semgrep arguments - flags first, then targets
-SEMGREP_BASE_ARGS="--config $SEMGREP_CONFIG --config p/python --config p/flask"
+declare -a SEMGREP_BASE_ARGS=(
+    "--config" "p/python"
+    "--config" "p/flask"
+)
+
+# Optionally include the project-specific semgrep config if it exists.
+# This keeps the script working even when semgrep.yml is removed.
+if [ -f "$SEMGREP_CONFIG" ]; then
+    SEMGREP_BASE_ARGS+=("--config" "$SEMGREP_CONFIG")
+fi
 
 # Quick mode: only errors
 if [ "$QUICK_MODE" = true ]; then
-    SEMGREP_BASE_ARGS="$SEMGREP_BASE_ARGS --severity ERROR"
+    SEMGREP_BASE_ARGS+=("--severity" "ERROR")
 fi
 
 # Generate reports if requested (run separately to avoid argument order issues)
 if [ "$GENERATE_REPORTS" = true ]; then
     echo "Generating Semgrep reports..."
-    semgrep $SEMGREP_BASE_ARGS --json --output "$REPORT_DIR/semgrep-report.json" app/ drims_app.py 2>/dev/null || true
+    semgrep "${SEMGREP_BASE_ARGS[@]}" --json --output "$REPORT_DIR/semgrep-report.json" app/ drims_app.py 2>/dev/null || true
 fi
 
 # Run Semgrep and capture output to a temp file for proper parsing
 SEMGREP_TEMP=$(mktemp)
-semgrep $SEMGREP_BASE_ARGS --json app/ drims_app.py > "$SEMGREP_TEMP" 2>&1 || true
+semgrep "${SEMGREP_BASE_ARGS[@]}" --json app/ drims_app.py > "$SEMGREP_TEMP" 2>&1 || true
 
 # Parse JSON output to count severities accurately
 if command -v python3 &> /dev/null; then
@@ -196,7 +205,7 @@ else
 fi
 
 # Also run text output for display
-semgrep $SEMGREP_BASE_ARGS app/ drims_app.py 2>&1 || true
+semgrep "${SEMGREP_BASE_ARGS[@]}" app/ drims_app.py 2>&1 || true
 
 # Clean up temp file
 rm -f "$SEMGREP_TEMP"

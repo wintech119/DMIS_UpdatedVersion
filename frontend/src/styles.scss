@@ -158,6 +158,12 @@ p, span, a, label, td, th, li {
   --mat-snack-bar-button-color: #ffe0b2;
 }
 
+// ===== EDIT GATE DIALOG PANEL =====
+.dmis-edit-gate-panel .mat-mdc-dialog-container {
+  border-radius: 20px;
+  overflow: hidden;
+}
+
 // ===== GLOBAL PAGE HEADER STYLE =====
 // Clean page title + separator line — no !important, uses cascade ordering
 .page-header,

@@ -1,0 +1,377 @@
+// ---------------------------------------------------------------------------
+// Master Edit Gate Dialog — Stitch-inspired governance confirmation
+// Uses 8px grid, DMIS tokens, WCAG 2.2 compliant
+// ---------------------------------------------------------------------------
+
+:host {
+  display: block;
+  font-family: var(--dmis-font-sans, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+.gate-dialog {
+  display: flex;
+  flex-direction: column;
+  max-width: 460px;
+}
+
+// — Header ——————————————————————————————————————————————————————————————————
+.gate-header {
+  padding: 28px 28px 20px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  position: relative;
+
+  &__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+    margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(15, 118, 110, 0.25);
+  }
+
+  &__icon {
+    color: #ffffff;
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+
+  &__text {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: absolute;
+    top: 28px;
+    left: 76px;
+    right: 20px;
+  }
+
+  &__label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #0f766e;
+    text-transform: uppercase;
+  }
+}
+
+.gate-close-btn {
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  color: var(--color-text-tertiary, #9ca3af);
+
+  .mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+
+  &:hover {
+    color: var(--color-text-primary, #1f2937);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: 2px;
+    border-radius: 50%;
+  }
+}
+
+.gate-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #111827);
+  line-height: 1.2;
+}
+
+.gate-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #6b7280);
+  line-height: 1.3;
+}
+
+// — Body ———————————————————————————————————————————————————————————————————
+.gate-body {
+  padding: 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+// — Warning Banner ————————————————————————————————————————————————————————
+.gate-warning {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+
+  &__icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #ffedd5;
+    flex-shrink: 0;
+  }
+
+  &__icon {
+    color: #d97706;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #92400e;
+    line-height: 1.3;
+  }
+
+  &__text {
+    font-size: 0.8rem;
+    color: #78350f;
+    line-height: 1.45;
+  }
+}
+
+// — Card (Impact / Locked Fields) ————————————————————————————————————————
+.gate-card {
+  background: var(--color-surface, #f9fafb);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 16px;
+  transition: box-shadow 0.2s ease;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  &__icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    color: #0f766e;
+
+    &--locked {
+      color: #92400e;
+    }
+  }
+
+  &__title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--color-text-primary, #111827);
+  }
+
+  &__tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 12px;
+    border-bottom: 2px solid var(--color-border, #e5e7eb);
+  }
+
+  &__tab {
+    padding: 6px 16px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #6b7280);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    cursor: default;
+
+    &--active {
+      color: #0f766e;
+      border-bottom-color: #0f766e;
+      font-weight: 600;
+    }
+  }
+
+  &__module-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  &__description {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary, #6b7280);
+    line-height: 1.45;
+  }
+
+  &__note {
+    margin: 10px 0 0;
+    font-size: 0.78rem;
+    color: #92400e;
+    line-height: 1.4;
+  }
+
+  &--locked {
+    background: #fffbeb;
+    border-color: #fde68a;
+  }
+}
+
+// — Module Chips ——————————————————————————————————————————————————————————
+.gate-module-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--color-border, #e5e7eb);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #374151);
+  transition: background-color 0.15s ease;
+
+  &__icon {
+    font-size: 15px;
+    width: 15px;
+    height: 15px;
+    color: #0f766e;
+  }
+
+  &:hover {
+    background: #f0fdfa;
+  }
+}
+
+// — Locked Field Chips ——————————————————————————————————————————————————
+.gate-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gate-locked-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  letter-spacing: 0.02em;
+  color: #92400e;
+  text-transform: uppercase;
+}
+
+// — Actions ——————————————————————————————————————————————————————————————
+.gate-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 28px 28px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.gate-continue-btn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: #0f766e;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    background: #0d9488;
+    box-shadow: 0 2px 8px rgba(15, 118, 110, 0.3);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: 2px;
+  }
+
+  .mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.gate-cancel-btn {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+
+  &:hover {
+    color: var(--color-text-primary, #1f2937);
+    background: var(--color-hover, rgba(0, 0, 0, 0.04));
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0f766e;
+    outline-offset: 2px;
+  }
+}
+
+// — Responsive ————————————————————————————————————————————————————————————
+@media (max-width: 480px) {
+  .gate-header {
+    padding: 20px 20px 16px;
+  }
+
+  .gate-header__text {
+    left: 64px;
+    right: 12px;
+  }
+
+  .gate-body {
+    padding: 16px 20px;
+  }
+
+  .gate-actions {
+    padding: 16px 20px 24px;
+  }
+
+  .gate-warning {
+    padding: 12px;
+  }
+
+  .gate-card {
+    padding: 12px;
+  }
+}

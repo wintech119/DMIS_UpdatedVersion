@@ -6,6 +6,7 @@ import { CommonModule } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Clipboard } from '@angular/cdk/clipboard';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -15,12 +16,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
-import { MasterFieldConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
+import { CatalogEditGuidance, MasterFieldConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
+import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
+import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 
 @Component({
   selector: 'dmis-master-detail-page',
@@ -38,14 +41,17 @@ export class MasterDetailPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private service = inject(MasterDataService);
+  private editGate = inject(MasterEditGateService);
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
+  private clipboard = inject(Clipboard);
   private destroyRef = inject(DestroyRef);
   private latestRecordRequestId = 0;
 
   config = signal<MasterTableConfig | null>(null);
   record = signal<MasterRecord | null>(null);
+  editGuidance = signal<CatalogEditGuidance | null>(null);
   isLoading = signal(true);
   pk = signal<string | number | null>(null);
   assigningLocation = signal(false);
@@ -65,11 +71,34 @@ export class MasterDetailPageComponent implements OnInit {
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
   isBatchedItem = computed(() => Boolean(this.record()?.['is_batched_flag']));
 
+  auditExpanded = signal(false);
+
   isActive = computed(() => {
     const r = this.record();
     const cfg = this.config();
     if (!r || !cfg) return false;
     return r[cfg.statusField || 'status_code'] === 'A';
+  });
+
+  readonly recordTitle = computed(() => {
+    return this.editGate.getRecordTitle(this.record(), this.config(), this.pk());
+  });
+
+  readonly statusGroup = computed(() => {
+    const cfg = this.config();
+    if (!cfg || cfg.hasStatus === false) return null;
+    const includedFields = new Set<string>();
+    const statusFieldName = cfg.statusField || 'status_code';
+    const statusFields = cfg.formFields.filter((field) => {
+      const shouldInclude = field.group === 'Status' || field.field === statusFieldName;
+      if (!shouldInclude || includedFields.has(field.field)) {
+        return false;
+      }
+      includedFields.add(field.field);
+      return true;
+    });
+    if (statusFields.length === 0) return null;
+    return statusFields;
   });
 
   /** Group form fields for display sections */
@@ -80,6 +109,7 @@ export class MasterDetailPageComponent implements OnInit {
     const seen = new Map<string, MasterFieldConfig[]>();
 
     for (const f of cfg.formFields) {
+      if (f.group === 'Status') continue;
       const groupLabel = f.group || 'General';
       if (!seen.has(groupLabel)) {
         seen.set(groupLabel, []);
@@ -122,6 +152,7 @@ export class MasterDetailPageComponent implements OnInit {
       next: res => {
         if (requestId !== this.latestRecordRequestId) return;
         this.record.set(res.record);
+        this.editGuidance.set(this.editGate.getEffectiveCatalogEditGuidance(cfg, res.edit_guidance));
         this.isLoading.set(false);
       },
       error: () => {
@@ -135,9 +166,31 @@ export class MasterDetailPageComponent implements OnInit {
 
   onEdit(): void {
     const cfg = this.config();
-    if (cfg && this.pk()) {
-      this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
-    }
+    if (!cfg || !this.pk()) return;
+
+    const dialogRef = this.dialog.open(MasterEditGateDialogComponent, {
+      data: this.editGate.buildDialogData({
+        config: cfg,
+        recordName: this.recordTitle(),
+        editGuidance: this.editGuidance(),
+        isEdit: true,
+      }),
+      width: '460px',
+      panelClass: 'dmis-edit-gate-panel',
+      autoFocus: 'first-tabbable',
+      ariaLabelledBy: 'gate-dialog-title',
+    });
+
+    dialogRef.afterClosed().pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(confirmed => {
+      if (confirmed) {
+        if (this.editGate.isGovernedCatalogTable(cfg.tableKey)) {
+          this.editGate.markDetailEditGatePassed();
+        }
+        this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
+      }
+    });
   }
 
   onAssignStorageLocation(): void {
@@ -267,26 +320,27 @@ export class MasterDetailPageComponent implements OnInit {
   }
 
   /** Map section group labels to Material icons */
+  private readonly sectionIconMap: Record<string, string> = {
+    'Basic Information': 'info',
+    'General': 'info',
+    'Details': 'description',
+    'Contact': 'contact_phone',
+    'Contact Information': 'contact_phone',
+    'Address': 'location_on',
+    'Location': 'location_on',
+    'Status': 'toggle_on',
+    'Inventory Settings': 'inventory_2',
+    'Procurement': 'shopping_cart',
+    'Financial': 'payments',
+    'Item Identity': 'label',
+    'Classification': 'category',
+    'Inventory Rules': 'inventory_2',
+    'Tracking & Behaviour': 'track_changes',
+    'Notes & Storage': 'notes',
+  };
+
   getSectionIcon(groupLabel: string): string {
-    const iconMap: Record<string, string> = {
-      'Basic Information': 'info',
-      'General': 'info',
-      'Details': 'description',
-      'Contact': 'contact_phone',
-      'Contact Information': 'contact_phone',
-      'Address': 'location_on',
-      'Location': 'location_on',
-      'Status': 'toggle_on',
-      'Inventory Settings': 'inventory_2',
-      'Procurement': 'shopping_cart',
-      'Financial': 'payments',
-      'Item Identity': 'label',
-      'Classification': 'category',
-      'Inventory Rules': 'inventory_2',
-      'Tracking & Behaviour': 'track_changes',
-      'Notes & Storage': 'notes',
-    };
-    return iconMap[groupLabel] || 'folder';
+    return this.sectionIconMap[groupLabel] || 'folder';
   }
 
   getDisplayValue(field: MasterFieldConfig, value: unknown): string {
@@ -382,6 +436,22 @@ export class MasterDetailPageComponent implements OnInit {
     }
 
     this.notify.showError(fallbackMessage || 'Storage location assignment failed.');
+  }
+
+  isEmptyValue(value: unknown): boolean {
+    return value == null || value === '';
+  }
+
+  isCopyableField(fieldName: string): boolean {
+    return fieldName.endsWith('_code') || fieldName.endsWith('_id');
+  }
+
+  copyValue(value: unknown): void {
+    if (value == null || value === '') return;
+    const copied = this.clipboard.copy(String(value));
+    if (copied) {
+      this.notify.showSuccess('Copied to clipboard');
+    }
   }
 
   navigateBack(): void {

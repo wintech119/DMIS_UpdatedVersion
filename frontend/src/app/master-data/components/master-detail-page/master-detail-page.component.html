@@ -2,64 +2,101 @@
   <div class="detail-page-container">
   <!-- Header -->
   <div class="detail-header">
-    <div class="header-left">
+    <div class="header-breadcrumb">
       <button mat-icon-button class="back-btn" (click)="navigateBack()" matTooltip="Back to list"
         aria-label="Back to list">
         <mat-icon>arrow_back</mat-icon>
       </button>
-      <div class="header-text">
-        <h2>
-          {{ cfg.displayName }} Detail
-          @if (record(); as r) {
-            @if (cfg.hasStatus !== false) {
-              <span class="status-badge" [class.active]="isActive()" [class.inactive]="!isActive()">
-                {{ getStatusLabel() }}
-              </span>
-            }
-          }
-        </h2>
-      </div>
+      <span class="breadcrumb-text">
+        Home <span class="breadcrumb-sep">›</span> {{ cfg.displayName }}
+      </span>
     </div>
-    @if (record() && !cfg.readOnly) {
-      <div class="header-actions">
-        <button mat-stroked-button (click)="onEdit()">
-          <mat-icon>edit</mat-icon> Edit
-        </button>
-        @if (cfg.hasStatus !== false) {
-          @if (isActive()) {
-            <button mat-stroked-button color="warn" (click)="onToggleStatus()">
-              <mat-icon>block</mat-icon> Inactivate
-            </button>
-          } @else {
-            <button mat-stroked-button (click)="onToggleStatus()">
-              <mat-icon>check_circle</mat-icon> Activate
-            </button>
+    <div class="header-title-row">
+      <h2>
+        {{ recordTitle() || (cfg.displayName + ' Detail') }}
+        @if (record(); as r) {
+          @if (cfg.hasStatus !== false) {
+            <span class="status-badge" [class.active]="isActive()" [class.inactive]="!isActive()">
+              {{ getStatusLabel() }}
+            </span>
           }
         }
-      </div>
-    }
+      </h2>
+      @if (record() && !cfg.readOnly) {
+        <div class="header-actions">
+          <button mat-flat-button color="primary" (click)="onEdit()">
+            <mat-icon>edit</mat-icon> Edit
+          </button>
+          @if (cfg.hasStatus !== false) {
+            @if (isActive()) {
+              <button mat-stroked-button (click)="onToggleStatus()">
+                <mat-icon>block</mat-icon> Inactivate
+              </button>
+            } @else {
+              <button mat-stroked-button (click)="onToggleStatus()">
+                <mat-icon>check_circle</mat-icon> Activate
+              </button>
+            }
+          }
+        </div>
+      }
+    </div>
   </div>
 
   @if (isLoading()) {
     <mat-progress-bar mode="indeterminate" />
   } @else if (record(); as r) {
     <div class="detail-content">
-      @for (group of fieldGroups(); track group.label) {
+      @for (group of fieldGroups(); track group.label; let first = $first) {
         <section class="detail-section" [attr.aria-label]="group.label + ' section'">
           <h3 class="section-title">
-            <mat-icon>{{ getSectionIcon(group.label) }}</mat-icon>
-            {{ group.label }}
+            <mat-icon class="section-icon">{{ getSectionIcon(fieldGroups().length === 1 ? 'General' : group.label) }}</mat-icon>
+            {{ fieldGroups().length === 1 ? 'Summary View' : group.label }}
           </h3>
           <div class="detail-grid">
             @for (field of group.fields; track field.field) {
               <div class="detail-field" [class.colspan-2]="field.colspan === 2">
                 <span class="field-label">{{ field.label }}</span>
-                <span
-                  class="field-value"
-                  [class.empty-value]="r[field.field] === null || r[field.field] === undefined || r[field.field] === ''"
-                >
-                  {{ getDisplayValue(field, r[field.field]) }}
-                </span>
+                @if (field.type === 'boolean') {
+                  <span class="field-value bool-indicator" [class.bool-yes]="r[field.field]" [class.bool-no]="!r[field.field]">
+                    <mat-icon class="bool-icon">{{ r[field.field] ? 'check_circle' : 'cancel' }}</mat-icon>
+                    {{ r[field.field] ? 'Yes' : 'No' }}
+                  </span>
+                } @else if (isEmptyValue(r[field.field]) && isEmptyValue(field.displayField ? r[field.displayField] : undefined)) {
+                  <span class="field-value empty-placeholder">Not set</span>
+                } @else {
+                  <span class="field-value">
+                    {{ getDisplayValue(field, r[field.field]) }}
+                    @if (isCopyableField(field.field) && !isEmptyValue(r[field.field])) {
+                      <button
+                        mat-icon-button
+                        class="copy-btn"
+                        (click)="copyValue(r[field.field])"
+                        matTooltip="Copy to clipboard"
+                        [attr.aria-label]="'Copy ' + field.label + ' value'"
+                      >
+                        <mat-icon>content_copy</mat-icon>
+                      </button>
+                    }
+                  </span>
+                }
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      @if (statusGroup(); as statusFields) {
+        <section class="detail-section status-section" aria-label="Status section">
+          <h3 class="section-title">
+            <mat-icon class="section-icon">toggle_on</mat-icon>
+            Status
+          </h3>
+          <div class="detail-grid">
+            @for (field of statusFields; track field.field) {
+              <div class="detail-field">
+                <span class="field-label">{{ field.label }}</span>
+                <span class="field-value">{{ getDisplayValue(field, r[field.field]) }}</span>
               </div>
             }
           </div>
@@ -137,34 +174,41 @@
         r['version_nbr']
       ) {
         <section class="detail-section audit-section" aria-label="Audit information section">
-          <h3 class="section-title">
-            <mat-icon>history</mat-icon>
+          <h3 class="section-title section-title-toggle"
+              (click)="auditExpanded.set(!auditExpanded())"
+              role="button" tabindex="0"
+              [attr.aria-expanded]="auditExpanded()"
+              (keydown.enter)="auditExpanded.set(!auditExpanded())"
+              (keydown.space)="auditExpanded.set(!auditExpanded()); $event.preventDefault()">
+            <mat-icon class="toggle-chevron" [class.expanded]="auditExpanded()">expand_more</mat-icon>
             Audit Information
           </h3>
-          <div class="detail-grid">
-            <div class="detail-field">
-              <span class="field-label">Created By</span>
-              <span class="field-value">{{ r['create_by_id'] || r['created_by'] || '-' }}</span>
-            </div>
-            <div class="detail-field">
-              <span class="field-label">Created At</span>
-              <span class="field-value">{{ getAuditCreatedAt(r) | date:'medium' }}</span>
-            </div>
-            <div class="detail-field">
-              <span class="field-label">Updated By</span>
-              <span class="field-value">{{ r['update_by_id'] || r['updated_by'] || '-' }}</span>
-            </div>
-            <div class="detail-field">
-              <span class="field-label">Updated At</span>
-              <span class="field-value">{{ getAuditUpdatedAt(r) | date:'medium' }}</span>
-            </div>
-            @if (r['version_nbr']) {
+          @if (auditExpanded()) {
+            <div class="detail-grid">
               <div class="detail-field">
-                <span class="field-label">Version</span>
-                <span class="field-value">{{ r['version_nbr'] }}</span>
+                <span class="field-label">Created By</span>
+                <span class="field-value">{{ r['create_by_id'] || r['created_by'] || '-' }}</span>
               </div>
-            }
-          </div>
+              <div class="detail-field">
+                <span class="field-label">Created At</span>
+                <span class="field-value">{{ getAuditCreatedAt(r) | date:'medium' }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="field-label">Updated By</span>
+                <span class="field-value">{{ r['update_by_id'] || r['updated_by'] || '-' }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="field-label">Updated At</span>
+                <span class="field-value">{{ getAuditUpdatedAt(r) | date:'medium' }}</span>
+              </div>
+              @if (r['version_nbr']) {
+                <div class="detail-field">
+                  <span class="field-label">Version</span>
+                  <span class="field-value">{{ r['version_nbr'] }}</span>
+                </div>
+              }
+            </div>
+          }
         </section>
       }
     </div>
