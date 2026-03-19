@@ -545,6 +545,42 @@ class Sprint07MigrationTests(SimpleTestCase):
         self.assertIn('stock_health_status', executed_sql)
         self.assertNotIn('CREATE TABLE IF NOT EXISTS "tenant_a".uom_repackaging_txn', executed_sql)
 
+    def test_forward_sql_still_runs_warehouse_hierarchy_without_stock_view_relations(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+
+        def relation_exists(_schema_editor, relation):
+            return relation == "warehouse"
+
+        with patch.object(self.migration, "_relation_exists", side_effect=relation_exists):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration._forwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn('ADD COLUMN IF NOT EXISTS parent_warehouse_id', executed_sql)
+        self.assertNotIn('stock_health_status', executed_sql)
+        self.assertNotIn('CREATE TABLE IF NOT EXISTS "tenant_a".uom_repackaging_txn', executed_sql)
+
+    def test_backward_sql_still_drops_warehouse_hierarchy_without_stock_view_relations(self):
+        schema_editor = SimpleNamespace(
+            connection=SimpleNamespace(vendor="postgresql"),
+            execute=MagicMock(),
+        )
+
+        def relation_exists(_schema_editor, relation):
+            return relation == "warehouse"
+
+        with patch.object(self.migration, "_relation_exists", side_effect=relation_exists):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration._backwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn('DROP VIEW IF EXISTS "tenant_a".v_stock_status', executed_sql)
+        self.assertIn('DROP COLUMN IF EXISTS parent_warehouse_id', executed_sql)
+        self.assertNotIn('CREATE VIEW "tenant_a".v_stock_status AS', executed_sql)
+
     def test_relation_exists_checks_schema_and_relation_separately(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = (1,)

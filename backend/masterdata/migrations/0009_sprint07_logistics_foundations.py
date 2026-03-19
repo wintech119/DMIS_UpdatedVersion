@@ -4,7 +4,7 @@ import re
 from django.db import migrations
 
 
-_GENERAL_FORWARD_SQL_TEMPLATE = """
+_WAREHOUSE_FORWARD_SQL_TEMPLATE = """
 ALTER TABLE "{schema}".warehouse
     ADD COLUMN IF NOT EXISTS parent_warehouse_id INTEGER;
 
@@ -25,6 +25,10 @@ ALTER TABLE "{schema}".warehouse
 ALTER TABLE "{schema}".warehouse
     ADD CONSTRAINT c_warehouse_parent_not_self
     CHECK (parent_warehouse_id IS NULL OR parent_warehouse_id <> warehouse_id);
+"""
+
+
+_STOCK_STATUS_FORWARD_SQL_TEMPLATE = """
 
 DROP VIEW IF EXISTS "{schema}".v_stock_status;
 
@@ -189,7 +193,7 @@ EXECUTE FUNCTION "{schema}".fn_prevent_uom_repackaging_audit_mutation();
 """
 
 
-_GENERAL_REVERSE_SQL_TEMPLATE = """
+_WAREHOUSE_REVERSE_SQL_TEMPLATE = """
 DROP VIEW IF EXISTS "{schema}".v_stock_status;
 
 ALTER TABLE "{schema}".warehouse
@@ -202,7 +206,10 @@ DROP INDEX IF EXISTS "{schema}".idx_warehouse_parent_warehouse_id;
 
 ALTER TABLE "{schema}".warehouse
     DROP COLUMN IF EXISTS parent_warehouse_id;
+"""
 
+
+_STOCK_STATUS_REVERSE_SQL_TEMPLATE = """
 CREATE VIEW "{schema}".v_stock_status AS
 SELECT
     w.warehouse_id,
@@ -280,12 +287,15 @@ def _relation_exists(schema_editor, relation: str) -> bool:
 def _forwards(apps, schema_editor):
     if not _is_postgres(schema_editor):
         return
-    general_relations = ("warehouse", "item", "inventory")
+    warehouse_relations = ("warehouse",)
+    stock_status_relations = ("warehouse", "item", "inventory")
     repackaging_relations = ("warehouse", "item", "itembatch", "unitofmeasure")
     sql_parts: list[str] = []
 
-    if all(_relation_exists(schema_editor, relation) for relation in general_relations):
-        sql_parts.append(_GENERAL_FORWARD_SQL_TEMPLATE)
+    if all(_relation_exists(schema_editor, relation) for relation in warehouse_relations):
+        sql_parts.append(_WAREHOUSE_FORWARD_SQL_TEMPLATE)
+    if all(_relation_exists(schema_editor, relation) for relation in stock_status_relations):
+        sql_parts.append(_STOCK_STATUS_FORWARD_SQL_TEMPLATE)
     if all(_relation_exists(schema_editor, relation) for relation in repackaging_relations):
         sql_parts.append(_REPACKAGING_FORWARD_SQL_TEMPLATE)
     if not sql_parts:
@@ -298,10 +308,13 @@ def _forwards(apps, schema_editor):
 def _backwards(apps, schema_editor):
     if not _is_postgres(schema_editor):
         return
-    general_relations = ("warehouse", "item", "inventory")
+    warehouse_relations = ("warehouse",)
+    stock_status_relations = ("warehouse", "item", "inventory")
     sql_parts: list[str] = [_REPACKAGING_REVERSE_SQL_TEMPLATE]
-    if all(_relation_exists(schema_editor, relation) for relation in general_relations):
-        sql_parts.append(_GENERAL_REVERSE_SQL_TEMPLATE)
+    if all(_relation_exists(schema_editor, relation) for relation in warehouse_relations):
+        sql_parts.append(_WAREHOUSE_REVERSE_SQL_TEMPLATE)
+    if all(_relation_exists(schema_editor, relation) for relation in stock_status_relations):
+        sql_parts.append(_STOCK_STATUS_REVERSE_SQL_TEMPLATE)
     if not sql_parts:
         return
 
