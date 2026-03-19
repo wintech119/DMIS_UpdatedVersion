@@ -129,6 +129,52 @@ class RbacResolutionTests(TestCase):
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("replenishment.needs_list.submit", permissions)
 
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value=set(),
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_db_rbac_applies_masterdata_view_compat_for_tst_logistics_manager(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="kemar_tst",
+            roles=["TST_LOGISTICS_MANAGER"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+        self.assertIn("masterdata.view", permissions)
+
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value=set(),
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_db_rbac_applies_masterdata_view_compat_for_tst_readonly(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="sarah_tst",
+            roles=["TST_READONLY"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+        self.assertIn("masterdata.view", permissions)
+
 
 class NeedsListPermissionTests(SimpleTestCase):
     def _build_request(self, method: str, *, authenticated: bool = True) -> SimpleNamespace:
