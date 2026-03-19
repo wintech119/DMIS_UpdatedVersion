@@ -174,22 +174,33 @@ def _prepare_warehouse_write_payload(
         payload["tenant_id"] = existing_tenant_id
         return payload, {}
 
-    _, permissions = resolve_roles_and_permissions(request, request.user)
-    context = resolve_tenant_context(request, request.user, permissions)
-    if context.active_tenant_id is None:
+    context = _tenant_context(request)
+    requested_payload_tenant_id = payload.get("tenant_id")
+    if requested_payload_tenant_id not in (None, "") and _parse_positive_int(requested_payload_tenant_id) is None:
         return payload, {
-            "tenant_id": "Active tenant context is required for warehouse maintenance."
+            "tenant_id": "tenant_id must be a positive integer."
         }
+
+    target_tenant_id = (
+        _parse_positive_int(requested_payload_tenant_id)
+        or getattr(context, "requested_tenant_id", None)
+        or context.active_tenant_id
+    )
+    if target_tenant_id is None:
+        return payload, {
+            "tenant_id": "Tenant context is required for warehouse maintenance."
+        }
+
     if _should_enforce_tenant_scope() and not can_access_tenant(
         context,
-        context.active_tenant_id,
+        target_tenant_id,
         write=True,
     ):
         return payload, {
             "tenant_scope": "You do not have access to create warehouses for this tenant."
         }
 
-    payload["tenant_id"] = context.active_tenant_id
+    payload["tenant_id"] = target_tenant_id
     return payload, {}
 
 

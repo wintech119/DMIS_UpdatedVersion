@@ -1,7 +1,10 @@
 import os
 import re
+import logging
 
 from django.db import migrations
+
+logger = logging.getLogger(__name__)
 
 
 _WAREHOUSE_FORWARD_SQL_TEMPLATE = """
@@ -255,16 +258,11 @@ def _is_postgres(schema_editor) -> bool:
 
 
 def _schema_name(schema_editor) -> str:
-    configured = os.getenv("DMIS_DB_SCHEMA")
-    if configured is not None:
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", configured):
-            raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
-        return configured
-
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute("SELECT current_schema()")
-        row = cursor.fetchone()
-    return row[0] or "public"
+    schema = os.getenv("DMIS_DB_SCHEMA", "public")
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
+        return schema
+    logger.warning("Invalid DMIS_DB_SCHEMA %r, defaulting to public", schema)
+    return "public"
 
 
 def _relation_exists(schema_editor, relation: str) -> bool:

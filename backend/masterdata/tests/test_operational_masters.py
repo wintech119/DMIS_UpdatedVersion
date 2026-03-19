@@ -1,4 +1,5 @@
 import importlib
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -492,7 +493,7 @@ class WarehouseViewDispatchTests(SimpleTestCase):
     @patch("masterdata.views.can_access_tenant", return_value=False)
     @patch(
         "masterdata.views.resolve_tenant_context",
-        return_value=SimpleNamespace(active_tenant_id=2),
+        return_value=SimpleNamespace(requested_tenant_id=None, active_tenant_id=2),
     )
     @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
     def test_prepare_warehouse_write_payload_rejects_cross_tenant_create_without_write_access(
@@ -518,6 +519,94 @@ class WarehouseViewDispatchTests(SimpleTestCase):
             errors["tenant_scope"],
             "You do not have access to create warehouses for this tenant.",
         )
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch("masterdata.views.can_access_tenant", return_value=True)
+    @patch(
+        "masterdata.views.resolve_tenant_context",
+        return_value=SimpleNamespace(requested_tenant_id=9, active_tenant_id=None),
+    )
+    @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
+    def test_prepare_warehouse_write_payload_honors_requested_payload_tenant_on_create(
+        self,
+        _mock_roles,
+        _mock_context,
+        mock_can_access,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/warehouses/",
+            {"warehouse_name": "Renamed", "tenant_id": "9"},
+            format="json",
+        )
+        request.user = self.user
+
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"warehouse_name": "Renamed", "tenant_id": "9"},
+        )
+
+        self.assertEqual(payload["tenant_id"], 9)
+        self.assertEqual(payload["warehouse_name"], "Renamed")
+        self.assertEqual(errors, {})
+        mock_can_access.assert_called_once_with(
+            SimpleNamespace(requested_tenant_id=9, active_tenant_id=None),
+            9,
+            write=True,
+        )
+
+    @patch(
+        "masterdata.views.resolve_tenant_context",
+        return_value=SimpleNamespace(requested_tenant_id=None, active_tenant_id=None),
+    )
+    @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
+    def test_prepare_warehouse_write_payload_rejects_invalid_requested_tenant_id(
+        self,
+        _mock_roles,
+        _mock_context,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/warehouses/",
+            {"warehouse_name": "Renamed", "tenant_id": "abc"},
+            format="json",
+        )
+        request.user = self.user
+
+        payload, errors = views._prepare_warehouse_write_payload(
+            request,
+            {"warehouse_name": "Renamed", "tenant_id": "abc"},
+        )
+
+        self.assertEqual(payload, {"warehouse_name": "Renamed", "tenant_id": "abc"})
+        self.assertEqual(
+            errors["tenant_id"],
+            "tenant_id must be a positive integer.",
+        )
+
+    @patch(
+        "masterdata.views.resolve_tenant_context",
+        return_value=SimpleNamespace(requested_tenant_id=7, active_tenant_id=None),
+    )
+    @patch("masterdata.views.resolve_roles_and_permissions", return_value=([], []))
+    def test_prepare_warehouse_write_payload_uses_requested_context_tenant_when_active_missing(
+        self,
+        _mock_roles,
+        _mock_context,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/warehouses/",
+            {"warehouse_name": "Renamed"},
+            format="json",
+        )
+        request.user = self.user
+
+        with patch("masterdata.views.can_access_tenant", return_value=True):
+            payload, errors = views._prepare_warehouse_write_payload(
+                request,
+                {"warehouse_name": "Renamed"},
+            )
+
+        self.assertEqual(payload["tenant_id"], 7)
+        self.assertEqual(errors, {})
 
 
 class Sprint07MigrationTests(SimpleTestCase):
@@ -615,6 +704,25 @@ class Sprint07MigrationTests(SimpleTestCase):
         executed_sql, params = cursor.execute.call_args.args
         self.assertIn("FROM pg_class c", executed_sql)
         self.assertEqual(params, ["TenantA", "Warehouse"])
+
+    def test_schema_name_defaults_to_public_without_env(self):
+        schema_editor = SimpleNamespace(connection=MagicMock())
+
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("DMIS_DB_SCHEMA", None)
+            schema = self.migration._schema_name(schema_editor)
+
+        self.assertEqual(schema, "public")
+
+    def test_schema_name_defaults_to_public_for_invalid_env(self):
+        schema_editor = SimpleNamespace(connection=MagicMock())
+
+        with patch.object(self.migration.logger, "warning") as mock_warning:
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "invalid-schema"}):
+                schema = self.migration._schema_name(schema_editor)
+
+        self.assertEqual(schema, "public")
+        mock_warning.assert_called_once()
 
     def test_reverse_sql_drops_tables_before_functions_without_trigger_drops(self):
         schema_editor = SimpleNamespace(
