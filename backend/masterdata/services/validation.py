@@ -132,17 +132,22 @@ def _cross_field_validation(
             return existing_record.get(field_name)
         return None
 
+    def _merged_text(field_name: str) -> str:
+        return str(_merged_value(field_name) or "").strip()
+
     # Events: closed_date/reason required when status=C
     if cfg.key == "events":
-        status = data.get("status_code")
+        status = _merged_text("status_code").upper()
+        closed_date = _merged_value("closed_date")
+        reason_desc = _merged_text("reason_desc")
         if status == "C":
-            if not data.get("closed_date"):
+            if not closed_date:
                 errors["closed_date"] = "Closed date is required when closing an event."
-            if not data.get("reason_desc"):
+            if not reason_desc:
                 errors["reason_desc"] = "Reason is required when closing an event."
             # closed_date >= start_date
-            cd = data.get("closed_date")
-            sd = data.get("start_date")
+            cd = closed_date
+            sd = _merged_value("start_date")
             if cd and sd:
                 try:
                     cd_date = cd if isinstance(cd, date) else date.fromisoformat(str(cd))
@@ -152,13 +157,13 @@ def _cross_field_validation(
                 except (ValueError, TypeError):
                     pass
         elif status == "A":
-            if data.get("closed_date"):
+            if closed_date:
                 errors["closed_date"] = "Closed date must be empty for active events."
-            if data.get("reason_desc"):
+            if reason_desc:
                 errors["reason_desc"] = "Reason must be empty for active events."
 
         # start_date not in future
-        sd = data.get("start_date")
+        sd = _merged_value("start_date")
         if sd:
             try:
                 sd_date = sd if isinstance(sd, date) else date.fromisoformat(str(sd))
@@ -169,8 +174,8 @@ def _cross_field_validation(
 
     # Agencies: DISTRIBUTOR requires warehouse, SHELTER must not have warehouse
     if cfg.key == "agencies":
-        agency_type = data.get("agency_type")
-        warehouse_id = data.get("warehouse_id")
+        agency_type = _merged_text("agency_type").upper()
+        warehouse_id = _merged_value("warehouse_id")
         if agency_type == "DISTRIBUTOR" and not warehouse_id:
             errors["warehouse_id"] = "Warehouse is required for DISTRIBUTOR agencies."
         if agency_type == "SHELTER" and warehouse_id:
@@ -181,7 +186,7 @@ def _cross_field_validation(
         status = str(_merged_value("status_code") or "").strip().upper()
         warehouse_type = str(_merged_value("warehouse_type") or "").strip().upper()
         parent_warehouse_id = _merged_value("parent_warehouse_id")
-        reason_desc = _merged_value("reason_desc")
+        reason_desc = _merged_text("reason_desc")
         if status == "I" and not reason_desc:
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
         if status == "A" and reason_desc:

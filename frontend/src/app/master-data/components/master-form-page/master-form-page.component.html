@@ -9,7 +9,7 @@
       </button>
       <div class="header-text">
         <nav class="header-breadcrumb" aria-label="Breadcrumb">
-          <a (click)="onCancel()" (keydown.enter)="onCancel()" tabindex="0">{{ cfg.displayName }}</a>
+          <button type="button" class="breadcrumb-link" (click)="onCancel()">{{ cfg.displayName }}</button>
           <mat-icon class="breadcrumb-separator" aria-hidden="true">chevron_right</mat-icon>
           <span aria-current="page">{{ isEdit() ? 'Edit' : 'Create' }}</span>
         </nav>
@@ -203,6 +203,131 @@
                             @if (lookupErrors()[field.lookupTable!]) {
                               <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
                             }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('boolean') {
+                          <div>
+                            <div class="toggle-row">
+                              <div class="toggle-row__text">
+                                <span class="toggle-row__label" [id]="field.field + '-label'">
+                                  {{ getRenderedFieldLabel(field) }}
+                                </span>
+                                @if (field.hint) {
+                                  <span class="toggle-row__hint" [id]="field.field + '-hint'">{{ field.hint }}</span>
+                                }
+                              </div>
+                              <mat-slide-toggle
+                                [formControlName]="field.field"
+                                [attr.aria-labelledby]="field.field + '-label'"
+                                [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                              </mat-slide-toggle>
+                            </div>
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </div>
+                        }
+
+                        @case ('date') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            <mat-datepicker-toggle matIconSuffix [for]="picker"></mat-datepicker-toggle>
+                            <mat-datepicker #picker></mat-datepicker>
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('email') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-icon matPrefix>email</mat-icon>
+                            <input matInput type="email" [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('email')) {
+                              <mat-error role="alert">Enter a valid email address</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('phone') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-icon matPrefix>phone</mat-icon>
+                            <input matInput type="tel" [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              placeholder="+1 (XXX) XXX-XXXX"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('pattern')) {
+                              <mat-error role="alert">{{ field.patternMessage || 'Invalid phone format' }}</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('number') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <input matInput type="number" [formControlName]="field.field"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button
+                                mat-icon-button
+                                matSuffix
+                                type="button"
+                                class="field-help-button"
+                                [matTooltip]="fieldTooltip"
+                                [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
                             @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
                               <mat-error role="alert">{{ field.label }} is required</mat-error>
                             }

@@ -108,7 +108,7 @@ class DataAccessErrorWarningTests(SimpleTestCase):
 
     @patch("masterdata.services.data_access._execute_create_insert", return_value=11)
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
-    def test_create_record_ignores_readonly_fields_on_insert(
+    def test_create_record_preserves_warehouse_tenant_id_on_insert(
         self,
         _mock_sqlite,
         mock_execute_insert,
@@ -125,8 +125,8 @@ class DataAccessErrorWarningTests(SimpleTestCase):
 
         self.assertEqual(pk_val, 11)
         self.assertEqual(warnings, [])
-        self.assertNotIn("tenant_id", mock_execute_insert.call_args.args[2])
-        self.assertNotIn(99, mock_execute_insert.call_args.args[4])
+        self.assertIn("tenant_id", mock_execute_insert.call_args.args[2])
+        self.assertIn(99, mock_execute_insert.call_args.args[4])
 
 
 class IFRCMeasureNormalizationTests(SimpleTestCase):
@@ -267,6 +267,86 @@ class WarehouseCrossFieldValidationTests(SimpleTestCase):
         self.assertEqual(
             errors.get("parent_warehouse_id"),
             "MAIN-HUB warehouses cannot have a Parent Warehouse.",
+        )
+
+    def test_inactive_warehouse_patch_treats_blank_reason_as_missing(self):
+        cfg = TABLE_REGISTRY["warehouses"]
+        errors = _cross_field_validation(
+            cfg,
+            {"warehouse_name": "Renamed"},
+            is_update=True,
+            existing_record={
+                "warehouse_type": "MAIN-HUB",
+                "parent_warehouse_id": None,
+                "status_code": "I",
+                "reason_desc": "   ",
+            },
+        )
+
+        self.assertEqual(
+            errors.get("reason_desc"),
+            "Reason is required when inactivating a warehouse.",
+        )
+
+
+class AgencyCrossFieldValidationTests(SimpleTestCase):
+    def test_distributor_patch_requires_existing_warehouse_from_merged_state(self):
+        cfg = TABLE_REGISTRY["agencies"]
+        errors = _cross_field_validation(
+            cfg,
+            {"agency_name": "Renamed"},
+            is_update=True,
+            existing_record={
+                "agency_type": "DISTRIBUTOR",
+                "warehouse_id": None,
+            },
+        )
+
+        self.assertEqual(
+            errors.get("warehouse_id"),
+            "Warehouse is required for DISTRIBUTOR agencies.",
+        )
+
+    def test_shelter_patch_rejects_existing_warehouse_from_merged_state(self):
+        cfg = TABLE_REGISTRY["agencies"]
+        errors = _cross_field_validation(
+            cfg,
+            {"agency_name": "Renamed"},
+            is_update=True,
+            existing_record={
+                "agency_type": "SHELTER",
+                "warehouse_id": 7,
+            },
+        )
+
+        self.assertEqual(
+            errors.get("warehouse_id"),
+            "SHELTER agencies cannot have a warehouse.",
+        )
+
+
+class EventCrossFieldValidationTests(SimpleTestCase):
+    def test_active_event_patch_rejects_existing_close_fields_from_merged_state(self):
+        cfg = TABLE_REGISTRY["events"]
+        errors = _cross_field_validation(
+            cfg,
+            {"event_name": "Updated"},
+            is_update=True,
+            existing_record={
+                "status_code": "A",
+                "closed_date": "2026-03-01",
+                "reason_desc": "Completed",
+                "start_date": "2026-02-01",
+            },
+        )
+
+        self.assertEqual(
+            errors.get("closed_date"),
+            "Closed date must be empty for active events.",
+        )
+        self.assertEqual(
+            errors.get("reason_desc"),
+            "Reason must be empty for active events.",
         )
 
     def test_can_expire_without_issuance_does_not_override_required_message(self):

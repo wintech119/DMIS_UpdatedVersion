@@ -1270,7 +1270,10 @@ def create_record(
     values: list[Any] = []
 
     for fd in cfg.data_fields:
-        if fd.auto_pk or fd.readonly:
+        allow_server_assigned_readonly = (
+            table_key == "warehouses" and fd.name == "tenant_id"
+        )
+        if fd.auto_pk or (fd.readonly and not allow_server_assigned_readonly):
             continue
         if fd.name in data:
             val = _normalize_field_value(fd, data[fd.name])

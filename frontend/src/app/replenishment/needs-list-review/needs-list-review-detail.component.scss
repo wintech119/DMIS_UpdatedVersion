@@ -809,6 +809,12 @@
   50% { box-shadow: 0 0 0 6px rgba(46, 125, 50, 0); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .approve-btn.approve-pulse {
+    animation: none;
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
 // Responsive
 // ══════════════════════════════════════════════════════════════════
