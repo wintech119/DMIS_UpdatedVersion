@@ -6,6 +6,7 @@ import { MatDialog } from '@angular/material/dialog';
 
 import { MasterFormPageComponent } from './master-form-page.component';
 import { MasterDataService } from '../../services/master-data.service';
+import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
@@ -1614,6 +1615,29 @@ describe('MasterFormPageComponent', () => {
     internalComponent.maybePromptGovernedEditWarning();
 
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references']);
+  });
+
+  it('skips the governed edit warning dialog once after the detail-page gate is confirmed', () => {
+    const { component } = setup('ifrc-item-references', { pk: '77' });
+    const dialogOpen = jasmine.createSpy('open');
+    const editGate = TestBed.inject(MasterEditGateService);
+    const internalComponent = component as unknown as {
+      dialog: { open: typeof dialogOpen };
+      promptedGovernedEditWarning: boolean;
+      maybePromptGovernedEditWarning: () => void;
+    };
+
+    editGate.markDetailEditGatePassed();
+    internalComponent.dialog = { open: dialogOpen };
+    component.isEdit.set(true);
+    component.catalogEditGuidance.set(
+      buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
+    );
+    internalComponent.promptedGovernedEditWarning = false;
+
+    internalComponent.maybePromptGovernedEditWarning();
+
+    expect(dialogOpen).not.toHaveBeenCalled();
   });
 
   it('applies suggested IFRC family values during governed family creation', () => {

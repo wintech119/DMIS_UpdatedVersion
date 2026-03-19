@@ -19,6 +19,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MasterFieldConfig, MasterRecord, MasterTableConfig } from '../../models/master-data.models';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
+import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
@@ -84,6 +85,7 @@ export class MasterDetailPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private service = inject(MasterDataService);
+  private editGate = inject(MasterEditGateService);
   private replenishmentService = inject(ReplenishmentService);
   private notify = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
@@ -145,10 +147,16 @@ export class MasterDetailPageComponent implements OnInit {
   readonly statusGroup = computed(() => {
     const cfg = this.config();
     if (!cfg || cfg.hasStatus === false) return null;
-    const statusFields = cfg.formFields.filter(f =>
-      f.field === (cfg.statusField || 'status_code') ||
-      (f.group === 'Status' && f.type === 'select')
-    );
+    const includedFields = new Set<string>();
+    const statusFieldName = cfg.statusField || 'status_code';
+    const statusFields = cfg.formFields.filter((field) => {
+      const shouldInclude = field.group === 'Status' || field.field === statusFieldName;
+      if (!shouldInclude || includedFields.has(field.field)) {
+        return false;
+      }
+      includedFields.add(field.field);
+      return true;
+    });
     if (statusFields.length === 0) return null;
     return statusFields;
   });
@@ -247,6 +255,7 @@ export class MasterDetailPageComponent implements OnInit {
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(confirmed => {
       if (confirmed) {
+        this.editGate.markDetailEditGatePassed();
         this.router.navigate(['/master-data', cfg.routePath, this.pk(), 'edit']);
       }
     });
