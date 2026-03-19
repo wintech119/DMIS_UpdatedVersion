@@ -125,17 +125,29 @@ def _cross_field_validation(
     """Business rules that span multiple fields."""
     errors: Dict[str, str] = {}
 
+    def _merged_value(field_name: str):
+        if field_name in data:
+            return data.get(field_name)
+        if is_update and existing_record is not None:
+            return existing_record.get(field_name)
+        return None
+
+    def _merged_text(field_name: str) -> str:
+        return str(_merged_value(field_name) or "").strip()
+
     # Events: closed_date/reason required when status=C
     if cfg.key == "events":
-        status = data.get("status_code")
+        status = _merged_text("status_code").upper()
+        closed_date = _merged_value("closed_date")
+        reason_desc = _merged_text("reason_desc")
         if status == "C":
-            if not data.get("closed_date"):
+            if not closed_date:
                 errors["closed_date"] = "Closed date is required when closing an event."
-            if not data.get("reason_desc"):
+            if not reason_desc:
                 errors["reason_desc"] = "Reason is required when closing an event."
             # closed_date >= start_date
-            cd = data.get("closed_date")
-            sd = data.get("start_date")
+            cd = closed_date
+            sd = _merged_value("start_date")
             if cd and sd:
                 try:
                     cd_date = cd if isinstance(cd, date) else date.fromisoformat(str(cd))
@@ -145,13 +157,13 @@ def _cross_field_validation(
                 except (ValueError, TypeError):
                     pass
         elif status == "A":
-            if data.get("closed_date"):
+            if closed_date:
                 errors["closed_date"] = "Closed date must be empty for active events."
-            if data.get("reason_desc"):
+            if reason_desc:
                 errors["reason_desc"] = "Reason must be empty for active events."
 
         # start_date not in future
-        sd = data.get("start_date")
+        sd = _merged_value("start_date")
         if sd:
             try:
                 sd_date = sd if isinstance(sd, date) else date.fromisoformat(str(sd))
@@ -162,8 +174,8 @@ def _cross_field_validation(
 
     # Agencies: DISTRIBUTOR requires warehouse, SHELTER must not have warehouse
     if cfg.key == "agencies":
-        agency_type = data.get("agency_type")
-        warehouse_id = data.get("warehouse_id")
+        agency_type = _merged_text("agency_type").upper()
+        warehouse_id = _merged_text("warehouse_id")
         if agency_type == "DISTRIBUTOR" and not warehouse_id:
             errors["warehouse_id"] = "Warehouse is required for DISTRIBUTOR agencies."
         if agency_type == "SHELTER" and warehouse_id:
@@ -171,23 +183,26 @@ def _cross_field_validation(
 
     # Warehouses: reason required when status=I
     if cfg.key == "warehouses":
-        status = data.get("status_code")
-        if status == "I" and not data.get("reason_desc"):
+        status = str(_merged_value("status_code") or "").strip().upper()
+        warehouse_type = str(_merged_value("warehouse_type") or "").strip().upper()
+        current_warehouse_id = _merged_text("warehouse_id")
+        parent_warehouse_id = _merged_text("parent_warehouse_id")
+        reason_desc = _merged_text("reason_desc")
+        if status == "I" and not reason_desc:
             errors["reason_desc"] = "Reason is required when inactivating a warehouse."
-        if status == "A" and data.get("reason_desc"):
+        if status == "A" and reason_desc:
             errors["reason_desc"] = "Reason must be empty for active warehouses."
+        if warehouse_type == "SUB-HUB" and not parent_warehouse_id:
+            errors["parent_warehouse_id"] = "Parent Warehouse is required for SUB-HUB warehouses."
+        if warehouse_type == "MAIN-HUB" and parent_warehouse_id:
+            errors["parent_warehouse_id"] = "MAIN-HUB warehouses cannot have a Parent Warehouse."
+        if current_warehouse_id and parent_warehouse_id == current_warehouse_id:
+            errors["parent_warehouse_id"] = "A warehouse cannot be its own parent."
 
     # Items: FEFO/perishable validation is bidirectional.
     if cfg.key == "items":
-        def _merged_item_value(field_name: str):
-            if field_name in data:
-                return data.get(field_name)
-            if is_update and existing_record is not None:
-                return existing_record.get(field_name)
-            return None
-
-        issuance_order = str(_merged_item_value("issuance_order") or "").upper().strip()
-        can_expire = _merged_item_value("can_expire_flag")
+        issuance_order = str(_merged_value("issuance_order") or "").upper().strip()
+        can_expire = _merged_value("can_expire_flag")
         if issuance_order == "FEFO" and can_expire is not True:
             errors["can_expire_flag"] = (
                 "Can Expire must be enabled when Issuance Order is FEFO."

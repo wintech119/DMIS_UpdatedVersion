@@ -19,6 +19,13 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
+from api.rbac import resolve_roles_and_permissions
+from api.tenancy import (
+    can_access_tenant,
+    can_access_warehouse,
+    resolve_tenant_context,
+    tenant_context_to_dict,
+)
 from masterdata.ifrc_code_agent import (
     IFRCCodeSuggestion,
     IFRCAgent,
@@ -75,6 +82,12 @@ from masterdata.services.item_master import (
     update_item_record,
     validate_item_payload,
 )
+from masterdata.services.operational_masters import (
+    get_warehouse_record,
+    list_stock_health_records,
+    list_warehouse_records,
+    validate_operational_master_payload,
+)
 from masterdata.services.validation import validate_record
 
 logger = logging.getLogger(__name__)
@@ -93,6 +106,14 @@ _DIMENSION_MEASURE_RE = re.compile(r"^(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)\s*(M2|FT)$
 
 def _actor_id(request) -> str:
     return str(getattr(request.user, "user_id", "system"))
+
+
+def _parse_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _validate_table_key(table_key: str):
@@ -131,6 +152,102 @@ def _item_conflict_response(conflict: dict[str, Any]):
             },
         },
         status=409,
+    )
+
+
+def _prepare_warehouse_write_payload(
+    request,
+    data: dict[str, Any],
+    *,
+    existing_record: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    payload = dict(data)
+    existing_tenant_id = existing_record.get("tenant_id") if existing_record else None
+    if existing_tenant_id not in (None, ""):
+        if _should_enforce_tenant_scope():
+            warehouse_id = existing_record.get("warehouse_id") if existing_record else None
+            context = _tenant_context(request)
+            if not can_access_warehouse(context, _parse_positive_int(warehouse_id), write=True):
+                return payload, {
+                    "tenant_scope": "You do not have access to modify this warehouse."
+                }
+        payload["tenant_id"] = existing_tenant_id
+        return payload, {}
+
+    context = _tenant_context(request)
+    requested_payload_tenant_id = payload.get("tenant_id")
+    if requested_payload_tenant_id not in (None, "") and _parse_positive_int(requested_payload_tenant_id) is None:
+        return payload, {
+            "tenant_id": "tenant_id must be a positive integer."
+        }
+
+    target_tenant_id = (
+        _parse_positive_int(requested_payload_tenant_id)
+        or getattr(context, "requested_tenant_id", None)
+        or context.active_tenant_id
+    )
+    if target_tenant_id is None:
+        return payload, {
+            "tenant_id": "Tenant context is required for warehouse maintenance."
+        }
+
+    if _should_enforce_tenant_scope() and not can_access_tenant(
+        context,
+        target_tenant_id,
+        write=True,
+    ):
+        return payload, {
+            "tenant_scope": "You do not have access to create warehouses for this tenant."
+        }
+
+    payload["tenant_id"] = target_tenant_id
+    return payload, {}
+
+
+def _tenant_context(request):
+    cached = getattr(request, "_tenant_context_cache", None)
+    if cached is not None:
+        return cached
+    _, permissions = resolve_roles_and_permissions(request, request.user)
+    context = resolve_tenant_context(request, request.user, permissions)
+    request._tenant_context_cache = context
+    return context
+
+
+def _should_enforce_tenant_scope() -> bool:
+    return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
+
+
+def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: bool) -> Response:
+    context = _tenant_context(request)
+    details: dict[str, Any] = {
+        "message": "Access denied for tenant scope.",
+        "write": bool(write),
+        "tenant_context": tenant_context_to_dict(context),
+    }
+    if warehouse_id is not None:
+        details["warehouse_id"] = warehouse_id
+    return Response({"errors": {"tenant_scope": details}}, status=403)
+
+
+def _require_warehouse_scope(
+    request,
+    warehouse_id: Any,
+    *,
+    write: bool = False,
+) -> Response | None:
+    if not _should_enforce_tenant_scope():
+        return None
+    parsed_warehouse_id = _parse_positive_int(warehouse_id)
+    if parsed_warehouse_id is None:
+        return None
+    context = _tenant_context(request)
+    if can_access_warehouse(context, parsed_warehouse_id, write=write):
+        return None
+    return _tenant_scope_denied_response(
+        request,
+        warehouse_id=parsed_warehouse_id,
+        write=write,
     )
 
 
@@ -969,6 +1086,8 @@ master_list_create.required_permission = {
 def _handle_list(request, cfg):
     if cfg.key == "items":
         return _handle_item_list(request)
+    if cfg.key == "warehouses":
+        return _handle_warehouse_list(request)
 
     status_filter = request.query_params.get("status")
     search = request.query_params.get("search")
@@ -997,12 +1116,58 @@ def _handle_list(request, cfg):
     })
 
 
+def _handle_warehouse_list(request):
+    status_filter = request.query_params.get("status")
+    search = request.query_params.get("search")
+    order_by = request.query_params.get("order_by")
+    try:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
+        offset = max(int(request.query_params.get("offset", 0)), 0)
+    except (ValueError, TypeError):
+        limit, offset = DEFAULT_PAGE_LIMIT, 0
+
+    rows, total, warnings = list_warehouse_records(
+        status_filter=status_filter,
+        search=search,
+        order_by=order_by,
+        limit=limit,
+        offset=offset,
+    )
+    return Response({
+        "results": rows,
+        "count": total,
+        "limit": limit,
+        "offset": offset,
+        "warnings": warnings,
+    })
+
+
 def _handle_create(request, cfg):
     if cfg.key == "items":
         return _handle_item_create(request, cfg)
 
-    data = request.data or {}
+    data = dict(request.data or {})
+    if cfg.key == "warehouses":
+        data, tenant_errors = _prepare_warehouse_write_payload(request, data)
+        if tenant_errors:
+            return Response({"errors": tenant_errors}, status=400)
+
     errors = validate_record(cfg, data, is_update=False)
+    extra_errors, validation_warnings = validate_operational_master_payload(
+        cfg.key,
+        data,
+        is_update=False,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate operational master data.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
     if errors:
         return Response({"errors": errors}, status=400)
 
@@ -1033,7 +1198,10 @@ def _handle_create(request, cfg):
             detail="Failed to create record.",
         )
 
-    record, read_warnings = get_record(cfg.key, pk_val)
+    if cfg.key == "warehouses":
+        record, read_warnings = get_warehouse_record(pk_val)
+    else:
+        record, read_warnings = get_record(cfg.key, pk_val)
     warnings.extend(read_warnings)
     if record is None:
         return _status_change_readback_failure_response(
@@ -1231,6 +1399,37 @@ def _handle_detail(cfg, pk_value):
                 )
             return Response({"detail": "Not found."}, status=404)
         return Response({"record": record, "warnings": warnings})
+    if cfg.key == "warehouses":
+        record, warnings = get_warehouse_record(pk_value)
+        if record is None:
+            transient_warning = next(
+                (
+                    warning
+                    for warning in warnings
+                    if warning == "db_unavailable" or warning.startswith("transient")
+                ),
+                None,
+            )
+            if transient_warning is not None:
+                return Response(
+                    {
+                        "detail": "Warehouse detail lookup is temporarily unavailable.",
+                        "diagnostic": (
+                            "get_warehouse_record returned no record and a transient read warning "
+                            "while loading warehouse detail: "
+                            f"{transient_warning}"
+                        ),
+                        "warnings": warnings,
+                    },
+                    status=503,
+                )
+            if "db_error" in warnings:
+                return Response(
+                    {"detail": "Failed to load warehouse detail.", "warnings": warnings},
+                    status=500,
+                )
+            return Response({"detail": "Not found."}, status=404)
+        return Response({"record": record, "warnings": warnings})
 
     record, warnings = get_record(cfg.key, pk_value)
     if record is None:
@@ -1244,7 +1443,7 @@ def _handle_update(request, cfg, pk_value):
     if cfg.key == "items":
         return _handle_item_update(request, cfg, pk_value)
 
-    data = request.data or {}
+    data = dict(request.data or {})
     expected_version = data.pop("version_nbr", None)
     if expected_version is not None:
         try:
@@ -1253,15 +1452,23 @@ def _handle_update(request, cfg, pk_value):
             expected_version = None
 
     existing_record = None
-    if is_governed_catalog_table(cfg.key):
+    if is_governed_catalog_table(cfg.key) or cfg.key in {"warehouses", "agencies"}:
         existing_record, read_warnings = get_record(cfg.key, pk_value)
         if existing_record is None:
             if "db_error" in read_warnings:
                 return Response(
                     {"detail": "Failed to load record for validation.", "warnings": read_warnings},
                     status=500,
-                )
+            )
             return Response({"detail": "Not found."}, status=404)
+    if cfg.key == "warehouses":
+        data, tenant_errors = _prepare_warehouse_write_payload(
+            request,
+            data,
+            existing_record=existing_record,
+        )
+        if tenant_errors:
+            return Response({"errors": tenant_errors}, status=400)
 
     errors = validate_record(
         cfg,
@@ -1270,6 +1477,22 @@ def _handle_update(request, cfg, pk_value):
         current_pk=pk_value,
         existing_record=existing_record,
     )
+    extra_errors, validation_warnings = validate_operational_master_payload(
+        cfg.key,
+        data,
+        is_update=True,
+        existing_record=existing_record,
+        current_pk=pk_value,
+    )
+    errors.update(extra_errors)
+    if validation_warnings:
+        return Response(
+            {
+                "detail": "Failed to validate operational master data.",
+                "warnings": validation_warnings,
+            },
+            status=500,
+        )
     if existing_record is not None:
         locked_errors, locked_warnings = validate_catalog_update(cfg.key, data, existing_record)
         errors.update(locked_errors)
@@ -1307,7 +1530,10 @@ def _handle_update(request, cfg, pk_value):
             return Response({"detail": "Not found."}, status=404)
         return Response({"detail": "Update failed.", "warnings": warnings}, status=500)
 
-    record, read_warnings = get_record(cfg.key, pk_value)
+    if cfg.key == "warehouses":
+        record, read_warnings = get_warehouse_record(pk_value)
+    else:
+        record, read_warnings = get_record(cfg.key, pk_value)
     warnings.extend(read_warnings)
     if record is None:
         return _status_change_readback_failure_response(
@@ -1325,6 +1551,124 @@ def _handle_update(request, cfg, pk_value):
     payload = {"record": record, "warnings": warnings}
     payload.update(catalog_detail_metadata(cfg.key))
     return Response(payload)
+
+
+def _stock_health_error_response(warnings: list[str]):
+    if "db_error" in warnings:
+        return Response(
+            {"detail": "Failed to load stock health.", "warnings": warnings},
+            status=500,
+        )
+    if "db_unavailable" in warnings:
+        return Response(
+            {"detail": "Stock health is unavailable in this environment.", "warnings": warnings},
+            status=503,
+        )
+    return None
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def warehouse_stock_health(request):
+    warehouse_id = request.query_params.get("warehouse_id")
+    if warehouse_id not in (None, "") and _parse_positive_int(warehouse_id) is None:
+        return Response({"errors": {"warehouse_id": "warehouse_id must be a positive integer."}}, status=400)
+    if _should_enforce_tenant_scope() and warehouse_id in (None, ""):
+        return Response(
+            {
+                "errors": {
+                    "warehouse_id": (
+                        "warehouse_id is required when tenant scope enforcement is enabled."
+                    )
+                }
+            },
+            status=400,
+        )
+    scope_error = _require_warehouse_scope(
+        request,
+        warehouse_id,
+        write=False,
+    )
+    if scope_error is not None:
+        return scope_error
+    try:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
+        offset = max(int(request.query_params.get("offset", 0)), 0)
+    except (ValueError, TypeError):
+        limit, offset = DEFAULT_PAGE_LIMIT, 0
+
+    rows, total, warnings = list_stock_health_records(
+        warehouse_id=warehouse_id,
+        item_id=request.query_params.get("item_id"),
+        health_status=(
+            request.query_params.get("health_status")
+            or request.query_params.get("stock_health_status")
+        ),
+        order_by=request.query_params.get("order_by"),
+        limit=limit,
+        offset=offset,
+    )
+    error_response = _stock_health_error_response(warnings)
+    if error_response is not None:
+        return error_response
+    return Response(
+        {
+            "results": rows,
+            "count": total,
+            "limit": limit,
+            "offset": offset,
+            "warnings": warnings,
+        }
+    )
+
+
+warehouse_stock_health.required_permission = PERM_MASTERDATA_VIEW
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([MasterDataPermission])
+def warehouse_stock_health_detail(request, pk: str):
+    if _parse_positive_int(pk) is None:
+        return Response({"errors": {"warehouse_id": "warehouse_id must be a positive integer."}}, status=400)
+    scope_error = _require_warehouse_scope(request, pk, write=False)
+    if scope_error is not None:
+        return scope_error
+    try:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
+        limit = max(MIN_PAGE_LIMIT, min(limit, MAX_PAGE_LIMIT))
+        offset = max(int(request.query_params.get("offset", 0)), 0)
+    except (ValueError, TypeError):
+        limit, offset = DEFAULT_PAGE_LIMIT, 0
+    rows, total, warnings = list_stock_health_records(
+        warehouse_id=pk,
+        item_id=request.query_params.get("item_id"),
+        health_status=(
+            request.query_params.get("health_status")
+            or request.query_params.get("stock_health_status")
+        ),
+        order_by=request.query_params.get("order_by"),
+        limit=limit,
+        offset=offset,
+    )
+    error_response = _stock_health_error_response(warnings)
+    if error_response is not None:
+        return error_response
+    return Response(
+        {
+            "warehouse_id": int(pk) if str(pk).isdigit() else pk,
+            "results": rows,
+            "count": total,
+            "limit": limit,
+            "offset": offset,
+            "warnings": warnings,
+        }
+    )
+
+
+warehouse_stock_health_detail.required_permission = PERM_MASTERDATA_VIEW
 
 
 def _handle_item_update(request, cfg, pk_value):
@@ -1940,6 +2284,8 @@ for _view in (
     item_level1_category_lookup,
     item_ifrc_family_lookup,
     item_ifrc_reference_lookup,
+    warehouse_stock_health,
+    warehouse_stock_health_detail,
     ifrc_family_suggest,
     ifrc_item_reference_suggest,
     ifrc_family_replacement,

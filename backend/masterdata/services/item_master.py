@@ -522,6 +522,9 @@ def validate_item_payload(
     parsed_category_id = parse_numeric_identifier(category_id, "category_id")
     parsed_family_id = parse_numeric_identifier(family_id, "ifrc_family_id")
     parsed_reference_id = parse_numeric_identifier(reference_id, "ifrc_item_ref_id")
+    draft_legacy_code = _normalize_item_code(
+        _merged_value(data, existing_record, "legacy_item_code")
+    ) or _normalize_item_code(data.get("item_code"))
     default_uom_code = str(
         _merged_value(data, existing_record, "default_uom_code") or ""
     ).strip().upper()
@@ -566,10 +569,20 @@ def validate_item_payload(
     reference_selection_changed = not _same_identifier(existing_reference_id, reference_id)
 
     if not is_update:
-        if family_id in (None, ""):
-            errors["ifrc_family_id"] = "IFRC Family is required for new items."
-        if reference_id in (None, ""):
-            errors["ifrc_item_ref_id"] = "IFRC Item Reference is required for new items."
+        if family_id in (None, "") and reference_id in (None, ""):
+            if not draft_legacy_code:
+                errors["legacy_item_code"] = (
+                    "Local Item Code is required when saving a local draft without IFRC mapping."
+                )
+        else:
+            if family_id in (None, ""):
+                errors["ifrc_family_id"] = (
+                    "IFRC Family is required when selecting an IFRC Item Reference."
+                )
+            if reference_id in (None, ""):
+                errors["ifrc_item_ref_id"] = (
+                    "IFRC Item Reference is required for governed-mapped items."
+                )
     elif existing_reference_id not in (None, ""):
         if family_id in (None, ""):
             errors["ifrc_family_id"] = "Mapped items must retain an IFRC Family."
@@ -842,7 +855,12 @@ def _build_item_write_payload(
     schema = _schema_name()
     base_data = _item_column_payload(data)
     base_data.pop("item_code", None)
-    base_data.pop("legacy_item_code", None)
+    provided_legacy_code = _normalize_item_code(data.get("legacy_item_code"))
+    provided_item_code = _normalize_item_code(data.get("item_code"))
+    if provided_legacy_code:
+        base_data["legacy_item_code"] = provided_legacy_code
+    elif not is_update and provided_item_code:
+        base_data["legacy_item_code"] = provided_item_code
 
     merged_reference_id = _merged_value(data, existing_record, "ifrc_item_ref_id")
     reference_row = (
@@ -862,7 +880,6 @@ def _build_item_write_payload(
     existing_legacy_code = _normalize_item_code(
         existing_record.get("legacy_item_code") if existing_record else None
     )
-    provided_item_code = _normalize_item_code(data.get("item_code"))
 
     if existing_legacy_code:
         base_data["legacy_item_code"] = existing_legacy_code

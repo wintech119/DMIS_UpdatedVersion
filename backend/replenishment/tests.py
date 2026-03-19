@@ -4,12 +4,13 @@ import uuid
 from pathlib import Path
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, connection, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from api.rbac import (
     PERM_CRITICALITY_HAZARD_APPROVE,
@@ -32,6 +33,32 @@ from replenishment.services.needs_list import (
     compute_inbound_strict,
     compute_time_to_stockout_hours,
 )
+
+
+class RepackagingDetailScopeTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = APIRequestFactory()
+        self.user = SimpleNamespace(is_authenticated=True, user_id="planner", roles=[])
+
+    @patch("replenishment.views._require_warehouse_scope", return_value=object())
+    @patch(
+        "replenishment.views.repackaging_service.get_repackaging_transaction",
+        return_value=({"repackaging_id": 7, "warehouse_id": 2}, []),
+    )
+    @patch("api.permissions.resolve_roles_and_permissions", return_value=([], [views.PERM_MASTERDATA_VIEW]))
+    def test_detail_returns_404_when_record_is_out_of_scope(
+        self,
+        _mock_roles,
+        _mock_get_detail,
+        _mock_scope,
+    ) -> None:
+        request = self.factory.get("/api/v1/replenishment/repackaging/7/")
+        force_authenticate(request, user=self.user)
+
+        response = views.inventory_repackaging_detail(request, 7)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["detail"], "Not found.")
 
 
 

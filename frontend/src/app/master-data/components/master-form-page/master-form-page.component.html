@@ -8,9 +8,16 @@
         <mat-icon>arrow_back</mat-icon>
       </button>
       <div class="header-text">
-        <h2>{{ isEdit() ? 'Edit' : 'New' }} {{ cfg.displayName }}</h2>
+        <nav class="header-breadcrumb" aria-label="Breadcrumb">
+          <button type="button" class="breadcrumb-link" (click)="onCancel()">{{ cfg.displayName }}</button>
+          <mat-icon class="breadcrumb-separator" aria-hidden="true">chevron_right</mat-icon>
+          <span aria-current="page">{{ isEdit() ? 'Edit' : 'Create' }}</span>
+        </nav>
+        <h2>{{ isEdit() ? 'Edit' : 'Create' }} {{ cfg.displayName }}</h2>
         @if (isEdit()) {
           <span class="header-subtitle">Update the fields below and save your changes</span>
+        } @else {
+          <span class="header-subtitle">Fill in the details below to create a new record</span>
         }
       </div>
     </div>
@@ -24,7 +31,7 @@
             <mat-icon aria-hidden="true">error</mat-icon>
             <div class="form-submit-alert__content">
               <p class="form-submit-alert__title">{{ message }}</p>
-              @if (submissionErrorDetails().length > 0) {
+              @if (submissionErrorDetails().length) {
                 <ul class="form-submit-alert__details">
                   @for (detail of submissionErrorDetails(); track detail) {
                     <li>{{ detail }}</li>
@@ -70,168 +77,330 @@
         }
 
         @if (cfg.formDescription) {
-          <section class="form-section form-intro-section" aria-label="Form guidance">
-            <p class="section-description form-intro-section__text">{{ cfg.formDescription }}</p>
-          </section>
-        }
-
-        @if (isGovernedCatalogAuthoringTable()) {
-          <section class="form-section catalog-governance-section" aria-label="Auto-fill and code management tools">
-            <h3 class="section-title catalog-governance__toggle"
-              role="button"
-              tabindex="0"
-              [attr.aria-expanded]="catalogToolsExpanded()"
-              (click)="catalogToolsExpanded.set(!catalogToolsExpanded())"
-              (keydown.enter)="catalogToolsExpanded.set(!catalogToolsExpanded())"
-              (keydown.space)="$event.preventDefault(); catalogToolsExpanded.set(!catalogToolsExpanded())">
-              <mat-icon aria-hidden="true">auto_awesome</mat-icon>
-              Auto-Fill &amp; Code Tools
-              <mat-icon class="catalog-governance__chevron" aria-hidden="true"
-                [class.is-expanded]="catalogToolsExpanded()">
-                expand_more
-              </mat-icon>
-            </h3>
-
-            @if (catalogToolsExpanded()) {
-              @if (getCatalogWarningText(); as warningText) {
-                <p class="catalog-governance__warning">{{ warningText }}</p>
-              }
-              @if (getCatalogLockedFieldLabels().length > 0) {
-                <p class="catalog-governance__locked">
-                  Locked fields: {{ getCatalogLockedFieldLabels().join(', ') }}.
-                </p>
-              }
-
-              @if (getCatalogSuggestionRequirements().length > 0) {
-                <div class="catalog-governance__prereqs" aria-live="polite">
-                  <p class="catalog-governance__prereqs-title">Fill these in first</p>
-                  @if (getCatalogSuggestionReadinessText(); as readinessText) {
-                    <p class="catalog-governance__prereqs-summary">{{ readinessText }}</p>
-                  }
-                  <ul class="catalog-governance__prereqs-list">
-                    @for (requirement of getCatalogSuggestionRequirements(); track requirement.field) {
-                      <li class="catalog-governance__prereqs-item" [class.is-ready]="requirement.ready">
-                        <span class="catalog-governance__prereqs-badge" [class.required]="requirement.required">
-                          {{ requirement.required ? 'Required' : 'Helpful' }}
-                        </span>
-                        <div class="catalog-governance__prereqs-copy">
-                          <span class="catalog-governance__prereqs-label">{{ requirement.label }}</span>
-                          <span class="catalog-governance__prereqs-detail">{{ requirement.detail }}</span>
-                        </div>
-                        <span class="catalog-governance__prereqs-state">
-                          {{ requirement.ready ? 'Done' : (requirement.required ? 'Needed' : 'Optional') }}
-                        </span>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-
-              <div class="catalog-governance__actions">
-                <span [matTooltip]="getCatalogSuggestButtonTooltip()">
-                  <button mat-stroked-button type="button"
-                    (click)="onSuggestCatalogValues()"
-                    [disabled]="catalogSuggestionLoading() || !canRequestCatalogSuggestion()">
-                    @if (catalogSuggestionLoading()) {
-                      <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
-                      Suggesting...
-                    } @else {
-                      <mat-icon aria-hidden="true">auto_awesome</mat-icon>
-                      {{ getCatalogSuggestActionLabel() }}
-                    }
-                  </button>
-                </span>
-
-                @if (canCreateReplacement() && !replacementMode()) {
-                  <button mat-flat-button color="primary" type="button" (click)="onStartReplacementDraft()">
-                    <mat-icon aria-hidden="true">content_copy</mat-icon>
-                    Create Replacement
-                  </button>
-                }
-
-                @if (replacementMode()) {
-                  <button mat-stroked-button type="button" (click)="onCancelReplacementDraft()">
-                    <mat-icon aria-hidden="true">undo</mat-icon>
-                    Cancel Replacement Draft
-                  </button>
-                }
+          @if (isGovernedCatalogAuthoringTable()) {
+            @if (!guidedBannerDismissed()) {
+              <div class="guided-banner" role="note" aria-label="Form guidance">
+                <mat-icon class="guided-banner__icon" aria-hidden="true">lightbulb</mat-icon>
+                <p class="guided-banner__text">{{ cfg.formDescription }}</p>
+                <button mat-icon-button class="guided-banner__close"
+                  type="button" (click)="guidedBannerDismissed.set(true)" aria-label="Dismiss guidance">
+                  <mat-icon>close</mat-icon>
+                </button>
               </div>
-
-              @if (replacementMode()) {
-                <div class="catalog-governance__replacement">
-                  <p class="catalog-governance__replacement-text">
-                    Replacement draft active. Code fields are now editable. Saving will create a new record instead of changing the original.
-                  </p>
-                  <mat-slide-toggle
-                    [checked]="retireOriginalOnReplacement()"
-                    (change)="onRetireOriginalReplacementChange($event.checked)">
-                    Retire the original record after the replacement is saved
-                  </mat-slide-toggle>
-                </div>
-              }
-
-              @if (catalogAssistError(); as assistError) {
-                <p class="catalog-governance__error">{{ assistError }}</p>
-              }
-
-              @if (catalogSuggestion(); as suggestion) {
-                <div class="catalog-suggestion-preview">
-                  <p class="catalog-suggestion-preview__eyebrow">Suggested Values (review before applying)</p>
-                  <p class="catalog-suggestion-preview__source">Source: {{ suggestion.source }}</p>
-
-                  <div class="catalog-suggestion-preview__grid">
-                    @for (entry of getCatalogSuggestionEntries(); track entry.label) {
-                      <div class="catalog-suggestion-preview__entry" [class.locked]="entry.locked">
-                        <span class="catalog-suggestion-preview__label">{{ entry.label }}</span>
-                        <span class="catalog-suggestion-preview__value">{{ entry.value }}</span>
-                        @if (entry.locked) {
-                          <span class="catalog-suggestion-preview__badge">Locked on edit</span>
-                        }
-                      </div>
-                    }
-                  </div>
-
-                  @if (getCatalogSuggestionConflictMessages(); as conflictMessages) {
-                    @if (conflictMessages.length > 0) {
-                      <div class="catalog-suggestion-preview__messages warning">
-                        <p>Possible duplicates found</p>
-                        <ul>
-                          @for (message of conflictMessages; track message) {
-                            <li>{{ message }}</li>
-                          }
-                        </ul>
-                      </div>
-                    }
-                  }
-
-                  @if (getCatalogSuggestionWarnings(); as suggestionWarnings) {
-                    @if (suggestionWarnings.length > 0) {
-                      <div class="catalog-suggestion-preview__messages info">
-                        <p>Notes</p>
-                        <ul>
-                          @for (warning of suggestionWarnings; track warning) {
-                            <li>{{ warning }}</li>
-                          }
-                        </ul>
-                      </div>
-                    }
-                  }
-
-                  <div class="catalog-suggestion-preview__actions">
-                    <button mat-flat-button color="primary" type="button" (click)="onApplyCatalogSuggestion()">
-                      <mat-icon aria-hidden="true">playlist_add_check</mat-icon>
-                      Apply Suggested Values
-                    </button>
-                  </div>
-                </div>
-              }
             }
-          </section>
+          } @else {
+            <section class="form-section form-intro-section" aria-label="Form guidance">
+              <p class="section-description form-intro-section__text">{{ cfg.formDescription }}</p>
+            </section>
+          }
         }
 
-        @for (group of renderableFieldGroups(); track group.key) {
-          <section class="form-section" [attr.aria-label]="group.label + ' section'">
+        @for (group of renderableFieldGroups(); track group.key; let i = $index) {
+
+          <!-- Wrap optional attributes in collapsible <details> for governed catalog tables -->
+          @if (isGovernedCatalogAuthoringTable() && isOptionalAttributesGroup(group)) {
+            <details class="optional-attributes-details" open>
+              <summary class="optional-attributes-summary" [id]="'section-heading-' + group.key">
+                <mat-icon aria-hidden="true">tune</mat-icon>
+                Optional Details ({{ group.label }})
+                <mat-icon class="expand-chevron" aria-hidden="true">expand_more</mat-icon>
+              </summary>
+              <section class="form-section optional-attributes-content"
+                [attr.aria-label]="group.label + ' section'">
+                <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.key">
+                  @for (field of getRenderableFields(group); track field.field) {
+                    <div class="form-field"
+                      [class.colspan-2]="field.colspan === 2"
+                      [class.locked-field]="isGovernedLockedField(field)"
+                      [attr.data-field]="field.field">
+
+                      @switch (field.type) {
+
+                        @case ('textarea') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <textarea matInput
+                              cdkTextareaAutosize
+                              cdkAutosizeMinRows="3"
+                              cdkAutosizeMaxRows="8"
+                              [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"></textarea>
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button mat-icon-button matSuffix type="button" class="field-help-button"
+                                [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (field.maxLength) {
+                              <mat-hint align="end">{{ (form.get(field.field)?.value?.length || 0) }}/{{ field.maxLength }}</mat-hint>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('select') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-select [formControlName]="field.field"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                              @for (opt of field.options; track opt.value) {
+                                <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                              }
+                            </mat-select>
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button mat-icon-button matSuffix type="button" class="field-help-button"
+                                [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('lookup') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-select [formControlName]="field.field"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                              @for (item of lookups()[field.lookupTable!] || []; track item.value) {
+                                <mat-option [value]="item.value">{{ item.label }}</mat-option>
+                              }
+                            </mat-select>
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button mat-icon-button matSuffix type="button" class="field-help-button"
+                                [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) {
+                              <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint>
+                            } @else if (field.hint) {
+                              <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint>
+                            }
+                            @if (lookupErrors()[field.lookupTable!]) {
+                              <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('boolean') {
+                          <div>
+                            <div class="toggle-row">
+                              <div class="toggle-row__text">
+                                <span class="toggle-row__label" [id]="field.field + '-label'">
+                                  {{ getRenderedFieldLabel(field) }}
+                                  @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                                  @if (getFieldTooltip(field); as fieldTooltip) {
+                                    <button
+                                      mat-icon-button
+                                      type="button"
+                                      class="toggle-help-button"
+                                      [matTooltip]="fieldTooltip"
+                                      [attr.aria-label]="'More information about ' + field.label">
+                                      <mat-icon>help_outline</mat-icon>
+                                    </button>
+                                  }
+                                </span>
+                                @if (field.hint) {
+                                  <span class="toggle-row__hint" [id]="field.field + '-hint'">{{ field.hint }}</span>
+                                }
+                              </div>
+                              <mat-slide-toggle
+                                [formControlName]="field.field"
+                                [attr.aria-labelledby]="field.field + '-label'"
+                                [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"
+                                color="primary">
+                              </mat-slide-toggle>
+                            </div>
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </div>
+                        }
+
+                        @case ('date') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <input matInput [matDatepicker]="picker" [formControlName]="field.field"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            <mat-datepicker-toggle matIconSuffix [for]="picker"></mat-datepicker-toggle>
+                            <mat-datepicker #picker></mat-datepicker>
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('email') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-icon matPrefix>email</mat-icon>
+                            <input matInput type="email" [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('email')) {
+                              <mat-error role="alert">Enter a valid email address</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('phone') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <mat-icon matPrefix>phone</mat-icon>
+                            <input matInput type="tel" [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              placeholder="+1 (XXX) XXX-XXXX"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('pattern')) {
+                              <mat-error role="alert">{{ field.patternMessage || 'Invalid phone format' }}</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @case ('number') {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <input matInput type="number" [formControlName]="field.field"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button
+                                mat-icon-button
+                                matSuffix
+                                type="button"
+                                class="field-help-button"
+                                [matTooltip]="fieldTooltip"
+                                [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+
+                        @default {
+                          <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                            <mat-label>
+                              {{ getRenderedFieldLabel(field) }}
+                              @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            </mat-label>
+                            <input matInput [formControlName]="field.field"
+                              [maxlength]="field.maxLength || null"
+                              [placeholder]="field.placeholder || ''"
+                              [attr.aria-required]="field.required || null"
+                              [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button mat-icon-button matSuffix type="button" class="field-help-button"
+                                [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label">
+                                <mat-icon>help_outline</mat-icon>
+                              </button>
+                            }
+                            @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                            @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) {
+                              <mat-error role="alert">{{ field.label }} is required</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('maxlength')) {
+                              <mat-error role="alert">Max {{ field.maxLength }} characters</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('pattern')) {
+                              <mat-error role="alert">{{ field.patternMessage || 'Invalid format' }}</mat-error>
+                            }
+                            @if (form.get(field.field)?.hasError('server')) {
+                              <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error>
+                            }
+                          </mat-form-field>
+                        }
+                      }
+
+                      @if (getGovernedFieldAssistText(field); as governedFieldHint) {
+                        <p class="governed-field-note" [class.locked]="isGovernedLockedField(field)">{{ governedFieldHint }}</p>
+                      }
+                    </div>
+                  }
+                </fieldset>
+              </section>
+            </details>
+          } @else {
+
+          <!-- Standard section card -->
+          <section class="form-section"
+            [class.guided-step-section]="isGovernedCatalogAuthoringTable()"
+            [attr.aria-label]="group.label + ' section'">
             <h3 class="section-title" [id]="'section-heading-' + group.key">
+              @if (isGovernedCatalogAuthoringTable()) {
+                <span class="step-badge">Step {{ getGuidedStepNumber(i) }}</span>
+              }
               <mat-icon aria-hidden="true">{{ getSectionIcon(group.label) }}</mat-icon>
               {{ group.label }}
             </h3>
@@ -501,7 +670,7 @@
                                   <p class="ifrc-suggestion-candidate__code">{{ candidate.reference.ifrc_code }}</p>
                                 }
                                 @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
-                                  @if (variantDetails.length > 0) {
+                                  @if (variantDetails.length) {
                                     <div class="ifrc-suggestion-candidate__variant-grid">
                                       @for (detail of variantDetails; track detail.label) {
                                         <div class="ifrc-suggestion-candidate__variant">
@@ -924,6 +1093,115 @@
 
             </fieldset><!-- /.form-grid -->
           </section>
+          }
+
+          <!-- INLINE CTA: Insert after the first group for governed catalog tables -->
+          @if (isGovernedCatalogAuthoringTable() && i === 0) {
+            <div class="catalog-suggest-cta" role="region" aria-label="Auto-fill suggestion tools">
+
+              @if (getCatalogSuggestionReadinessText(); as readinessText) {
+                <p class="catalog-suggest-cta__readiness" aria-live="polite">{{ readinessText }}</p>
+              }
+
+              @if (getCatalogWarningText(); as warningText) {
+                <p class="catalog-suggest-cta__info">{{ warningText }}</p>
+              }
+              @if (getCatalogLockedFieldLabels().length) {
+                <p class="catalog-suggest-cta__info">Locked fields: {{ getCatalogLockedFieldLabels().join(', ') }}</p>
+              }
+
+              <span [matTooltip]="getCatalogSuggestButtonTooltip()">
+                <button class="catalog-suggest-cta__button" mat-flat-button color="primary" type="button"
+                  (click)="onSuggestCatalogValues()"
+                  [disabled]="catalogSuggestionLoading() || !canRequestCatalogSuggestion()">
+                  @if (catalogSuggestionLoading()) {
+                    <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
+                    Suggesting...
+                  } @else {
+                    <mat-icon aria-hidden="true">auto_awesome</mat-icon>
+                    {{ getCatalogSuggestActionLabel() }}
+                  }
+                </button>
+              </span>
+
+              @if (canCreateReplacement() && !replacementMode()) {
+                <button mat-stroked-button type="button" (click)="onStartReplacementDraft()">
+                  <mat-icon aria-hidden="true">content_copy</mat-icon>
+                  Create Replacement
+                </button>
+              }
+              @if (replacementMode()) {
+                <button mat-stroked-button type="button" (click)="onCancelReplacementDraft()">
+                  <mat-icon aria-hidden="true">undo</mat-icon>
+                  Cancel Replacement Draft
+                </button>
+                <div class="catalog-suggest-cta__replacement">
+                  <p>Replacement draft active. Code fields are now editable. Saving creates a new record.</p>
+                  <mat-slide-toggle
+                    [checked]="retireOriginalOnReplacement()"
+                    (change)="onRetireOriginalReplacementChange($event.checked)">
+                    Retire original after replacement is saved
+                  </mat-slide-toggle>
+                </div>
+              }
+
+              @if (catalogAssistError(); as assistError) {
+                <p class="catalog-suggest-cta__error">{{ assistError }}</p>
+              }
+
+              @if (catalogSuggestion(); as suggestion) {
+                <div class="catalog-suggestion-preview">
+                  <p class="catalog-suggestion-preview__eyebrow">Suggested Values (review before applying)</p>
+                  <p class="catalog-suggestion-preview__source">Source: {{ suggestion.source }}</p>
+
+                  <div class="catalog-suggestion-preview__grid">
+                    @for (entry of getCatalogSuggestionEntries(); track entry.label) {
+                      <div class="catalog-suggestion-preview__entry" [class.locked]="entry.locked">
+                        <span class="catalog-suggestion-preview__label">{{ entry.label }}</span>
+                        <span class="catalog-suggestion-preview__value">{{ entry.value }}</span>
+                        @if (entry.locked) {
+                          <span class="catalog-suggestion-preview__badge">Locked on edit</span>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  @if (getCatalogSuggestionConflictMessages(); as conflictMessages) {
+                    @if (conflictMessages.length) {
+                      <div class="catalog-suggestion-preview__messages warning">
+                        <p>Possible duplicates found</p>
+                        <ul>
+                          @for (message of conflictMessages; track message) {
+                            <li>{{ message }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  }
+
+                  @if (getCatalogSuggestionWarnings(); as suggestionWarnings) {
+                    @if (suggestionWarnings.length) {
+                      <div class="catalog-suggestion-preview__messages info">
+                        <p>Notes</p>
+                        <ul>
+                          @for (warning of suggestionWarnings; track warning) {
+                            <li>{{ warning }}</li>
+                          }
+                        </ul>
+                      </div>
+                    }
+                  }
+
+                  <div class="catalog-suggestion-preview__actions">
+                    <button mat-flat-button color="primary" type="button" (click)="onApplyCatalogSuggestion()">
+                      <mat-icon aria-hidden="true">playlist_add_check</mat-icon>
+                      Apply Suggested Values
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
         }
 
         <!-- Storage Location Assignment (edit mode only) -->

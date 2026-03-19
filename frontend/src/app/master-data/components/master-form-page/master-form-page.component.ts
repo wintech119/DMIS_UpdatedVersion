@@ -149,6 +149,7 @@ export class MasterFormPageComponent implements OnInit {
   catalogSuggestionLoading = signal(false);
   catalogAssistError = signal<string | null>(null);
   catalogToolsExpanded = signal(true);
+  guidedBannerDismissed = signal(false);
   replacementMode = signal(false);
   retireOriginalOnReplacement = signal(false);
   ifrcLoading = signal(false);
@@ -1817,6 +1818,14 @@ export class MasterFormPageComponent implements OnInit {
   isGovernedCatalogAuthoringTable(): boolean {
     const tableKey = this.config()?.tableKey;
     return tableKey === 'ifrc_families' || tableKey === 'ifrc_item_references';
+  }
+
+  getGuidedStepNumber(groupIndex: number): number {
+    return groupIndex === 0 ? 1 : 2;
+  }
+
+  isOptionalAttributesGroup(group: FormFieldGroup): boolean {
+    return group.label === 'Product Attributes';
   }
 
   canCreateReplacement(): boolean {

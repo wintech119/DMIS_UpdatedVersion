@@ -62,6 +62,10 @@ def _normalize_tenant_code(value: object) -> str:
     return _normalize_tenant_type(value)
 
 
+def _normalize_access_level(value: object) -> str:
+    return _normalize_tenant_type(value)
+
+
 def _parse_int(value: object) -> int | None:
     if value is None:
         return None
@@ -356,8 +360,15 @@ def can_access_tenant(
     if target_tenant_id is None:
         return False
 
-    if target_tenant_id in context.membership_tenant_ids:
-        return True
+    direct_membership = next(
+        (membership for membership in context.memberships if membership.tenant_id == target_tenant_id),
+        None,
+    )
+    if direct_membership is not None:
+        if not write:
+            return True
+        normalized_access = _normalize_access_level(direct_membership.access_level)
+        return normalized_access not in {"READ_ONLY", "READONLY", "VIEW", "VIEW_ONLY"}
 
     if not context.is_neoc:
         return False

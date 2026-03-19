@@ -608,10 +608,12 @@ _register(TableConfig(
     default_order="warehouse_name",
     fields=[
         FieldDef("warehouse_id", pk=True, auto_pk=True, db_type="int", label="ID"),
-        FieldDef("warehouse_name", required=True, unique=True, max_length=255,
+        FieldDef("warehouse_name", required=True, max_length=255,
                  searchable=True, label="Warehouse Name"),
         FieldDef("warehouse_type", required=True, max_length=10,
                  choices=["MAIN-HUB", "SUB-HUB"], label="Type"),
+        FieldDef("parent_warehouse_id", db_type="int", label="Parent Warehouse",
+                 fk_table="warehouse", fk_pk="warehouse_id", fk_label="warehouse_name"),
         FieldDef("address1_text", required=True, max_length=255, label="Address Line 1"),
         FieldDef("address2_text", max_length=255, label="Address Line 2"),
         FieldDef("parish_code", required=True, max_length=2, label="Parish",
@@ -631,10 +633,13 @@ _register(TableConfig(
         FieldDef("reason_desc", max_length=255, label="Reason"),
         FieldDef("status_code", required=True, max_length=1, default="A",
                  choices=["A", "I"], label="Status"),
+        FieldDef("tenant_id", db_type="int", readonly=True, label="Tenant",
+                 fk_table="tenant", fk_pk="tenant_id", fk_label="tenant_name"),
     ],
     dependencies=[
         DependencyDef("inventory", "warehouse_id", "Inventory Records"),
         DependencyDef("agency", "warehouse_id", "Agencies"),
+        DependencyDef("warehouse", "parent_warehouse_id", "Child Warehouses"),
     ],
 ))
 
@@ -1265,7 +1270,10 @@ def create_record(
     values: list[Any] = []
 
     for fd in cfg.data_fields:
-        if fd.auto_pk:
+        allow_server_assigned_readonly = (
+            table_key == "warehouses" and fd.name == "tenant_id"
+        )
+        if fd.auto_pk or (fd.readonly and not allow_server_assigned_readonly):
             continue
         if fd.name in data:
             val = _normalize_field_value(fd, data[fd.name])

@@ -143,92 +143,117 @@
   &.urgency-zero { opacity: 0.5; }
 }
 
-// ── KPI Summary Card ──
-.summary-card {
-  margin-bottom: 1.5rem;
+// ── Workflow Stepper ──
+.workflow-stepper {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
   background: var(--color-surface);
-  color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
+  margin-bottom: 0.75rem;
+}
 
-  .summary-content {
-    display: flex;
-    justify-content: space-around;
-    padding: 1rem;
-    gap: 1.5rem;
-    flex-wrap: wrap;
+.wf-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 5rem;
+}
 
-    .summary-item {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 1rem;
-      background: var(--color-surface-muted);
-      border: 1px solid var(--color-border);
-      border-radius: 0.5rem;
-      flex: 1 1 10rem;
-      min-width: 0;
+.wf-dot {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
 
-      &.warning {
-        background: rgba(255, 193, 7, 0.25);
-
-        mat-icon { color: #ffd54f; }
-      }
-
-      &.critical-kpi {
-        background: #fce4ec;
-        border-color: #ef9a9a;
-
-        mat-icon { color: #b71c1c; }
-
-        .summary-text .value { color: #b71c1c; }
-      }
-
-      mat-icon {
-        font-size: 2rem;
-        width: 2rem;
-        height: 2rem;
-        flex-shrink: 0;
-      }
-
-      .summary-text {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-
-        // Large text (>=18pt rendered) – 3:1 ratio passes on gradient
-        .label {
-          font-size: var(--text-sm);
-          font-weight: var(--weight-medium);
-          color: var(--color-text-secondary);
-          margin-bottom: 0.125rem;
-          white-space: nowrap;
-          letter-spacing: 0.04em;
-        }
-
-        .value {
-          font-size: var(--text-xl);
-          font-weight: var(--weight-semibold);
-          line-height: 1.2;
-        }
-      }
-    }
+  mat-icon {
+    font-size: 1rem;
+    width: 1rem;
+    height: 1rem;
   }
 }
 
-// ── Content Grid (matches submit-step) ──
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
+.wf-completed .wf-dot { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.wf-active .wf-dot { background: #1565c0; border-color: #1565c0; color: #fff; }
+.wf-terminal .wf-dot { background: #c62828; border-color: #c62828; color: #fff; }
+
+.wf-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
-.left-column,
-.right-column {
+.wf-active .wf-label { color: #1565c0; font-weight: var(--weight-bold); }
+.wf-terminal .wf-label { color: #c62828; font-weight: var(--weight-bold); }
+
+.wf-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--color-border);
+  margin: 0 0.25rem;
+  align-self: flex-start;
+  margin-top: 1rem;
+}
+
+.wf-connector-done { background: #2e7d32; }
+
+// ── KPI Pills ──
+.kpi-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.kpi-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  color: var(--color-text-primary);
+
+  mat-icon {
+    font-size: 1rem;
+    width: 1rem;
+    height: 1rem;
+    color: var(--color-accent);
+  }
+}
+
+.kpi-critical {
+  background: #fce4ec;
+  color: #b71c1c;
+  border-color: #ef9a9a;
+
+  mat-icon { color: #b71c1c; }
+}
+
+.kpi-escalation {
+  background: #fff3e0;
+  color: #bf360c;
+  border-color: #ffcc80;
+
+  mat-icon { color: #bf360c; }
+}
+
+// ── Info Section ──
+.info-section {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
 // ── Card Icon ──
@@ -270,6 +295,36 @@
   .info-value {
     font-size: var(--text-base);
     font-weight: var(--weight-medium);
+    color: var(--color-text-primary);
+  }
+}
+
+// ── Info Grid (2-column scope layout) ──
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.info-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface-muted);
+  border-radius: 0.375rem;
+
+  .info-label {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: var(--weight-medium);
+  }
+
+  .info-value {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--color-text-primary);
   }
 }
@@ -335,36 +390,6 @@
     width: 1.5rem;
     height: 1.5rem;
     flex-shrink: 0;
-  }
-}
-
-// ── Tracker Card ──
-.tracker-card {
-  .tracker-header-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0;
-    cursor: pointer;
-    user-select: none;
-    border-radius: 0.5rem;
-    transition: background-color 0.15s ease;
-
-    &:hover {
-      background-color: var(--color-surface-muted);
-    }
-
-    mat-card-title {
-      flex: 1;
-    }
-
-    .toggle-icon {
-      color: var(--color-text-secondary);
-    }
-  }
-
-  mat-card-content {
-    margin-top: 1rem;
   }
 }
 
@@ -520,6 +545,22 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border-bottom: 2px solid var(--color-border);
+}
+
+// ── Table Footer Totals ──
+.totals-row td {
+  font-weight: var(--weight-semibold);
+  background: var(--color-surface-muted);
+  border-top: 2px solid var(--color-border);
+}
+
+.totals-label {
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+
+.totals-cell {
+  font-variant-numeric: tabular-nums;
 }
 
 // ── Gap Value ──
@@ -719,6 +760,7 @@
   z-index: 10;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
   border-radius: 0.5rem 0.5rem 0 0;
+  border-top: 3px solid var(--color-border);
 
   .step-actions {
     display: flex;
@@ -749,10 +791,27 @@
         background-color: #2e7d32;
         color: white;
         min-width: 10rem;
+        font-size: var(--text-base);
+        padding: 0.625rem 1.5rem;
 
         &:hover:not(:disabled) { background-color: #1b5e20; }
+
+        &.approve-pulse {
+          animation: approve-glow 2s ease-in-out infinite;
+        }
       }
     }
+  }
+}
+
+@keyframes approve-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(46, 125, 50, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .approve-btn.approve-pulse {
+    animation: none;
   }
 }
 
@@ -762,19 +821,6 @@
 
 .desktop-only { display: block; }
 .mobile-only  { display: none; }
-
-@media (max-width: 968px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-card .summary-content {
-    flex-direction: column;
-    gap: 0.75rem;
-
-    .summary-item { flex: none; }
-  }
-}
 
 @media (max-width: 768px) {
   .review-detail-page {
@@ -802,28 +848,14 @@
     }
   }
 
-  .summary-card .summary-content {
-    padding: 0.75rem;
+  .workflow-stepper { padding: 0.5rem 0.75rem; }
+  .wf-label { display: none; }
+  .wf-dot { width: 1.5rem; height: 1.5rem; }
+  .wf-connector { margin-top: 0.75rem; }
 
-    .summary-item {
-      mat-icon {
-        font-size: 1.5rem;
-        width: 1.5rem;
-        height: 1.5rem;
-      }
+  .info-grid { grid-template-columns: 1fr; }
 
-      .summary-text {
-        .label { font-size: var(--text-xs); }
-        .value { font-size: var(--text-lg); }
-      }
-    }
-  }
-
-  .info-card .info-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
+  .kpi-pills { gap: 0.375rem; }
 
   .actions-card {
     position: fixed;
@@ -848,6 +880,7 @@
           min-height: 3rem; // 48px touch target (WCAG 2.5.8)
           justify-content: center;
         }
+
       }
     }
   }
@@ -861,10 +894,6 @@
 
   .wizard-header .header-content .header-text h1 {
     font-size: var(--text-md);
-  }
-
-  .summary-card .summary-content .summary-item .summary-text .value {
-    font-size: 1.125rem;
   }
 
   .mobile-preview-card .mobile-preview-metrics {
