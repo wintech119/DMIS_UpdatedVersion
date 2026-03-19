@@ -269,9 +269,14 @@ def _relation_exists(schema_editor, relation: str) -> bool:
 def _forwards(apps, schema_editor):
     if not _is_postgres(schema_editor):
         return
-    if not _relation_exists(schema_editor, "warehouse"):
-        return
-    if not _relation_exists(schema_editor, "item"):
+    required_relations = (
+        "warehouse",
+        "item",
+        "inventory",
+        "itembatch",
+        "unitofmeasure",
+    )
+    if any(not _relation_exists(schema_editor, relation) for relation in required_relations):
         return
 
     schema = _schema_name(schema_editor)
@@ -281,9 +286,12 @@ def _forwards(apps, schema_editor):
 def _backwards(apps, schema_editor):
     if not _is_postgres(schema_editor):
         return
-    if not _relation_exists(schema_editor, "warehouse"):
-        return
-    if not _relation_exists(schema_editor, "item"):
+    required_relations = (
+        "warehouse",
+        "item",
+        "inventory",
+    )
+    if any(not _relation_exists(schema_editor, relation) for relation in required_relations):
         return
 
     schema = _schema_name(schema_editor)

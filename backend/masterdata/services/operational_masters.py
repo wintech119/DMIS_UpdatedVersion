@@ -92,6 +92,9 @@ def validate_warehouse_payload(
     warehouse_type = str(
         _merged_value(data, existing_record, "warehouse_type") or ""
     ).strip().upper()
+    warehouse_tenant_id = _parse_optional_int(
+        _merged_value(data, existing_record, "tenant_id")
+    )
     parent_warehouse_id = _parse_optional_int(
         _merged_value(data, existing_record, "parent_warehouse_id")
     )
@@ -128,6 +131,12 @@ def validate_warehouse_payload(
         errors["parent_warehouse_id"] = "Selected parent warehouse must be active."
     elif str(parent_record.get("warehouse_type") or "").upper() != "MAIN-HUB":
         errors["parent_warehouse_id"] = "SUB-HUB warehouses must belong to an active MAIN-HUB warehouse."
+    elif (
+        warehouse_tenant_id is not None
+        and _parse_optional_int(parent_record.get("tenant_id")) is not None
+        and _parse_optional_int(parent_record.get("tenant_id")) != warehouse_tenant_id
+    ):
+        errors["parent_warehouse_id"] = "Parent warehouse must belong to the same tenant."
     return errors, warnings
 
 
