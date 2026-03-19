@@ -214,7 +214,7 @@ interface InactiveItemForwardWriteGuard {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 20px 24px 0;
+      padding: 24px 28px 0;
     }
     .dialog-icon {
       color: #0f766e;
@@ -245,7 +245,7 @@ interface InactiveItemForwardWriteGuard {
       gap: 10px;
       align-items: start;
       margin: 12px 0 0;
-      padding: 10px 12px;
+      padding: 12px 16px;
       border: 1px solid #bfdbfe;
       border-radius: 6px;
       background: #eff6ff;
@@ -272,9 +272,9 @@ interface InactiveItemForwardWriteGuard {
     .dialog-form {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 16px;
       padding-top: 12px;
-      min-width: 380px;
+      min-width: 420px;
     }
     .full-width { width: 100%; }
     .form-submit-alert {
@@ -314,7 +314,7 @@ interface InactiveItemForwardWriteGuard {
       line-height: 1.35;
     }
     .bool-field-wrap {
-      margin: 4px 0 8px;
+      margin: 8px 0 12px;
     }
     .bool-field {
       margin: 0;
@@ -326,20 +326,23 @@ interface InactiveItemForwardWriteGuard {
       line-height: 1.2;
     }
     .dialog-actions {
-      padding: 12px 24px 20px;
-      gap: 10px;
+      padding: 16px 28px 24px;
+      gap: 12px;
       border-top: 1px solid #e5e7eb;
       margin-top: 4px;
     }
     .cancel-btn {
       color: #6b7280;
       font-weight: 500;
+      min-height: 44px;
+      padding: 0 20px;
+      border-radius: 8px;
     }
     .save-btn {
       font-weight: 600;
       border-radius: 8px;
-      min-height: 40px;
-      padding: 0 20px;
+      min-height: 44px;
+      padding: 0 24px;
     }
     .save-btn mat-icon {
       font-size: 18px;

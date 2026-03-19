@@ -253,7 +253,7 @@ class ItemMasterValidationTests(SimpleTestCase):
     @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
     @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
     @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
-    def test_validate_item_payload_requires_family_and_reference_for_new_items(
+    def test_validate_item_payload_requires_local_code_when_new_item_has_no_ifrc_mapping(
         self,
         _mock_family,
         _mock_reference,
@@ -266,8 +266,33 @@ class ItemMasterValidationTests(SimpleTestCase):
         )
 
         self.assertEqual(warnings, [])
-        self.assertEqual(errors["ifrc_family_id"], "IFRC Family is required for new items.")
-        self.assertEqual(errors["ifrc_item_ref_id"], "IFRC Item Reference is required for new items.")
+        self.assertEqual(
+            errors["legacy_item_code"],
+            "Local Item Code is required when saving a local draft without IFRC mapping.",
+        )
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
+    @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
+    def test_validate_item_payload_allows_new_local_draft_with_legacy_code(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "default_uom_code": "EA",
+                "legacy_item_code": "HADR-WATER-TABS",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors, {})
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
     @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
@@ -327,6 +352,35 @@ class ItemMasterValidationTests(SimpleTestCase):
         self.assertEqual(
             errors["ifrc_item_ref_id"],
             "IFRC Item Reference is required when selecting an IFRC Family.",
+        )
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch(
+        "masterdata.services.item_master._fetch_ifrc_reference",
+        return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "A"},
+    )
+    @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
+    def test_validate_item_payload_requires_family_when_reference_selected_for_new_item(
+        self,
+        _mock_family,
+        _mock_reference,
+        _mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "ifrc_item_ref_id": 51,
+                "default_uom_code": "EA",
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(
+            errors["ifrc_family_id"],
+            "IFRC Family is required when selecting an IFRC Item Reference.",
         )
 
     @patch("masterdata.services.item_master._is_sqlite", return_value=False)
@@ -572,6 +626,23 @@ class ItemMasterValidationTests(SimpleTestCase):
 
 
 class ItemMasterWritePayloadTests(SimpleTestCase):
+    def test_create_payload_preserves_local_draft_legacy_code_without_canonical_item_code(
+        self,
+    ):
+        payload, reference_row = _build_item_write_payload(
+            {
+                "item_name": "LOCAL WATER TABS",
+                "category_id": 102,
+                "default_uom_code": "EA",
+                "legacy_item_code": "HADR-WATER-TABS",
+            },
+            is_update=False,
+        )
+
+        self.assertIsNone(reference_row)
+        self.assertNotIn("item_code", payload)
+        self.assertEqual(payload["legacy_item_code"], "HADR-WATER-TABS")
+
     @patch(
         "masterdata.services.item_master._fetch_ifrc_reference",
         return_value={"ifrc_item_ref_id": 51, "ifrc_family_id": 11, "ifrc_code": "WWTRTABL01", "reference_desc": "Water purification tablet", "status_code": "A"},
@@ -1808,6 +1879,9 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         cls.migration_0008 = importlib.import_module(
             "masterdata.migrations.0008_catalog_governance_audit"
         )
+        cls.migration_0009 = importlib.import_module(
+            "masterdata.migrations.0009_allow_null_item_code_for_local_drafts"
+        )
 
     def test_0005_forwards_sql_uses_configured_schema(self):
         cursor = MagicMock()
@@ -2018,6 +2092,45 @@ class UnifiedItemMasterMigrationSchemaTests(SimpleTestCase):
         self.assertIn("CREATE TABLE IF NOT EXISTS tenant_a.catalog_governance_audit", executed_sql)
         self.assertIn("changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()", executed_sql)
         self.assertIn("CREATE TRIGGER trg_catalog_governance_audit_no_mutation", executed_sql)
+
+    def test_0009_forwards_sql_allows_null_item_code_for_local_drafts(self):
+        connection = SimpleNamespace(
+            vendor="postgresql",
+            ops=SimpleNamespace(quote_name=lambda name: f'"{name}"'),
+        )
+        schema_editor = SimpleNamespace(
+            connection=connection,
+            execute=MagicMock(),
+        )
+
+        with patch.object(self.migration_0009, "_legacy_item_table_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration_0009._forwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        self.assertIn('ALTER TABLE "tenant_a".item', executed_sql)
+        self.assertIn("ALTER COLUMN item_code DROP NOT NULL", executed_sql)
+
+    def test_0009_backwards_sql_restores_item_code_before_setting_not_null(self):
+        connection = SimpleNamespace(
+            vendor="postgresql",
+            ops=SimpleNamespace(quote_name=lambda name: f'"{name}"'),
+        )
+        schema_editor = SimpleNamespace(
+            connection=connection,
+            execute=MagicMock(),
+        )
+
+        with patch.object(self.migration_0009, "_legacy_item_table_exists", return_value=True):
+            with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"}):
+                self.migration_0009._backwards(None, schema_editor)
+
+        executed_sql = schema_editor.execute.call_args.args[0]
+        update_position = executed_sql.index('UPDATE "tenant_a".item')
+        not_null_position = executed_sql.index("ALTER COLUMN item_code SET NOT NULL")
+
+        self.assertLess(update_position, not_null_position)
+        self.assertIn("SET item_code = legacy_item_code", executed_sql)
 
 
 class ItemMasterUomOptionTests(SimpleTestCase):
