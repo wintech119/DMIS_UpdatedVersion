@@ -324,12 +324,20 @@ export class MasterDetailPageComponent implements OnInit {
     return rawOptions
       .filter((option): option is Record<string, unknown> => option != null && typeof option === 'object')
       .map((option) => {
-        const conversionFactor = Number(option['conversion_factor']);
+        const rawConversionFactor = option['conversion_factor'];
+        const conversionFactor = rawConversionFactor === null
+          || rawConversionFactor === undefined
+          || rawConversionFactor === ''
+          ? null
+          : Number(rawConversionFactor);
         const itemUomOptionId = Number(option['item_uom_option_id']);
         return {
           item_uom_option_id: Number.isFinite(itemUomOptionId) && itemUomOptionId > 0 ? itemUomOptionId : undefined,
           uom_code: String(option['uom_code'] ?? '').trim().toUpperCase(),
-          conversion_factor: Number.isFinite(conversionFactor) ? conversionFactor : null,
+          conversion_factor:
+            conversionFactor !== null && Number.isFinite(conversionFactor)
+              ? conversionFactor
+              : null,
           is_default: option['is_default'] === true,
           status_code: String(option['status_code'] ?? 'A').trim().toUpperCase() || 'A',
         };

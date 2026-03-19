@@ -509,7 +509,7 @@ describe('StockStatusDashboardComponent', () => {
       all_items: [greenItem, amberItem, redItem],
     } as WarehouseStockGroup);
 
-    expect(summary).toBe('1 Green â€¢ 1 Amber â€¢ 1 Red');
+    expect(summary).toBe('1 Green \u2022 1 Amber \u2022 1 Red');
   });
 
   it('migrates legacy seen-state and reloads when current user changes', () => {

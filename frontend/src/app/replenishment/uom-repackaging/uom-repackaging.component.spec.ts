@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import { UomRepackagingComponent } from './uom-repackaging.component';
 import { MasterDataService } from '../../master-data/services/master-data.service';
@@ -138,6 +138,47 @@ describe('UomRepackagingComponent', () => {
     fixture.detectChanges();
 
     expect(component.allowedUomOptions().map((option) => option.uom_code)).toEqual(['EA', 'CS']);
+  });
+
+  it('ignores stale item detail responses when the user switches items quickly', () => {
+    const firstItem$ = new Subject<{ record: Record<string, unknown>; warnings: string[] }>();
+    const secondItem$ = new Subject<{ record: Record<string, unknown>; warnings: string[] }>();
+
+    masterDataService.get.and.returnValues(firstItem$.asObservable(), secondItem$.asObservable());
+
+    component.form.controls.item_id.setValue(7);
+    component.form.controls.item_id.setValue(8);
+
+    secondItem$.next({
+      record: {
+        item_id: 8,
+        item_name: 'Rice',
+        uom_options: [
+          { item_uom_option_id: 5, uom_code: 'BAG', conversion_factor: 1, is_default: true, status_code: 'A' },
+          { item_uom_option_id: 6, uom_code: 'KG', conversion_factor: 25, is_default: false, status_code: 'A' },
+        ],
+      },
+      warnings: [],
+    });
+    secondItem$.complete();
+
+    firstItem$.next({
+      record: {
+        item_id: 7,
+        item_name: 'Water Tabs',
+        uom_options: [
+          { item_uom_option_id: 1, uom_code: 'EA', conversion_factor: 1, is_default: true, status_code: 'A' },
+          { item_uom_option_id: 2, uom_code: 'BOX', conversion_factor: 12, is_default: false, status_code: 'A' },
+        ],
+      },
+      warnings: [],
+    });
+    firstItem$.complete();
+
+    expect(component.selectedItem()?.['item_id']).toBe(8);
+    expect(component.allowedUomOptions().map((option) => option.uom_code)).toEqual(['BAG', 'KG']);
+    expect(component.form.controls.source_uom_code.value).toBe('BAG');
+    expect(component.form.controls.target_uom_code.value).toBe('KG');
   });
 
   it('prevents preview when source and target UOM are the same', () => {

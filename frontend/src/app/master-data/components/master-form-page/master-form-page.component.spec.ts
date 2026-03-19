@@ -128,7 +128,11 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
 }
 
 describe('MasterFormPageComponent', () => {
-  function setup(routePath = 'items', params: Record<string, string> = {}) {
+  function setup(
+    routePath = 'items',
+    params: Record<string, string> = {},
+    options: { itemRecordOverrides?: Record<string, unknown> } = {},
+  ) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
       'lookup',
       'lookupItemCategories',
@@ -235,7 +239,7 @@ describe('MasterFormPageComponent', () => {
           edit_guidance: buildGovernedEditGuidance(['ifrc_family_id', 'ifrc_code', 'category_code', 'spec_segment']),
         });
       }
-      return of({ record: buildBaseItemRecord(), warnings: [] });
+      return of({ record: buildBaseItemRecord(options.itemRecordOverrides), warnings: [] });
     });
     masterDataService.create.and.returnValue(of({ record: { item_id: 99 }, warnings: [] }));
     masterDataService.update.and.returnValue(of({ record: { item_id: 17 }, warnings: [] }));
@@ -1474,6 +1478,36 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('default_uom_code')?.value).toBe('EA');
     expect(component.defaultItemUomOption()?.uom_code).toBe('EA');
     expect(component.alternateItemUomOptions().map((option) => option.uom_code)).toEqual(['BOX']);
+  });
+
+  it('tracks the loaded default UOM when the record default differs from the blank form state', () => {
+    const { component, dialog } = setup('items', { pk: '17' }, {
+      itemRecordOverrides: {
+        default_uom_code: 'BOX',
+        uom_options: [
+          { item_uom_option_id: 2, uom_code: 'BOX', conversion_factor: 1, is_default: true, sort_order: 0, status_code: 'A' },
+          { item_uom_option_id: 3, uom_code: 'CS', conversion_factor: 24, is_default: false, sort_order: 1, status_code: 'A' },
+        ],
+      },
+    });
+
+    dialog.open.and.returnValue({ afterClosed: () => of(false) } as never);
+
+    component.form.get('default_uom_code')?.setValue('EA');
+
+    expect(dialog.open).toHaveBeenCalled();
+    expect(component.form.get('default_uom_code')?.value).toBe('BOX');
+    expect(component.defaultItemUomOption()?.uom_code).toBe('BOX');
+    expect(component.alternateItemUomOptions().map((option) => option.uom_code)).toEqual(['CS']);
+  });
+
+  it('does not show item UOM validation errors immediately after adding a blank row', () => {
+    const { component } = setup();
+
+    populateRequiredCreateFields(component);
+    component.addItemUomOption();
+
+    expect(component.shouldShowItemUomValidationErrors()).toBeFalse();
   });
 
   it('includes item UOM conversions in create payloads', () => {

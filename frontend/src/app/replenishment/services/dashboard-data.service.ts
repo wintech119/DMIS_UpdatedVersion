@@ -340,8 +340,7 @@ export class DashboardDataService {
     inboundQty: number,
     requiredQty: number | undefined
   ): StockHealthIndicator {
-    const normalizedRequiredQty = Number(requiredQty);
-    if (!Number.isFinite(normalizedRequiredQty) || normalizedRequiredQty < 0) {
+    if (typeof requiredQty !== 'number' || !Number.isFinite(requiredQty) || requiredQty < 0) {
       return {
         level: 'UNAVAILABLE',
         label: 'Unavailable',
@@ -353,7 +352,7 @@ export class DashboardDataService {
     const inbound = Number(inboundQty) || 0;
     const coverage = available + inbound;
 
-    if (coverage >= normalizedRequiredQty) {
+    if (coverage >= requiredQty) {
       return {
         level: 'GREEN',
         label: 'Green',

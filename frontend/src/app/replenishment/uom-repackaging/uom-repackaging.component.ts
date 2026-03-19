@@ -85,6 +85,7 @@ export class UomRepackagingComponent {
   private readonly notify = inject(DmisNotificationService);
   private readonly authRbac = inject(AuthRbacService);
   private readonly destroyRef = inject(DestroyRef);
+  private itemDetailRequestSequence = 0;
 
   readonly form = new FormGroup({
     warehouse_id: new FormControl<number | null>(null, [Validators.required, Validators.min(1)]),
@@ -198,6 +199,7 @@ export class UomRepackagingComponent {
     ).subscribe((itemId) => {
       this.clearPreviewState();
       this.clearSubmitError();
+      this.itemDetailRequestSequence += 1;
       if (!itemId) {
         this.selectedItem.set(null);
         return;
@@ -423,16 +425,27 @@ export class UomRepackagingComponent {
   }
 
   private loadItem(itemId: number): void {
+    const requestSequence = this.itemDetailRequestSequence;
     this.itemLoading.set(true);
     this.masterDataService.get('items', itemId).pipe(
-      finalize(() => this.itemLoading.set(false)),
+      finalize(() => {
+        if (requestSequence === this.itemDetailRequestSequence) {
+          this.itemLoading.set(false);
+        }
+      }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (response) => {
+        if (requestSequence !== this.itemDetailRequestSequence || this.form.controls.item_id.value !== itemId) {
+          return;
+        }
         this.selectedItem.set(response.record);
         this.syncSelectedUoms();
       },
       error: () => {
+        if (requestSequence !== this.itemDetailRequestSequence || this.form.controls.item_id.value !== itemId) {
+          return;
+        }
         this.selectedItem.set(null);
         this.notify.showError('Failed to load the selected item details.');
       },

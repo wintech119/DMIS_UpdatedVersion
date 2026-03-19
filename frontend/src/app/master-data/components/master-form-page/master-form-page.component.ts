@@ -206,6 +206,7 @@ export class MasterFormPageComponent implements OnInit {
   private readonly lookupRequestIds: Record<string, number> = {};
   private itemUomOptionDraftSequence = 0;
   private suppressDefaultUomResetPrompt = false;
+  private lastDefaultUomValue: unknown = null;
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -322,11 +323,12 @@ export class MasterFormPageComponent implements OnInit {
       ]);
       this.initializeItemUomOptions();
       this.updateLocalDraftFieldValidators();
+      this.lastDefaultUomValue = defaultUomControl?.value ?? null;
       defaultUomControl?.valueChanges.pipe(
-        startWith(defaultUomControl.value),
-        pairwise(),
         takeUntilDestroyed(this.destroyRef),
-      ).subscribe(([previousValue, currentValue]) => {
+      ).subscribe((currentValue) => {
+        const previousValue = this.lastDefaultUomValue;
+        this.lastDefaultUomValue = currentValue;
         this.handleDefaultUomChange(previousValue, currentValue);
       });
       this.form.updateValueAndValidity({ emitEvent: false });
@@ -2520,7 +2522,6 @@ export class MasterFormPageComponent implements OnInit {
         status_code: 'A',
       },
     ]));
-    this.itemUomOptionsTouched.set(true);
     this.clearItemUomServerErrors();
     if (this.submissionError()) {
       this.clearSubmissionError();
@@ -3230,6 +3231,7 @@ export class MasterFormPageComponent implements OnInit {
   private initializeItemUomOptions(): void {
     this.itemUomOptionsTouched.set(false);
     this.itemUomOptions.set([]);
+    this.lastDefaultUomValue = this.form.get('default_uom_code')?.value ?? null;
     this.clearItemUomServerErrors();
     this.syncDefaultItemUomOption();
   }
@@ -3242,6 +3244,7 @@ export class MasterFormPageComponent implements OnInit {
 
     this.itemUomOptions.set(nextOptions);
     this.itemUomOptionsTouched.set(false);
+    this.lastDefaultUomValue = record['default_uom_code'] ?? null;
     this.clearItemUomServerErrors();
     this.syncDefaultItemUomOption();
   }
