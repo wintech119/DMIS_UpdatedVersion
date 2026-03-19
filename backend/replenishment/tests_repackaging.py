@@ -40,6 +40,12 @@ class RepackagingComputationTests(SimpleTestCase):
 
         self.assertEqual(raised.exception.code, "source_qty_invalid")
 
+    def test_quantize_qty_rejects_values_below_minimum_quantization_unit(self) -> None:
+        with self.assertRaises(repackaging.RepackagingError) as raised:
+            repackaging._quantize_qty(Decimal("0.0000004"))
+
+        self.assertEqual(raised.exception.code, "quantity_invalid")
+
     @patch("replenishment.services.repackaging.logger")
     @patch("replenishment.services.repackaging.connection.rollback", side_effect=RuntimeError("no tx"))
     def test_safe_rollback_logs_debug_when_rollback_fails(

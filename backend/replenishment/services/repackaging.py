@@ -906,7 +906,13 @@ def _quantize_qty(value: Any) -> Decimal:
     normalized = Decimal(str(value))
     if not normalized.is_finite():
         raise InvalidOperation("quantity must be finite")
-    return normalized.quantize(_QTY_SCALE)
+    quantized = normalized.quantize(_QTY_SCALE)
+    if quantized == Decimal("0"):
+        raise RepackagingError(
+            "quantity_invalid",
+            f"Quantity is too small and must be at least {_QTY_SCALE}.",
+        )
+    return quantized
 
 
 def _parse_optional_int(value: Any) -> int | None:

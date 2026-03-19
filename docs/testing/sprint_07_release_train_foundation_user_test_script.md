@@ -450,19 +450,20 @@ Evidence to capture:
 
 1. Open the repackaging detail page or transaction history view.
 2. Confirm the source quantity, target quantity, and reason are visible.
-3. Re-open the inventory or stock view for the same item.
-4. Confirm the stock change is reflected consistently.
+3. Confirm the persisted transaction detail matches the saved preview values.
+4. Confirm audit metadata such as actor and time is visible where the product exposes it.
 
 Expected result:
 
 - the persisted record matches the submitted transaction
 - quantities shown after save match the saved transaction, not just the preview
+- the transaction history or detail view shows the saved actor/time metadata where exposed
 - audit metadata such as actor and time is visible where the product exposes it
 
 Evidence to capture:
 
 - screenshot of persisted transaction detail
-- screenshot of updated stock or transaction history
+- screenshot of transaction history or audit metadata
 
 ## Negative Checks
 
