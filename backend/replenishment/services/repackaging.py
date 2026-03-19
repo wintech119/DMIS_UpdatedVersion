@@ -106,7 +106,9 @@ def create_repackaging_transaction(
                 source_conversion_factor=context["source_conversion_factor"],
                 target_conversion_factor=context["target_conversion_factor"],
             )
-            available_default_qty = _quantize_qty(context["available_default_qty"])
+            available_default_qty = _quantize_qty_allow_zero(
+                context["available_default_qty"]
+            )
             if available_default_qty < computation.equivalent_default_qty:
                 raise RepackagingError(
                     "insufficient_stock",
@@ -622,7 +624,7 @@ def _fetch_batch_context(
         "batch_id": int(row[0]),
         "batch_no_snapshot": str(row[1] or ""),
         "expiry_date_snapshot": row[2],
-        "available_default_qty": _quantize_qty(
+        "available_default_qty": _quantize_qty_allow_zero(
             (usable_qty - reserved_qty) * batch_conversion_factor
         ),
     }
@@ -903,16 +905,20 @@ def _normalize_positive_decimal(value: Any, *, field_name: str) -> Decimal:
 
 
 def _quantize_qty(value: Any) -> Decimal:
-    normalized = Decimal(str(value))
-    if not normalized.is_finite():
-        raise InvalidOperation("quantity must be finite")
-    quantized = normalized.quantize(_QTY_SCALE)
+    quantized = _quantize_qty_allow_zero(value)
     if quantized == Decimal("0"):
         raise RepackagingError(
             "quantity_invalid",
             f"Quantity is too small and must be at least {_QTY_SCALE}.",
         )
     return quantized
+
+
+def _quantize_qty_allow_zero(value: Any) -> Decimal:
+    normalized = Decimal(str(value))
+    if not normalized.is_finite():
+        raise InvalidOperation("quantity must be finite")
+    return normalized.quantize(_QTY_SCALE)
 
 
 def _parse_optional_int(value: Any) -> int | None:

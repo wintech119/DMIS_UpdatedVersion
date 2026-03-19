@@ -458,7 +458,6 @@ Expected result:
 - the persisted record matches the submitted transaction
 - quantities shown after save match the saved transaction, not just the preview
 - the transaction history or detail view shows the saved actor/time metadata where exposed
-- audit metadata such as actor and time is visible where the product exposes it
 
 Evidence to capture:
 

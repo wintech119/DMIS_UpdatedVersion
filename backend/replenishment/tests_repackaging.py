@@ -101,6 +101,47 @@ class RepackagingServiceTests(SimpleTestCase):
             default_uom_code="EA",
         )
 
+    @patch(
+        "replenishment.services.repackaging._fetch_single_uom_conversion_factor",
+        return_value=Decimal("12"),
+    )
+    def test_fetch_batch_context_allows_zero_available_qty(
+        self,
+        mock_factor,
+    ) -> None:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (
+            18,
+            "LOT-18",
+            None,
+            Decimal("0"),
+            Decimal("0"),
+            "BOX",
+        )
+        cursor_cm = MagicMock()
+        cursor_cm.__enter__.return_value = mock_cursor
+        cursor_cm.__exit__.return_value = None
+        mock_connection = MagicMock(cursor=MagicMock(return_value=cursor_cm))
+
+        with patch("replenishment.services.repackaging.connection", new=mock_connection):
+            context = repackaging._fetch_batch_context(
+                schema="tenant_a",
+                warehouse_id=2,
+                item_id=11,
+                batch_id=18,
+                batch_or_lot="",
+                default_uom_code="EA",
+            )
+
+        assert context is not None
+        self.assertEqual(context["available_default_qty"], Decimal("0.000000"))
+        mock_factor.assert_called_once_with(
+            schema="tenant_a",
+            item_id=11,
+            uom_code="BOX",
+            default_uom_code="EA",
+        )
+
     @patch("replenishment.services.repackaging._is_sqlite", return_value=False)
     @patch(
         "replenishment.services.repackaging.get_repackaging_transaction",
@@ -218,6 +259,44 @@ class RepackagingServiceTests(SimpleTestCase):
         },
     )
     def test_create_repackaging_rejects_insufficient_stock(
+        self,
+        _mock_context,
+        _mock_sqlite,
+    ) -> None:
+        with patch(
+            "replenishment.services.repackaging.transaction.atomic",
+            return_value=nullcontext(),
+        ):
+            with self.assertRaises(repackaging.RepackagingError) as raised:
+                repackaging.create_repackaging_transaction(
+                    warehouse_id=2,
+                    item_id=11,
+                    source_uom_code="BOX",
+                    source_qty=Decimal("1"),
+                    target_uom_code="EA",
+                    reason_code="DAMAGED_OUTER_PACK",
+                    actor_id="ops-user",
+                )
+
+        self.assertEqual(raised.exception.code, "insufficient_stock")
+        self.assertEqual(raised.exception.status_code, 409)
+
+    @patch("replenishment.services.repackaging._is_sqlite", return_value=False)
+    @patch(
+        "replenishment.services.repackaging._load_repackaging_context",
+        return_value={
+            "warehouse_name": "Kingston Hub",
+            "item_code": "WWTRTABLTB01",
+            "item_name": "Water purification tablet",
+            "batch_id": None,
+            "batch_no_snapshot": "",
+            "expiry_date_snapshot": None,
+            "source_conversion_factor": Decimal("12"),
+            "target_conversion_factor": Decimal("1"),
+            "available_default_qty": Decimal("0"),
+        },
+    )
+    def test_create_repackaging_treats_zero_stock_as_insufficient(
         self,
         _mock_context,
         _mock_sqlite,
