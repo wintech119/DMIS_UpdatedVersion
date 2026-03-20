@@ -1,0 +1,1442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMIS Multi-Step Form Mockup — EP-01 Donation Registration &amp; Intake</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f5f4f0;
+    --color-background-tertiary: #eceae3;
+    --color-background-info: #e6f1fb;
+    --color-background-warning: #faeeda;
+    --color-background-danger: #fcebeb;
+    --color-background-success: #e1f5ee;
+    --color-text-primary: #1a1a18;
+    --color-text-secondary: #5f5e5a;
+    --color-text-tertiary: #888780;
+    --color-text-info: #185fa5;
+    --color-text-warning: #854f0b;
+    --color-text-danger: #a32d2d;
+    --color-text-success: #0f6e56;
+    --color-border-tertiary: rgba(0,0,0,0.12);
+    --color-border-secondary: rgba(0,0,0,0.22);
+    --color-border-primary: rgba(0,0,0,0.36);
+    --color-border-info: #85b7eb;
+    --color-border-danger: #f09595;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background-primary: #1e1e1c;
+      --color-background-secondary: #2a2a27;
+      --color-background-tertiary: #333330;
+      --color-background-info: #042c53;
+      --color-background-warning: #412402;
+      --color-background-danger: #501313;
+      --color-background-success: #04342c;
+      --color-text-primary: #e8e6de;
+      --color-text-secondary: #b4b2a9;
+      --color-text-tertiary: #888780;
+      --color-text-info: #85b7eb;
+      --color-text-warning: #fac775;
+      --color-text-danger: #f09595;
+      --color-text-success: #5dcaa5;
+      --color-border-tertiary: rgba(255,255,255,0.1);
+      --color-border-secondary: rgba(255,255,255,0.18);
+      --color-border-primary: rgba(255,255,255,0.32);
+      --color-border-info: #185fa5;
+      --color-border-danger: #a32d2d;
+    }
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-background-tertiary);
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    color: var(--color-text-primary);
+  }
+  .page-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-tertiary);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .card {
+    max-width: 780px;
+    margin: 0 auto;
+    background: var(--color-background-primary);
+    border-radius: var(--border-radius-lg);
+    border: 0.5px solid var(--color-border-tertiary);
+    overflow: hidden;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .875rem 1.5rem;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+  }
+  .header-left { display: flex; align-items: center; gap: .75rem; }
+  .module-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--color-background-info);
+    color: var(--color-text-info);
+    border: 0.5px solid var(--color-border-tertiary);
+  }
+  .record-id { font-size: 12px; color: var(--color-text-tertiary); }
+  .draft-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--color-background-warning);
+    color: var(--color-text-warning);
+    border: 0.5px solid var(--color-border-tertiary);
+  }
+  .title { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+
+  .stepper {
+    display: flex;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    overflow-x: auto;
+    gap: 0;
+  }
+  .step-item { display: flex; align-items: center; flex: 1; min-width: 0; cursor: default; }
+  .step-item:last-child { flex: none; }
+  .step-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--color-text-tertiary);
+    border: 0.5px solid transparent;
+    white-space: nowrap;
+    transition: all .15s;
+  }
+  .step-num {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 500;
+    background: var(--color-border-tertiary);
+    color: var(--color-text-tertiary);
+    flex-shrink: 0;
+    transition: all .15s;
+  }
+  .step-item.done .step-pill { color: var(--color-text-info); cursor: pointer; }
+  .step-item.done .step-pill:hover { background: var(--color-background-info); }
+  .step-item.done .step-num { background: var(--color-background-info); color: var(--color-text-info); }
+  .step-item.active .step-pill { color: var(--color-text-primary); border-color: var(--color-border-primary); background: var(--color-background-secondary); }
+  .step-item.active .step-num { background: var(--color-text-primary); color: var(--color-background-primary); }
+  .step-divider { width: 24px; height: 0.5px; background: var(--color-border-tertiary); flex-shrink: 0; margin: 0 2px; }
+
+  .form-body { padding: 1.5rem; }
+  .step-content { display: none; }
+  .step-content.active { display: block; }
+
+  .step-heading {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-tertiary);
+    margin-bottom: 1rem;
+    padding-bottom: .5rem;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .field-row.single { grid-template-columns: 1fr; }
+  .field-row.thirds { grid-template-columns: 1fr 1fr 1fr; }
+  .field-group { display: flex; flex-direction: column; gap: 4px; }
+  label { font-size: 12px; color: var(--color-text-secondary); }
+  .required { color: var(--color-text-danger); margin-left: 2px; }
+  input[type=text], input[type=date], input[type=number], select, textarea {
+    width: 100%;
+    padding: 7px 10px;
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    font-size: 13px;
+    font-family: var(--font-sans);
+    color: var(--color-text-primary);
+    background: var(--color-background-primary);
+    transition: border-color .12s;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--color-border-primary); }
+  .autofill {
+    background: var(--color-background-secondary) !important;
+    border-color: var(--color-border-secondary) !important;
+    color: var(--color-text-secondary) !important;
+  }
+
+  .suggest-wrap { position: relative; }
+  .suggest-dropdown {
+    position: absolute;
+    top: calc(100% + 2px); left: 0; right: 0;
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    z-index: 100;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,.1);
+  }
+  .suggest-label {
+    font-size: 10px;
+    padding: 5px 12px;
+    color: var(--color-text-tertiary);
+    background: var(--color-background-secondary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .suggest-item { padding: 9px 12px; font-size: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background .1s; }
+  .suggest-item:hover { background: var(--color-background-secondary); }
+  .suggest-item .main { font-weight: 500; color: var(--color-text-primary); }
+  .suggest-item .sub { color: var(--color-text-tertiary); font-size: 11px; margin-top: 1px; }
+
+  .repeat-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+    font-family: var(--font-sans);
+    color: var(--color-text-secondary);
+    background: var(--color-background-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 6px 12px;
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: background .12s;
+  }
+  .repeat-btn:hover { background: var(--color-background-primary); border-color: var(--color-border-primary); }
+
+  .item-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .item-table th { font-size: 11px; color: var(--color-text-secondary); font-weight: 400; padding: 4px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); text-align: left; }
+  .item-table td { padding: 5px 6px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: middle; }
+  .item-table td input, .item-table td select { padding: 4px 7px; font-size: 12px; }
+  .item-table td .autofill { font-size: 12px; padding: 4px 7px; }
+  .remove-btn { background: none; border: none; color: var(--color-text-tertiary); cursor: pointer; font-size: 15px; padding: 2px 6px; border-radius: 4px; font-family: var(--font-sans); }
+  .remove-btn:hover { background: var(--color-background-danger); color: var(--color-text-danger); }
+  .add-line-btn {
+    font-size: 12px;
+    font-family: var(--font-sans);
+    color: var(--color-text-info);
+    background: none;
+    border: 0.5px dashed var(--color-border-info);
+    border-radius: var(--border-radius-md);
+    padding: 6px 14px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 4px;
+    transition: background .12s;
+  }
+  .add-line-btn:hover { background: var(--color-background-info); }
+
+  .review-section {
+    margin-bottom: 1rem;
+    padding: .875rem 1rem;
+    background: var(--color-background-secondary);
+    border-radius: var(--border-radius-lg);
+    border: 0.5px solid var(--color-border-tertiary);
+  }
+  .review-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .625rem; }
+  .review-title { font-size: 11px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; }
+  .edit-link { font-size: 11px; color: var(--color-text-info); cursor: pointer; background: none; border: none; font-family: var(--font-sans); padding: 0; }
+  .edit-link:hover { text-decoration: underline; }
+  .review-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; gap: 12px; }
+  .review-row:last-child { border-bottom: none; }
+  .review-label { color: var(--color-text-secondary); min-width: 140px; flex-shrink: 0; }
+  .review-value { color: var(--color-text-primary); text-align: right; }
+  .item-review-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; }
+  .item-review-row:last-child { border-bottom: none; }
+  .ifrc-chip { font-size: 10px; padding: 2px 7px; border-radius: 20px; background: var(--color-background-info); color: var(--color-text-info); font-weight: 500; flex-shrink: 0; }
+
+  .val-error { font-size: 11px; color: var(--color-text-danger); margin-top: 3px; }
+  input.error, select.error { border-color: var(--color-border-danger) !important; }
+
+  .nav-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-top: 0.5px solid var(--color-border-tertiary);
+    margin-top: .5rem;
+  }
+  .autosave { font-size: 11px; color: var(--color-text-tertiary); display: flex; align-items: center; gap: 5px; }
+  .autosave-dot { width: 6px; height: 6px; border-radius: 50%; background: #1D9E75; flex-shrink: 0; }
+  .btn-back {
+    font-size: 13px; font-family: var(--font-sans);
+    color: var(--color-text-secondary);
+    background: none;
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    padding: 8px 18px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .btn-back:hover { background: var(--color-background-secondary); border-color: var(--color-border-primary); }
+  .btn-next {
+    font-size: 13px; font-weight: 500; font-family: var(--font-sans);
+    color: var(--color-background-primary);
+    background: var(--color-text-primary);
+    border: none;
+    border-radius: var(--border-radius-md);
+    padding: 8px 22px;
+    cursor: pointer;
+    transition: opacity .12s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btn-next:hover { opacity: .85; }
+  .btn-submit {
+    font-size: 13px; font-weight: 500; font-family: var(--font-sans);
+    color: #fff;
+    background: #1D9E75;
+    border: none;
+    border-radius: var(--border-radius-md);
+    padding: 8px 22px;
+    cursor: pointer;
+    transition: opacity .12s;
+  }
+  .btn-submit:hover { opacity: .88; }
+  .nav-btns { display: flex; gap: 10px; align-items: center; }
+
+  .confirm-screen {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.5rem;
+    gap: 1rem;
+    text-align: center;
+  }
+  .confirm-screen.show { display: flex; }
+  .confirm-icon {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--color-background-success);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .confirm-id {
+    font-size: 13px; font-weight: 500;
+    padding: 4px 16px;
+    background: var(--color-background-secondary);
+    border-radius: 20px;
+    color: var(--color-text-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+  }
+  .confirm-msg { font-size: 13px; color: var(--color-text-secondary); max-width: 340px; line-height: 1.6; }
+  .view-btn {
+    font-size: 12px; font-family: var(--font-sans);
+    color: var(--color-text-info);
+    background: none;
+    border: 0.5px solid var(--color-border-info);
+    border-radius: var(--border-radius-md);
+    padding: 7px 16px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .view-btn:hover { background: var(--color-background-info); }
+
+  @media (max-width: 600px) {
+    body { padding: 0; }
+    .card { border-radius: 0; border-left: none; border-right: none; }
+    .field-row { grid-template-columns: 1fr; }
+    .field-row.thirds { grid-template-columns: 1fr; }
+    .item-table { display: block; overflow-x: auto; }
+    .nav-footer { position: sticky; bottom: 0; background: var(--color-background-primary); }
+  }
+
+  /* Form switcher tabs */
+  .form-switcher {
+    display: flex;
+    gap: 0;
+    padding: .75rem 1.5rem 0;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    background: var(--color-background-secondary);
+  }
+  .switcher-tab {
+    font-size: 12px;
+    font-family: var(--font-sans);
+    padding: 7px 16px;
+    border: 0.5px solid var(--color-border-tertiary);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    background: transparent;
+    color: var(--color-text-tertiary);
+    margin-right: 4px;
+    transition: all .12s;
+    position: relative;
+    bottom: -0.5px;
+  }
+  .switcher-tab.active {
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-secondary);
+    font-weight: 500;
+  }
+  .switcher-tab .tab-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--color-background-info);
+    color: var(--color-text-info);
+    margin-left: 6px;
+  }
+  .form-panel { display: none; }
+  .form-panel.active { display: block; }
+
+  /* Scan button on item field */
+  .scan-input-wrap {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .scan-input-wrap input { flex: 1; min-width: 0; }
+  .scan-icon-btn {
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    background: var(--color-background-secondary);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .12s;
+    font-size: 15px;
+  }
+  .scan-icon-btn:hover { background: var(--color-background-primary); border-color: var(--color-border-primary); color: var(--color-text-primary); }
+
+  /* Scan modal */
+  .scan-modal-bg {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .scan-modal-bg.open { display: flex; }
+  .scan-modal {
+    background: var(--color-background-primary);
+    border-radius: var(--border-radius-lg);
+    border: 0.5px solid var(--color-border-secondary);
+    width: 340px;
+    max-width: 95vw;
+    overflow: hidden;
+  }
+  .scan-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .875rem 1rem;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+  }
+  .scan-modal-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+  .scan-close-btn { background: none; border: none; font-size: 18px; color: var(--color-text-tertiary); cursor: pointer; font-family: var(--font-sans); line-height: 1; }
+  .scan-close-btn:hover { color: var(--color-text-primary); }
+  .scan-viewfinder {
+    position: relative;
+    background: #111;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .scan-frame {
+    width: 200px; height: 100px;
+    border: 2px solid rgba(255,255,255,.8);
+    border-radius: 6px;
+    position: relative;
+  }
+  .scan-frame::before, .scan-frame::after,
+  .scan-frame .corner-br, .scan-frame .corner-bl {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    border-color: #1D9E75;
+    border-style: solid;
+  }
+  .scan-frame::before { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-radius: 3px 0 0 0; }
+  .scan-frame::after  { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-radius: 0 3px 0 0; }
+  .scan-frame .corner-br { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 3px 0; }
+  .scan-frame .corner-bl { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; border-radius: 0 0 0 3px; }
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #1D9E75, transparent);
+    animation: scanline 1.8s ease-in-out infinite;
+    top: 50%;
+  }
+  @keyframes scanline {
+    0%   { transform: translateY(-46px); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateY(46px); opacity: 0; }
+  }
+  .scan-hint { font-size: 11px; color: rgba(255,255,255,.5); position: absolute; bottom: 10px; }
+  .scan-modal-body { padding: 1rem; }
+  .scan-state { display: none; }
+  .scan-state.active { display: block; }
+  .scan-result-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--color-background-success);
+    border: 0.5px solid #5DCAA5;
+    border-radius: var(--border-radius-md);
+    margin-bottom: 10px;
+  }
+  .scan-result-chip .sc-icon { font-size: 16px; }
+  .scan-result-chip .sc-name { font-size: 13px; font-weight: 500; color: var(--color-text-success); }
+  .scan-result-chip .sc-code { font-size: 11px; color: var(--color-text-success); opacity: .8; }
+  .scan-demo-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .scan-demo-item {
+    flex: 1;
+    padding: 8px 10px;
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    transition: all .12s;
+    text-align: center;
+  }
+  .scan-demo-item:hover { background: var(--color-background-info); border-color: var(--color-border-info); }
+  .scan-demo-item .sdi-code { font-size: 10px; color: var(--color-text-tertiary); margin-bottom: 3px; }
+  .scan-demo-item .sdi-name { font-size: 11px; color: var(--color-text-primary); font-weight: 500; }
+  .scan-manual-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .scan-manual-input input { flex: 1; }
+  .btn-scan-confirm {
+    font-size: 13px; font-weight: 500; font-family: var(--font-sans);
+    color: #fff;
+    background: #1D9E75;
+    border: none;
+    border-radius: var(--border-radius-md);
+    padding: 8px 14px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 10px;
+  }
+  .btn-scan-confirm:hover { opacity: .88; }
+
+  /* LPN badge on intake row */
+  .lpn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--color-background-warning);
+    color: var(--color-text-warning);
+    border: 0.5px solid var(--color-border-tertiary);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .lpn-input-wrap { display: flex; align-items: center; gap: 6px; }
+  .lpn-generate-btn {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-family: var(--font-sans);
+    padding: 3px 7px;
+    border: 0.5px solid var(--color-border-secondary);
+    border-radius: 20px;
+    background: var(--color-background-secondary);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .12s;
+  }
+  .lpn-generate-btn:hover { background: var(--color-background-primary); color: var(--color-text-primary); }
+  .req-note {
+    font-size: 10px;
+    color: var(--color-text-tertiary);
+    padding: 4px 8px;
+    background: var(--color-background-secondary);
+    border-left: 2px solid var(--color-border-secondary);
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<p class="page-label">DMIS — Multi-Step Transaction Form · EP-01 Donation Registration &amp; Intake · Reference Mockup v6.1</p>
+
+<div class="card">
+
+  <!-- Form switcher tabs -->
+  <div class="form-switcher">
+    <button class="switcher-tab active" onclick="switchForm('registration')">Donation Registration</button>
+    <button class="switcher-tab" onclick="switchForm('intake')">Donation Intake <span class="tab-badge">Scan · LPN</span></button>
+  </div>
+
+  <!-- PANEL A: Registration -->
+  <div class="form-panel active" id="panel-registration">
+  <div id="main-form">
+    <div class="header">
+      <div class="header-left">
+        <span class="module-badge">EP-01</span>
+        <span class="title">New Donation Registration</span>
+        <span class="draft-chip">Draft</span>
+      </div>
+      <span class="record-id">DON-2026-####</span>
+    </div>
+
+    <div class="stepper" id="stepper">
+      <div class="step-item active" id="si-0" onclick="goStep(0)">
+        <div class="step-pill"><span class="step-num">1</span> Donor &amp; event</div>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item" id="si-1" onclick="goStep(1)">
+        <div class="step-pill"><span class="step-num">2</span> Donation items</div>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item" id="si-2" onclick="goStep(2)">
+        <div class="step-pill"><span class="step-num">3</span> Costs &amp; documents</div>
+      </div>
+      <div class="step-divider"></div>
+      <div class="step-item" id="si-3" onclick="goStep(3)">
+        <div class="step-pill"><span class="step-num">4</span> Review &amp; submit</div>
+      </div>
+    </div>
+
+    <div class="form-body">
+
+      <!-- STEP 1: Donor & Event -->
+      <div class="step-content active" id="step-0">
+        <p class="step-heading">Donor &amp; event</p>
+        <button class="repeat-btn" onclick="showRepeat()">↺ &nbsp; Repeat a recent donation</button>
+
+        <div class="field-row single">
+          <div class="field-group suggest-wrap">
+            <label>Donor name<span class="required">*</span></label>
+            <input type="text" id="donor-name" placeholder="Start typing donor name…" oninput="handleDonorInput(this)" autocomplete="off">
+            <div id="donor-dropdown" class="suggest-dropdown" style="display:none">
+              <div class="suggest-label">Party master register — Donors</div>
+              <div class="suggest-item" onclick="selectDonor('World Food Programme','International Organisation','WFP-001','USD')">
+                <div><div class="main">World Food Programme</div><div class="sub">International Organisation · WFP-001</div></div>
+                <span style="font-size:11px;color:var(--color-text-tertiary)">USD</span>
+              </div>
+              <div class="suggest-item" onclick="selectDonor('USAID','Government','GOV-US-04','USD')">
+                <div><div class="main">USAID</div><div class="sub">Government · GOV-US-04</div></div>
+                <span style="font-size:11px;color:var(--color-text-tertiary)">USD</span>
+              </div>
+              <div class="suggest-item" onclick="selectDonor('World Vision Jamaica','NGO','NGO-WV-12','JMD')">
+                <div><div class="main">World Vision Jamaica</div><div class="sub">NGO · NGO-WV-12</div></div>
+                <span style="font-size:11px;color:var(--color-text-tertiary)">JMD</span>
+              </div>
+              <div class="suggest-item" onclick="selectDonor('Caribbean Development Bank','International Organisation','IFI-CDB-01','USD')">
+                <div><div class="main">Caribbean Development Bank</div><div class="sub">International Organisation · IFI-CDB-01</div></div>
+                <span style="font-size:11px;color:var(--color-text-tertiary)">USD</span>
+              </div>
+            </div>
+            <div class="val-error" id="err-donor" style="display:none">Donor name is required</div>
+          </div>
+        </div>
+
+        <div class="field-row thirds">
+          <div class="field-group">
+            <label>Donor type</label>
+            <input type="text" id="donor-type" class="autofill" placeholder="Auto-filled" readonly>
+          </div>
+          <div class="field-group">
+            <label>Donor code</label>
+            <input type="text" id="donor-code" class="autofill" placeholder="Auto-filled" readonly>
+          </div>
+          <div class="field-group">
+            <label>Currency</label>
+            <input type="text" id="donor-currency" class="autofill" placeholder="Auto-filled" readonly>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Event<span class="required">*</span></label>
+            <select id="event">
+              <option value="">Select event…</option>
+              <option value="Hurricane Beryl Response 2026">Hurricane Beryl Response 2026</option>
+              <option value="Flood Relief – St. Thomas 2026">Flood Relief – St. Thomas 2026</option>
+              <option value="Preparedness Stock 2026">Preparedness Stock 2026</option>
+            </select>
+            <div class="val-error" id="err-event" style="display:none">Event is required</div>
+          </div>
+          <div class="field-group">
+            <label>Managing tenant<span class="required">*</span></label>
+            <select id="tenant">
+              <option value="ODPEM (Parent)" selected>ODPEM (Parent)</option>
+              <option value="JDF Logistics">JDF Logistics</option>
+              <option value="MLSS">MLSS</option>
+              <option value="Kingston Parish Council">Kingston Parish Council</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Received date<span class="required">*</span></label>
+            <input type="date" id="received-date" value="2026-03-20">
+          </div>
+          <div class="field-group">
+            <label>Description</label>
+            <input type="text" id="description" placeholder="Brief description of this donation">
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Donation Items -->
+      <div class="step-content" id="step-1">
+        <p class="step-heading">Donation items</p>
+        <table class="item-table">
+          <thead>
+            <tr>
+              <th style="width:26%">Item name</th>
+              <th style="width:14%">IFRC code</th>
+              <th style="width:11%">Category</th>
+              <th style="width:9%">UOM</th>
+              <th style="width:10%">Type</th>
+              <th style="width:11%">Quantity</th>
+              <th style="width:12%">Unit cost</th>
+              <th style="width:7%">Earmark</th>
+              <th style="width:3%"></th>
+            </tr>
+          </thead>
+          <tbody id="items-body">
+            <tr id="irow-0">
+              <td class="suggest-wrap">
+                <input type="text" placeholder="Search item…" oninput="handleItemInput(this,'irow-0')" autocomplete="off">
+                <div class="suggest-dropdown" style="display:none">
+                  <div class="suggest-label">IFRC Standard Products Catalogue</div>
+                  <div class="suggest-item" onclick="selectItem('irow-0','Tarpaulin, plastic','NFI-TARP-001','NFI','each')">
+                    <div><div class="main">Tarpaulin, plastic</div><div class="sub">NFI · NFI-TARP-001</div></div>
+                  </div>
+                  <div class="suggest-item" onclick="selectItem('irow-0','Water purification tablets','WASH-TAB-005','WASH','pack')">
+                    <div><div class="main">Water purification tablets</div><div class="sub">WASH · WASH-TAB-005</div></div>
+                  </div>
+                  <div class="suggest-item" onclick="selectItem('irow-0','Blanket, wool','NFI-BLAN-002','NFI','each')">
+                    <div><div class="main">Blanket, wool</div><div class="sub">NFI · NFI-BLAN-002</div></div>
+                  </div>
+                  <div class="suggest-item" onclick="selectItem('irow-0','Hygiene kit, family','H-KIT-003','Health','kit')">
+                    <div><div class="main">Hygiene kit, family</div><div class="sub">Health · H-KIT-003</div></div>
+                  </div>
+                  <div class="suggest-item" onclick="selectItem('irow-0','Rice, fortified (25kg bag)','FOOD-RICE-01','Food','bag')">
+                    <div><div class="main">Rice, fortified (25 kg bag)</div><div class="sub">Food · FOOD-RICE-01</div></div>
+                  </div>
+                </div>
+              </td>
+              <td><input type="text" id="irow-0-code" class="autofill" placeholder="Auto" readonly></td>
+              <td><input type="text" id="irow-0-cat" class="autofill" placeholder="Auto" readonly></td>
+              <td><input type="text" id="irow-0-uom" class="autofill" placeholder="Auto" readonly></td>
+              <td><select><option>Goods</option><option>Funds</option></select></td>
+              <td><input type="number" min="0" placeholder="0"></td>
+              <td><input type="number" min="0" step="0.01" placeholder="0.00"></td>
+              <td><input type="text" placeholder="Optional"></td>
+              <td><button class="remove-btn" onclick="removeRow('irow-0')" title="Remove line">×</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="add-line-btn" onclick="addItemRow()">+ Add item line</button>
+      </div>
+
+      <!-- STEP 3: Costs & Documents -->
+      <div class="step-content" id="step-2">
+        <p class="step-heading">Costs</p>
+        <div class="field-row thirds">
+          <div class="field-group">
+            <label>Total donation value</label>
+            <input type="number" step="0.01" placeholder="0.00">
+          </div>
+          <div class="field-group">
+            <label>Storage cost</label>
+            <input type="number" step="0.01" placeholder="0.00">
+          </div>
+          <div class="field-group">
+            <label>Haulage cost</label>
+            <input type="number" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Other costs</label>
+            <input type="number" step="0.01" placeholder="0.00">
+          </div>
+          <div class="field-group">
+            <label>Currency</label>
+            <input type="text" id="cost-currency" class="autofill" placeholder="Auto-filled from donor">
+          </div>
+        </div>
+
+        <p class="step-heading" style="margin-top:1.25rem">Port of entry</p>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Port-of-entry timestamp</label>
+            <input type="date">
+          </div>
+          <div class="field-group">
+            <label>Customs clearance date</label>
+            <input type="date">
+          </div>
+        </div>
+        <div class="field-row single">
+          <div class="field-group">
+            <label>Expected arrival (if in-transit / Horizon B tracking)</label>
+            <input type="date">
+          </div>
+        </div>
+
+        <p class="step-heading" style="margin-top:1.25rem">Source document references</p>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Document type</label>
+            <select>
+              <option>Invoice</option>
+              <option>Packing List</option>
+              <option>Customs Declaration</option>
+              <option>Goods Receipt Note</option>
+              <option>Shared Drive File</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Reference number / file name</label>
+            <input type="text" placeholder="e.g. INV-2026-0234">
+          </div>
+        </div>
+        <div class="field-row single">
+          <div class="field-group">
+            <label>Note (optional)</label>
+            <input type="text" placeholder="e.g. Stored in ODPEM shared drive — Donations 2026 folder">
+          </div>
+        </div>
+        <button class="add-line-btn">+ Add another document reference</button>
+      </div>
+
+      <!-- STEP 4: Review & Submit -->
+      <div class="step-content" id="step-3">
+        <p class="step-heading">Review &amp; submit</p>
+
+        <div class="review-section">
+          <div class="review-header">
+            <span class="review-title">Donor &amp; event</span>
+            <button class="edit-link" onclick="goStep(0)">Edit</button>
+          </div>
+          <div class="review-row"><span class="review-label">Donor</span><span class="review-value" id="rv-donor">—</span></div>
+          <div class="review-row"><span class="review-label">Type / Code</span><span class="review-value" id="rv-type">—</span></div>
+          <div class="review-row"><span class="review-label">Event</span><span class="review-value" id="rv-event">—</span></div>
+          <div class="review-row"><span class="review-label">Managing tenant</span><span class="review-value" id="rv-tenant">—</span></div>
+          <div class="review-row"><span class="review-label">Received date</span><span class="review-value" id="rv-date">—</span></div>
+        </div>
+
+        <div class="review-section">
+          <div class="review-header">
+            <span class="review-title">Donation items</span>
+            <button class="edit-link" onclick="goStep(1)">Edit</button>
+          </div>
+          <div id="rv-items">
+            <div class="item-review-row">
+              <span class="ifrc-chip">NFI-TARP-001</span>
+              <span style="flex:1;font-size:12px;color:var(--color-text-primary)">Tarpaulin, plastic</span>
+              <span style="font-size:12px;color:var(--color-text-secondary)">500 each</span>
+            </div>
+            <div class="item-review-row">
+              <span class="ifrc-chip">WASH-TAB-005</span>
+              <span style="flex:1;font-size:12px;color:var(--color-text-primary)">Water purification tablets</span>
+              <span style="font-size:12px;color:var(--color-text-secondary)">1,200 pack</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="review-section">
+          <div class="review-header">
+            <span class="review-title">Costs &amp; documents</span>
+            <button class="edit-link" onclick="goStep(2)">Edit</button>
+          </div>
+          <div class="review-row"><span class="review-label">Total donation value</span><span class="review-value">USD 42,500.00</span></div>
+          <div class="review-row"><span class="review-label">Storage cost</span><span class="review-value">USD 1,200.00</span></div>
+          <div class="review-row"><span class="review-label">Haulage cost</span><span class="review-value">USD 850.00</span></div>
+          <div class="review-row"><span class="review-label">Source document</span><span class="review-value">Invoice · INV-2026-0234</span></div>
+        </div>
+
+        <p style="font-size:11px;color:var(--color-text-tertiary);margin-top:.75rem;line-height:1.6;">
+          Submitting will place this record in the Data Entry Verification Queue for review by the Logistics Manager. Inventory will not be updated until the record is approved.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="nav-footer">
+      <div class="autosave"><span class="autosave-dot"></span> Auto-saved 2s ago</div>
+      <div class="nav-btns">
+        <button class="btn-back" id="btn-back" onclick="prevStep()">← Back</button>
+        <button class="btn-next" id="btn-next" onclick="nextStep()">Next →</button>
+        <button class="btn-submit" id="btn-submit" style="display:none" onclick="submitForm()">Submit donation</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="confirm-screen" id="confirm-screen">
+    <div class="confirm-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M5 12l5 5L20 7" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div>
+      <p style="font-size:16px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">Donation submitted</p>
+      <p class="confirm-msg">Record is pending verification. A Logistics Manager will review it in the Data Entry Verification Queue before inventory is updated.</p>
+    </div>
+    <span class="confirm-id">DON-2026-0847 · Entered</span>
+    <div style="display:flex;gap:8px;margin-top:.5rem">
+      <button class="view-btn">View record →</button>
+      <button class="view-btn" onclick="resetForm()">New donation</button>
+    </div>
+  </div>
+  </div><!-- /panel-registration -->
+
+  <!-- PANEL B: Donation Intake (FR01.29 barcode scan + FR01.30 LPN) -->
+  <div class="form-panel" id="panel-intake">
+    <div>
+      <div class="header">
+        <div class="header-left">
+          <span class="module-badge">EP-01</span>
+          <span class="title">New Donation Intake</span>
+          <span class="draft-chip">Draft</span>
+        </div>
+        <span class="record-id">INT-2026-####</span>
+      </div>
+
+      <div class="stepper">
+        <div class="step-item done" id="iси-0" onclick="iGoStep(0)">
+          <div class="step-pill"><span class="step-num">✓</span> Source &amp; destination</div>
+        </div>
+        <div class="step-divider"></div>
+        <div class="step-item active" id="iси-1">
+          <div class="step-pill"><span class="step-num">2</span> Quantities &amp; condition</div>
+        </div>
+        <div class="step-divider"></div>
+        <div class="step-item" id="iси-2">
+          <div class="step-pill"><span class="step-num">3</span> Review &amp; confirm</div>
+        </div>
+      </div>
+
+      <!-- Step 1 (pre-completed for demo, shown as done above) -->
+      <div class="form-body" id="intake-step-0" style="display:none">
+        <p class="step-heading">Source &amp; destination</p>
+        <div class="field-row single">
+          <div class="field-group">
+            <label>Source donation<span class="required">*</span></label>
+            <select>
+              <option value="DON-2026-0841">DON-2026-0841 — WFP · Hurricane Beryl Response 2026</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Quantities & Condition — barcode scan + LPN live here -->
+      <div class="form-body" id="intake-step-1">
+        <p class="step-heading">Quantities &amp; condition</p>
+        <p class="req-note">
+          <strong>FR01.29</strong> — Barcode scan enabled on each item row for speed and efficiency where a barcode exists. &nbsp;
+          <strong>FR01.30</strong> — LPN (License Plate Number) assigned per pallet or case upon goods receipt.
+        </p>
+
+        <!-- Source reference (read-only per FR01.27) -->
+        <div style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);margin-bottom:14px;border:0.5px solid var(--color-border-tertiary);">
+          <span style="font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-transform:uppercase;letter-spacing:.04em">Source</span>
+          <span style="font-size:12px;color:var(--color-text-secondary)">DON-2026-0841</span>
+          <span style="color:var(--color-border-secondary)">·</span>
+          <span style="font-size:12px;color:var(--color-text-secondary)">World Food Programme</span>
+          <span style="color:var(--color-border-secondary)">·</span>
+          <span style="font-size:12px;color:var(--color-text-secondary)">Hurricane Beryl Response 2026</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--color-text-tertiary)">Read-only</span>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Intake date<span class="required">*</span></label>
+            <input type="date" value="2026-03-20">
+          </div>
+          <div class="field-group">
+            <label>Comments</label>
+            <input type="text" placeholder="Optional comments on condition">
+          </div>
+        </div>
+
+        <!-- Item intake table with scan + LPN -->
+        <table class="item-table" style="margin-top:.75rem">
+          <thead>
+            <tr>
+              <th style="width:18%">Item</th>
+              <th style="width:14%">Barcode / scan</th>
+              <th style="width:11%">Usable qty</th>
+              <th style="width:11%">Defective qty</th>
+              <th style="width:11%">Expired qty</th>
+              <th style="width:12%">Batch no.</th>
+              <th style="width:9%">Expiry</th>
+              <th style="width:14%">LPN</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1 — Tarpaulin (pre-filled from source donation) -->
+            <tr>
+              <td>
+                <div style="font-size:12px;font-weight:500;color:var(--color-text-primary)">Tarpaulin, plastic</div>
+                <div style="font-size:10px;color:var(--color-text-tertiary)">NFI-TARP-001 · 500 exp.</div>
+              </td>
+              <td>
+                <div class="scan-input-wrap">
+                  <input type="text" id="scan-field-0" placeholder="Scan or type" style="font-size:12px;padding:4px 7px">
+                  <button class="scan-icon-btn" onclick="openScan(0,'Tarpaulin, plastic','NFI-TARP-001')" title="Scan barcode (FR01.29)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                      <line x1="8" y1="6" x2="8" y2="18"/><line x1="12" y1="6" x2="12" y2="18"/><line x1="16" y1="6" x2="16" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
+              <td><input type="number" min="0" id="intake-usable-0" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="number" min="0" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="number" min="0" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="text" placeholder="e.g. BN-240" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="date" style="font-size:11px;padding:4px 6px"></td>
+              <td>
+                <div class="lpn-input-wrap">
+                  <input type="text" id="lpn-0" placeholder="LPN" style="font-size:11px;padding:4px 7px" readonly>
+                  <button class="lpn-generate-btn" onclick="generateLPN(0)">Gen</button>
+                </div>
+              </td>
+            </tr>
+            <!-- Row 2 — Water purification tablets -->
+            <tr>
+              <td>
+                <div style="font-size:12px;font-weight:500;color:var(--color-text-primary)">Water purif. tablets</div>
+                <div style="font-size:10px;color:var(--color-text-tertiary)">WASH-TAB-005 · 1,200 exp.</div>
+              </td>
+              <td>
+                <div class="scan-input-wrap">
+                  <input type="text" id="scan-field-1" placeholder="Scan or type" style="font-size:12px;padding:4px 7px">
+                  <button class="scan-icon-btn" onclick="openScan(1,'Water purif. tablets','WASH-TAB-005')" title="Scan barcode (FR01.29)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                      <line x1="8" y1="6" x2="8" y2="18"/><line x1="12" y1="6" x2="12" y2="18"/><line x1="16" y1="6" x2="16" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              </td>
+              <td><input type="number" min="0" id="intake-usable-1" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="number" min="0" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="number" min="0" placeholder="0" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="text" placeholder="e.g. BN-241" style="font-size:12px;padding:4px 7px"></td>
+              <td><input type="date" style="font-size:11px;padding:4px 6px"></td>
+              <td>
+                <div class="lpn-input-wrap">
+                  <input type="text" id="lpn-1" placeholder="LPN" style="font-size:11px;padding:4px 7px" readonly>
+                  <button class="lpn-generate-btn" onclick="generateLPN(1)">Gen</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Photo capture note (v6.1) -->
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="8" width="20" height="14" rx="2"/><path d="M16 8V6a4 4 0 0 0-8 0v2"/><circle cx="12" cy="15" r="2"/></svg>
+          <span style="font-size:12px;color:var(--color-text-secondary)">Intake photo evidence</span>
+          <button style="font-size:11px;font-family:var(--font-sans);padding:4px 12px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer;margin-left:auto">+ Capture photo</button>
+          <span style="font-size:10px;color:var(--color-text-tertiary)">v6.1 requirement</span>
+        </div>
+      </div>
+
+      <!-- Step 3: Review -->
+      <div class="form-body" id="intake-step-2" style="display:none">
+        <p class="step-heading">Review &amp; confirm</p>
+        <div class="review-section">
+          <div class="review-header"><span class="review-title">Source &amp; destination</span><button class="edit-link" onclick="iGoStep(0)">Edit</button></div>
+          <div class="review-row"><span class="review-label">Source donation</span><span class="review-value">DON-2026-0841</span></div>
+          <div class="review-row"><span class="review-label">Target warehouse</span><span class="review-value">Kingston MAIN-HUB</span></div>
+          <div class="review-row"><span class="review-label">Intake date</span><span class="review-value">2026-03-20</span></div>
+        </div>
+        <div class="review-section">
+          <div class="review-header"><span class="review-title">Quantities &amp; condition</span><button class="edit-link" onclick="iGoStep(1)">Edit</button></div>
+          <div class="review-row"><span class="review-label">Tarpaulin, plastic</span><span class="review-value" id="rv-intake-qty-0">Usable: —</span></div>
+          <div class="review-row"><span class="review-label">LPN assigned</span><span class="review-value" id="rv-lpn-0">—</span></div>
+          <div class="review-row"><span class="review-label">Water purif. tablets</span><span class="review-value" id="rv-intake-qty-1">Usable: —</span></div>
+          <div class="review-row"><span class="review-label">LPN assigned</span><span class="review-value" id="rv-lpn-1">—</span></div>
+          <div class="review-row"><span class="review-label">Photo evidence</span><span class="review-value">1 image captured</span></div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-tertiary);margin-top:.75rem;line-height:1.6">Confirming will set intake status to Verified and update inventory quantities. This action cannot be undone.</p>
+      </div>
+
+      <div class="nav-footer">
+        <div class="autosave"><span class="autosave-dot"></span> Auto-saved 4s ago</div>
+        <div class="nav-btns">
+          <button class="btn-back" id="ibtn-back" style="display:none" onclick="iGoStep(0)">← Back</button>
+          <button class="btn-next" id="ibtn-next" onclick="iNextStep()">Next →</button>
+          <button class="btn-submit" id="ibtn-submit" style="display:none" onclick="iSubmit()">Confirm intake</button>
+        </div>
+      </div>
+    </div>
+  </div><!-- /panel-intake -->
+
+</div><!-- /card -->
+
+<!-- Barcode Scan Modal (FR01.29) -->
+<div class="scan-modal-bg" id="scan-modal">
+  <div class="scan-modal">
+    <div class="scan-modal-header">
+      <span class="scan-modal-title">Scan item barcode</span>
+      <button class="scan-close-btn" onclick="closeScan()">×</button>
+    </div>
+    <div class="scan-viewfinder">
+      <div class="scan-frame">
+        <div class="corner-br"></div>
+        <div class="corner-bl"></div>
+        <div class="scan-line"></div>
+      </div>
+      <span class="scan-hint">Point camera at barcode</span>
+    </div>
+    <div class="scan-modal-body">
+
+      <!-- State: scanning -->
+      <div class="scan-state active" id="scan-state-scanning">
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px;text-align:center">
+          Demo — select an item to simulate a barcode scan result:
+        </p>
+        <div class="scan-demo-row">
+          <div class="scan-demo-item" onclick="simulateScan('NFI-TARP-001','Tarpaulin, plastic','each','4006381333931')">
+            <div class="sdi-code">NFI-TARP-001</div>
+            <div class="sdi-name">Tarpaulin, plastic</div>
+          </div>
+          <div class="scan-demo-item" onclick="simulateScan('WASH-TAB-005','Water purif. tablets','pack','5000158044806')">
+            <div class="sdi-code">WASH-TAB-005</div>
+            <div class="sdi-name">Water purif. tablets</div>
+          </div>
+        </div>
+        <div class="scan-demo-row">
+          <div class="scan-demo-item" onclick="simulateScan('NFI-BLAN-002','Blanket, wool','each','5013519083260')">
+            <div class="sdi-code">NFI-BLAN-002</div>
+            <div class="sdi-name">Blanket, wool</div>
+          </div>
+          <div class="scan-demo-item" onclick="simulateScan('H-KIT-003','Hygiene kit, family','kit','8076809513388')">
+            <div class="sdi-code">H-KIT-003</div>
+            <div class="sdi-name">Hygiene kit, family</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:10px 0 4px">
+          <div style="flex:1;height:0.5px;background:var(--color-border-tertiary)"></div>
+          <span style="font-size:11px;color:var(--color-text-tertiary)">or enter manually</span>
+          <div style="flex:1;height:0.5px;background:var(--color-border-tertiary)"></div>
+        </div>
+        <div class="scan-manual-input">
+          <input type="text" id="manual-barcode" placeholder="Type barcode number…">
+        </div>
+      </div>
+
+      <!-- State: result -->
+      <div class="scan-state" id="scan-state-result">
+        <div class="scan-result-chip">
+          <span class="sc-icon">✓</span>
+          <div>
+            <div class="sc-name" id="scan-res-name">—</div>
+            <div class="sc-code" id="scan-res-code">—</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
+          <div><span style="color:var(--color-text-tertiary)">IFRC code</span><br><strong id="scan-res-ifrc">—</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">UOM</span><br><strong id="scan-res-uom">—</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">Barcode</span><br><strong id="scan-res-barcode">—</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">Matched to</span><br><strong style="color:var(--color-text-success)">IFRC catalogue</strong></div>
+        </div>
+        <button class="btn-scan-confirm" onclick="confirmScan()">Use this item</button>
+        <button onclick="retryScanning()" style="width:100%;font-size:12px;font-family:var(--font-sans);background:none;border:none;color:var(--color-text-secondary);cursor:pointer;padding:8px;margin-top:4px">Scan again</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  let cur = 0;
+  const total = 4;
+  let maxReached = 0;
+  let itemRowCount = 1;
+
+  function updateStepper() {
+    ['si-0','si-1','si-2','si-3'].forEach((id, i) => {
+      const el = document.getElementById(id);
+      el.className = 'step-item';
+      if (i < cur) el.classList.add('done');
+      else if (i === cur) el.classList.add('active');
+    });
+    const back = document.getElementById('btn-back');
+    const next = document.getElementById('btn-next');
+    const sub  = document.getElementById('btn-submit');
+    back.style.display = cur === 0 ? 'none' : 'block';
+    next.style.display = cur === total - 1 ? 'none' : 'flex';
+    sub.style.display  = cur === total - 1 ? 'block' : 'none';
+  }
+
+  function showStep(n) {
+    ['step-0','step-1','step-2','step-3'].forEach((id, i) => {
+      document.getElementById(id).className = 'step-content' + (i === n ? ' active' : '');
+    });
+    cur = n;
+    if (n > maxReached) maxReached = n;
+    updateStepper();
+    populateReview();
+  }
+
+  function goStep(n) { if (n <= maxReached) showStep(n); }
+
+  function validateStep() {
+    if (cur !== 0) return true;
+    let ok = true;
+    const dn = document.getElementById('donor-name');
+    const ev = document.getElementById('event');
+    const errD = document.getElementById('err-donor');
+    const errE = document.getElementById('err-event');
+    if (!dn.value.trim()) {
+      dn.classList.add('error'); errD.style.display = 'block'; ok = false;
+    } else {
+      dn.classList.remove('error'); errD.style.display = 'none';
+    }
+    if (!ev.value) {
+      ev.classList.add('error'); errE.style.display = 'block'; ok = false;
+    } else {
+      ev.classList.remove('error'); errE.style.display = 'none';
+    }
+    return ok;
+  }
+
+  function nextStep() { if (validateStep() && cur < total - 1) showStep(cur + 1); }
+  function prevStep() { if (cur > 0) showStep(cur - 1); }
+
+  function handleDonorInput(el) {
+    document.getElementById('donor-dropdown').style.display = el.value.length >= 1 ? 'block' : 'none';
+  }
+
+  function selectDonor(name, type, code, curr) {
+    document.getElementById('donor-name').value = name;
+    document.getElementById('donor-type').value = type;
+    document.getElementById('donor-code').value = code;
+    document.getElementById('donor-currency').value = curr;
+    document.getElementById('cost-currency').value = curr;
+    document.getElementById('donor-dropdown').style.display = 'none';
+    document.getElementById('donor-name').classList.remove('error');
+    document.getElementById('err-donor').style.display = 'none';
+  }
+
+  function handleItemInput(el, rowId) {
+    const dd = el.parentElement.querySelector('.suggest-dropdown');
+    dd.style.display = el.value.length >= 1 ? 'block' : 'none';
+  }
+
+  function selectItem(rowId, name, code, cat, uom) {
+    const row = document.getElementById(rowId);
+    row.querySelector('input[type=text]').value = name;
+    document.getElementById(rowId + '-code').value = code;
+    document.getElementById(rowId + '-cat').value = cat;
+    document.getElementById(rowId + '-uom').value = uom;
+    row.querySelector('.suggest-dropdown').style.display = 'none';
+  }
+
+  function addItemRow() {
+    const id = 'irow-' + itemRowCount++;
+    const tr = document.createElement('tr');
+    tr.id = id;
+    tr.innerHTML = `
+      <td class="suggest-wrap">
+        <input type="text" placeholder="Search item…" oninput="handleItemInput(this,'${id}')" autocomplete="off">
+        <div class="suggest-dropdown" style="display:none">
+          <div class="suggest-label">IFRC Standard Products Catalogue</div>
+          <div class="suggest-item" onclick="selectItem('${id}','Tarpaulin, plastic','NFI-TARP-001','NFI','each')"><div><div class="main">Tarpaulin, plastic</div><div class="sub">NFI · NFI-TARP-001</div></div></div>
+          <div class="suggest-item" onclick="selectItem('${id}','Blanket, wool','NFI-BLAN-002','NFI','each')"><div><div class="main">Blanket, wool</div><div class="sub">NFI · NFI-BLAN-002</div></div></div>
+          <div class="suggest-item" onclick="selectItem('${id}','Hygiene kit, family','H-KIT-003','Health','kit')"><div><div class="main">Hygiene kit, family</div><div class="sub">Health · H-KIT-003</div></div></div>
+          <div class="suggest-item" onclick="selectItem('${id}','Rice, fortified (25kg bag)','FOOD-RICE-01','Food','bag')"><div><div class="main">Rice, fortified (25 kg bag)</div><div class="sub">Food · FOOD-RICE-01</div></div></div>
+        </div>
+      </td>
+      <td><input type="text" id="${id}-code" class="autofill" placeholder="Auto" readonly></td>
+      <td><input type="text" id="${id}-cat" class="autofill" placeholder="Auto" readonly></td>
+      <td><input type="text" id="${id}-uom" class="autofill" placeholder="Auto" readonly></td>
+      <td><select><option>Goods</option><option>Funds</option></select></td>
+      <td><input type="number" min="0" placeholder="0"></td>
+      <td><input type="number" min="0" step="0.01" placeholder="0.00"></td>
+      <td><input type="text" placeholder="Optional"></td>
+      <td><button class="remove-btn" onclick="removeRow('${id}')" title="Remove line">×</button></td>
+    `;
+    document.getElementById('items-body').appendChild(tr);
+  }
+
+  function removeRow(id) {
+    const r = document.getElementById(id);
+    if (r) r.remove();
+  }
+
+  function populateReview() {
+    if (cur !== 3) return;
+    const d  = document.getElementById('donor-name').value;
+    const t  = document.getElementById('donor-type').value;
+    const c  = document.getElementById('donor-code').value;
+    const ev = document.getElementById('event').value;
+    const tn = document.getElementById('tenant').value;
+    const dt = document.getElementById('received-date').value;
+    document.getElementById('rv-donor').textContent  = d  || '—';
+    document.getElementById('rv-type').textContent   = (t && c) ? t + ' · ' + c : '—';
+    document.getElementById('rv-event').textContent  = ev || '—';
+    document.getElementById('rv-tenant').textContent = tn || '—';
+    document.getElementById('rv-date').textContent   = dt || '—';
+  }
+
+  function showRepeat() {
+    alert('Repeat Transaction shortcut: displays the 5 most recent donations for the selected donor as selectable templates. Item lines are copied; quantities default to zero and must be re-entered. (FR16.08)');
+  }
+
+  function submitForm() {
+    document.getElementById('main-form').style.display = 'none';
+    document.getElementById('confirm-screen').classList.add('show');
+  }
+
+  function resetForm() {
+    document.getElementById('confirm-screen').classList.remove('show');
+    document.getElementById('main-form').style.display = 'block';
+    showStep(0);
+  }
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.suggest-wrap')) {
+      document.querySelectorAll('.suggest-dropdown').forEach(d => d.style.display = 'none');
+    }
+  });
+
+  updateStepper();
+
+  // ── Form switcher ──────────────────────────────────────────
+  function switchForm(name) {
+    document.querySelectorAll('.form-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.switcher-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    const tabs = document.querySelectorAll('.switcher-tab');
+    tabs[name === 'registration' ? 0 : 1].classList.add('active');
+  }
+
+  // ── Intake stepper (3-step) ────────────────────────────────
+  let iCur = 1; // start on step 2 (index 1) for demo
+  const iStepEls = ['intake-step-0','intake-step-1','intake-step-2'];
+  const iSiEls   = ['iси-0','iси-1','iси-2'];
+
+  function iGoStep(n) {
+    iStepEls.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = i === n ? 'block' : 'none';
+    });
+    iSiEls.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = 'step-item';
+      if (i < n) el.classList.add('done');
+      else if (i === n) el.classList.add('active');
+    });
+    iCur = n;
+    document.getElementById('ibtn-back').style.display   = n > 0 ? 'block' : 'none';
+    document.getElementById('ibtn-next').style.display   = n < 2 ? 'flex'  : 'none';
+    document.getElementById('ibtn-submit').style.display = n === 2 ? 'block' : 'none';
+    if (n === 2) populateIntakeReview();
+  }
+
+  function iNextStep() { iGoStep(iCur + 1); }
+
+  function populateIntakeReview() {
+    for (let i = 0; i < 2; i++) {
+      const qty  = document.getElementById('intake-usable-' + i)?.value;
+      const lpn  = document.getElementById('lpn-' + i)?.value;
+      const qEl  = document.getElementById('rv-intake-qty-' + i);
+      const lEl  = document.getElementById('rv-lpn-' + i);
+      if (qEl) qEl.textContent = qty ? 'Usable: ' + qty : 'Usable: —';
+      if (lEl) lEl.textContent = lpn || '—';
+    }
+  }
+
+  function iSubmit() {
+    alert('Intake confirmed. Status set to Verified. Inventory quantities updated.\n\nRecord: INT-2026-0312 · Verified\n(FR01.26: intake status → Verified, inventory updated)');
+  }
+
+  // ── Barcode scan modal (FR01.29) ───────────────────────────
+  let scanTargetRow = null;
+  let scanResult    = null;
+
+  function openScan(rowIdx, itemName, ifrcCode) {
+    scanTargetRow = rowIdx;
+    scanResult    = null;
+    document.getElementById('scan-state-scanning').classList.add('active');
+    document.getElementById('scan-state-result').classList.remove('active');
+    document.getElementById('scan-state-scanning').style.display = 'block';
+    document.getElementById('scan-state-result').style.display   = 'none';
+    document.getElementById('scan-modal').classList.add('open');
+    document.getElementById('manual-barcode').value = '';
+  }
+
+  function closeScan() {
+    document.getElementById('scan-modal').classList.remove('open');
+  }
+
+  function simulateScan(ifrcCode, name, uom, barcode) {
+    scanResult = { ifrcCode, name, uom, barcode };
+    document.getElementById('scan-res-name').textContent    = name;
+    document.getElementById('scan-res-code').textContent    = barcode;
+    document.getElementById('scan-res-ifrc').textContent    = ifrcCode;
+    document.getElementById('scan-res-uom').textContent     = uom;
+    document.getElementById('scan-res-barcode').textContent = barcode;
+    document.getElementById('scan-state-scanning').style.display = 'none';
+    document.getElementById('scan-state-result').style.display   = 'block';
+  }
+
+  function confirmScan() {
+    if (!scanResult) return;
+    const sf = document.getElementById('scan-field-' + scanTargetRow);
+    if (sf) sf.value = scanResult.barcode;
+    closeScan();
+  }
+
+  function retryScanning() {
+    scanResult = null;
+    document.getElementById('scan-state-scanning').style.display = 'block';
+    document.getElementById('scan-state-result').style.display   = 'none';
+  }
+
+  // ── LPN generation (FR01.30) ───────────────────────────────
+  function generateLPN(rowIdx) {
+    const ts  = Date.now().toString(36).toUpperCase();
+    const lpn = 'LPN-' + ts.slice(-4) + '-' + String(rowIdx + 1).padStart(2, '0');
+    const el  = document.getElementById('lpn-' + rowIdx);
+    if (el) {
+      el.value = lpn;
+      el.classList.add('autofill');
+    }
+  }
+
+  // Close scan modal on background click
+  document.getElementById('scan-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeScan();
+  });
+</script>
+</body>
+</html>
