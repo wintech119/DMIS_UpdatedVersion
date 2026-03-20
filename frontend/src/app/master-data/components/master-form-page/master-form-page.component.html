@@ -1100,6 +1100,9 @@
             <div class="catalog-suggest-cta" role="region" aria-label="Auto-fill suggestion tools">
 
               @if (getCatalogSuggestionReadinessText(); as readinessText) {
+                @if (!canRequestCatalogSuggestion()) {
+                  <p class="catalog-suggest-cta__eyebrow">Fill these in first</p>
+                }
                 <p class="catalog-suggest-cta__readiness" aria-live="polite">{{ readinessText }}</p>
               }
 

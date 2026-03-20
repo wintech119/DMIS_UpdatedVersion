@@ -96,7 +96,23 @@ export class MasterEditGateService {
     if (!config) {
       return null;
     }
-    return editGuidance ?? this.getDefaultCatalogEditGuidance(config.tableKey);
+    const defaultGuidance = this.getDefaultCatalogEditGuidance(config.tableKey);
+    if (!editGuidance) {
+      return defaultGuidance;
+    }
+    if (!defaultGuidance) {
+      return editGuidance;
+    }
+
+    return {
+      ...editGuidance,
+      warning_text: defaultGuidance.warning_text,
+      locked_fields: editGuidance.locked_fields?.length
+        ? editGuidance.locked_fields
+        : defaultGuidance.locked_fields,
+      replacement_supported: editGuidance.replacement_supported ?? defaultGuidance.replacement_supported,
+      warning_required: editGuidance.warning_required ?? defaultGuidance.warning_required,
+    };
   }
 
   getLockedCatalogFieldNames(
