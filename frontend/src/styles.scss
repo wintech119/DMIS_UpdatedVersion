@@ -69,6 +69,18 @@
 
   // ── Focus ring ──
   --color-focus-ring: #1565c0;
+
+  // ── Wizard stepper tokens ──
+  --color-wizard-step-done-bg: var(--color-accent);
+  --color-wizard-step-done-text: #ffffff;
+  --color-wizard-step-active-bg: #134e4a;
+  --color-wizard-step-active-text: #ffffff;
+  --color-wizard-step-future-bg: var(--color-surface-muted);
+  --color-wizard-step-future-text: var(--color-text-secondary);
+  --color-wizard-step-future-border: var(--color-border);
+  --color-wizard-connector: var(--color-border);
+  --color-wizard-connector-done: var(--color-accent);
+  --color-wizard-footer-bg: var(--color-surface);
 }
 
 html,

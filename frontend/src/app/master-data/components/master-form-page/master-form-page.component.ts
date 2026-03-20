@@ -160,6 +160,13 @@ export class MasterFormPageComponent implements OnInit {
   ifrcSuggestionResolution = signal<ResolvedIfrcSuggestion | null>(null);
   selectedSuggestionCandidateId = signal<string | number | null>(null);
   ifrcError = signal<string | null>(null);
+  ifrcAppliedConfirmation = signal<{
+    ifrcCode: string;
+    referenceLabel: string;
+    familyLabel: string;
+  } | null>(null);
+  ifrcCodeUpdatedOnStep1 = signal(false);
+  expandedCandidateIds = signal<Set<string | number>>(new Set());
   submissionError = signal<string | null>(null);
   submissionErrorDetails = signal<string[]>([]);
   duplicateCanonicalConflict = signal<DuplicateCanonicalItemConflict | null>(null);
@@ -167,6 +174,52 @@ export class MasterFormPageComponent implements OnInit {
   ifrcRejectedState = signal<'create' | 'edit' | null>(null);
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
+
+  // ── Wizard state ──
+  currentStep = signal(0);
+
+  isWizardMode = computed(() => this.renderableFieldGroups().length >= 4);
+
+  wizardSteps = computed<{ label: string; icon: string; key: string; isReview: boolean }[]>(() => {
+    const groups = this.renderableFieldGroups();
+    const steps = groups.map((g) => ({
+      label: g.label,
+      icon: this.getSectionIcon(g.label),
+      key: g.key,
+      isReview: false,
+    }));
+    steps.push({ label: 'Review & Submit', icon: 'checklist', key: 'review', isReview: true });
+    return steps;
+  });
+
+  totalSteps = computed(() => this.wizardSteps().length);
+
+  currentStepGroup = computed<FormFieldGroup | null>(() => {
+    const groups = this.renderableFieldGroups();
+    const step = this.currentStep();
+    return step < groups.length ? groups[step] : null;
+  });
+
+  isOnReviewStep = computed(() => this.currentStep() >= this.renderableFieldGroups().length);
+
+  canGoNext = computed(() => {
+    if (this.isOnReviewStep()) return false;
+    const group = this.currentStepGroup();
+    if (!group) return false;
+    return this.isStepValid(this.currentStep());
+  });
+
+  reviewData = computed<{ groupLabel: string; groupKey: string; fields: { label: string; value: string }[] }[]>(() => {
+    const groups = this.renderableFieldGroups();
+    return groups.map((group) => ({
+      groupLabel: group.label,
+      groupKey: group.key,
+      fields: this.getRenderableFields(group).map((field) => ({
+        label: field.label,
+        value: this.getReviewDisplayValue(field),
+      })),
+    }));
+  });
 
   private readonly ifrcTrigger$ = new Subject<string>();
   readonly formErrorMessages: Record<string, string> = {
@@ -184,6 +237,7 @@ export class MasterFormPageComponent implements OnInit {
   private itemHadMappedClassificationOnLoad = false;
   private loadedRecordSnapshot: MasterRecord | null = null;
   private promptedGovernedEditWarning = false;
+  private _ifrcBadgeTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   private readonly lookupRequestIds: Record<string, number> = {};
@@ -248,6 +302,12 @@ export class MasterFormPageComponent implements OnInit {
   itemIfrcReferenceOptions = computed(() => this.readLookup<IfrcReferenceLookup>('ifrc_references'));
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => {
+      if (this._ifrcBadgeTimeout) {
+        clearTimeout(this._ifrcBadgeTimeout);
+      }
+    });
+
     this.route.data.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(data => {
@@ -611,6 +671,20 @@ export class MasterFormPageComponent implements OnInit {
     this.form.updateValueAndValidity({ emitEvent: false });
     this.clearSubmissionError();
     this.notify.showSuccess('Suggested IFRC classification applied.');
+
+    this.ifrcAppliedConfirmation.set({
+      ifrcCode: String(reference.ifrc_code ?? '').toUpperCase(),
+      referenceLabel: String(reference.label ?? ''),
+      familyLabel: String(family.label ?? (family as any).family_label ?? ''),
+    });
+
+    if (this.isWizardMode() && this.currentStep() > 0) {
+      this.ifrcCodeUpdatedOnStep1.set(true);
+      if (this._ifrcBadgeTimeout) {
+        clearTimeout(this._ifrcBadgeTimeout);
+      }
+      this._ifrcBadgeTimeout = setTimeout(() => this.ifrcCodeUpdatedOnStep1.set(false), 4000);
+    }
   }
 
   onSelectSuggestionCandidate(candidate: SuggestedIfrcCandidate): void {
@@ -621,6 +695,41 @@ export class MasterFormPageComponent implements OnInit {
     this.clearAcceptedSuggestion();
     this.clearIfrcSuggestionState();
     this.ifrcRejectedState.set(this.isEdit() ? 'edit' : 'create');
+  }
+
+  getWizardContextIdentity(): { name: string; code: string } | null {
+    const name = String(this.form.get('item_name')?.value ?? '').trim();
+    if (!name) return null;
+    const code = String(this.form.get('item_code')?.value ?? '').trim();
+    return { name, code };
+  }
+
+  onChangeIfrcApplied(): void {
+    this.ifrcAppliedConfirmation.set(null);
+  }
+
+  toggleCandidateExpanded(id: string | number): void {
+    const current = new Set(this.expandedCandidateIds());
+    if (current.has(id)) {
+      current.delete(id);
+    } else {
+      current.add(id);
+    }
+    this.expandedCandidateIds.set(current);
+  }
+
+  isCandidateExpanded(id: string | number): boolean {
+    return this.expandedCandidateIds().has(id);
+  }
+
+  getPreviewItemCode(candidate: SuggestedIfrcCandidate): string {
+    return String(candidate.reference.ifrc_code ?? '').toUpperCase();
+  }
+
+  getScoreIndicatorLevel(candidate: SuggestedIfrcCandidate): 'high' | 'medium' | 'low' {
+    if (candidate.score >= 0.8) return 'high';
+    if (candidate.score >= 0.5) return 'medium';
+    return 'low';
   }
 
   onChooseIfrcReferenceManually(): void {
@@ -1422,6 +1531,9 @@ export class MasterFormPageComponent implements OnInit {
   private clearAcceptedSuggestion(): void {
     this.acceptedIfrcSuggestLogId = null;
     this.selectedSuggestionCandidateId.set(null);
+    this.ifrcAppliedConfirmation.set(null);
+    this.ifrcCodeUpdatedOnStep1.set(false);
+    this.expandedCandidateIds.set(new Set());
   }
 
   private clearIfrcSuggestionState(): void {
@@ -1550,6 +1662,9 @@ export class MasterFormPageComponent implements OnInit {
 
     if (!this.form.valid) {
       this.form.markAllAsTouched();
+      if (this.isWizardMode()) {
+        this.navigateToFirstInvalidStep();
+      }
       return;
     }
 
@@ -1642,6 +1757,9 @@ export class MasterFormPageComponent implements OnInit {
             );
           }
           this.notify.showWarning('Please fix the validation errors.');
+          if (this.isWizardMode()) {
+            this.navigateToFirstInvalidStep();
+          }
           return;
         }
 
@@ -3156,6 +3274,117 @@ export class MasterFormPageComponent implements OnInit {
       .filter(Boolean)
       .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
       .join(' ');
+  }
+
+  // ── Wizard navigation ──
+
+  goToStep(index: number): void {
+    if (index < 0 || index >= this.totalSteps()) return;
+    // Allow going back freely; going forward requires validation of all prior steps
+    if (index > this.currentStep()) {
+      for (let i = this.currentStep(); i < index; i++) {
+        if (!this.isStepValid(i)) {
+          this.markStepFieldsTouched(i);
+          this.currentStep.set(i);
+          return;
+        }
+      }
+    }
+    this.currentStep.set(index);
+  }
+
+  goNext(): void {
+    if (this.isOnReviewStep()) return;
+    if (!this.isStepValid(this.currentStep())) {
+      this.markStepFieldsTouched(this.currentStep());
+      return;
+    }
+    this.currentStep.set(this.currentStep() + 1);
+  }
+
+  goBack(): void {
+    if (this.currentStep() > 0) {
+      this.currentStep.set(this.currentStep() - 1);
+    }
+  }
+
+  getStepState(index: number): 'done' | 'active' | 'future' {
+    const current = this.currentStep();
+    if (index === current) return 'active';
+    if (index < current) return 'done';
+    return 'future';
+  }
+
+  navigateToFirstInvalidStep(): void {
+    const groups = this.renderableFieldGroups();
+    for (let i = 0; i < groups.length; i++) {
+      if (!this.isStepValid(i)) {
+        this.markStepFieldsTouched(i);
+        this.currentStep.set(i);
+        return;
+      }
+    }
+  }
+
+  private isStepValid(stepIndex: number): boolean {
+    const groups = this.renderableFieldGroups();
+    if (stepIndex >= groups.length) return true;
+    const group = groups[stepIndex];
+    const fields = this.getRenderableFields(group);
+    // Also check taxonomy fields if this is a classification group
+    if (this.isItemClassificationGroup(group.label)) {
+      const taxonomyFields = ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'];
+      for (const fieldName of taxonomyFields) {
+        const control = this.form.get(fieldName);
+        if (control && control.invalid) return false;
+      }
+    }
+    for (const field of fields) {
+      const control = this.form.get(field.field);
+      if (control && control.invalid) return false;
+    }
+    return true;
+  }
+
+  private markStepFieldsTouched(stepIndex: number): void {
+    const groups = this.renderableFieldGroups();
+    if (stepIndex >= groups.length) return;
+    const group = groups[stepIndex];
+    const fields = this.getRenderableFields(group);
+    if (this.isItemClassificationGroup(group.label)) {
+      for (const fieldName of ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id']) {
+        this.form.get(fieldName)?.markAsTouched();
+      }
+    }
+    for (const field of fields) {
+      this.form.get(field.field)?.markAsTouched();
+    }
+  }
+
+  getReviewDisplayValue(field: MasterFieldConfig): string {
+    const rawValue = this.form.get(field.field)?.value;
+    if (rawValue == null || rawValue === '') return '\u2014';
+
+    if (field.type === 'boolean') {
+      return rawValue ? 'Yes' : 'No';
+    }
+
+    if (field.type === 'select' && field.options) {
+      const match = field.options.find((opt) => this.sameValue(opt.value, rawValue));
+      return match?.label ?? String(rawValue);
+    }
+
+    if (field.type === 'lookup' && field.lookupTable) {
+      const items = this.lookups()[field.lookupTable] || [];
+      const match = items.find((item) => this.sameValue(item.value, rawValue));
+      return match?.label ?? String(rawValue);
+    }
+
+    if (field.type === 'date' && rawValue instanceof Date) {
+      return rawValue.toLocaleDateString();
+    }
+
+    return String(rawValue);
   }
 }
 

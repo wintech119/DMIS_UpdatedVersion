@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
@@ -21,12 +21,6 @@ import {
   Supplier,
   UpdateProcurementPayload,
 } from '../models/procurement.model';
-import {
-  CreateRepackagingPayload,
-  CreateRepackagingResponse,
-  RepackagingDetailResponse,
-  RepackagingListResponse,
-} from '../models/repackaging.model';
 
 export interface ActiveEvent {
   event_id: number;
@@ -419,43 +413,6 @@ export class ReplenishmentService {
   ): Observable<AssignStorageLocationResponse> {
     return this.http.post<AssignStorageLocationResponse>(
       `${this.apiUrl}/inventory/location-assignment`,
-      payload
-    );
-  }
-
-  listRepackagingTransactions(filters?: {
-    warehouse_id?: number;
-    item_id?: number;
-    batch_id?: number;
-    limit?: number;
-    offset?: number;
-  }): Observable<RepackagingListResponse> {
-    let params = new HttpParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          params = params.set(key, String(value));
-        }
-      });
-    }
-
-    return this.http.get<RepackagingListResponse>(
-      `${this.apiUrl}/inventory/repackaging`,
-      { params }
-    );
-  }
-
-  getRepackagingTransaction(repackagingId: number): Observable<RepackagingDetailResponse> {
-    return this.http.get<RepackagingDetailResponse>(
-      `${this.apiUrl}/inventory/repackaging/${repackagingId}`
-    );
-  }
-
-  createRepackagingTransaction(
-    payload: CreateRepackagingPayload
-  ): Observable<CreateRepackagingResponse> {
-    return this.http.post<CreateRepackagingResponse>(
-      `${this.apiUrl}/inventory/repackaging`,
       payload
     );
   }

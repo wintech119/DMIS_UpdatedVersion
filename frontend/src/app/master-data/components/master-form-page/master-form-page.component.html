@@ -95,6 +95,216 @@
           }
         }
 
+        <!-- ══════ WIZARD STEPPER BAR (wizard mode only) ══════ -->
+        @if (isWizardMode()) {
+          <nav class="wizard-stepper-bar" aria-label="Form steps">
+            <ol class="wizard-stepper-list" role="list">
+              @for (step of wizardSteps(); track step.key; let si = $index) {
+                @if (si > 0) {
+                  <li class="wizard-step__connector" [class.wizard-step__connector--done]="getStepState(si) === 'done' || getStepState(si) === 'active'" aria-hidden="true"></li>
+                }
+                <li class="wizard-step" role="listitem">
+                  <button type="button" class="wizard-step__pill"
+                    [class.wizard-step__pill--done]="getStepState(si) === 'done'"
+                    [class.wizard-step__pill--active]="getStepState(si) === 'active'"
+                    [class.wizard-step__pill--future]="getStepState(si) === 'future'"
+                    [attr.aria-current]="getStepState(si) === 'active' ? 'step' : null"
+                    (click)="goToStep(si)">
+                    @if (getStepState(si) === 'done') {
+                      <mat-icon class="wizard-step__icon" aria-hidden="true">check</mat-icon>
+                    } @else {
+                      <span class="wizard-step__number">{{ si + 1 }}</span>
+                    }
+                    <span class="wizard-step__label">{{ step.label }}</span>
+                    @if (si === 0 && ifrcCodeUpdatedOnStep1()) {
+                      <span class="wizard-step__code-updated-badge" aria-label="Item code updated">
+                        <mat-icon>sync</mat-icon> Code updated
+                      </span>
+                    }
+                  </button>
+                </li>
+              }
+            </ol>
+          </nav>
+
+          @if (currentStep() > 0 && getWizardContextIdentity(); as identity) {
+            <div class="wizard-context-strip"
+              [class.wizard-context-strip--just-set]="ifrcAppliedConfirmation()"
+              role="status"
+              aria-label="Current item identity">
+              <button type="button" class="wizard-context-strip__tap" (click)="goToStep(0)"
+                matTooltip="Go to Item Identity step">
+                <mat-icon class="wizard-context-strip__icon" aria-hidden="true">label</mat-icon>
+                <span class="wizard-context-strip__name">{{ identity.name }}</span>
+                @if (identity.code) {
+                  <span class="wizard-context-strip__separator" aria-hidden="true">&middot;</span>
+                  <span class="wizard-context-strip__code">{{ identity.code }}</span>
+                }
+              </button>
+            </div>
+          }
+        }
+
+        @if (isWizardMode()) {
+          <!-- ══════ WIZARD MODE ══════ -->
+          @if (isOnReviewStep()) {
+            <!-- Review & Submit Step -->
+            <section class="wizard-review-section" aria-label="Review & Submit">
+              <h3 class="section-title">
+                <mat-icon aria-hidden="true">checklist</mat-icon>
+                Review & Submit
+              </h3>
+              <p class="section-description">Review your entries below. Click "Edit" on any section to make changes.</p>
+              @for (rg of reviewData(); track rg.groupKey; let gi = $index) {
+                <div class="review-group">
+                  <div class="review-group__header">
+                    <h4 class="review-group__title">
+                      <mat-icon aria-hidden="true">{{ getSectionIcon(rg.groupLabel) }}</mat-icon>
+                      {{ rg.groupLabel }}
+                    </h4>
+                    <button mat-stroked-button type="button" class="review-group__edit-btn" (click)="goToStep(gi)">
+                      <mat-icon aria-hidden="true">edit</mat-icon>
+                      Edit
+                    </button>
+                  </div>
+                  <dl class="review-field-grid">
+                    @for (rf of rg.fields; track rf.label) {
+                      <div class="review-field">
+                        <dt class="review-field__label">{{ rf.label }}</dt>
+                        <dd class="review-field__value" [class.review-field__value--empty]="rf.value === '\u2014'">{{ rf.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                </div>
+              }
+            </section>
+
+            <!-- Storage Location Assignment on review step (edit mode, items only) -->
+            @if (canAssignLocation()) {
+              <section class="form-section location-assignment-section"
+                aria-label="Storage location assignment section">
+                <h3 class="section-title">
+                  <mat-icon aria-hidden="true">shelves</mat-icon>
+                  Storage Location Assignment
+                </h3>
+                <p class="section-description">
+                  @if (isBatchedItem()) {
+                    This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+                  } @else {
+                    This item is non-batched. Provide Inventory ID and Location ID only.
+                  }
+                </p>
+                <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+                <div class="assignment-form" [formGroup]="locationForm">
+                  <div class="assignment-grid">
+                    <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                      <mat-label>Inventory ID</mat-label>
+                      <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-wz">
+                        @for (item of lookups()['inventory'] || []; track item.value) {
+                          <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                        }
+                      </mat-select>
+                      @if ((lookups()['inventory'] || []).length === 0) {
+                        <mat-hint id="inventory-id-help-wz">No inventory options found.</mat-hint>
+                      } @else {
+                        <mat-hint id="inventory-id-help-wz">Select an existing inventory record.</mat-hint>
+                      }
+                      @if (getLocationFieldError('inventory_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                      <mat-label>Location ID</mat-label>
+                      <mat-select formControlName="location_id">
+                        @for (item of lookups()['locations'] || []; track item.value) {
+                          <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                        }
+                      </mat-select>
+                      @if ((lookups()['locations'] || []).length === 0) { <mat-hint>No locations found.</mat-hint> }
+                      @if (getLocationFieldError('location_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                    </mat-form-field>
+                    @if (isBatchedItem()) {
+                      <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                        <mat-label>Batch ID</mat-label>
+                        <input matInput type="number" min="1" formControlName="batch_id" />
+                        @if (getLocationFieldError('batch_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                      </mat-form-field>
+                    }
+                  </div>
+                  <div class="assignment-actions">
+                    <button mat-flat-button color="primary" type="button" [disabled]="assigningLocation()" (click)="onAssignStorageLocation()">
+                      @if (assigningLocation()) { <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Assigning... }
+                      @else { <mat-icon aria-hidden="true">add_location_alt</mat-icon> Assign Location }
+                    </button>
+                  </div>
+                </div>
+              </section>
+            }
+          } @else if (currentStepGroup(); as wizGroup) {
+            <!-- Active wizard step — render current group's section card -->
+            @if (isGovernedCatalogAuthoringTable() && isOptionalAttributesGroup(wizGroup)) {
+              <details class="optional-attributes-details" open>
+                <summary class="optional-attributes-summary" [id]="'section-heading-' + wizGroup.key">
+                  <mat-icon aria-hidden="true">tune</mat-icon>
+                  Optional Details ({{ wizGroup.label }})
+                  <mat-icon class="expand-chevron" aria-hidden="true">expand_more</mat-icon>
+                </summary>
+                <ng-container *ngTemplateOutlet="sectionFields; context: { $implicit: wizGroup, groupIndex: currentStep() }"></ng-container>
+              </details>
+            } @else {
+              <section class="form-section"
+                [class.guided-step-section]="isGovernedCatalogAuthoringTable()"
+                [attr.aria-label]="wizGroup.label + ' section'">
+                <h3 class="section-title" [id]="'section-heading-' + wizGroup.key">
+                  @if (isGovernedCatalogAuthoringTable()) {
+                    <span class="step-badge">Step {{ getGuidedStepNumber(currentStep()) }}</span>
+                  }
+                  <mat-icon aria-hidden="true">{{ getSectionIcon(wizGroup.label) }}</mat-icon>
+                  {{ wizGroup.label }}
+                </h3>
+                <ng-container *ngTemplateOutlet="sectionFields; context: { $implicit: wizGroup, groupIndex: currentStep() }"></ng-container>
+              </section>
+            }
+
+            <!-- INLINE CTA for wizard mode: show when on the first step for governed catalog tables -->
+            @if (isGovernedCatalogAuthoringTable() && currentStep() === 0) {
+              <ng-container *ngTemplateOutlet="catalogCta"></ng-container>
+            }
+          }
+
+          <!-- Wizard Navigation Footer -->
+          <div class="wizard-footer" role="toolbar" aria-label="Wizard navigation">
+            @if (lastGroupIsSingleStatus()) {
+              @if (getStatusField(); as statusField) {
+                <mat-form-field appearance="outline" class="action-bar-status" subscriptSizing="dynamic">
+                  <mat-label>{{ statusField.label }}</mat-label>
+                  <mat-select [formControlName]="statusField.field">
+                    @for (opt of getStatusOptions(); track opt.value) {
+                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
+            }
+            <div class="wizard-footer__nav">
+              <button mat-stroked-button type="button" class="wizard-footer__back"
+                [disabled]="currentStep() === 0" (click)="goBack()">
+                <mat-icon aria-hidden="true">arrow_back</mat-icon> Back
+              </button>
+              <span class="wizard-footer__indicator">Step {{ currentStep() + 1 }} of {{ totalSteps() }}</span>
+              @if (isOnReviewStep()) {
+                <button mat-flat-button color="primary" type="submit" class="wizard-footer__submit"
+                  [disabled]="isSaving() || form.invalid">
+                  @if (isSaving()) { <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Saving... }
+                  @else { <mat-icon aria-hidden="true">{{ getPrimarySaveIcon() }}</mat-icon> {{ getPrimarySaveLabel() }} }
+                </button>
+              } @else {
+                <button mat-flat-button color="primary" type="button" class="wizard-footer__next" (click)="goNext()">
+                  Next <mat-icon aria-hidden="true">arrow_forward</mat-icon>
+                </button>
+              }
+            </div>
+          </div>
+        } @else {
+        <!-- ══════ NON-WIZARD: Stacked layout (original) ══════ -->
         @for (group of renderableFieldGroups(); track group.key; let i = $index) {
 
           <!-- Wrap optional attributes in collapsible <details> for governed catalog tables -->
@@ -534,8 +744,26 @@
                     </div>
                   </div>
 
+                  @if (isWizardMode() && ifrcAppliedConfirmation(); as appliedNotice) {
+                    <p class="ifrc-step1-update-notice" role="status">
+                      <mat-icon>check_circle</mat-icon>
+                      Item Code on Step 1 updated to <strong>{{ appliedNotice.ifrcCode }}</strong>
+                    </p>
+                  }
+
                   @if (shouldShowIfrcHelperPanel()) {
                     <section class="ifrc-suggestion-card" aria-label="Find IFRC Match">
+                     @if (ifrcAppliedConfirmation(); as applied) {
+                      <div class="ifrc-applied-banner" role="status" aria-live="polite">
+                        <mat-icon class="ifrc-applied-banner__icon">check_circle</mat-icon>
+                        <div class="ifrc-applied-banner__content">
+                          <p class="ifrc-applied-banner__title">IFRC Classification Applied</p>
+                          <p class="ifrc-applied-banner__code">{{ applied.ifrcCode }}</p>
+                          <p class="ifrc-applied-banner__reference">{{ applied.referenceLabel }}</p>
+                        </div>
+                        <button mat-stroked-button type="button" (click)="onChangeIfrcApplied()">Change</button>
+                      </div>
+                     } @else {
                       <div class="ifrc-suggestion-card__header">
                         <div>
                           <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
@@ -637,8 +865,13 @@
                           }
                           @if (suggestion.construction_rationale) {
                             <div class="colspan-2">
-                              <dt>Search Rationale</dt>
-                              <dd>{{ suggestion.construction_rationale }}</dd>
+                              <details class="ifrc-rationale-details">
+                                <summary class="ifrc-rationale-summary">
+                                  <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
+                                  Search Rationale
+                                </summary>
+                                <dd class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</dd>
+                              </details>
                             </div>
                           }
                         </dl>
@@ -664,34 +897,21 @@
                                 (click)="onSelectSuggestionCandidate(candidate)">
                                 <div class="ifrc-suggestion-candidate__header">
                                   <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
-                                  <span class="ifrc-suggestion-candidate__score">{{ getSuggestionCandidateScore(candidate) }}</span>
+                                  <span class="ifrc-suggestion-candidate__score-dots"
+                                    [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
+                                    [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
+                                    [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
+                                    [matTooltip]="getSuggestionCandidateScore(candidate)">
+                                    <span class="score-dot"></span>
+                                    <span class="score-dot"></span>
+                                    <span class="score-dot"></span>
+                                  </span>
                                 </div>
-                                @if (candidate.reference.ifrc_code) {
-                                  <p class="ifrc-suggestion-candidate__code">{{ candidate.reference.ifrc_code }}</p>
-                                }
-                                @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
-                                  @if (variantDetails.length) {
-                                    <div class="ifrc-suggestion-candidate__variant-grid">
-                                      @for (detail of variantDetails; track detail.label) {
-                                        <div class="ifrc-suggestion-candidate__variant">
-                                          <span class="ifrc-suggestion-candidate__variant-label">{{ detail.label }}</span>
-                                          <span class="ifrc-suggestion-candidate__variant-value">{{ detail.value }}</span>
-                                        </div>
-                                      }
-                                    </div>
-                                  }
-                                }
-                                <div class="ifrc-suggestion-candidate__meta">
-                                  <span>{{ getSuggestionCandidateFamilyLabel(candidate) }}</span>
-                                  @if (getSuggestionCandidateCategoryLabel(candidate); as categoryLabel) {
-                                    <span>Category: {{ categoryLabel }}</span>
-                                  }
-                                  @if (candidate.reference.spec_segment) {
-                                    <span>Spec segment: {{ candidate.reference.spec_segment }}</span>
-                                  }
-                                </div>
-                                @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) {
-                                  <p class="ifrc-suggestion-candidate__reason">{{ reasonSummary }}</p>
+                                @if (getPreviewItemCode(candidate)) {
+                                  <p class="ifrc-suggestion-candidate__code">
+                                    {{ candidate.reference.ifrc_code }}
+                                    <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
+                                  </p>
                                 }
                                 <div class="ifrc-suggestion-candidate__badges">
                                   @if (isSuggestionCandidateAutoHighlighted(candidate)) {
@@ -701,6 +921,41 @@
                                     <span class="ifrc-suggestion-candidate__badge selected">Selected</span>
                                   }
                                 </div>
+                                <span class="ifrc-candidate-toggle" role="button" tabindex="0"
+                                  (click)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
+                                  (keydown.enter)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
+                                  (keydown.space)="$event.stopPropagation(); $event.preventDefault(); toggleCandidateExpanded(candidate.reference.value)">
+                                  <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
+                                  {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
+                                </span>
+                                @if (isCandidateExpanded(candidate.reference.value)) {
+                                  <div class="ifrc-suggestion-candidate__expanded">
+                                    @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
+                                      @if (variantDetails.length) {
+                                        <div class="ifrc-suggestion-candidate__variant-grid">
+                                          @for (detail of variantDetails; track detail.label) {
+                                            <div class="ifrc-suggestion-candidate__variant">
+                                              <span class="ifrc-suggestion-candidate__variant-label">{{ detail.label }}</span>
+                                              <span class="ifrc-suggestion-candidate__variant-value">{{ detail.value }}</span>
+                                            </div>
+                                          }
+                                        </div>
+                                      }
+                                    }
+                                    <div class="ifrc-suggestion-candidate__meta">
+                                      <span>{{ getSuggestionCandidateFamilyLabel(candidate) }}</span>
+                                      @if (getSuggestionCandidateCategoryLabel(candidate); as categoryLabel) {
+                                        <span>Category: {{ categoryLabel }}</span>
+                                      }
+                                      @if (candidate.reference.spec_segment) {
+                                        <span>Spec segment: {{ candidate.reference.spec_segment }}</span>
+                                      }
+                                    </div>
+                                    @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) {
+                                      <p class="ifrc-suggestion-candidate__reason">{{ reasonSummary }}</p>
+                                    }
+                                  </div>
+                                }
                               </button>
                             }
                           </div>
@@ -726,6 +981,7 @@
                           </button>
                         </div>
                       }
+                     }
                     </section>
                   }
                 </div>
@@ -1100,9 +1356,6 @@
             <div class="catalog-suggest-cta" role="region" aria-label="Auto-fill suggestion tools">
 
               @if (getCatalogSuggestionReadinessText(); as readinessText) {
-                @if (!canRequestCatalogSuggestion()) {
-                  <p class="catalog-suggest-cta__eyebrow">Fill these in first</p>
-                }
                 <p class="catalog-suggest-cta__readiness" aria-live="polite">{{ readinessText }}</p>
               }
 
@@ -1315,6 +1568,480 @@
             </button>
           </div>
         </div>
+        } <!-- /non-wizard @else -->
+
+        <!-- ══════ SHARED TEMPLATE: Section field grid ══════ -->
+        <ng-template #sectionFields let-group let-groupIndex="groupIndex">
+          <fieldset class="form-grid" [attr.aria-labelledby]="'section-heading-' + group.key">
+
+            @if (isItemClassificationGroup(group.label)) {
+              <div class="form-field colspan-2 item-taxonomy-card">
+                <div class="item-taxonomy-governance-note" id="item-taxonomy-governance-note" role="note">
+                  <mat-icon aria-hidden="true">policy</mat-icon>
+                  <p>
+                    Choose the IFRC Family and IFRC Item Reference to set the official code. Keep the item name as your team uses it. UOM is how stock is counted or issued and may be different from the IFRC reference wording.
+                  </p>
+                </div>
+                <div class="item-taxonomy-grid">
+                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                    <mat-label>Level 1 Category</mat-label>
+                    <mat-select formControlName="category_id" aria-required="true">
+                      @for (item of itemCategoryOptions(); track item.value) {
+                        <mat-option [value]="item.value">
+                          {{ item.label }}
+                          @if (item.category_code) { ({{ item.category_code }}) }
+                        </mat-option>
+                      }
+                    </mat-select>
+                    <button mat-icon-button matSuffix type="button" class="field-help-button"
+                      matTooltip='This is a policy-aligned field, not a free choice once the IFRC Family or IFRC Item Reference is selected.'
+                      aria-label="More information about Level 1 Category">
+                      <mat-icon>help_outline</mat-icon>
+                    </button>
+                    @if (lookupErrors()['item_categories']) {
+                      <mat-error>{{ lookupErrors()['item_categories'] }}</mat-error>
+                    } @else {
+                      <mat-hint>Governed Level 1 business category used for reporting and burn-rate fallback. It must align with the selected IFRC Family.</mat-hint>
+                    }
+                    @if (getItemTaxonomyFieldError('category_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                  </mat-form-field>
+
+                  <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                    <mat-label>Level 2 IFRC Family</mat-label>
+                    <mat-select formControlName="ifrc_family_id" [attr.aria-required]="isItemFamilyRequired()">
+                      @for (item of itemIfrcFamilyOptions(); track item.value) {
+                        <mat-option [value]="item.value">{{ getItemFamilyLabel(item) }}</mat-option>
+                      }
+                    </mat-select>
+                    <button mat-icon-button matSuffix type="button" class="field-help-button"
+                      matTooltip='Select the family that governs this item. The family drives category alignment and the list of valid IFRC references.'
+                      aria-label="More information about Level 2 IFRC Family">
+                      <mat-icon>help_outline</mat-icon>
+                    </button>
+                    @if (lookupErrors()['ifrc_families']) {
+                      <mat-error>{{ lookupErrors()['ifrc_families'] }}</mat-error>
+                    } @else if (!form.get('category_id')?.value) {
+                      <mat-hint>Governed Level 2 family under the chosen Level 1 category. Select a Level 1 category first.</mat-hint>
+                    } @else {
+                      <mat-hint>Governed Level 2 family under the chosen Level 1 category. The family determines which references are valid.</mat-hint>
+                    }
+                    @if (getItemTaxonomyFieldError('ifrc_family_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                  </mat-form-field>
+
+                  <div class="item-reference-field">
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>Level 3 IFRC Item Reference</mat-label>
+                      <input matInput [formControl]="referenceSearchControl" [matAutocomplete]="ifrcRefAutoTpl"
+                        [attr.aria-required]="isItemReferenceRequired()" placeholder="Search IFRC description or code" />
+                      <button mat-icon-button matSuffix type="button" class="field-help-button"
+                        matTooltip='Search by IFRC description or code. Choose the closest governed reference and record any local difference in Description.'
+                        aria-label="More information about Level 3 IFRC Item Reference">
+                        <mat-icon>help_outline</mat-icon>
+                      </button>
+                      @if (referenceSearchControl.value) {
+                        <button mat-icon-button matSuffix type="button" (click)="onClearIfrcReference()" aria-label="Clear IFRC reference">
+                          <mat-icon>close</mat-icon>
+                        </button>
+                      }
+                      @if (lookupErrors()['ifrc_references']) {
+                        <mat-error>{{ lookupErrors()['ifrc_references'] }}</mat-error>
+                      } @else if (!form.get('ifrc_family_id')?.value) {
+                        <mat-hint>Governed Level 3 reference. Select an IFRC Family first.</mat-hint>
+                      } @else {
+                        <mat-hint>Governed Level 3 reference. Selecting it assigns the canonical item code.</mat-hint>
+                      }
+                      @if (getItemTaxonomyFieldError('ifrc_item_ref_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                    </mat-form-field>
+
+                    <mat-autocomplete #ifrcRefAutoTpl="matAutocomplete" autoActiveFirstOption>
+                      @for (item of itemIfrcReferenceOptions(); track item.value) {
+                        <mat-option [value]="getItemReferenceLabel(item)"
+                          (onSelectionChange)="$event.isUserInput && $event.source.selected && onSelectIfrcReference(item)">
+                          <div class="ifrc-reference-option">
+                            <span>{{ item.label }}</span>
+                            @if (item.ifrc_code) { <small>{{ item.ifrc_code }}</small> }
+                          </div>
+                        </mat-option>
+                      }
+                    </mat-autocomplete>
+                  </div>
+                </div>
+
+                @if (ifrcAppliedConfirmation(); as appliedNoticeStacked) {
+                  <p class="ifrc-step1-update-notice" role="status">
+                    <mat-icon>check_circle</mat-icon>
+                    IFRC Classification applied: <strong>{{ appliedNoticeStacked.ifrcCode }}</strong>
+                  </p>
+                }
+
+                @if (shouldShowIfrcHelperPanel()) {
+                  <section class="ifrc-suggestion-card" aria-label="Find IFRC Match">
+                   @if (ifrcAppliedConfirmation(); as appliedStacked) {
+                    <div class="ifrc-applied-banner" role="status" aria-live="polite">
+                      <mat-icon class="ifrc-applied-banner__icon">check_circle</mat-icon>
+                      <div class="ifrc-applied-banner__content">
+                        <p class="ifrc-applied-banner__title">IFRC Classification Applied</p>
+                        <p class="ifrc-applied-banner__code">{{ appliedStacked.ifrcCode }}</p>
+                        <p class="ifrc-applied-banner__reference">{{ appliedStacked.referenceLabel }}</p>
+                      </div>
+                      <button mat-stroked-button type="button" (click)="onChangeIfrcApplied()">Change</button>
+                    </div>
+                   } @else {
+                    <div class="ifrc-suggestion-card__header">
+                      <div>
+                        <p class="ifrc-suggestion-card__eyebrow">Find IFRC Match</p>
+                        <p class="ifrc-suggestion-card__intro">
+                          Use Find IFRC Match to look for the closest official IFRC reference for this item.
+                        </p>
+                      </div>
+                      <div class="ifrc-suggestion-card__status-block">
+                        @if (getIfrcSuggestionConfidence(); as confidence) { <p class="ifrc-suggestion-card__confidence">{{ confidence }}</p> }
+                        @if (ifrcLoading()) { <span class="ifrc-suggestion-card__status">Reviewing taxonomy...</span> }
+                        @else if (getIfrcSuggestionStatusText(); as suggestionStatus) { <span class="ifrc-suggestion-card__status">{{ suggestionStatus }}</span> }
+                        <button mat-flat-button color="primary" type="button" [disabled]="!canRequestIfrcSuggestion()" (click)="onRequestIfrcSuggestion()">
+                          {{ getIfrcSuggestionRequestLabel() }}
+                        </button>
+                      </div>
+                    </div>
+                    @if (localDraftMode()) {
+                      <p class="ifrc-suggestion-card__message info">Local draft mode is active.</p>
+                    }
+                    @if (!hasIfrcSuggestionActivity() && ifrcRejectedState() === null) {
+                      <p class="ifrc-suggestion-card__message neutral">Enter the item name the way users search for it, then use Find Match.</p>
+                    } @else if (ifrcRejectedState() === 'create') {
+                      <div class="ifrc-suggestion-card__message info">
+                        <p>Next steps</p>
+                        <div class="ifrc-suggestion-card__actions ifrc-suggestion-card__actions--stacked">
+                          <button mat-stroked-button type="button" (click)="onChooseIfrcReferenceManually()">Choose IFRC Reference Manually</button>
+                          <button mat-stroked-button type="button" (click)="onKeepEditingAndTryAgain()">Keep Editing and Try Again</button>
+                          <button mat-flat-button color="primary" type="button" (click)="onSaveAsLocalDraft()">Save as Local Draft</button>
+                        </div>
+                      </div>
+                    } @else if (ifrcRejectedState() === 'edit') {
+                      <div class="ifrc-suggestion-card__message info">
+                        <p>Next steps</p>
+                        <div class="ifrc-suggestion-card__actions ifrc-suggestion-card__actions--stacked">
+                          <button mat-stroked-button type="button" (click)="onKeepCurrentClassification()">Keep Current Classification</button>
+                          <button mat-flat-button color="primary" type="button" (click)="onChooseAnotherIfrcReference()">Choose Another IFRC Reference</button>
+                          <button mat-stroked-button type="button" (click)="onKeepEditingAndTryAgain()">Keep Editing and Try Again</button>
+                        </div>
+                      </div>
+                    } @else if (ifrcError()) {
+                      <p class="ifrc-suggestion-card__message error">{{ ifrcError() }}</p>
+                    } @else if (ifrcSuggestion(); as suggestion) {
+                      <dl class="ifrc-suggestion-card__details">
+                        @if (getSuggestionInputName(); as itemName) { <div class="colspan-2"><dt>Entered Item Name</dt><dd>{{ itemName }}</dd></div> }
+                        <div><dt>Family Context</dt><dd>{{ getResolvedSuggestionFamilyLabel() }}</dd></div>
+                        @if (getSuggestedIfrcCode(); as suggestedCode) { <div><dt>Governed IFRC Code</dt><dd>{{ suggestedCode }}</dd></div> }
+                        @if (getResolvedSuggestionReferenceLabel(); as suggestionReference) { <div><dt>Governed Reference</dt><dd>{{ suggestionReference }}</dd></div> }
+                        @for (detail of getResolvedSuggestionVariantDetails(); track detail.label) { <div><dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd></div> }
+                        @if (suggestion.construction_rationale) {
+                          <div class="colspan-2">
+                            <details class="ifrc-rationale-details">
+                              <summary class="ifrc-rationale-summary">
+                                <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
+                                Search Rationale
+                              </summary>
+                              <dd class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</dd>
+                            </details>
+                          </div>
+                        }
+                      </dl>
+                      @if (getIfrcSuggestionExplanation(); as explanation) {
+                        <p class="ifrc-suggestion-card__message"
+                          [class.info]="ifrcSuggestionResolution()?.status !== 'unresolved'"
+                          [class.warning]="ifrcSuggestionResolution()?.status === 'unresolved'">{{ explanation }}</p>
+                      }
+                      @if (shouldShowSuggestionCandidates()) {
+                        <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
+                          @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
+                            <button class="ifrc-suggestion-candidate" type="button"
+                              [class.is-selected]="isSuggestionCandidateSelected(candidate)"
+                              [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)"
+                              [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                              (click)="onSelectSuggestionCandidate(candidate)">
+                              <div class="ifrc-suggestion-candidate__header">
+                                <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
+                                <span class="ifrc-suggestion-candidate__score-dots"
+                                  [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
+                                  [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
+                                  [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
+                                  [matTooltip]="getSuggestionCandidateScore(candidate)">
+                                  <span class="score-dot"></span>
+                                  <span class="score-dot"></span>
+                                  <span class="score-dot"></span>
+                                </span>
+                              </div>
+                              @if (getPreviewItemCode(candidate)) {
+                                <p class="ifrc-suggestion-candidate__code">
+                                  {{ candidate.reference.ifrc_code }}
+                                  <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
+                                </p>
+                              }
+                              <div class="ifrc-suggestion-candidate__badges">
+                                @if (isSuggestionCandidateAutoHighlighted(candidate)) { <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span> }
+                                @if (isSuggestionCandidateSelected(candidate)) { <span class="ifrc-suggestion-candidate__badge selected">Selected</span> }
+                              </div>
+                              <span class="ifrc-candidate-toggle" role="button" tabindex="0"
+                                (click)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
+                                (keydown.enter)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
+                                (keydown.space)="$event.stopPropagation(); $event.preventDefault(); toggleCandidateExpanded(candidate.reference.value)">
+                                <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
+                                {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
+                              </span>
+                              @if (isCandidateExpanded(candidate.reference.value)) {
+                                <div class="ifrc-suggestion-candidate__expanded">
+                                  @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
+                                    @if (variantDetails.length) {
+                                      <div class="ifrc-suggestion-candidate__variant-grid">
+                                        @for (detail of variantDetails; track detail.label) {
+                                          <div class="ifrc-suggestion-candidate__variant">
+                                            <span class="ifrc-suggestion-candidate__variant-label">{{ detail.label }}</span>
+                                            <span class="ifrc-suggestion-candidate__variant-value">{{ detail.value }}</span>
+                                          </div>
+                                        }
+                                      </div>
+                                    }
+                                  }
+                                  <div class="ifrc-suggestion-candidate__meta">
+                                    <span>{{ getSuggestionCandidateFamilyLabel(candidate) }}</span>
+                                    @if (getSuggestionCandidateCategoryLabel(candidate); as categoryLabel) { <span>Category: {{ categoryLabel }}</span> }
+                                    @if (candidate.reference.spec_segment) { <span>Spec segment: {{ candidate.reference.spec_segment }}</span> }
+                                  </div>
+                                  @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) { <p class="ifrc-suggestion-candidate__reason">{{ reasonSummary }}</p> }
+                                </div>
+                              }
+                            </button>
+                          }
+                        </div>
+                      }
+                      @if (ifrcSuggestionResolution()?.warning) {
+                        <p class="ifrc-suggestion-card__message warning">{{ ifrcSuggestionResolution()?.warning }}</p>
+                      }
+                      <div class="ifrc-suggestion-card__actions">
+                        <button mat-stroked-button type="button" (click)="onRejectIfrcSuggestion()">Reject</button>
+                        <button mat-flat-button color="primary" type="button" [disabled]="!canAcceptResolvedIfrcSuggestion()" (click)="onAcceptIfrcSuggestion()">
+                          {{ getIfrcSuggestionPrimaryActionLabel() }}
+                        </button>
+                      </div>
+                    }
+                   }
+                  </section>
+                }
+              </div>
+            }
+
+            @for (field of getRenderableFields(group); track field.field) {
+              <div class="form-field"
+                [class.colspan-2]="field.colspan === 2"
+                [class.locked-field]="isGovernedLockedField(field)"
+                [attr.data-field]="field.field">
+
+                @switch (field.type) {
+                  @case ('textarea') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <textarea matInput cdkTextareaAutosize cdkAutosizeMinRows="3" cdkAutosizeMaxRows="8"
+                        [formControlName]="field.field" [maxlength]="field.maxLength || null"
+                        [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null"
+                        [attr.aria-describedby]="field.hint ? field.field + '-hint' : null"></textarea>
+                      @if (getFieldTooltip(field); as fieldTooltip) {
+                        <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                      }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (field.maxLength) { <mat-hint align="end">{{ (form.get(field.field)?.value?.length || 0) }}/{{ field.maxLength }}</mat-hint> }
+                    </mat-form-field>
+                  }
+                  @case ('select') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <mat-select [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                        @for (opt of field.options; track opt.value) { <mat-option [value]="opt.value">{{ opt.label }}</mat-option> }
+                      </mat-select>
+                      @if (getFieldTooltip(field); as fieldTooltip) {
+                        <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                      }
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (field.field === 'issuance_order' && isFormErrorVisible('fefoRequiresExpiry')) { <mat-error role="alert">{{ getFormErrorMessage('fefoRequiresExpiry') }}</mat-error> }
+                      @if (field.field === 'issuance_order' && isFormErrorVisible('expiryRequiresFefo')) { <mat-error role="alert">{{ getFormErrorMessage('expiryRequiresFefo') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @case ('lookup') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <mat-select [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null">
+                        @for (item of lookups()[field.lookupTable!] || []; track item.value) { <mat-option [value]="item.value">{{ item.label }}</mat-option> }
+                      </mat-select>
+                      @if (getFieldTooltip(field); as fieldTooltip) {
+                        <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                      }
+                      @if ((lookups()[field.lookupTable!] || []).length === 0 && !lookupErrors()[field.lookupTable!]) { <mat-hint [id]="field.field + '-hint'">No options available.</mat-hint> }
+                      @else if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (lookupErrors()[field.lookupTable!]) { <mat-error role="alert">{{ lookupErrors()[field.lookupTable!] }}</mat-error> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @case ('boolean') {
+                    <div>
+                      <div class="toggle-row">
+                        <div class="toggle-row__text">
+                          <span class="toggle-row__label" [id]="field.field + '-label'">
+                            {{ getRenderedFieldLabel(field) }}
+                            @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }
+                            @if (getFieldTooltip(field); as fieldTooltip) {
+                              <button mat-icon-button type="button" class="toggle-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                            }
+                          </span>
+                          @if (field.hint) { <span class="toggle-row__hint" [id]="field.field + '-hint'">{{ field.hint }}</span> }
+                        </div>
+                        <mat-slide-toggle [formControlName]="field.field" [attr.aria-labelledby]="field.field + '-label'" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" color="primary"></mat-slide-toggle>
+                      </div>
+                      @if (field.field === 'can_expire_flag' && isFormErrorVisible('fefoRequiresExpiry')) { <p class="toggle-error">{{ getFormErrorMessage('fefoRequiresExpiry') }}</p> }
+                      @if (field.field === 'can_expire_flag' && isFormErrorVisible('expiryRequiresFefo')) { <p class="toggle-error">{{ getFormErrorMessage('expiryRequiresFefo') }}</p> }
+                    </div>
+                  }
+                  @case ('date') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <input matInput [matDatepicker]="picker" [formControlName]="field.field" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      <mat-datepicker-toggle matIconSuffix [for]="picker" /><mat-datepicker #picker />
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @case ('email') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <mat-icon matPrefix>email</mat-icon>
+                      <input matInput type="email" [formControlName]="field.field" [maxlength]="field.maxLength || null" [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('email')) { <mat-error role="alert">Invalid email format</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @case ('phone') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <mat-icon matPrefix>phone</mat-icon>
+                      <input matInput type="tel" [formControlName]="field.field" [maxlength]="field.maxLength || null" placeholder="+1 (XXX) XXX-XXXX" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('pattern')) { <mat-error role="alert">{{ field.patternMessage || 'Invalid phone format' }}</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @case ('number') {
+                    <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                      <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                      <input matInput type="number" [formControlName]="field.field" [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                      @if (getFieldTooltip(field); as fieldTooltip) {
+                        <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                      }
+                      @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                      @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                      @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                    </mat-form-field>
+                  }
+                  @default {
+                    @if (isManagedItemCodeField(field.field)) {
+                      <mat-form-field appearance="outline" class="full-width managed-item-code-field" subscriptSizing="dynamic">
+                        <mat-label>{{ getRenderedFieldLabel(field) }}</mat-label>
+                        <input matInput [formControlName]="field.field" [maxlength]="field.maxLength || null" readonly aria-readonly="true" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                        @if (getFieldTooltip(field); as fieldTooltip) {
+                          <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                        }
+                        <mat-icon matSuffix aria-hidden="true">lock</mat-icon>
+                        @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                        @if (getLegacyItemCode(); as legacyItemCode) { <mat-hint align="end">Legacy code: {{ legacyItemCode }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('maxlength')) { <mat-error role="alert">Max {{ field.maxLength }} characters</mat-error> }
+                        @if (form.get(field.field)?.hasError('pattern')) { <mat-error role="alert">{{ field.patternMessage || 'Invalid format' }}</mat-error> }
+                        @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                      </mat-form-field>
+                    } @else {
+                      <mat-form-field appearance="outline" class="full-width" subscriptSizing="dynamic">
+                        <mat-label>{{ getRenderedFieldLabel(field) }} @if (field.required) { <span class="required-indicator" aria-hidden="true">*</span><span class="sr-only">(required)</span> }</mat-label>
+                        <input matInput [formControlName]="field.field" [maxlength]="field.maxLength || null" [placeholder]="field.placeholder || ''" [attr.aria-required]="field.required || null" [attr.aria-describedby]="field.hint ? field.field + '-hint' : null" />
+                        @if (getFieldTooltip(field); as fieldTooltip) {
+                          <button mat-icon-button matSuffix type="button" class="field-help-button" [matTooltip]="fieldTooltip" [attr.aria-label]="'More information about ' + field.label"><mat-icon>help_outline</mat-icon></button>
+                        }
+                        @if (field.hint) { <mat-hint [id]="field.field + '-hint'">{{ field.hint }}</mat-hint> }
+                        @if (form.get(field.field)?.hasError('required') && form.get(field.field)?.touched) { <mat-error role="alert">{{ field.label }} is required</mat-error> }
+                        @if (form.get(field.field)?.hasError('maxlength')) { <mat-error role="alert">Max {{ field.maxLength }} characters</mat-error> }
+                        @if (form.get(field.field)?.hasError('pattern')) { <mat-error role="alert">{{ field.patternMessage || 'Invalid format' }}</mat-error> }
+                        @if (form.get(field.field)?.hasError('server')) { <mat-error role="alert">{{ form.get(field.field)?.getError('server') }}</mat-error> }
+                      </mat-form-field>
+                    }
+                  }
+                }
+
+                @if (getGovernedFieldAssistText(field); as governedFieldHint) {
+                  <p class="governed-field-note" [class.locked]="isGovernedLockedField(field)">{{ governedFieldHint }}</p>
+                }
+              </div>
+            }
+          </fieldset>
+        </ng-template>
+
+        <!-- ══════ SHARED TEMPLATE: Catalog Suggest CTA ══════ -->
+        <ng-template #catalogCta>
+          <div class="catalog-suggest-cta" role="region" aria-label="Auto-fill suggestion tools">
+            @if (getCatalogSuggestionReadinessText(); as readinessText) { <p class="catalog-suggest-cta__readiness" aria-live="polite">{{ readinessText }}</p> }
+            @if (getCatalogWarningText(); as warningText) { <p class="catalog-suggest-cta__info">{{ warningText }}</p> }
+            @if (getCatalogLockedFieldLabels().length) { <p class="catalog-suggest-cta__info">Locked fields: {{ getCatalogLockedFieldLabels().join(', ') }}</p> }
+            <span [matTooltip]="getCatalogSuggestButtonTooltip()">
+              <button class="catalog-suggest-cta__button" mat-flat-button color="primary" type="button"
+                (click)="onSuggestCatalogValues()" [disabled]="catalogSuggestionLoading() || !canRequestCatalogSuggestion()">
+                @if (catalogSuggestionLoading()) { <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Suggesting... }
+                @else { <mat-icon aria-hidden="true">auto_awesome</mat-icon> {{ getCatalogSuggestActionLabel() }} }
+              </button>
+            </span>
+            @if (canCreateReplacement() && !replacementMode()) {
+              <button mat-stroked-button type="button" (click)="onStartReplacementDraft()"><mat-icon aria-hidden="true">content_copy</mat-icon> Create Replacement</button>
+            }
+            @if (replacementMode()) {
+              <button mat-stroked-button type="button" (click)="onCancelReplacementDraft()"><mat-icon aria-hidden="true">undo</mat-icon> Cancel Replacement Draft</button>
+              <div class="catalog-suggest-cta__replacement">
+                <p>Replacement draft active. Code fields are now editable. Saving creates a new record.</p>
+                <mat-slide-toggle [checked]="retireOriginalOnReplacement()" (change)="onRetireOriginalReplacementChange($event.checked)">Retire original after replacement is saved</mat-slide-toggle>
+              </div>
+            }
+            @if (catalogAssistError(); as assistError) { <p class="catalog-suggest-cta__error">{{ assistError }}</p> }
+            @if (catalogSuggestion(); as suggestion) {
+              <div class="catalog-suggestion-preview">
+                <p class="catalog-suggestion-preview__eyebrow">Suggested Values (review before applying)</p>
+                <p class="catalog-suggestion-preview__source">Source: {{ suggestion.source }}</p>
+                <div class="catalog-suggestion-preview__grid">
+                  @for (entry of getCatalogSuggestionEntries(); track entry.label) {
+                    <div class="catalog-suggestion-preview__entry" [class.locked]="entry.locked">
+                      <span class="catalog-suggestion-preview__label">{{ entry.label }}</span>
+                      <span class="catalog-suggestion-preview__value">{{ entry.value }}</span>
+                      @if (entry.locked) { <span class="catalog-suggestion-preview__badge">Locked on edit</span> }
+                    </div>
+                  }
+                </div>
+                @if (getCatalogSuggestionConflictMessages(); as conflictMessages) {
+                  @if (conflictMessages.length) {
+                    <div class="catalog-suggestion-preview__messages warning"><p>Possible duplicates found</p><ul>@for (message of conflictMessages; track message) { <li>{{ message }}</li> }</ul></div>
+                  }
+                }
+                @if (getCatalogSuggestionWarnings(); as suggestionWarnings) {
+                  @if (suggestionWarnings.length) {
+                    <div class="catalog-suggestion-preview__messages info"><p>Notes</p><ul>@for (warning of suggestionWarnings; track warning) { <li>{{ warning }}</li> }</ul></div>
+                  }
+                }
+                <div class="catalog-suggestion-preview__actions">
+                  <button mat-flat-button color="primary" type="button" (click)="onApplyCatalogSuggestion()"><mat-icon aria-hidden="true">playlist_add_check</mat-icon> Apply Suggested Values</button>
+                </div>
+              </div>
+            }
+          </div>
+        </ng-template>
 
       </form>
     }

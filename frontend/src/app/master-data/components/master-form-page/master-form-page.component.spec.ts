@@ -560,6 +560,10 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.contains('size_weight')).toBeFalse();
     expect(component.form.contains('form')).toBeFalse();
     expect(component.form.contains('material')).toBeFalse();
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
     expect(fixture.nativeElement.textContent).toContain('Find Match');
     expect(fixture.nativeElement.textContent).not.toContain('IFRC Size or Weight Hint');
@@ -690,6 +694,10 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('ifrc_family_id')?.value).toBeNull();
     expect(component.form.get('ifrc_item_ref_id')?.value).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Local Item Code');
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
     expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
   });
 
@@ -1120,10 +1128,15 @@ describe('MasterFormPageComponent', () => {
       autoHighlightCandidateId: 502,
     } as never);
 
+    component.currentStep.set(1);
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
     expect(fixture.nativeElement.textContent).toContain('Corned beef, canned');
+
+    // Variant details are now behind progressive disclosure — expand to verify
+    component.expandedCandidateIds.set(new Set([502]));
+    fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('500 G');
   });
 
@@ -1347,6 +1360,7 @@ describe('MasterFormPageComponent', () => {
       autoHighlightCandidateId: null,
     });
 
+    component.currentStep.set(1);
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
@@ -1364,7 +1378,10 @@ describe('MasterFormPageComponent', () => {
   });
 
   it('shows a visible governance note beside the item classification controls', () => {
-    const { fixture } = setup();
+    const { component, fixture } = setup();
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
 
     const note = fixture.nativeElement.querySelector('#item-taxonomy-governance-note') as HTMLElement | null;
 
@@ -1593,7 +1610,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(openArgs[0]).toBe(MasterEditGateDialogComponent);
     expect(openArgs[1]?.ariaLabelledBy).toBe('gate-dialog-title');
-    expect(dialogData.warningText).toContain('classification, search, and future item selection');
+    expect(dialogData.warningText).toContain('Canonical code-bearing fields stay locked');
     expect(dialogData.lockedFields).toEqual(jasmine.arrayContaining([
       'IFRC Family',
       'IFRC Code',
@@ -1731,7 +1748,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(component.canRequestCatalogSuggestion()).toBeFalse();
     expect(component.getCatalogSuggestionReadinessText()).toBe('Complete Family Label before generating suggestions.');
-    expect(fixture.nativeElement.textContent).toContain('Fill these in first');
+    expect(fixture.nativeElement.textContent).toContain('Complete Family Label before generating suggestions.');
 
     component.onSuggestCatalogValues();
 
