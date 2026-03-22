@@ -34,16 +34,16 @@ Do not treat this document as complete until all items below are checked:
 
 Current assessed status from QA review and rerun:
 
-- Catalogs delivered: materially present and rerun-cleared for the previously failing frontend copy assertions
+- Catalogs delivered: materially present and rerun-cleared for the previously failing UI text validation assertions
 - Operational masters delivered: warehouse, agency, and scoped location foundations materially present
-- Repackaging scope delivered: backend create-only UOM repackaging delivered and frontend user-facing flow exposed; live browser create path still blocked by missing alternate-UOM runtime fixture data
+- Repackaging scope delivered: backend create-only UOM repackaging is delivered. Current frontend user-facing flow is exposed. The live browser create path is still blocked by missing alternate-UOM runtime fixture data.
 - Explicitly deferred scope: reversal or void, dedicated repackaging reporting/export, broader alternate-UOM transactional support
 
 ## Requirement Coverage
 
 | Requirement / Source | Status | Evidence |
 | --- | --- | --- |
-| `FR03.15` Item Master Management | Partial pass | QA reports indicate item-master setup and rules passed |
+| `FR03.15` Item Master Management | Partial pass | QA reports indicate item-master setup and rules passed, but final merged-state closeout evidence is still pending |
 | `FR03.17` UOM Conversion Table | Partial pass | Runtime fixture gap still blocks live browser create validation for alternate-UOM repackaging |
 | `FR03.18` Repackaging Transaction | Partial pass | Backend and frontend flow are present; live browser create transaction still blocked by missing runtime fixture data |
 | `FR03.19` Quantity-Conservation Guardrail | Partial pass | Backend invariant coverage passed; live UI create confirmation still depends on runtime fixture seeding |
@@ -70,7 +70,7 @@ Current assessed status from QA review and rerun:
 
 - Test plan or matrix: `docs/testing/sprint_07_release_train_foundation_user_test_script.md`
 - Pass / fail summary: `Rerun cleared the frontend blocker but Sprint 07 still has blockers`
-- Defects opened: missing alternate-UOM runtime fixture for live repackaging create path; missing location-policy command
+- Defects opened: missing alternate-UOM runtime fixture for live repackaging create path
 - Blockers: live browser completion of Use Case 5 is blocked by missing alternate-UOM runtime fixture data; cross-module alignment artifact still needs to be linked
 - Non-blocking follow-on items: missing location-policy support command
 - Untested or blocked areas: final live create-only repackaging submission in browser until fixture data exists
@@ -82,7 +82,7 @@ Capture the disposition discipline carried forward from Sprint 06:
 | Finding Source | Finding | Disposition | Notes |
 | --- | --- | --- | --- |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Frontend master-data remediation | cleared | Revised master-data form flow and targeted frontend rerun are now in place |
-| `qa/release-checklists/sprint_07_validation_report_2026-03-20.md` | Missing `enforce_location_storage_policy` command | defer or fix now | Non-blocking for user flow; keep visible until disposition is final |
+| `qa/release-checklists/sprint_07_validation_report_2026-03-20.md` | Missing `enforce_location_storage_policy` command | defer | Non-blocking for user flow; defer to backlog sequencing and PM disposition |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Governed warning-text drift | cleared | Targeted Angular rerun passed |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | IFRC helper cue text drift | cleared | Targeted Angular rerun passed |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Missing runtime alternate-UOM fixture | fix now | QA cannot complete live browser repackaging transaction until one valid fixture exists |
@@ -91,15 +91,14 @@ Capture the disposition discipline carried forward from Sprint 06:
 
 Record any approved deviation from the sprint brief or planning baseline:
 
-- Browser-level repackaging validation is currently blocked because the runtime dataset does not yet contain one valid alternate-UOM repackaging fixture. This is not accepted as a final deviation; it is an open blocker.
-
 ## Known Gaps and Follow-On Work
 
 Record any remaining work that should move to the next sprint or backlog refinement:
 
+- Browser-level repackaging validation remains blocked because the runtime dataset does not yet contain one valid alternate-UOM repackaging fixture.
 - One valid alternate-UOM runtime fixture must be seeded so QA can complete the live browser repackaging transaction.
 - Cross-module alignment artifact still needs to be linked before Sprint 07 can be treated as closed.
-- Location-policy management command needs explicit disposition.
+- Location-policy management command remains deferred follow-on work.
 
 ## Durable Repo Closeout Note
 

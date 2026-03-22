@@ -147,6 +147,7 @@ export class MasterFormPageComponent implements OnInit {
   lookups = signal<Record<string, LookupItem[]>>({});
   lookupLoading = signal<Record<string, boolean>>({});
   lookupErrors = signal<Record<string, string>>({});
+  private readonly formStateVersion = signal(0);
   catalogEditGuidance = signal<CatalogEditGuidance | null>(null);
   catalogSuggestion = signal<CatalogAuthoringSuggestionResponse | null>(null);
   catalogSuggestionLoading = signal(false);
@@ -203,6 +204,7 @@ export class MasterFormPageComponent implements OnInit {
   isOnReviewStep = computed(() => this.currentStep() >= this.renderableFieldGroups().length);
 
   canGoNext = computed(() => {
+    this.formStateVersion();
     if (this.isOnReviewStep()) return false;
     const group = this.currentStepGroup();
     if (!group) return false;
@@ -210,11 +212,12 @@ export class MasterFormPageComponent implements OnInit {
   });
 
   reviewData = computed<{ groupLabel: string; groupKey: string; fields: { label: string; value: string }[] }[]>(() => {
+    this.formStateVersion();
     const groups = this.renderableFieldGroups();
     return groups.map((group) => ({
       groupLabel: group.label,
       groupKey: group.key,
-      fields: this.getRenderableFields(group).map((field) => ({
+      fields: this.getReviewFields(group).map((field) => ({
         label: field.label,
         value: this.getReviewDisplayValue(field),
       })),
@@ -295,7 +298,10 @@ export class MasterFormPageComponent implements OnInit {
   });
 
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
-  isBatchedItem = computed(() => Boolean(this.form.get('is_batched_flag')?.value));
+  isBatchedItem = computed(() => {
+    this.formStateVersion();
+    return Boolean(this.form.get('is_batched_flag')?.value);
+  });
   canAssignLocation = computed(() => this.isItemRecord() && this.isEdit() && this.toPositiveInt(this.pk()) != null);
   itemCategoryOptions = computed(() => this.readLookup<ItemCategoryLookup>('item_categories'));
   itemIfrcFamilyOptions = computed(() => this.readLookup<IfrcFamilyLookup>('ifrc_families'));
@@ -311,6 +317,7 @@ export class MasterFormPageComponent implements OnInit {
     this.route.data.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(data => {
+      this.resetWizardUiState();
       const routePath = data['routePath'] as string;
       const cfg = ALL_TABLE_CONFIGS[routePath];
       if (cfg) {
@@ -329,13 +336,18 @@ export class MasterFormPageComponent implements OnInit {
     this.route.params.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(params => {
+      this.resetWizardUiState();
       const pkParam = params['pk'];
       if (pkParam && pkParam !== 'new') {
         this.pk.set(pkParam);
         this.isEdit.set(true);
         this.primeGovernedEditState();
         this.loadRecord();
+        return;
       }
+
+      this.pk.set(null);
+      this.isEdit.set(false);
     });
   }
 
@@ -367,6 +379,7 @@ export class MasterFormPageComponent implements OnInit {
     this.form.valueChanges.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(() => {
+      this.formStateVersion.update((version) => version + 1);
       if (this.submissionError()) {
         this.clearSubmissionError();
       }
@@ -377,6 +390,12 @@ export class MasterFormPageComponent implements OnInit {
           'Catalog suggestions were cleared because the form changed. Request fresh suggestions before applying them.',
         );
       }
+    });
+
+    this.form.statusChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      this.formStateVersion.update((version) => version + 1);
     });
   }
 
@@ -1941,7 +1960,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   getGuidedStepNumber(groupIndex: number): number {
-    return groupIndex === 0 ? 1 : 2;
+    return groupIndex + 1;
   }
 
   isOptionalAttributesGroup(group: FormFieldGroup): boolean {
@@ -3314,7 +3333,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private areStepsValidThrough(stepIndex: number): boolean {
-    return !this.findFirstInvalidStep(stepIndex + 1);
+    return this.findFirstInvalidStep(stepIndex + 1) === null;
   }
 
   private focusFirstInvalidStep(maxExclusive: number): boolean {
@@ -3344,6 +3363,9 @@ export class MasterFormPageComponent implements OnInit {
     if (stepIndex >= groups.length) return true;
     const group = groups[stepIndex];
     const fields = this.getRenderableFields(group);
+    if (this.hasRelevantFormError(group, fields)) {
+      return false;
+    }
     // Also check taxonomy fields if this is a classification group
     if (this.isItemClassificationGroup(group.label)) {
       const taxonomyFields = ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'];
@@ -3357,6 +3379,47 @@ export class MasterFormPageComponent implements OnInit {
       if (control && control.invalid) return false;
     }
     return true;
+  }
+
+  private hasRelevantFormError(group: FormFieldGroup, fields: MasterFieldConfig[]): boolean {
+    const fieldNames = new Set(fields.map((field) => field.field));
+
+    if (this.isItemClassificationGroup(group.label)) {
+      fieldNames.add('category_id');
+      fieldNames.add('ifrc_family_id');
+      fieldNames.add('ifrc_item_ref_id');
+    }
+
+    if (
+      (fieldNames.has('issuance_order') || fieldNames.has('can_expire_flag'))
+      && (this.form.hasError('fefoRequiresExpiry') || this.form.hasError('expiryRequiresFefo'))
+    ) {
+      return true;
+    }
+
+    if (
+      fieldNames.has('ifrc_family_id')
+      && (
+        this.form.hasError('ifrcFamilyRequired')
+        || this.form.hasError('ifrcFamilyOutsideCategory')
+        || this.form.hasError('ifrcFamilyForReferenceRequired')
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      fieldNames.has('ifrc_item_ref_id')
+      && (
+        this.form.hasError('ifrcReferenceRequired')
+        || this.form.hasError('ifrcReferenceOutsideFamily')
+        || this.form.hasError('ifrcFamilyForReferenceRequired')
+      )
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   private markStepFieldsTouched(stepIndex: number): void {
@@ -3398,6 +3461,30 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     return String(rawValue);
+  }
+
+  private getReviewFields(group: FormFieldGroup): MasterFieldConfig[] {
+    const fields = this.getRenderableFields(group);
+    if (!this.isItemClassificationGroup(group.label)) {
+      return fields;
+    }
+
+    const taxonomyFields = ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id']
+      .map((fieldName) => group.fields.find((field) => field.field === fieldName))
+      .filter((field): field is MasterFieldConfig => !!field);
+    const taxonomyNames = new Set(taxonomyFields.map((field) => field.field));
+
+    return [
+      ...taxonomyFields,
+      ...fields.filter((field) => !taxonomyNames.has(field.field)),
+    ];
+  }
+
+  private resetWizardUiState(): void {
+    this.currentStep.set(0);
+    this.ifrcAppliedConfirmation.set(null);
+    this.ifrcCodeUpdatedOnStep1.set(false);
+    this.expandedCandidateIds.set(new Set());
   }
 }
 

@@ -734,6 +734,72 @@ describe('MasterFormPageComponent', () => {
     expect(component.currentStep()).toBe(0);
   });
 
+  it('treats form-level FEFO validation errors as invalid for the affected wizard step', () => {
+    const { component } = setup('items', { pk: '17' });
+    const stepIndex = component.renderableFieldGroups().findIndex((group) => (
+      group.fields.some((field) => field.field === 'issuance_order')
+    ));
+
+    component.form.patchValue({
+      issuance_order: 'FEFO',
+      can_expire_flag: false,
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    expect(stepIndex).toBeGreaterThanOrEqual(0);
+    expect(component.form.hasError('fefoRequiresExpiry')).toBeTrue();
+    expect((component as any).isStepValid(stepIndex)).toBeFalse();
+  });
+
+  it('includes the governed taxonomy in the review step summary', () => {
+    const { component } = setup();
+    const expectedLabels = ITEM_CONFIG.formFields
+      .filter((field) => ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'].includes(field.field))
+      .map((field) => field.label);
+
+    component.form.patchValue({
+      category_id: 102,
+      ifrc_family_id: 301,
+      ifrc_item_ref_id: 401,
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    const classificationReview = component.reviewData().find((group) => group.groupLabel === 'Classification');
+
+    expect(classificationReview).toBeDefined();
+    expect(classificationReview?.fields.map((field) => field.label)).toEqual(jasmine.arrayContaining(expectedLabels));
+  });
+
+  it('resets wizard-only UI state before loading a different record', () => {
+    const { component } = setup('items', { pk: '17' });
+
+    component.currentStep.set(3);
+    component.ifrcAppliedConfirmation.set({
+      ifrcCode: 'WWTRTABLTB01',
+      referenceLabel: 'Water purification tablet',
+      familyLabel: 'Water Treatment',
+    });
+    component.ifrcCodeUpdatedOnStep1.set(true);
+    component.expandedCandidateIds.set(new Set([401]));
+
+    (component as any).resetWizardUiState();
+
+    expect(component.currentStep()).toBe(0);
+    expect(component.ifrcAppliedConfirmation()).toBeNull();
+    expect(component.ifrcCodeUpdatedOnStep1()).toBeFalse();
+    expect(component.expandedCandidateIds().size).toBe(0);
+  });
+
+  it('keeps wizard step buttons labeled even when the visual label is hidden on mobile', () => {
+    const { component, fixture } = setup();
+
+    fixture.detectChanges();
+
+    const firstStepButton = fixture.nativeElement.querySelector('.wizard-step__pill') as HTMLButtonElement | null;
+
+    expect(firstStepButton?.getAttribute('aria-label')).toBe(`Step 1: ${component.wizardSteps()[0].label}`);
+  });
+
   it('saves a create-time local draft through legacy_item_code instead of canonical item_code', () => {
     const { component, masterDataService } = setup();
 

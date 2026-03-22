@@ -108,6 +108,7 @@
                     [class.wizard-step__pill--done]="getStepState(si) === 'done'"
                     [class.wizard-step__pill--active]="getStepState(si) === 'active'"
                     [class.wizard-step__pill--future]="getStepState(si) === 'future'"
+                    [attr.aria-label]="'Step ' + (si + 1) + ': ' + step.label"
                     [attr.aria-current]="getStepState(si) === 'active' ? 'step' : null"
                     (click)="goToStep(si)">
                     @if (getStepState(si) === 'done') {
