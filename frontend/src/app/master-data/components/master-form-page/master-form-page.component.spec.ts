@@ -701,6 +701,39 @@ describe('MasterFormPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
   });
 
+  it('keeps storage assignment visible in wizard edit flows before the review step', () => {
+    const { component, fixture } = setup('items', { pk: '17' });
+
+    component.currentStep.set(0);
+    fixture.detectChanges();
+
+    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
+
+    expect(component.canAssignLocation()).toBeTrue();
+    expect(component.isOnReviewStep()).toBeFalse();
+    expect(assignmentSection).not.toBeNull();
+    expect(assignmentSection?.textContent).toContain('Storage Location Assignment');
+  });
+
+  it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {
+    const { component, fixture } = setup();
+
+    component.currentStep.set(1);
+    (component as any).setLocalDraftMode(true);
+    component.form.get('legacy_item_code')?.setValue('');
+    component.form.get('legacy_item_code')?.markAsTouched();
+    fixture.detectChanges();
+
+    const nextButton = fixture.nativeElement.querySelector('.wizard-footer__next') as HTMLButtonElement | null;
+
+    expect(component.canGoNext()).toBeFalse();
+    expect(nextButton?.disabled).toBeTrue();
+
+    component.goNext();
+
+    expect(component.currentStep()).toBe(0);
+  });
+
   it('saves a create-time local draft through legacy_item_code instead of canonical item_code', () => {
     const { component, masterDataService } = setup();
 

@@ -81,7 +81,7 @@ Capture the disposition discipline carried forward from Sprint 06:
 
 | Finding Source | Finding | Disposition | Notes |
 | --- | --- | --- | --- |
-| `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Frontend repackaging flow exposure | cleared | Route, navigation, component, and targeted frontend rerun are now in place |
+| `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Frontend master-data remediation | cleared | Revised master-data form flow and targeted frontend rerun are now in place |
 | `qa/release-checklists/sprint_07_validation_report_2026-03-20.md` | Missing `enforce_location_storage_policy` command | defer or fix now | Non-blocking for user flow; keep visible until disposition is final |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Governed warning-text drift | cleared | Targeted Angular rerun passed |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | IFRC helper cue text drift | cleared | Targeted Angular rerun passed |

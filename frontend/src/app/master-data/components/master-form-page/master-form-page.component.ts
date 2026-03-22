@@ -206,7 +206,7 @@ export class MasterFormPageComponent implements OnInit {
     if (this.isOnReviewStep()) return false;
     const group = this.currentStepGroup();
     if (!group) return false;
-    return this.isStepValid(this.currentStep());
+    return this.areStepsValidThrough(this.currentStep());
   });
 
   reviewData = computed<{ groupLabel: string; groupKey: string; fields: { label: string; value: string }[] }[]>(() => {
@@ -3280,26 +3280,20 @@ export class MasterFormPageComponent implements OnInit {
 
   goToStep(index: number): void {
     if (index < 0 || index >= this.totalSteps()) return;
-    // Allow going back freely; going forward requires validation of all prior steps
-    if (index > this.currentStep()) {
-      for (let i = this.currentStep(); i < index; i++) {
-        if (!this.isStepValid(i)) {
-          this.markStepFieldsTouched(i);
-          this.currentStep.set(i);
-          return;
-        }
-      }
+    // Allow going back freely; going forward requires validation of all prior steps.
+    if (index > this.currentStep() && this.focusFirstInvalidStep(index)) {
+      return;
     }
     this.currentStep.set(index);
   }
 
   goNext(): void {
     if (this.isOnReviewStep()) return;
-    if (!this.isStepValid(this.currentStep())) {
-      this.markStepFieldsTouched(this.currentStep());
+    const nextStep = this.currentStep() + 1;
+    if (this.focusFirstInvalidStep(nextStep)) {
       return;
     }
-    this.currentStep.set(this.currentStep() + 1);
+    this.currentStep.set(nextStep);
   }
 
   goBack(): void {
@@ -3316,14 +3310,33 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   navigateToFirstInvalidStep(): void {
+    this.focusFirstInvalidStep(this.renderableFieldGroups().length);
+  }
+
+  private areStepsValidThrough(stepIndex: number): boolean {
+    return !this.findFirstInvalidStep(stepIndex + 1);
+  }
+
+  private focusFirstInvalidStep(maxExclusive: number): boolean {
+    const firstInvalidStep = this.findFirstInvalidStep(maxExclusive);
+    if (firstInvalidStep == null) {
+      return false;
+    }
+
+    this.markStepFieldsTouched(firstInvalidStep);
+    this.currentStep.set(firstInvalidStep);
+    return true;
+  }
+
+  private findFirstInvalidStep(maxExclusive: number): number | null {
     const groups = this.renderableFieldGroups();
-    for (let i = 0; i < groups.length; i++) {
+    const limit = Math.min(maxExclusive, groups.length);
+    for (let i = 0; i < limit; i++) {
       if (!this.isStepValid(i)) {
-        this.markStepFieldsTouched(i);
-        this.currentStep.set(i);
-        return;
+        return i;
       }
     }
+    return null;
   }
 
   private isStepValid(stepIndex: number): boolean {

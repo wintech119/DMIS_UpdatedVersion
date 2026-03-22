@@ -145,6 +145,75 @@
           }
         }
 
+        <ng-template #storageLocationAssignmentSection>
+          <section class="form-section location-assignment-section"
+            aria-label="Storage location assignment section">
+            <h3 class="section-title">
+              <mat-icon aria-hidden="true">shelves</mat-icon>
+              Storage Location Assignment
+            </h3>
+            <p class="section-description">
+              @if (isBatchedItem()) {
+                This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+              } @else {
+                This item is non-batched. Provide Inventory ID and Location ID only.
+              }
+            </p>
+            <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+            <div class="assignment-form" [formGroup]="locationForm">
+              <div class="assignment-grid">
+                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                  <mat-label>Inventory ID</mat-label>
+                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-assignment">
+                    @for (item of lookups()['inventory'] || []; track item.value) {
+                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                    }
+                  </mat-select>
+                  @if ((lookups()['inventory'] || []).length === 0) {
+                    <mat-hint id="inventory-id-help-assignment">No inventory options found.</mat-hint>
+                  } @else {
+                    <mat-hint id="inventory-id-help-assignment">Select an existing inventory record.</mat-hint>
+                  }
+                  @if (getLocationFieldError('inventory_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                  <mat-label>Location ID</mat-label>
+                  <mat-select formControlName="location_id">
+                    @for (item of lookups()['locations'] || []; track item.value) {
+                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                    }
+                  </mat-select>
+                  @if ((lookups()['locations'] || []).length === 0) {
+                    <mat-hint>No locations found. Create one in Master Data &gt; Locations.</mat-hint>
+                  }
+                  @if (getLocationFieldError('location_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                </mat-form-field>
+                @if (isBatchedItem()) {
+                  <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
+                    <mat-label>Batch ID</mat-label>
+                    <input matInput type="number" min="1" formControlName="batch_id" />
+                    @if (getLocationFieldError('batch_id'); as error) { <mat-error>{{ error }}</mat-error> }
+                  </mat-form-field>
+                }
+              </div>
+
+              <div class="assignment-actions">
+                <button mat-flat-button color="primary" type="button"
+                  [disabled]="assigningLocation()"
+                  (click)="onAssignStorageLocation()">
+                  @if (assigningLocation()) {
+                    <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
+                    Assigning...
+                  } @else {
+                    <mat-icon aria-hidden="true">add_location_alt</mat-icon>
+                    Assign Location
+                  }
+                </button>
+              </div>
+            </div>
+          </section>
+        </ng-template>
+
         @if (isWizardMode()) {
           <!-- ══════ WIZARD MODE ══════ -->
           @if (isOnReviewStep()) {
@@ -178,66 +247,6 @@
                 </div>
               }
             </section>
-
-            <!-- Storage Location Assignment on review step (edit mode, items only) -->
-            @if (canAssignLocation()) {
-              <section class="form-section location-assignment-section"
-                aria-label="Storage location assignment section">
-                <h3 class="section-title">
-                  <mat-icon aria-hidden="true">shelves</mat-icon>
-                  Storage Location Assignment
-                </h3>
-                <p class="section-description">
-                  @if (isBatchedItem()) {
-                    This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
-                  } @else {
-                    This item is non-batched. Provide Inventory ID and Location ID only.
-                  }
-                </p>
-                <p class="assignment-item-id">Item ID: {{ pk() }}</p>
-                <div class="assignment-form" [formGroup]="locationForm">
-                  <div class="assignment-grid">
-                    <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                      <mat-label>Inventory ID</mat-label>
-                      <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-wz">
-                        @for (item of lookups()['inventory'] || []; track item.value) {
-                          <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
-                        }
-                      </mat-select>
-                      @if ((lookups()['inventory'] || []).length === 0) {
-                        <mat-hint id="inventory-id-help-wz">No inventory options found.</mat-hint>
-                      } @else {
-                        <mat-hint id="inventory-id-help-wz">Select an existing inventory record.</mat-hint>
-                      }
-                      @if (getLocationFieldError('inventory_id'); as error) { <mat-error>{{ error }}</mat-error> }
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                      <mat-label>Location ID</mat-label>
-                      <mat-select formControlName="location_id">
-                        @for (item of lookups()['locations'] || []; track item.value) {
-                          <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
-                        }
-                      </mat-select>
-                      @if ((lookups()['locations'] || []).length === 0) { <mat-hint>No locations found.</mat-hint> }
-                      @if (getLocationFieldError('location_id'); as error) { <mat-error>{{ error }}</mat-error> }
-                    </mat-form-field>
-                    @if (isBatchedItem()) {
-                      <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                        <mat-label>Batch ID</mat-label>
-                        <input matInput type="number" min="1" formControlName="batch_id" />
-                        @if (getLocationFieldError('batch_id'); as error) { <mat-error>{{ error }}</mat-error> }
-                      </mat-form-field>
-                    }
-                  </div>
-                  <div class="assignment-actions">
-                    <button mat-flat-button color="primary" type="button" [disabled]="assigningLocation()" (click)="onAssignStorageLocation()">
-                      @if (assigningLocation()) { <mat-icon class="spin" aria-hidden="true">sync</mat-icon> Assigning... }
-                      @else { <mat-icon aria-hidden="true">add_location_alt</mat-icon> Assign Location }
-                    </button>
-                  </div>
-                </div>
-              </section>
-            }
           } @else if (currentStepGroup(); as wizGroup) {
             <!-- Active wizard step — render current group's section card -->
             @if (isGovernedCatalogAuthoringTable() && isOptionalAttributesGroup(wizGroup)) {
@@ -270,6 +279,10 @@
             }
           }
 
+          @if (canAssignLocation()) {
+            <ng-container *ngTemplateOutlet="storageLocationAssignmentSection"></ng-container>
+          }
+
           <!-- Wizard Navigation Footer -->
           <div class="wizard-footer" role="toolbar" aria-label="Wizard navigation">
             @if (lastGroupIsSingleStatus()) {
@@ -297,7 +310,8 @@
                   @else { <mat-icon aria-hidden="true">{{ getPrimarySaveIcon() }}</mat-icon> {{ getPrimarySaveLabel() }} }
                 </button>
               } @else {
-                <button mat-flat-button color="primary" type="button" class="wizard-footer__next" (click)="goNext()">
+                <button mat-flat-button color="primary" type="button" class="wizard-footer__next"
+                  [disabled]="!canGoNext()" (click)="goNext()">
                   Next <mat-icon aria-hidden="true">arrow_forward</mat-icon>
                 </button>
               }
@@ -888,48 +902,51 @@
                         @if (shouldShowSuggestionCandidates()) {
                           <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
                             @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
-                              <button
+                              <div
                                 class="ifrc-suggestion-candidate"
-                                type="button"
                                 [class.is-selected]="isSuggestionCandidateSelected(candidate)"
-                                [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)"
-                                [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
-                                (click)="onSelectSuggestionCandidate(candidate)">
-                                <div class="ifrc-suggestion-candidate__header">
-                                  <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
-                                  <span class="ifrc-suggestion-candidate__score-dots"
-                                    [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
-                                    [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
-                                    [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
-                                    [matTooltip]="getSuggestionCandidateScore(candidate)">
-                                    <span class="score-dot"></span>
-                                    <span class="score-dot"></span>
-                                    <span class="score-dot"></span>
-                                  </span>
-                                </div>
-                                @if (getPreviewItemCode(candidate)) {
-                                  <p class="ifrc-suggestion-candidate__code">
-                                    {{ candidate.reference.ifrc_code }}
-                                    <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
-                                  </p>
-                                }
-                                <div class="ifrc-suggestion-candidate__badges">
-                                  @if (isSuggestionCandidateAutoHighlighted(candidate)) {
-                                    <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span>
+                                [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)">
+                                <button
+                                  class="ifrc-suggestion-candidate__select"
+                                  type="button"
+                                  [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                                  (click)="onSelectSuggestionCandidate(candidate)">
+                                  <div class="ifrc-suggestion-candidate__header">
+                                    <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
+                                    <span class="ifrc-suggestion-candidate__score-dots"
+                                      [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
+                                      [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
+                                      [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
+                                      [matTooltip]="getSuggestionCandidateScore(candidate)">
+                                      <span class="score-dot"></span>
+                                      <span class="score-dot"></span>
+                                      <span class="score-dot"></span>
+                                    </span>
+                                  </div>
+                                  @if (getPreviewItemCode(candidate)) {
+                                    <p class="ifrc-suggestion-candidate__code">
+                                      {{ candidate.reference.ifrc_code }}
+                                      <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
+                                    </p>
                                   }
-                                  @if (isSuggestionCandidateSelected(candidate)) {
-                                    <span class="ifrc-suggestion-candidate__badge selected">Selected</span>
-                                  }
-                                </div>
-                                <span class="ifrc-candidate-toggle" role="button" tabindex="0"
-                                  (click)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
-                                  (keydown.enter)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
-                                  (keydown.space)="$event.stopPropagation(); $event.preventDefault(); toggleCandidateExpanded(candidate.reference.value)">
+                                  <div class="ifrc-suggestion-candidate__badges">
+                                    @if (isSuggestionCandidateAutoHighlighted(candidate)) {
+                                      <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span>
+                                    }
+                                    @if (isSuggestionCandidateSelected(candidate)) {
+                                      <span class="ifrc-suggestion-candidate__badge selected">Selected</span>
+                                    }
+                                  </div>
+                                </button>
+                                <button class="ifrc-candidate-toggle" type="button"
+                                  [attr.aria-controls]="'ifrc-candidate-details-' + candidate.reference.value"
+                                  [attr.aria-expanded]="isCandidateExpanded(candidate.reference.value)"
+                                  (click)="toggleCandidateExpanded(candidate.reference.value)">
                                   <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
                                   {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
-                                </span>
+                                </button>
                                 @if (isCandidateExpanded(candidate.reference.value)) {
-                                  <div class="ifrc-suggestion-candidate__expanded">
+                                  <div class="ifrc-suggestion-candidate__expanded" [id]="'ifrc-candidate-details-' + candidate.reference.value">
                                     @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
                                       @if (variantDetails.length) {
                                         <div class="ifrc-suggestion-candidate__variant-grid">
@@ -956,7 +973,7 @@
                                     }
                                   </div>
                                 }
-                              </button>
+                              </div>
                             }
                           </div>
                         }
@@ -1462,81 +1479,7 @@
 
         <!-- Storage Location Assignment (edit mode only) -->
         @if (canAssignLocation()) {
-          <section class="form-section location-assignment-section"
-            aria-label="Storage location assignment section">
-            <h3 class="section-title">
-              <mat-icon aria-hidden="true">shelves</mat-icon>
-              Storage Location Assignment
-            </h3>
-            <p class="section-description">
-              @if (isBatchedItem()) {
-                This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
-              } @else {
-                This item is non-batched. Provide Inventory ID and Location ID only.
-              }
-            </p>
-            <p class="assignment-item-id">Item ID: {{ pk() }}</p>
-
-            <div class="assignment-form" [formGroup]="locationForm">
-              <div class="assignment-grid">
-                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                  <mat-label>Inventory ID</mat-label>
-                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help">
-                    @for (item of lookups()['inventory'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
-                    }
-                  </mat-select>
-                  @if ((lookups()['inventory'] || []).length === 0) {
-                    <mat-hint id="inventory-id-help">No inventory options found.</mat-hint>
-                  } @else {
-                    <mat-hint id="inventory-id-help">Select an existing inventory record.</mat-hint>
-                  }
-                  @if (getLocationFieldError('inventory_id'); as error) {
-                    <mat-error>{{ error }}</mat-error>
-                  }
-                </mat-form-field>
-
-                <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                  <mat-label>Location ID</mat-label>
-                  <mat-select formControlName="location_id">
-                    @for (item of lookups()['locations'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
-                    }
-                  </mat-select>
-                  @if ((lookups()['locations'] || []).length === 0) {
-                    <mat-hint>No locations found. Create one in Master Data &gt; Locations.</mat-hint>
-                  }
-                  @if (getLocationFieldError('location_id'); as error) {
-                    <mat-error>{{ error }}</mat-error>
-                  }
-                </mat-form-field>
-
-                @if (isBatchedItem()) {
-                  <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                    <mat-label>Batch ID</mat-label>
-                    <input matInput type="number" min="1" formControlName="batch_id" />
-                    @if (getLocationFieldError('batch_id'); as error) {
-                      <mat-error>{{ error }}</mat-error>
-                    }
-                  </mat-form-field>
-                }
-              </div>
-
-              <div class="assignment-actions">
-                <button mat-flat-button color="primary" type="button"
-                  [disabled]="assigningLocation()"
-                  (click)="onAssignStorageLocation()">
-                  @if (assigningLocation()) {
-                    <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
-                    Assigning...
-                  } @else {
-                    <mat-icon aria-hidden="true">add_location_alt</mat-icon>
-                    Assign Location
-                  }
-                </button>
-              </div>
-            </div>
-          </section>
+          <ng-container *ngTemplateOutlet="storageLocationAssignmentSection"></ng-container>
         }
 
         <!-- Action Bar -->
@@ -1755,42 +1698,44 @@
                       @if (shouldShowSuggestionCandidates()) {
                         <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
                           @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
-                            <button class="ifrc-suggestion-candidate" type="button"
+                            <div class="ifrc-suggestion-candidate"
                               [class.is-selected]="isSuggestionCandidateSelected(candidate)"
-                              [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)"
-                              [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
-                              (click)="onSelectSuggestionCandidate(candidate)">
-                              <div class="ifrc-suggestion-candidate__header">
-                                <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
-                                <span class="ifrc-suggestion-candidate__score-dots"
-                                  [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
-                                  [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
-                                  [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
-                                  [matTooltip]="getSuggestionCandidateScore(candidate)">
-                                  <span class="score-dot"></span>
-                                  <span class="score-dot"></span>
-                                  <span class="score-dot"></span>
-                                </span>
-                              </div>
-                              @if (getPreviewItemCode(candidate)) {
-                                <p class="ifrc-suggestion-candidate__code">
-                                  {{ candidate.reference.ifrc_code }}
-                                  <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
-                                </p>
-                              }
-                              <div class="ifrc-suggestion-candidate__badges">
-                                @if (isSuggestionCandidateAutoHighlighted(candidate)) { <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span> }
-                                @if (isSuggestionCandidateSelected(candidate)) { <span class="ifrc-suggestion-candidate__badge selected">Selected</span> }
-                              </div>
-                              <span class="ifrc-candidate-toggle" role="button" tabindex="0"
-                                (click)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
-                                (keydown.enter)="$event.stopPropagation(); toggleCandidateExpanded(candidate.reference.value)"
-                                (keydown.space)="$event.stopPropagation(); $event.preventDefault(); toggleCandidateExpanded(candidate.reference.value)">
+                              [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)">
+                              <button class="ifrc-suggestion-candidate__select" type="button"
+                                [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                                (click)="onSelectSuggestionCandidate(candidate)">
+                                <div class="ifrc-suggestion-candidate__header">
+                                  <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
+                                  <span class="ifrc-suggestion-candidate__score-dots"
+                                    [class.score-high]="getScoreIndicatorLevel(candidate) === 'high'"
+                                    [class.score-medium]="getScoreIndicatorLevel(candidate) === 'medium'"
+                                    [class.score-low]="getScoreIndicatorLevel(candidate) === 'low'"
+                                    [matTooltip]="getSuggestionCandidateScore(candidate)">
+                                    <span class="score-dot"></span>
+                                    <span class="score-dot"></span>
+                                    <span class="score-dot"></span>
+                                  </span>
+                                </div>
+                                @if (getPreviewItemCode(candidate)) {
+                                  <p class="ifrc-suggestion-candidate__code">
+                                    {{ candidate.reference.ifrc_code }}
+                                    <span class="ifrc-suggestion-candidate__code-preview">&rarr; {{ getPreviewItemCode(candidate) }}</span>
+                                  </p>
+                                }
+                                <div class="ifrc-suggestion-candidate__badges">
+                                  @if (isSuggestionCandidateAutoHighlighted(candidate)) { <span class="ifrc-suggestion-candidate__badge auto">Auto-highlighted</span> }
+                                  @if (isSuggestionCandidateSelected(candidate)) { <span class="ifrc-suggestion-candidate__badge selected">Selected</span> }
+                                </div>
+                              </button>
+                              <button class="ifrc-candidate-toggle" type="button"
+                                [attr.aria-controls]="'ifrc-candidate-details-' + candidate.reference.value"
+                                [attr.aria-expanded]="isCandidateExpanded(candidate.reference.value)"
+                                (click)="toggleCandidateExpanded(candidate.reference.value)">
                                 <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
                                 {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
-                              </span>
+                              </button>
                               @if (isCandidateExpanded(candidate.reference.value)) {
-                                <div class="ifrc-suggestion-candidate__expanded">
+                                <div class="ifrc-suggestion-candidate__expanded" [id]="'ifrc-candidate-details-' + candidate.reference.value">
                                   @if (getSuggestionCandidateVariantDetails(candidate); as variantDetails) {
                                     @if (variantDetails.length) {
                                       <div class="ifrc-suggestion-candidate__variant-grid">
@@ -1811,7 +1756,7 @@
                                   @if (getSuggestionCandidateReasonSummary(candidate); as reasonSummary) { <p class="ifrc-suggestion-candidate__reason">{{ reasonSummary }}</p> }
                                 </div>
                               }
-                            </button>
+                            </div>
                           }
                         </div>
                       }
