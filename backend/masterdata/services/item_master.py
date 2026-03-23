@@ -1083,6 +1083,17 @@ def _normalize_item_uom_options(
         if conversion_factor <= 0:
             errors["uom_options"] = "UOM conversion_factor must be greater than zero."
             break
+        if (
+            uom_code == default_uom_code
+            and (
+                conversion_factor != Decimal("1")
+                or option.get("is_default") is False
+            )
+        ):
+            errors["uom_options"] = (
+                "Alternate UOM must differ from the selected default_uom_code."
+            )
+            break
         options_by_code[uom_code] = {
             "uom_code": uom_code,
             "conversion_factor": conversion_factor,

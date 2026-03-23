@@ -298,6 +298,65 @@ class ItemMasterValidationTests(SimpleTestCase):
     @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
     @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
     @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
+    def test_validate_item_payload_accepts_multiple_alternate_uom_rows(
+        self,
+        _mock_family,
+        _mock_reference,
+        mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "default_uom_code": "EA",
+                "legacy_item_code": "HADR-WATER-TABS",
+                "uom_options": [
+                    {"uom_code": "BOX", "conversion_factor": "24"},
+                    {"uom_code": "PACK", "conversion_factor": 6},
+                ],
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(errors, {})
+        mock_missing_uoms.assert_called_once_with("public", ["EA", "BOX", "PACK"])
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
+    @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
+    def test_validate_item_payload_rejects_alternate_matching_default_uom(
+        self,
+        _mock_family,
+        _mock_reference,
+        mock_missing_uoms,
+        _mock_sqlite,
+    ):
+        errors, warnings = validate_item_payload(
+            {
+                "category_id": 102,
+                "default_uom_code": "EA",
+                "legacy_item_code": "HADR-WATER-TABS",
+                "uom_options": [
+                    {"uom_code": "EA", "conversion_factor": "24"},
+                    {"uom_code": "PACK", "conversion_factor": 6},
+                ],
+            },
+            is_update=False,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(
+            errors["uom_options"],
+            "Alternate UOM must differ from the selected default_uom_code.",
+        )
+        mock_missing_uoms.assert_not_called()
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
+    @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
+    @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
     def test_validate_item_payload_allows_legacy_update_with_null_ifrc_fields(
         self,
         _mock_family,
@@ -805,6 +864,101 @@ class ItemMasterTransactionalWriteTests(SimpleTestCase):
             ],
         )
         mock_safe_rollback.assert_called_once()
+
+    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
+    @patch("masterdata.services.item_master._schema_name", return_value="tenant_a")
+    @patch("masterdata.services.item_master._build_item_write_payload", return_value=({"default_uom_code": "BOX"}, None))
+    @patch("masterdata.services.item_master.update_record", return_value=(True, []))
+    @patch("masterdata.services.item_master._replace_item_uom_options")
+    @patch("masterdata.services.item_master._tracked_item_state", side_effect=[{"identity": {"item_code": "OLD"}}, {"identity": {"item_code": "NEW"}}])
+    @patch(
+        "masterdata.services.item_master.get_item_record",
+        side_effect=[
+            (
+                {
+                    "item_id": 501,
+                    "default_uom_code": "EA",
+                    "uom_options": [
+                        {"uom_code": "EA", "conversion_factor": Decimal("1"), "is_default": True},
+                        {"uom_code": "BOX", "conversion_factor": Decimal("24"), "is_default": False},
+                    ],
+                },
+                [],
+            ),
+            (
+                {
+                    "item_id": 501,
+                    "default_uom_code": "BOX",
+                    "uom_options": [
+                        {"uom_code": "BOX", "conversion_factor": Decimal("1"), "is_default": True},
+                        {"uom_code": "EA", "conversion_factor": Decimal("24"), "is_default": False},
+                        {"uom_code": "PACK", "conversion_factor": Decimal("6"), "is_default": False},
+                    ],
+                },
+                [],
+            ),
+        ],
+    )
+    @patch("masterdata.services.item_master._write_item_classification_audit")
+    @patch("masterdata.services.item_master.transaction.atomic", return_value=nullcontext())
+    def test_update_item_record_replaces_alternates_when_default_uom_changes(
+        self,
+        _mock_atomic,
+        _mock_write_audit,
+        mock_get_item_record,
+        _mock_tracked_state,
+        mock_replace_uom_options,
+        _mock_update_record,
+        _mock_build_payload,
+        _mock_schema_name,
+        _mock_sqlite,
+    ):
+        success, warnings = update_item_record(
+            501,
+            {
+                "default_uom_code": "BOX",
+                "uom_options": [
+                    {"uom_code": "EA", "conversion_factor": "24"},
+                    {"uom_code": "PACK", "conversion_factor": 6},
+                ],
+            },
+            "tester",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(warnings, [])
+        mock_replace_uom_options.assert_called_once_with(
+            "tenant_a",
+            501,
+            [
+                {
+                    "uom_code": "BOX",
+                    "conversion_factor": Decimal("1"),
+                    "is_default": True,
+                    "sort_order": 0,
+                },
+                {
+                    "uom_code": "EA",
+                    "conversion_factor": Decimal("24"),
+                    "is_default": False,
+                    "sort_order": 1,
+                },
+                {
+                    "uom_code": "PACK",
+                    "conversion_factor": Decimal("6"),
+                    "is_default": False,
+                    "sort_order": 2,
+                },
+            ],
+            "tester",
+        )
+        self.assertEqual(
+            mock_get_item_record.call_args_list,
+            [
+                call(501, raise_on_error=True),
+                call(501, raise_on_error=True),
+            ],
+        )
 
 
 class ItemMasterConflictTests(SimpleTestCase):
@@ -2159,6 +2313,36 @@ class ItemMasterUomOptionTests(SimpleTestCase):
 
         self.assertIsNone(options)
         self.assertIn("Duplicate UOM options", errors["uom_options"])
+
+    def test_normalize_rejects_non_default_row_matching_default_uom_code(self):
+        options, errors = _normalize_item_uom_options(
+            [
+                {"uom_code": "EA", "conversion_factor": 24, "is_default": False},
+                {"uom_code": "PACK", "conversion_factor": 6},
+            ],
+            default_uom_code="EA",
+        )
+
+        self.assertIsNone(options)
+        self.assertEqual(
+            errors["uom_options"],
+            "Alternate UOM must differ from the selected default_uom_code.",
+        )
+
+    def test_normalize_allows_backend_managed_default_row_at_factor_one(self):
+        options, errors = _normalize_item_uom_options(
+            [
+                {"uom_code": "EA", "conversion_factor": 1, "is_default": True},
+                {"uom_code": "BOX", "conversion_factor": 24},
+            ],
+            default_uom_code="EA",
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(len(options), 2)
+        default_row = next(o for o in options if o["uom_code"] == "EA")
+        self.assertTrue(default_row["is_default"])
+        self.assertEqual(default_row["conversion_factor"], Decimal("1"))
 
     def test_normalize_rejects_zero_conversion_factor(self):
         options, errors = _normalize_item_uom_options(
