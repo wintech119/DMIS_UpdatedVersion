@@ -53,7 +53,6 @@ import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
-import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 import {
   IFRCSuggestion,
@@ -694,7 +693,7 @@ export class MasterFormPageComponent implements OnInit {
     this.ifrcAppliedConfirmation.set({
       ifrcCode: String(reference.ifrc_code ?? '').toUpperCase(),
       referenceLabel: String(reference.label ?? ''),
-      familyLabel: String(family.label ?? (family as any).family_label ?? ''),
+      familyLabel: String(family.label ?? family.family_label ?? ''),
     });
 
     if (this.isWizardMode() && this.currentStep() > 0) {

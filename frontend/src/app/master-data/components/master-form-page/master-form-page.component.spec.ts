@@ -125,6 +125,12 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
   };
 }
 
+type MasterFormPageComponentTestAccess = MasterFormPageComponent & {
+  setLocalDraftMode(isActive: boolean): void;
+  isStepValid(stepIndex: number): boolean;
+  resetWizardUiState(): void;
+};
+
 describe('MasterFormPageComponent', () => {
   function setup(routePath = 'items', params: Record<string, string> = {}) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
@@ -717,8 +723,9 @@ describe('MasterFormPageComponent', () => {
 
   it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {
     const { component, fixture } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
 
-    (component as any).setLocalDraftMode(true);
+    testAccess.setLocalDraftMode(true);
     component.currentStep.set(1);
     fixture.detectChanges();
 
@@ -740,6 +747,7 @@ describe('MasterFormPageComponent', () => {
 
   it('treats form-level FEFO validation errors as invalid for the affected wizard step', () => {
     const { component } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
     const stepIndex = component.renderableFieldGroups().findIndex((group) => (
       group.fields.some((field) => field.field === 'issuance_order')
     ));
@@ -752,7 +760,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(stepIndex).toBeGreaterThanOrEqual(0);
     expect(component.form.hasError('fefoRequiresExpiry')).toBeTrue();
-    expect((component as any).isStepValid(stepIndex)).toBeFalse();
+    expect(testAccess.isStepValid(stepIndex)).toBeFalse();
   });
 
   it('includes the governed taxonomy in the review step summary', () => {
@@ -776,6 +784,7 @@ describe('MasterFormPageComponent', () => {
 
   it('resets wizard-only UI state before loading a different record', () => {
     const { component } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
 
     component.currentStep.set(3);
     component.ifrcAppliedConfirmation.set({
@@ -786,7 +795,7 @@ describe('MasterFormPageComponent', () => {
     component.ifrcCodeUpdatedOnStep1.set(true);
     component.expandedCandidateIds.set(new Set([401]));
 
-    (component as any).resetWizardUiState();
+    testAccess.resetWizardUiState();
 
     expect(component.currentStep()).toBe(0);
     expect(component.ifrcAppliedConfirmation()).toBeNull();
