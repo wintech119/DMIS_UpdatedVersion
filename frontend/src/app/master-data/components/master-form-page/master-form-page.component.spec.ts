@@ -560,6 +560,10 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.contains('size_weight')).toBeFalse();
     expect(component.form.contains('form')).toBeFalse();
     expect(component.form.contains('material')).toBeFalse();
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
     expect(fixture.nativeElement.textContent).toContain('Find Match');
     expect(fixture.nativeElement.textContent).not.toContain('IFRC Size or Weight Hint');
@@ -690,7 +694,114 @@ describe('MasterFormPageComponent', () => {
     expect(component.form.get('ifrc_family_id')?.value).toBeNull();
     expect(component.form.get('ifrc_item_ref_id')?.value).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Local Item Code');
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
     expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
+  });
+
+  it('keeps storage assignment visible in wizard edit flows before the review step', () => {
+    const { component, fixture } = setup('items', { pk: '17' });
+
+    component.currentStep.set(0);
+    fixture.detectChanges();
+
+    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
+
+    expect(component.canAssignLocation()).toBeTrue();
+    expect(component.isOnReviewStep()).toBeFalse();
+    expect(assignmentSection).not.toBeNull();
+    expect(assignmentSection?.textContent).toContain('Storage Location Assignment');
+  });
+
+  it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {
+    const { component, fixture } = setup('items', { pk: '17' });
+
+    (component as any).setLocalDraftMode(true);
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
+    expect(component.canGoNext()).toBeTrue();
+
+    component.form.get('legacy_item_code')?.setValue('');
+    component.form.get('legacy_item_code')?.markAsTouched();
+    fixture.detectChanges();
+
+    const nextButton = fixture.nativeElement.querySelector('.wizard-footer__next') as HTMLButtonElement | null;
+
+    expect(component.canGoNext()).toBeFalse();
+    expect(nextButton?.disabled).toBeTrue();
+
+    component.goNext();
+
+    expect(component.currentStep()).toBe(0);
+  });
+
+  it('treats form-level FEFO validation errors as invalid for the affected wizard step', () => {
+    const { component } = setup('items', { pk: '17' });
+    const stepIndex = component.renderableFieldGroups().findIndex((group) => (
+      group.fields.some((field) => field.field === 'issuance_order')
+    ));
+
+    component.form.patchValue({
+      issuance_order: 'FEFO',
+      can_expire_flag: false,
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    expect(stepIndex).toBeGreaterThanOrEqual(0);
+    expect(component.form.hasError('fefoRequiresExpiry')).toBeTrue();
+    expect((component as any).isStepValid(stepIndex)).toBeFalse();
+  });
+
+  it('includes the governed taxonomy in the review step summary', () => {
+    const { component } = setup();
+    const expectedLabels = ITEM_CONFIG.formFields
+      .filter((field) => ['category_id', 'ifrc_family_id', 'ifrc_item_ref_id'].includes(field.field))
+      .map((field) => field.label);
+
+    component.form.patchValue({
+      category_id: 102,
+      ifrc_family_id: 301,
+      ifrc_item_ref_id: 401,
+    }, { emitEvent: false });
+    component.form.updateValueAndValidity({ emitEvent: false });
+
+    const classificationReview = component.reviewData().find((group) => group.groupLabel === 'Classification');
+
+    expect(classificationReview).toBeDefined();
+    expect(classificationReview?.fields.map((field) => field.label)).toEqual(jasmine.arrayContaining(expectedLabels));
+  });
+
+  it('resets wizard-only UI state before loading a different record', () => {
+    const { component } = setup('items', { pk: '17' });
+
+    component.currentStep.set(3);
+    component.ifrcAppliedConfirmation.set({
+      ifrcCode: 'WWTRTABLTB01',
+      referenceLabel: 'Water purification tablet',
+      familyLabel: 'Water Treatment',
+    });
+    component.ifrcCodeUpdatedOnStep1.set(true);
+    component.expandedCandidateIds.set(new Set([401]));
+
+    (component as any).resetWizardUiState();
+
+    expect(component.currentStep()).toBe(0);
+    expect(component.ifrcAppliedConfirmation()).toBeNull();
+    expect(component.ifrcCodeUpdatedOnStep1()).toBeFalse();
+    expect(component.expandedCandidateIds().size).toBe(0);
+  });
+
+  it('keeps wizard step buttons labeled even when the visual label is hidden on mobile', () => {
+    const { component, fixture } = setup();
+
+    fixture.detectChanges();
+
+    const firstStepButton = fixture.nativeElement.querySelector('.wizard-step__pill') as HTMLButtonElement | null;
+
+    expect(firstStepButton?.getAttribute('aria-label')).toBe(`Step 1: ${component.wizardSteps()[0].label}`);
   });
 
   it('saves a create-time local draft through legacy_item_code instead of canonical item_code', () => {
@@ -1120,10 +1231,20 @@ describe('MasterFormPageComponent', () => {
       autoHighlightCandidateId: 502,
     } as never);
 
+    component.currentStep.set(1);
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
     expect(fixture.nativeElement.textContent).toContain('Corned beef, canned');
+
+    // Variant details are now behind progressive disclosure — expand to verify
+    const toggle = fixture.nativeElement.querySelector(
+      '[aria-controls="ifrc-candidate-details-502"]',
+    ) as HTMLButtonElement | null;
+
+    expect(toggle).not.toBeNull();
+    toggle?.click();
+    fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('500 G');
   });
 
@@ -1347,6 +1468,7 @@ describe('MasterFormPageComponent', () => {
       autoHighlightCandidateId: null,
     });
 
+    component.currentStep.set(1);
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('Find IFRC Match');
@@ -1364,7 +1486,10 @@ describe('MasterFormPageComponent', () => {
   });
 
   it('shows a visible governance note beside the item classification controls', () => {
-    const { fixture } = setup();
+    const { component, fixture } = setup();
+
+    component.currentStep.set(1);
+    fixture.detectChanges();
 
     const note = fixture.nativeElement.querySelector('#item-taxonomy-governance-note') as HTMLElement | null;
 
@@ -1593,7 +1718,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(openArgs[0]).toBe(MasterEditGateDialogComponent);
     expect(openArgs[1]?.ariaLabelledBy).toBe('gate-dialog-title');
-    expect(dialogData.warningText).toContain('classification, search, and future item selection');
+    expect(dialogData.warningText).toContain('Canonical code-bearing fields stay locked');
     expect(dialogData.lockedFields).toEqual(jasmine.arrayContaining([
       'IFRC Family',
       'IFRC Code',
@@ -1731,7 +1856,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(component.canRequestCatalogSuggestion()).toBeFalse();
     expect(component.getCatalogSuggestionReadinessText()).toBe('Complete Family Label before generating suggestions.');
-    expect(fixture.nativeElement.textContent).toContain('Fill these in first');
+    expect(fixture.nativeElement.textContent).toContain('Complete Family Label before generating suggestions.');
 
     component.onSuggestCatalogValues();
 

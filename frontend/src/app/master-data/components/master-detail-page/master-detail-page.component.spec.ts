@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Clipboard } from '@angular/cdk/clipboard';
-import { MatDialog } from '@angular/material/dialog';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { of } from 'rxjs';
 
 import { MasterDetailPageComponent } from './master-detail-page.component';
@@ -57,12 +57,16 @@ describe('MasterDetailPageComponent', () => {
           },
         },
         { provide: Router, useValue: router },
-        { provide: MatDialog, useValue: dialog },
         { provide: Clipboard, useValue: clipboard },
         { provide: MasterDataService, useValue: masterDataService },
         { provide: ReplenishmentService, useValue: replenishmentService },
         { provide: DmisNotificationService, useValue: notificationService },
       ],
+    });
+
+    TestBed.overrideComponent(MasterDetailPageComponent, {
+      remove: { imports: [MatDialogModule] },
+      add: { providers: [{ provide: MatDialog, useValue: dialog }] },
     });
 
     const fixture = TestBed.createComponent(MasterDetailPageComponent);
