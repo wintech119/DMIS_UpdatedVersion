@@ -184,7 +184,7 @@ class RbacResolutionTests(TestCase):
     )
     @patch(
         "api.rbac._fetch_permissions_for_role_codes",
-        return_value={"replenishment.needs_list.preview"},
+        return_value={"replenishment.needs_list.preview", "db_only.sentinel"},
     )
     @patch("api.rbac._resolve_user_id", return_value=None)
     @patch("api.rbac._db_rbac_enabled", return_value=True)
@@ -205,6 +205,7 @@ class RbacResolutionTests(TestCase):
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
 
         self.assertIn("replenishment.needs_list.preview", permissions)
+        self.assertIn("db_only.sentinel", permissions)
         self.assertIn("masterdata.create", permissions)
         self.assertIn("masterdata.edit", permissions)
 

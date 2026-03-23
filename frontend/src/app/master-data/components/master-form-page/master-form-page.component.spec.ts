@@ -770,7 +770,7 @@ describe('MasterFormPageComponent', () => {
     expect(trackingGroup.map((field) => field.field)).not.toContain('can_expire_flag');
   });
 
-  it('filters storage locations and batches to the selected warehouse', () => {
+  it('filters storage locations and batches to the selected inventory_id', () => {
     const { component } = setup('items', { pk: '17' });
 
     component.locationForm.controls.inventory_id.setValue(2);
