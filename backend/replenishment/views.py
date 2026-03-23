@@ -2722,6 +2722,64 @@ def criticality_hazard_default_reject(request, hazard_item_criticality_id: int):
     return Response({"hazard_default": rejected, "warnings": warnings})
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def storage_assignment_options(request):
+    errors: Dict[str, str] = {}
+    item_id = _parse_positive_int(request.query_params.get("item_id"), "item_id", errors)
+    if errors:
+        return Response({"errors": errors}, status=400)
+
+    assert item_id is not None
+
+    try:
+        result = location_storage.get_storage_assignment_options(item_id=item_id)
+    except location_storage.LocationAssignmentError as exc:
+        return Response(
+            {"detail": exc.message, "errors": {exc.code: exc.message}},
+            status=exc.status_code,
+        )
+
+    if _should_enforce_tenant_scope(request):
+        tenant_context = _tenant_context(request)
+        inventories = list(result.get("inventories") or [])
+        allowed_inventory_ids = {
+            parsed_inventory_id
+            for option in inventories
+            for parsed_inventory_id in [_to_int_or_none(option.get("value"))]
+            if parsed_inventory_id is not None
+            and can_access_warehouse(tenant_context, parsed_inventory_id, write=False)
+        }
+        if inventories and not allowed_inventory_ids:
+            return _tenant_scope_denied_response(request, write=False)
+
+        def _belongs_to_allowed_inventory(option: Mapping[str, Any]) -> bool:
+            inventory_id = _to_int_or_none(option.get("inventory_id"))
+            return inventory_id is not None and inventory_id in allowed_inventory_ids
+
+        result = {
+            **result,
+            "inventories": [
+                option
+                for option in inventories
+                if _to_int_or_none(option.get("value")) in allowed_inventory_ids
+            ],
+            "locations": [
+                option
+                for option in list(result.get("locations") or [])
+                if _belongs_to_allowed_inventory(option)
+            ],
+            "batches": [
+                option
+                for option in list(result.get("batches") or [])
+                if _belongs_to_allowed_inventory(option)
+            ],
+        }
+
+    return Response(result)
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
@@ -4647,6 +4705,10 @@ criticality_hazard_default_detail.required_permission = PERM_CRITICALITY_HAZARD_
 criticality_hazard_default_submit.required_permission = PERM_CRITICALITY_HAZARD_MANAGE
 criticality_hazard_default_approve.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
 criticality_hazard_default_reject.required_permission = PERM_CRITICALITY_HAZARD_APPROVE
+storage_assignment_options.required_permission = [
+    PERM_MASTERDATA_VIEW,
+    PERM_MASTERDATA_EDIT,
+]
 assign_storage_location.required_permission = [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT]
 inventory_repackaging.required_permission = {
     "GET": [PERM_MASTERDATA_VIEW, PERM_NEEDS_LIST_EXECUTE],
@@ -4655,6 +4717,7 @@ inventory_repackaging.required_permission = {
 inventory_repackaging_detail.required_permission = [PERM_MASTERDATA_VIEW, PERM_NEEDS_LIST_EXECUTE]
 
 for view_func in (
+    storage_assignment_options,
     assign_storage_location,
     inventory_repackaging,
     inventory_repackaging_detail,

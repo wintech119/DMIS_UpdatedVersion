@@ -12,6 +12,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -21,7 +22,11 @@ import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
-import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
+import {
+  ReplenishmentService,
+  StorageAssignmentOption,
+  StorageAssignmentOptionsResponse,
+} from '../../../replenishment/services/replenishment.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 
@@ -31,7 +36,7 @@ import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master
   imports: [
     CommonModule, RouterModule, ReactiveFormsModule,
     MatButtonModule, MatIconModule, MatCardModule, MatTooltipModule,
-    MatDialogModule, MatProgressBarModule, MatFormFieldModule, MatInputModule,
+    MatDialogModule, MatProgressBarModule, MatFormFieldModule, MatInputModule, MatSelectModule,
   ],
   templateUrl: './master-detail-page.component.html',
   styleUrl: './master-detail-page.component.scss',
@@ -48,6 +53,7 @@ export class MasterDetailPageComponent implements OnInit {
   private clipboard = inject(Clipboard);
   private destroyRef = inject(DestroyRef);
   private latestRecordRequestId = 0;
+  private latestStorageAssignmentRequestId = 0;
 
   config = signal<MasterTableConfig | null>(null);
   record = signal<MasterRecord | null>(null);
@@ -55,6 +61,10 @@ export class MasterDetailPageComponent implements OnInit {
   isLoading = signal(true);
   pk = signal<string | number | null>(null);
   assigningLocation = signal(false);
+  storageAssignmentLoading = signal(false);
+  storageAssignmentError = signal<string | null>(null);
+  storageAssignmentOptions = signal<StorageAssignmentOptionsResponse | null>(null);
+  private readonly locationFormVersion = signal(0);
 
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
@@ -70,6 +80,29 @@ export class MasterDetailPageComponent implements OnInit {
 
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
   isBatchedItem = computed(() => Boolean(this.record()?.['is_batched_flag']));
+  inventoryAssignmentOptions = computed<StorageAssignmentOption[]>(() => (
+    this.storageAssignmentOptions()?.inventories ?? []
+  ));
+  selectedAssignmentInventoryId = computed<number | null>(() => {
+    this.locationFormVersion();
+    return this.toPositiveInt(this.locationForm.controls.inventory_id.value);
+  });
+  locationAssignmentOptions = computed<StorageAssignmentOption[]>(() => {
+    const inventoryId = this.selectedAssignmentInventoryId();
+    const options = this.storageAssignmentOptions()?.locations ?? [];
+    if (inventoryId == null) {
+      return [];
+    }
+    return options.filter((option) => this.toPositiveInt(option.inventory_id) === inventoryId);
+  });
+  batchAssignmentOptions = computed<StorageAssignmentOption[]>(() => {
+    const inventoryId = this.selectedAssignmentInventoryId();
+    const options = this.storageAssignmentOptions()?.batches ?? [];
+    if (inventoryId == null) {
+      return [];
+    }
+    return options.filter((option) => this.toPositiveInt(option.inventory_id) === inventoryId);
+  });
 
   auditExpanded = signal(false);
 
@@ -121,12 +154,31 @@ export class MasterDetailPageComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.locationForm.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      this.locationFormVersion.update((version) => version + 1);
+    });
+
+    this.locationForm.controls.inventory_id.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      this.locationForm.controls.location_id.setValue(null, { emitEvent: false });
+      this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
+      this.locationFormVersion.update((version) => version + 1);
+    });
+
     this.route.data.pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(data => {
       const routePath = data['routePath'] as string;
       const cfg = ALL_TABLE_CONFIGS[routePath];
-      if (cfg) this.config.set(cfg);
+      if (cfg) {
+        this.config.set(cfg);
+        if (cfg.tableKey !== 'items') {
+          this.resetStorageAssignmentState();
+        }
+      }
     });
 
     this.route.params.pipe(
@@ -153,6 +205,7 @@ export class MasterDetailPageComponent implements OnInit {
         if (requestId !== this.latestRecordRequestId) return;
         this.record.set(res.record);
         this.editGuidance.set(this.editGate.getEffectiveCatalogEditGuidance(cfg, res.edit_guidance));
+        this.loadStorageAssignmentOptions(this.toPositiveInt(res.record['item_id']) ?? null);
         this.isLoading.set(false);
       },
       error: () => {
@@ -222,13 +275,13 @@ export class MasterDetailPageComponent implements OnInit {
     if (this.isBatchedItem() && !batchId) {
       this.locationForm.controls.batch_id.setErrors({ required: true });
       this.locationForm.controls.batch_id.markAsTouched();
-      this.notify.showWarning('Batch ID is required for batched items.');
+      this.notify.showWarning('Select a batch or lot for batched items.');
       return;
     }
 
     if (!this.isBatchedItem() && batchId) {
-      this.notify.showWarning('Batch ID must be empty for non-batched items.');
-      this.locationForm.controls.batch_id.setErrors({ server: 'Must be empty for non-batched items.' });
+      this.notify.showWarning('Batch or lot must stay empty for non-batched items.');
+      this.locationForm.controls.batch_id.setErrors({ server: 'Must stay empty for non-batched items.' });
       this.locationForm.controls.batch_id.markAsTouched();
       return;
     }
@@ -381,10 +434,19 @@ export class MasterDetailPageComponent implements OnInit {
   getLocationFieldError(fieldName: 'inventory_id' | 'location_id' | 'batch_id'): string | null {
     const control = this.locationForm.controls[fieldName];
     if (!control || !control.touched || !control.errors) return null;
-    if (control.errors['required']) return 'This field is required.';
+    if (control.errors['required']) {
+      if (fieldName === 'inventory_id') return 'Select a warehouse.';
+      if (fieldName === 'location_id') return 'Select a location.';
+      return 'Select a batch or lot.';
+    }
     if (control.errors['min']) return 'Must be a positive number.';
     if (control.errors['server']) return String(control.errors['server']);
     return 'Invalid value.';
+  }
+
+  getStorageAssignmentOptionDetail(option: StorageAssignmentOption): string | null {
+    const detail = String(option.detail ?? '').trim();
+    return detail || null;
   }
 
   private toPositiveInt(value: unknown): number | null {
@@ -436,6 +498,94 @@ export class MasterDetailPageComponent implements OnInit {
     }
 
     this.notify.showError(fallbackMessage || 'Storage location assignment failed.');
+  }
+
+  private resetStorageAssignmentState(): void {
+    this.latestStorageAssignmentRequestId += 1;
+    this.storageAssignmentLoading.set(false);
+    this.storageAssignmentError.set(null);
+    this.storageAssignmentOptions.set(null);
+    this.locationForm.reset(
+      {
+        inventory_id: null,
+        location_id: null,
+        batch_id: null,
+      },
+      { emitEvent: false },
+    );
+    this.locationForm.markAsPristine();
+    this.locationForm.markAsUntouched();
+    this.locationFormVersion.update((version) => version + 1);
+  }
+
+  private loadStorageAssignmentOptions(itemId: number | null): void {
+    if (!this.isItemRecord() || itemId == null) {
+      this.resetStorageAssignmentState();
+      return;
+    }
+
+    const requestId = ++this.latestStorageAssignmentRequestId;
+    this.storageAssignmentLoading.set(true);
+    this.storageAssignmentError.set(null);
+    this.replenishmentService.getStorageAssignmentOptions(itemId).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (options) => {
+        if (requestId !== this.latestStorageAssignmentRequestId || options.item_id !== itemId) {
+          return;
+        }
+        this.storageAssignmentLoading.set(false);
+        this.storageAssignmentOptions.set(options);
+        this.storageAssignmentError.set(null);
+        this.syncStorageAssignmentSelections();
+      },
+      error: (err) => {
+        if (requestId !== this.latestStorageAssignmentRequestId) {
+          return;
+        }
+        this.storageAssignmentLoading.set(false);
+        this.storageAssignmentOptions.set(null);
+        this.storageAssignmentError.set(
+          String(err?.error?.detail || 'Failed to load storage assignment choices.'),
+        );
+      },
+    });
+  }
+
+  private syncStorageAssignmentSelections(): void {
+    const inventoryId = this.toPositiveInt(this.locationForm.controls.inventory_id.value);
+    if (inventoryId == null) {
+      return;
+    }
+
+    if (!this.hasStorageOption(this.inventoryAssignmentOptions(), inventoryId)) {
+      this.locationForm.reset(
+        {
+          inventory_id: null,
+          location_id: null,
+          batch_id: null,
+        },
+        { emitEvent: false },
+      );
+      this.locationFormVersion.update((version) => version + 1);
+      return;
+    }
+
+    const locationId = this.toPositiveInt(this.locationForm.controls.location_id.value);
+    if (locationId != null && !this.hasStorageOption(this.locationAssignmentOptions(), locationId)) {
+      this.locationForm.controls.location_id.setValue(null, { emitEvent: false });
+    }
+
+    const batchId = this.toPositiveInt(this.locationForm.controls.batch_id.value);
+    if (batchId != null && !this.hasStorageOption(this.batchAssignmentOptions(), batchId)) {
+      this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
+    }
+
+    this.locationFormVersion.update((version) => version + 1);
+  }
+
+  private hasStorageOption(options: StorageAssignmentOption[], value: number): boolean {
+    return options.some((option) => this.toPositiveInt(option.value) === value);
   }
 
   isEmptyValue(value: unknown): boolean {

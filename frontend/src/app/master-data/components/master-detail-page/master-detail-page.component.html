@@ -111,31 +111,68 @@
           </h3>
           <p class="section-description">
             @if (isBatchedItem()) {
-              This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+              Choose the warehouse, storage location, and existing batch or lot for this item. Internal IDs are handled automatically.
             } @else {
-              This item is non-batched. Provide Inventory ID and Location ID only.
+              Choose the warehouse and storage location for this item. Internal IDs are handled automatically.
             }
           </p>
+          @if (storageAssignmentError(); as assignmentError) {
+            <p class="toggle-error" role="alert">{{ assignmentError }}</p>
+          }
           <form class="assignment-form" [formGroup]="locationForm" (ngSubmit)="onAssignStorageLocation()">
             <div class="assignment-grid">
               <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Inventory ID</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  min="1"
+                <mat-label>Warehouse</mat-label>
+                <mat-select
                   formControlName="inventory_id"
                   aria-describedby="inventory-id-help"
-                />
-                <mat-hint id="inventory-id-help">Use warehouse inventory ID</mat-hint>
+                  [disabled]="storageAssignmentLoading()"
+                >
+                  @for (item of inventoryAssignmentOptions(); track item.value) {
+                    <mat-option [value]="item.value">
+                      {{ item.label }}
+                      @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                        <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                      }
+                    </mat-option>
+                  }
+                </mat-select>
+                <mat-hint id="inventory-id-help">
+                  @if (storageAssignmentLoading()) {
+                    Loading warehouse choices...
+                  } @else if (inventoryAssignmentOptions().length === 0) {
+                    No warehouse inventory records are available for this item yet.
+                  } @else {
+                    Select the warehouse where this item should be stored.
+                  }
+                </mat-hint>
                 @if (getLocationFieldError('inventory_id'); as error) {
                   <mat-error>{{ error }}</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Location ID</mat-label>
-                <input matInput type="number" min="1" formControlName="location_id" />
+                <mat-label>Storage Location</mat-label>
+                <mat-select
+                  formControlName="location_id"
+                  [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null"
+                >
+                  @for (item of locationAssignmentOptions(); track item.value) {
+                    <mat-option [value]="item.value">
+                      {{ item.label }}
+                      @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                        <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                      }
+                    </mat-option>
+                  }
+                </mat-select>
+                @if (selectedAssignmentInventoryId() === null) {
+                  <mat-hint>Choose a warehouse first.</mat-hint>
+                } @else if (locationAssignmentOptions().length === 0) {
+                  <mat-hint>No storage locations were found for the selected warehouse.</mat-hint>
+                } @else {
+                  <mat-hint>Choose the physical storage location.</mat-hint>
+                }
                 @if (getLocationFieldError('location_id'); as error) {
                   <mat-error>{{ error }}</mat-error>
                 }
@@ -143,8 +180,27 @@
 
               @if (isBatchedItem()) {
                 <mat-form-field appearance="outline" class="assignment-field">
-                  <mat-label>Batch ID</mat-label>
-                  <input matInput type="number" min="1" formControlName="batch_id" />
+                  <mat-label>Batch / Lot</mat-label>
+                  <mat-select
+                    formControlName="batch_id"
+                    [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null"
+                  >
+                    @for (item of batchAssignmentOptions(); track item.value) {
+                      <mat-option [value]="item.value">
+                        {{ item.label }}
+                        @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                          <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                        }
+                      </mat-option>
+                    }
+                  </mat-select>
+                  @if (selectedAssignmentInventoryId() === null) {
+                    <mat-hint>Choose a warehouse first.</mat-hint>
+                  } @else if (batchAssignmentOptions().length === 0) {
+                    <mat-hint>No batches or lots were found for the selected warehouse.</mat-hint>
+                  } @else {
+                    <mat-hint>Select the batch or lot to assign.</mat-hint>
+                  }
                   @if (getLocationFieldError('batch_id'); as error) {
                     <mat-error>{{ error }}</mat-error>
                   }
@@ -153,7 +209,12 @@
             </div>
 
             <div class="assignment-actions">
-              <button mat-flat-button color="primary" type="submit" [disabled]="assigningLocation()">
+              <button
+                mat-flat-button
+                color="primary"
+                type="submit"
+                [disabled]="assigningLocation() || storageAssignmentLoading() || !!storageAssignmentError()"
+              >
                 @if (assigningLocation()) {
                   <mat-icon class="spin">sync</mat-icon>
                   Assigning...

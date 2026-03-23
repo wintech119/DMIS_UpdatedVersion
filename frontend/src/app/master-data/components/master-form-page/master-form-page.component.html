@@ -154,45 +154,84 @@
               Storage Location Assignment
             </h3>
             <p class="section-description">
-              @if (isBatchedItem()) {
-                This item is batch-tracked. Provide Inventory ID, Location ID, and Batch ID.
+              @if (assignmentIsBatched()) {
+                Choose the warehouse, storage location, and existing batch or lot for this item. Internal IDs are handled automatically.
               } @else {
-                This item is non-batched. Provide Inventory ID and Location ID only.
+                Choose the warehouse and storage location for this item. Internal IDs are handled automatically.
               }
             </p>
-            <p class="assignment-item-id">Item ID: {{ pk() }}</p>
+            @if (storageAssignmentError(); as assignmentError) {
+              <p class="toggle-error" role="alert">{{ assignmentError }}</p>
+            }
             <div class="assignment-form" [formGroup]="locationForm">
               <div class="assignment-grid">
                 <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                  <mat-label>Inventory ID</mat-label>
-                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-assignment">
-                    @for (item of lookups()['inventory'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                  <mat-label>Warehouse</mat-label>
+                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-assignment"
+                    [disabled]="storageAssignmentLoading()">
+                    @for (item of inventoryAssignmentOptions(); track item.value) {
+                      <mat-option [value]="item.value">
+                        {{ item.label }}
+                        @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                          <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                        }
+                      </mat-option>
                     }
                   </mat-select>
-                  @if ((lookups()['inventory'] || []).length === 0) {
-                    <mat-hint id="inventory-id-help-assignment">No inventory options found.</mat-hint>
-                  } @else {
-                    <mat-hint id="inventory-id-help-assignment">Select an existing inventory record.</mat-hint>
-                  }
+                  <mat-hint id="inventory-id-help-assignment">
+                    @if (storageAssignmentLoading()) {
+                      Loading warehouse choices...
+                    } @else if (inventoryAssignmentOptions().length === 0) {
+                      No warehouse inventory records are available for this item yet.
+                    } @else {
+                      Select the warehouse where this item should be stored.
+                    }
+                  </mat-hint>
                   @if (getLocationFieldError('inventory_id'); as error) { <mat-error>{{ error }}</mat-error> }
                 </mat-form-field>
                 <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                  <mat-label>Location ID</mat-label>
-                  <mat-select formControlName="location_id">
-                    @for (item of lookups()['locations'] || []; track item.value) {
-                      <mat-option [value]="item.value">{{ item.value }} - {{ item.label }}</mat-option>
+                  <mat-label>Storage Location</mat-label>
+                  <mat-select formControlName="location_id"
+                    [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null">
+                    @for (item of locationAssignmentOptions(); track item.value) {
+                      <mat-option [value]="item.value">
+                        {{ item.label }}
+                        @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                          <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                        }
+                      </mat-option>
                     }
                   </mat-select>
-                  @if ((lookups()['locations'] || []).length === 0) {
-                    <mat-hint>No locations found. Create one in Master Data &gt; Locations.</mat-hint>
+                  @if (selectedAssignmentInventoryId() === null) {
+                    <mat-hint>Choose a warehouse first.</mat-hint>
+                  } @else if (locationAssignmentOptions().length === 0) {
+                    <mat-hint>No storage locations were found for the selected warehouse.</mat-hint>
+                  } @else {
+                    <mat-hint>Choose the physical storage location.</mat-hint>
                   }
                   @if (getLocationFieldError('location_id'); as error) { <mat-error>{{ error }}</mat-error> }
                 </mat-form-field>
-                @if (isBatchedItem()) {
+                @if (assignmentIsBatched()) {
                   <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
-                    <mat-label>Batch ID</mat-label>
-                    <input matInput type="number" min="1" formControlName="batch_id" />
+                    <mat-label>Batch / Lot</mat-label>
+                    <mat-select formControlName="batch_id"
+                      [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null">
+                      @for (item of batchAssignmentOptions(); track item.value) {
+                        <mat-option [value]="item.value">
+                          {{ item.label }}
+                          @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
+                            <span class="assignment-option-detail"> · {{ optionDetail }}</span>
+                          }
+                        </mat-option>
+                      }
+                    </mat-select>
+                    @if (selectedAssignmentInventoryId() === null) {
+                      <mat-hint>Choose a warehouse first.</mat-hint>
+                    } @else if (batchAssignmentOptions().length === 0) {
+                      <mat-hint>No batches or lots were found for the selected warehouse.</mat-hint>
+                    } @else {
+                      <mat-hint>Select the batch or lot to assign.</mat-hint>
+                    }
                     @if (getLocationFieldError('batch_id'); as error) { <mat-error>{{ error }}</mat-error> }
                   </mat-form-field>
                 }
@@ -200,7 +239,7 @@
 
               <div class="assignment-actions">
                 <button mat-flat-button color="primary" type="button"
-                  [disabled]="assigningLocation()"
+                  [disabled]="assigningLocation() || storageAssignmentLoading() || !!storageAssignmentError()"
                   (click)="onAssignStorageLocation()">
                   @if (assigningLocation()) {
                     <mat-icon class="spin" aria-hidden="true">sync</mat-icon>
@@ -250,6 +289,10 @@
                 </div>
               }
             </section>
+
+            @if (canAssignLocation()) {
+              <ng-container *ngTemplateOutlet="storageLocationAssignmentSection"></ng-container>
+            }
           } @else if (currentStepGroup(); as wizGroup) {
             <!-- Active wizard step — render current group's section card -->
             @if (isGovernedCatalogAuthoringTable() && isOptionalAttributesGroup(wizGroup)) {
@@ -280,10 +323,6 @@
             @if (isGovernedCatalogAuthoringTable() && currentStep() === 0) {
               <ng-container *ngTemplateOutlet="catalogCta"></ng-container>
             }
-          }
-
-          @if (canAssignLocation()) {
-            <ng-container *ngTemplateOutlet="storageLocationAssignmentSection"></ng-container>
           }
 
           <!-- Wizard Navigation Footer -->
@@ -1481,7 +1520,7 @@
         }
 
         <!-- Storage Location Assignment (edit mode only) -->
-        @if (canAssignLocation()) {
+        @if (!isWizardMode() && canAssignLocation()) {
           <ng-container *ngTemplateOutlet="storageLocationAssignmentSection"></ng-container>
         }
 

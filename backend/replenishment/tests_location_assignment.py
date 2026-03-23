@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
@@ -13,6 +14,7 @@ from replenishment.services import location_storage
 
 class LocationAssignmentApiTests(TestCase):
     ENDPOINT = "/api/v1/replenishment/inventory/location-assignment"
+    OPTIONS_ENDPOINT = "/api/v1/replenishment/inventory/location-assignment/options"
 
     def setUp(self) -> None:
         self.client = APIClient()
@@ -150,8 +152,153 @@ class LocationAssignmentApiTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("location_policy_violation", response.json()["errors"])
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="viewer-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.needs_list.preview"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_assignment_options_require_read_permission(self) -> None:
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="executor-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.needs_list.execute"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_assignment_options_do_not_allow_needs_list_execute_only(self) -> None:
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="md-viewer",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=["masterdata.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.location_storage.get_storage_assignment_options")
+    def test_assignment_options_allow_masterdata_view_permission(self, mock_options) -> None:
+        mock_options.return_value = {
+            "item_id": 11,
+            "is_batched": True,
+            "inventories": [{"value": 2, "label": "Kingston Hub"}],
+            "locations": [{"value": 7, "inventory_id": 2, "label": "Rack A-01"}],
+            "batches": [{"value": 19, "inventory_id": 2, "label": "LOT-19"}],
+        }
+
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["inventories"][0]["label"], "Kingston Hub")
+        mock_options.assert_called_once_with(item_id=11)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="md-viewer",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=["masterdata.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.can_access_warehouse")
+    @patch("replenishment.views._tenant_context", return_value=SimpleNamespace())
+    @patch("replenishment.views.location_storage.get_storage_assignment_options")
+    def test_assignment_options_filter_inventories_to_tenant_scope(
+        self,
+        mock_options,
+        _mock_tenant_context,
+        mock_can_access_warehouse,
+    ) -> None:
+        mock_options.return_value = {
+            "item_id": 11,
+            "is_batched": True,
+            "inventories": [
+                {"value": 2, "label": "Kingston Hub"},
+                {"value": 9, "label": "Foreign Warehouse"},
+            ],
+            "locations": [
+                {"value": 7, "inventory_id": 2, "label": "Rack A-01"},
+                {"value": 8, "inventory_id": 9, "label": "Remote Rack"},
+            ],
+            "batches": [
+                {"value": 19, "inventory_id": 2, "label": "LOT-19"},
+                {"value": 20, "inventory_id": 9, "label": "LOT-20"},
+            ],
+        }
+        mock_can_access_warehouse.side_effect = lambda _context, warehouse_id, write=False: warehouse_id == 2
+
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["inventories"], [{"value": 2, "label": "Kingston Hub"}])
+        self.assertEqual(response.json()["locations"], [{"value": 7, "inventory_id": 2, "label": "Rack A-01"}])
+        self.assertEqual(response.json()["batches"], [{"value": 19, "inventory_id": 2, "label": "LOT-19"}])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="md-viewer",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=["masterdata.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.location_storage.get_storage_assignment_options")
+    def test_assignment_options_validate_positive_integer_query_param(self, mock_options) -> None:
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": "abc"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("item_id", response.json()["errors"])
+        mock_options.assert_not_called()
+
 
 class LocationStorageRoutingTests(SimpleTestCase):
+    def test_storage_assignment_options_returns_user_facing_lookup_sets(self) -> None:
+        with (
+            patch("replenishment.services.location_storage._is_sqlite", return_value=False),
+            patch(
+                "replenishment.services.location_storage._fetch_item_batched_flag",
+                return_value=True,
+            ),
+            patch(
+                "replenishment.services.location_storage._fetch_inventory_assignment_options",
+                return_value=[{"value": 2, "label": "Kingston Hub"}],
+            ),
+            patch(
+                "replenishment.services.location_storage._fetch_location_assignment_options",
+                return_value=[{"value": 7, "inventory_id": 2, "label": "Rack A-01"}],
+            ),
+            patch(
+                "replenishment.services.location_storage._fetch_batch_assignment_options",
+                return_value=[{"value": 19, "inventory_id": 2, "label": "LOT-19"}],
+            ),
+        ):
+            result = location_storage.get_storage_assignment_options(item_id=25)
+
+        self.assertEqual(result["item_id"], 25)
+        self.assertTrue(result["is_batched"])
+        self.assertEqual(result["inventories"][0]["label"], "Kingston Hub")
+        self.assertEqual(result["locations"][0]["label"], "Rack A-01")
+        self.assertEqual(result["batches"][0]["label"], "LOT-19")
+
     def test_routes_non_batched_items_to_item_location(self) -> None:
         with (
             patch(
