@@ -83,6 +83,26 @@
               </div>
             }
           </div>
+          @if (group.label === 'UOM & Conversions' && isItemRecord() && itemUomConversions().length > 0) {
+            <div class="detail-uom-conversions" aria-label="UOM conversion rows">
+              <h4 class="detail-uom-conversions__title">Conversion Table</h4>
+              @for (conv of itemUomConversions(); track conv.uom_code) {
+                <div class="detail-uom-row" [class.detail-uom-row--default]="conv.is_default">
+                  <span class="detail-uom-row__uom">
+                    {{ getUomLabel(conv.uom_code) || conv.uom_code }}
+                  </span>
+                  <span class="detail-uom-row__factor">
+                    @if (conv.is_default) {
+                      1 (default)
+                      <mat-icon class="detail-uom-row__lock" aria-hidden="true">lock</mat-icon>
+                    } @else {
+                      {{ conv.conversion_factor }} {{ getDefaultUomLabel() }}
+                    }
+                  </span>
+                </div>
+              }
+            </div>
+          }
         </section>
       }
 
@@ -100,131 +120,6 @@
               </div>
             }
           </div>
-        </section>
-      }
-
-      @if (isItemRecord()) {
-        <section class="detail-section location-assignment-section" aria-label="Storage location assignment section">
-          <h3 class="section-title">
-            <mat-icon>shelves</mat-icon>
-            Storage Location Assignment
-          </h3>
-          <p class="section-description">
-            @if (isBatchedItem()) {
-              Choose the warehouse, storage location, and existing batch or lot for this item. Internal IDs are handled automatically.
-            } @else {
-              Choose the warehouse and storage location for this item. Internal IDs are handled automatically.
-            }
-          </p>
-          @if (storageAssignmentError(); as assignmentError) {
-            <p class="toggle-error" role="alert">{{ assignmentError }}</p>
-          }
-          <form class="assignment-form" [formGroup]="locationForm" (ngSubmit)="onAssignStorageLocation()">
-            <div class="assignment-grid">
-              <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Warehouse</mat-label>
-                <mat-select
-                  formControlName="inventory_id"
-                  aria-describedby="inventory-id-help"
-                  [disabled]="storageAssignmentLoading()"
-                >
-                  @for (item of inventoryAssignmentOptions(); track item.value) {
-                    <mat-option [value]="item.value">
-                      {{ item.label }}
-                      @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
-                        <span class="assignment-option-detail"> · {{ optionDetail }}</span>
-                      }
-                    </mat-option>
-                  }
-                </mat-select>
-                <mat-hint id="inventory-id-help">
-                  @if (storageAssignmentLoading()) {
-                    Loading warehouse choices...
-                  } @else if (inventoryAssignmentOptions().length === 0) {
-                    No warehouse inventory records are available for this item yet.
-                  } @else {
-                    Select the warehouse where this item should be stored.
-                  }
-                </mat-hint>
-                @if (getLocationFieldError('inventory_id'); as error) {
-                  <mat-error>{{ error }}</mat-error>
-                }
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="assignment-field">
-                <mat-label>Storage Location</mat-label>
-                <mat-select
-                  formControlName="location_id"
-                  [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null"
-                >
-                  @for (item of locationAssignmentOptions(); track item.value) {
-                    <mat-option [value]="item.value">
-                      {{ item.label }}
-                      @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
-                        <span class="assignment-option-detail"> · {{ optionDetail }}</span>
-                      }
-                    </mat-option>
-                  }
-                </mat-select>
-                @if (selectedAssignmentInventoryId() === null) {
-                  <mat-hint>Choose a warehouse first.</mat-hint>
-                } @else if (locationAssignmentOptions().length === 0) {
-                  <mat-hint>No storage locations were found for the selected warehouse.</mat-hint>
-                } @else {
-                  <mat-hint>Choose the physical storage location.</mat-hint>
-                }
-                @if (getLocationFieldError('location_id'); as error) {
-                  <mat-error>{{ error }}</mat-error>
-                }
-              </mat-form-field>
-
-              @if (isBatchedItem()) {
-                <mat-form-field appearance="outline" class="assignment-field">
-                  <mat-label>Batch / Lot</mat-label>
-                  <mat-select
-                    formControlName="batch_id"
-                    [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null"
-                  >
-                    @for (item of batchAssignmentOptions(); track item.value) {
-                      <mat-option [value]="item.value">
-                        {{ item.label }}
-                        @if (getStorageAssignmentOptionDetail(item); as optionDetail) {
-                          <span class="assignment-option-detail"> · {{ optionDetail }}</span>
-                        }
-                      </mat-option>
-                    }
-                  </mat-select>
-                  @if (selectedAssignmentInventoryId() === null) {
-                    <mat-hint>Choose a warehouse first.</mat-hint>
-                  } @else if (batchAssignmentOptions().length === 0) {
-                    <mat-hint>No batches or lots were found for the selected warehouse.</mat-hint>
-                  } @else {
-                    <mat-hint>Select the batch or lot to assign.</mat-hint>
-                  }
-                  @if (getLocationFieldError('batch_id'); as error) {
-                    <mat-error>{{ error }}</mat-error>
-                  }
-                </mat-form-field>
-              }
-            </div>
-
-            <div class="assignment-actions">
-              <button
-                mat-flat-button
-                color="primary"
-                type="submit"
-                [disabled]="assigningLocation() || storageAssignmentLoading() || !!storageAssignmentError()"
-              >
-                @if (assigningLocation()) {
-                  <mat-icon class="spin">sync</mat-icon>
-                  Assigning...
-                } @else {
-                  <mat-icon>add_location_alt</mat-icon>
-                  Assign Location
-                }
-              </button>
-            </div>
-          </form>
         </section>
       }
 

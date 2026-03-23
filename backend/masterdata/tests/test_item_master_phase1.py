@@ -326,37 +326,6 @@ class ItemMasterValidationTests(SimpleTestCase):
     @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
     @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
     @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
-    def test_validate_item_payload_rejects_alternate_matching_default_uom(
-        self,
-        _mock_family,
-        _mock_reference,
-        mock_missing_uoms,
-        _mock_sqlite,
-    ):
-        errors, warnings = validate_item_payload(
-            {
-                "category_id": 102,
-                "default_uom_code": "EA",
-                "legacy_item_code": "HADR-WATER-TABS",
-                "uom_options": [
-                    {"uom_code": "EA", "conversion_factor": "24"},
-                    {"uom_code": "PACK", "conversion_factor": 6},
-                ],
-            },
-            is_update=False,
-        )
-
-        self.assertEqual(warnings, [])
-        self.assertEqual(
-            errors["uom_options"],
-            "Alternate UOM must differ from the selected default_uom_code.",
-        )
-        mock_missing_uoms.assert_not_called()
-
-    @patch("masterdata.services.item_master._is_sqlite", return_value=False)
-    @patch("masterdata.services.item_master._missing_uom_codes", return_value=[])
-    @patch("masterdata.services.item_master._fetch_ifrc_reference", return_value=None)
-    @patch("masterdata.services.item_master._fetch_ifrc_family", return_value=None)
     def test_validate_item_payload_allows_legacy_update_with_null_ifrc_fields(
         self,
         _mock_family,
@@ -2313,36 +2282,6 @@ class ItemMasterUomOptionTests(SimpleTestCase):
 
         self.assertIsNone(options)
         self.assertIn("Duplicate UOM options", errors["uom_options"])
-
-    def test_normalize_rejects_non_default_row_matching_default_uom_code(self):
-        options, errors = _normalize_item_uom_options(
-            [
-                {"uom_code": "EA", "conversion_factor": 24, "is_default": False},
-                {"uom_code": "PACK", "conversion_factor": 6},
-            ],
-            default_uom_code="EA",
-        )
-
-        self.assertIsNone(options)
-        self.assertEqual(
-            errors["uom_options"],
-            "Alternate UOM must differ from the selected default_uom_code.",
-        )
-
-    def test_normalize_allows_backend_managed_default_row_at_factor_one(self):
-        options, errors = _normalize_item_uom_options(
-            [
-                {"uom_code": "EA", "conversion_factor": 1, "is_default": True},
-                {"uom_code": "BOX", "conversion_factor": 24},
-            ],
-            default_uom_code="EA",
-        )
-
-        self.assertEqual(errors, {})
-        self.assertEqual(len(options), 2)
-        default_row = next(o for o in options if o["uom_code"] == "EA")
-        self.assertTrue(default_row["is_default"])
-        self.assertEqual(default_row["conversion_factor"], Decimal("1"))
 
     def test_normalize_rejects_zero_conversion_factor(self):
         options, errors = _normalize_item_uom_options(

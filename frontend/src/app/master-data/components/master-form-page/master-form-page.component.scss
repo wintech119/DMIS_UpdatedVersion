@@ -1571,6 +1571,102 @@ fieldset.form-grid {
   }
 }
 
+// ── Item UOM Conversion section ──
+
+.uom-conversion-section {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+  background: var(--color-surface, #fafafa);
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 1rem;
+    font-weight: var(--weight-medium, 500);
+  }
+
+  &__help {
+    margin: 0 0 4px;
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--color-text-secondary);
+  }
+
+  &__example {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0 0 16px;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+
+  &__add {
+    margin-top: 8px;
+  }
+}
+
+.uom-conversion-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0 12px;
+  align-items: start;
+  margin-bottom: 8px;
+
+  &--default {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--color-surface-variant, #f0f0f0);
+    border-radius: 4px;
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+  }
+
+  &__uom { font-weight: var(--weight-medium, 500); }
+  &__factor { font-style: italic; }
+  &__action { color: var(--color-text-disabled, #999); }
+  &__remove { color: var(--color-warn, #f44336); }
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    &__remove { justify-self: end; }
+  }
+}
+
+.review-uom-conversions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border, #e0e0e0);
+
+  &__title {
+    font-size: var(--text-sm, 0.875rem);
+    font-weight: var(--weight-medium, 500);
+    margin: 0 0 8px;
+  }
+}
+
+.review-uom-conversion-row {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: var(--text-sm, 0.875rem);
+
+  &__uom {
+    font-weight: var(--weight-medium, 500);
+    min-width: 80px;
+  }
+
+  &__factor {
+    color: var(--color-text-secondary);
+  }
+}
+
 // ── Wizard responsive ──
 
 @media (max-width: 768px) {

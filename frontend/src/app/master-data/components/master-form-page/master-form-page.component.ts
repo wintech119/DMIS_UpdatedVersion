@@ -183,6 +183,19 @@ export class MasterFormPageComponent implements OnInit {
   pk = signal<string | number | null>(null);
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
 
+  // ── Item UOM Conversion state ──
+  itemUomConversions = signal<{uom_code: string; conversion_factor: number}[]>([]);
+  private previousDefaultUom: string | null = null;
+
+  availableAlternateUoms = computed(() => {
+    this.formStateVersion();
+    const allUoms = this.lookups()['uom'] || [];
+    const defaultUom = this.form.get('default_uom_code')?.value;
+    const usedUoms = new Set(this.itemUomConversions().map(c => c.uom_code));
+    if (defaultUom) usedUoms.add(defaultUom as string);
+    return allUoms.filter(u => !usedUoms.has(u.value as string));
+  });
+
   // ── Wizard state ──
   currentStep = signal(0);
 
@@ -566,6 +579,38 @@ export class MasterFormPageComponent implements OnInit {
 
       this.updateItemTaxonomyControlState();
       this.loadItemReferenceOptions(selectedFamilyId, search);
+    });
+
+    this.setupItemUomConversionWatcher();
+  }
+
+  private setupItemUomConversionWatcher(): void {
+    const defaultUomControl = this.form.get('default_uom_code');
+    if (!defaultUomControl) return;
+
+    this.previousDefaultUom = defaultUomControl.value ?? null;
+
+    defaultUomControl.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((newValue) => {
+      const previousValue = this.previousDefaultUom;
+      if (this.sameValue(previousValue, newValue)) return;
+
+      if (this.itemUomConversions().length > 0) {
+        const confirmed = window.confirm(
+          'Changing the default UOM will remove all alternate UOM conversions. Continue?',
+        );
+        if (confirmed) {
+          this.itemUomConversions.set([]);
+          this.formStateVersion.update(v => v + 1);
+          this.previousDefaultUom = newValue ?? null;
+        } else {
+          defaultUomControl.setValue(previousValue, { emitEvent: false });
+          this.formStateVersion.update(v => v + 1);
+        }
+      } else {
+        this.previousDefaultUom = newValue ?? null;
+      }
     });
   }
 
@@ -1711,6 +1756,20 @@ export class MasterFormPageComponent implements OnInit {
             this.referenceSearchControl.setValue('', { emitEvent: false });
           }
           this.syncDisplayedItemCode();
+
+          // Load UOM conversions (non-default rows only)
+          const uomOptions = record['uom_options'] as
+            Array<{ uom_code: string; conversion_factor: number; is_default?: boolean }> | undefined;
+          if (Array.isArray(uomOptions)) {
+            this.itemUomConversions.set(
+              uomOptions
+                .filter(opt => !opt.is_default)
+                .map(opt => ({ uom_code: opt.uom_code, conversion_factor: opt.conversion_factor })),
+            );
+          } else {
+            this.itemUomConversions.set([]);
+          }
+          this.previousDefaultUom = record['default_uom_code'] as string ?? null;
         }
 
         this.applyGovernedCatalogFieldState();
@@ -2308,6 +2367,15 @@ export class MasterFormPageComponent implements OnInit {
       rawData['ifrc_suggest_log_id'] = this.acceptedIfrcSuggestLogId;
     }
 
+    if (cfg.tableKey === 'items') {
+      const conversions = this.itemUomConversions()
+        .filter(c => c.uom_code && c.conversion_factor > 0);
+      rawData['uom_options'] = conversions.map(c => ({
+        uom_code: c.uom_code,
+        conversion_factor: c.conversion_factor,
+      }));
+    }
+
     return rawData;
   }
 
@@ -2568,6 +2636,51 @@ export class MasterFormPageComponent implements OnInit {
 
   isItemClassificationGroup(groupLabel: string): boolean {
     return this.isItemRecord() && groupLabel === 'Classification';
+  }
+
+  isInventoryRulesGroup(label: string): boolean {
+    return label === 'Inventory Rules';
+  }
+
+  isUomConversionsGroup(label: string): boolean {
+    return label === 'UOM & Conversions';
+  }
+
+  getUomLabel(uomCode: string): string {
+    if (!uomCode) return '';
+    const allUoms = this.lookups()['uom'] || [];
+    const match = allUoms.find(u => this.sameValue(u.value, uomCode));
+    return match?.label ?? uomCode;
+  }
+
+  addUomConversion(): void {
+    this.itemUomConversions.update(current => [
+      ...current,
+      { uom_code: '', conversion_factor: 1 },
+    ]);
+    this.formStateVersion.update(v => v + 1);
+  }
+
+  removeUomConversion(index: number): void {
+    this.itemUomConversions.update(current =>
+      current.filter((_, i) => i !== index),
+    );
+    this.formStateVersion.update(v => v + 1);
+  }
+
+  updateUomConversionUom(index: number, uomCode: string): void {
+    this.itemUomConversions.update(current =>
+      current.map((row, i) => i === index ? { ...row, uom_code: uomCode } : row),
+    );
+    this.formStateVersion.update(v => v + 1);
+  }
+
+  updateUomConversionFactor(index: number, factor: number): void {
+    if (isNaN(factor) || factor <= 0) return;
+    this.itemUomConversions.update(current =>
+      current.map((row, i) => i === index ? { ...row, conversion_factor: factor } : row),
+    );
+    this.formStateVersion.update(v => v + 1);
   }
 
   isItemFamilyRequired(): boolean {
@@ -3057,6 +3170,7 @@ export class MasterFormPageComponent implements OnInit {
       'Generated Codes': 'auto_awesome',
       'Product Attributes': 'straighten',
       'Inventory Rules': 'inventory_2',
+      'UOM & Conversions': 'swap_horiz',
       'Tracking & Behaviour': 'track_changes',
       'Notes & Storage': 'notes',
       'Notes': 'notes',
@@ -3642,6 +3756,8 @@ export class MasterFormPageComponent implements OnInit {
     this.ifrcAppliedConfirmation.set(null);
     this.ifrcCodeUpdatedOnStep1.set(false);
     this.expandedCandidateIds.set(new Set());
+    this.itemUomConversions.set([]);
+    this.previousDefaultUom = null;
   }
 }
 

@@ -159,51 +159,57 @@
   line-height: 1.45;
 }
 
-.location-assignment-section {
-  border-left: 4px solid var(--color-accent);
+// — UOM Conversions (read-only detail) ————————————————————————————————————————
+.detail-uom-conversions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
 
-  .section-title mat-icon {
-    color: var(--color-accent);
+.detail-uom-conversions__title {
+  margin: 0 0 10px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-uom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--radius-inner, 6px);
+
+  &:nth-child(even) {
+    background: color-mix(in srgb, var(--color-surface) 97%, var(--color-text-primary));
   }
 }
 
-.assignment-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.detail-uom-row--default {
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
 }
 
-.assignment-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+.detail-uom-row__uom {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
 }
 
-.assignment-field {
-  width: 100%;
+.detail-uom-row__factor {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.assignment-actions {
-  display: flex;
-  justify-content: flex-end;
-
-  button {
-    min-height: 40px;
-    border-radius: 8px;
-  }
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spin { animation: none; }
+.detail-uom-row__lock {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-tertiary);
 }
 
 // — Audit Section (collapsible) ——————————————————————————————————————————————
@@ -400,17 +406,6 @@
     }
   }
 
-  .assignment-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .assignment-actions {
-    justify-content: stretch;
-
-    button {
-      width: 100%;
-    }
-  }
 }
 
 @media (max-width: 480px) {
