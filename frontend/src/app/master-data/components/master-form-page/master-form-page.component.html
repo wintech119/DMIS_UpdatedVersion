@@ -232,7 +232,9 @@
                       <mat-icon aria-hidden="true">{{ getSectionIcon(rg.groupLabel) }}</mat-icon>
                       {{ rg.groupLabel }}
                     </h4>
-                    <button mat-stroked-button type="button" class="review-group__edit-btn" (click)="goToStep(gi)">
+                    <button mat-stroked-button type="button" class="review-group__edit-btn"
+                      [attr.aria-label]="'Edit ' + rg.groupLabel + ' section'"
+                      (click)="goToStep(gi)">
                       <mat-icon aria-hidden="true">edit</mat-icon>
                       Edit
                     </button>
@@ -941,6 +943,7 @@
                                 <button class="ifrc-candidate-toggle" type="button"
                                   [attr.aria-controls]="'ifrc-candidate-details-' + candidate.reference.value"
                                   [attr.aria-expanded]="isCandidateExpanded(candidate.reference.value)"
+                                  [attr.aria-label]="(isCandidateExpanded(candidate.reference.value) ? 'Hide details for ' : 'Show details for ') + candidate.reference.label"
                                   (click)="toggleCandidateExpanded(candidate.reference.value)">
                                   <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
                                   {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
@@ -1729,6 +1732,7 @@
                               <button class="ifrc-candidate-toggle" type="button"
                                 [attr.aria-controls]="'ifrc-candidate-details-' + candidate.reference.value"
                                 [attr.aria-expanded]="isCandidateExpanded(candidate.reference.value)"
+                                [attr.aria-label]="(isCandidateExpanded(candidate.reference.value) ? 'Hide details for ' : 'Show details for ') + candidate.reference.label"
                                 (click)="toggleCandidateExpanded(candidate.reference.value)">
                                 <mat-icon>{{ isCandidateExpanded(candidate.reference.value) ? 'expand_less' : 'expand_more' }}</mat-icon>
                                 {{ isCandidateExpanded(candidate.reference.value) ? 'Hide details' : 'Show details' }}
