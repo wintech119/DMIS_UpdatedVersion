@@ -71,7 +71,11 @@ def resolve_roles_and_permissions(
             db_error = True
             logger.warning("RBAC DB lookup failed: %s", exc)
 
-    if not permissions and not db_error:
+    if settings.DEV_AUTH_ENABLED:
+        permissions = _dedupe_preserve_order(
+            list(permissions) + list(_permissions_for_roles(roles))
+        )
+    elif not permissions and not db_error:
         permissions = _dedupe_preserve_order(
             list(permissions) + list(_permissions_for_roles(roles))
         )
