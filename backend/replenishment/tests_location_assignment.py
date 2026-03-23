@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
@@ -204,6 +205,51 @@ class LocationAssignmentApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["inventories"][0]["label"], "Kingston Hub")
         mock_options.assert_called_once_with(item_id=11)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="md-viewer",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=["masterdata.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.can_access_warehouse")
+    @patch("replenishment.views._tenant_context", return_value=SimpleNamespace())
+    @patch("replenishment.views.location_storage.get_storage_assignment_options")
+    def test_assignment_options_filter_inventories_to_tenant_scope(
+        self,
+        mock_options,
+        _mock_tenant_context,
+        mock_can_access_warehouse,
+    ) -> None:
+        mock_options.return_value = {
+            "item_id": 11,
+            "is_batched": True,
+            "inventories": [
+                {"value": 2, "label": "Kingston Hub"},
+                {"value": 9, "label": "Foreign Warehouse"},
+            ],
+            "locations": [
+                {"value": 7, "inventory_id": 2, "label": "Rack A-01"},
+                {"value": 8, "inventory_id": 9, "label": "Remote Rack"},
+            ],
+            "batches": [
+                {"value": 19, "inventory_id": 2, "label": "LOT-19"},
+                {"value": 20, "inventory_id": 9, "label": "LOT-20"},
+            ],
+        }
+        mock_can_access_warehouse.side_effect = lambda _context, warehouse_id, write=False: warehouse_id == 2
+
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["inventories"], [{"value": 2, "label": "Kingston Hub"}])
+        self.assertEqual(response.json()["locations"], [{"value": 7, "inventory_id": 2, "label": "Rack A-01"}])
+        self.assertEqual(response.json()["batches"], [{"value": 19, "inventory_id": 2, "label": "LOT-19"}])
 
     @override_settings(
         AUTH_ENABLED=False,

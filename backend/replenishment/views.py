@@ -2741,6 +2741,42 @@ def storage_assignment_options(request):
             status=exc.status_code,
         )
 
+    if _should_enforce_tenant_scope(request):
+        tenant_context = _tenant_context(request)
+        inventories = list(result.get("inventories") or [])
+        allowed_inventory_ids = {
+            parsed_inventory_id
+            for option in inventories
+            for parsed_inventory_id in [_to_int_or_none(option.get("value"))]
+            if parsed_inventory_id is not None
+            and can_access_warehouse(tenant_context, parsed_inventory_id, write=False)
+        }
+        if inventories and not allowed_inventory_ids:
+            return _tenant_scope_denied_response(request, write=False)
+
+        def _belongs_to_allowed_inventory(option: Mapping[str, Any]) -> bool:
+            inventory_id = _to_int_or_none(option.get("inventory_id"))
+            return inventory_id is not None and inventory_id in allowed_inventory_ids
+
+        result = {
+            **result,
+            "inventories": [
+                option
+                for option in inventories
+                if _to_int_or_none(option.get("value")) in allowed_inventory_ids
+            ],
+            "locations": [
+                option
+                for option in list(result.get("locations") or [])
+                if _belongs_to_allowed_inventory(option)
+            ],
+            "batches": [
+                option
+                for option in list(result.get("batches") or [])
+                if _belongs_to_allowed_inventory(option)
+            ],
+        }
+
     return Response(result)
 
 

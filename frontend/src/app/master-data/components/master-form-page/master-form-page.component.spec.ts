@@ -126,6 +126,7 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
 }
 
 function buildStorageAssignmentOptions(overrides: Partial<{
+  item_id: number;
   is_batched: boolean;
   inventories: { value: number; label: string; detail?: string }[];
   locations: { value: number; inventory_id: number; label: string; detail?: string }[];
@@ -154,6 +155,7 @@ type MasterFormPageComponentTestAccess = MasterFormPageComponent & {
   setLocalDraftMode(isActive: boolean): void;
   isStepValid(stepIndex: number): boolean;
   resetWizardUiState(): void;
+  loadStorageAssignmentOptionsForCurrentItem(): void;
 };
 
 describe('MasterFormPageComponent', () => {
@@ -334,6 +336,7 @@ describe('MasterFormPageComponent', () => {
       masterDataService,
       ifrcSuggestService,
       notificationService,
+      replenishmentService,
       router,
       dialog,
     };
@@ -774,6 +777,72 @@ describe('MasterFormPageComponent', () => {
 
     expect(component.locationAssignmentOptions().map((option) => option.label)).toEqual(['Cold Room B-02']);
     expect(component.batchAssignmentOptions().map((option) => option.label)).toEqual(['LOT-202 · Expires 2026-05-15']);
+  });
+
+  it('uses persisted storage-assignment batching instead of the dirty form toggle', () => {
+    const { component, fixture, replenishmentService } = setup('items', { pk: '17' });
+
+    component.currentStep.set(component.renderableFieldGroups().length);
+    component.storageAssignmentOptions.set(buildStorageAssignmentOptions({
+      is_batched: false,
+      batches: [],
+    }));
+    component.form.get('is_batched_flag')?.setValue(true);
+    component.locationForm.patchValue({
+      inventory_id: 1,
+      location_id: 11,
+      batch_id: null,
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Batch / Lot');
+
+    component.onAssignStorageLocation();
+
+    expect(replenishmentService.assignStorageLocation).toHaveBeenCalledWith(jasmine.objectContaining({
+      item_id: 17,
+      inventory_id: 1,
+      location_id: 11,
+    }));
+  });
+
+  it('ignores stale storage-assignment option responses after a newer item load starts', () => {
+    const { component, replenishmentService } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
+    const firstResponse$ = new Subject<ReturnType<typeof buildStorageAssignmentOptions>>();
+    const secondResponse$ = new Subject<ReturnType<typeof buildStorageAssignmentOptions>>();
+
+    replenishmentService.getStorageAssignmentOptions.and.returnValues(
+      firstResponse$.asObservable(),
+      secondResponse$.asObservable(),
+    );
+
+    component.pk.set('17');
+    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+    component.pk.set('18');
+    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+
+    secondResponse$.next(buildStorageAssignmentOptions({
+      item_id: 18,
+      inventories: [{ value: 18, label: 'Shelter Warehouse', detail: 'Internal inventory ID 18' }],
+      locations: [{ value: 181, inventory_id: 18, label: 'Zone S-01', detail: 'Internal location ID 181' }],
+      batches: [{ value: 1801, inventory_id: 18, label: 'LOT-1801 · Expires 2026-06-01', detail: 'Internal batch ID 1801' }],
+    }));
+
+    expect(component.storageAssignmentOptions()?.item_id).toBe(18);
+    expect(component.inventoryAssignmentOptions().map((option) => option.label)).toEqual(['Shelter Warehouse']);
+    expect(component.storageAssignmentLoading()).toBeFalse();
+
+    firstResponse$.next(buildStorageAssignmentOptions({
+      item_id: 17,
+      inventories: [{ value: 17, label: 'Stale Warehouse', detail: 'Internal inventory ID 17' }],
+      locations: [{ value: 171, inventory_id: 17, label: 'Stale Location', detail: 'Internal location ID 171' }],
+      batches: [{ value: 1701, inventory_id: 17, label: 'LOT-1701 · Expires 2026-05-01', detail: 'Internal batch ID 1701' }],
+    }));
+
+    expect(component.storageAssignmentOptions()?.item_id).toBe(18);
+    expect(component.inventoryAssignmentOptions().map((option) => option.label)).toEqual(['Shelter Warehouse']);
+    expect(component.storageAssignmentLoading()).toBeFalse();
   });
 
   it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {

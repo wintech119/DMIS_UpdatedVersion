@@ -53,6 +53,7 @@ export class MasterDetailPageComponent implements OnInit {
   private clipboard = inject(Clipboard);
   private destroyRef = inject(DestroyRef);
   private latestRecordRequestId = 0;
+  private latestStorageAssignmentRequestId = 0;
 
   config = signal<MasterTableConfig | null>(null);
   record = signal<MasterRecord | null>(null);
@@ -500,6 +501,7 @@ export class MasterDetailPageComponent implements OnInit {
   }
 
   private resetStorageAssignmentState(): void {
+    this.latestStorageAssignmentRequestId += 1;
     this.storageAssignmentLoading.set(false);
     this.storageAssignmentError.set(null);
     this.storageAssignmentOptions.set(null);
@@ -522,18 +524,25 @@ export class MasterDetailPageComponent implements OnInit {
       return;
     }
 
+    const requestId = ++this.latestStorageAssignmentRequestId;
     this.storageAssignmentLoading.set(true);
     this.storageAssignmentError.set(null);
     this.replenishmentService.getStorageAssignmentOptions(itemId).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: (options) => {
+        if (requestId !== this.latestStorageAssignmentRequestId || options.item_id !== itemId) {
+          return;
+        }
         this.storageAssignmentLoading.set(false);
         this.storageAssignmentOptions.set(options);
         this.storageAssignmentError.set(null);
         this.syncStorageAssignmentSelections();
       },
       error: (err) => {
+        if (requestId !== this.latestStorageAssignmentRequestId) {
+          return;
+        }
         this.storageAssignmentLoading.set(false);
         this.storageAssignmentOptions.set(null);
         this.storageAssignmentError.set(

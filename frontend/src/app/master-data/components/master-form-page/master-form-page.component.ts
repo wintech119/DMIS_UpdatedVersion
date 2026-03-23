@@ -251,6 +251,7 @@ export class MasterFormPageComponent implements OnInit {
   private readonly duplicateCanonicalItemCodeError = 'duplicate_canonical_item_code';
   private readonly inactiveItemForwardWriteCode = 'inactive_item_forward_write_blocked';
   private readonly lookupRequestIds: Record<string, number> = {};
+  private latestStorageAssignmentRequestId = 0;
   locationForm = new FormGroup({
     inventory_id: new FormControl<number | null>(null, [
       Validators.required,
@@ -336,6 +337,7 @@ export class MasterFormPageComponent implements OnInit {
     }
     return options.filter((option) => this.toPositiveInt(option.inventory_id) === inventoryId);
   });
+  assignmentIsBatched = computed(() => Boolean(this.storageAssignmentOptions()?.is_batched));
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => {
@@ -746,7 +748,7 @@ export class MasterFormPageComponent implements OnInit {
     this.ifrcAppliedConfirmation.set({
       ifrcCode: String(reference.ifrc_code ?? '').toUpperCase(),
       referenceLabel: String(reference.label ?? ''),
-      familyLabel: String(family.label ?? family.family_label ?? ''),
+      familyLabel: String(family.label ?? family['family_label'] ?? ''),
     });
 
     if (this.isWizardMode() && this.currentStep() > 0) {
@@ -2978,20 +2980,21 @@ export class MasterFormPageComponent implements OnInit {
     const inventoryId = this.toPositiveInt(this.locationForm.controls.inventory_id.value);
     const locationId = this.toPositiveInt(this.locationForm.controls.location_id.value);
     const batchId = this.toPositiveInt(this.locationForm.controls.batch_id.value);
+    const assignmentIsBatched = this.assignmentIsBatched();
 
     if (!inventoryId || !locationId) {
       this.locationForm.markAllAsTouched();
       return;
     }
 
-    if (this.isBatchedItem() && !batchId) {
+    if (assignmentIsBatched && !batchId) {
       this.locationForm.controls.batch_id.setErrors({ required: true });
       this.locationForm.controls.batch_id.markAsTouched();
       this.notify.showWarning('Select a batch or lot for batched items.');
       return;
     }
 
-    if (!this.isBatchedItem() && batchId) {
+    if (!assignmentIsBatched && batchId) {
       this.notify.showWarning('Batch or lot must stay empty for non-batched items.');
       this.locationForm.controls.batch_id.setErrors({ server: 'Must stay empty for non-batched items.' });
       this.locationForm.controls.batch_id.markAsTouched();
@@ -3158,6 +3161,7 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   private resetStorageAssignmentState(): void {
+    this.latestStorageAssignmentRequestId += 1;
     this.storageAssignmentLoading.set(false);
     this.storageAssignmentError.set(null);
     this.storageAssignmentOptions.set(null);
@@ -3181,18 +3185,26 @@ export class MasterFormPageComponent implements OnInit {
       return;
     }
 
+    const requestId = ++this.latestStorageAssignmentRequestId;
     this.storageAssignmentLoading.set(true);
     this.storageAssignmentError.set(null);
     this.replenishmentService.getStorageAssignmentOptions(itemId).pipe(
       takeUntilDestroyed(this.destroyRef),
-      finalize(() => this.storageAssignmentLoading.set(false)),
     ).subscribe({
       next: (options) => {
+        if (requestId !== this.latestStorageAssignmentRequestId || options.item_id !== itemId) {
+          return;
+        }
+        this.storageAssignmentLoading.set(false);
         this.storageAssignmentOptions.set(options);
         this.storageAssignmentError.set(null);
         this.syncStorageAssignmentSelections();
       },
       error: (err) => {
+        if (requestId !== this.latestStorageAssignmentRequestId) {
+          return;
+        }
+        this.storageAssignmentLoading.set(false);
         this.storageAssignmentOptions.set(null);
         this.storageAssignmentError.set(
           String(err?.error?.detail || 'Failed to load storage assignment choices.'),
@@ -3226,6 +3238,11 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     const batchId = this.toPositiveInt(this.locationForm.controls.batch_id.value);
+    if (!this.assignmentIsBatched() && batchId != null) {
+      this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
+      this.locationFormVersion.update((version) => version + 1);
+      return;
+    }
     if (batchId != null && !this.hasStorageOption(this.batchAssignmentOptions(), batchId)) {
       this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
     }

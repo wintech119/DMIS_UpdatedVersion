@@ -154,7 +154,7 @@
               Storage Location Assignment
             </h3>
             <p class="section-description">
-              @if (isBatchedItem()) {
+              @if (assignmentIsBatched()) {
                 Choose the warehouse, storage location, and existing batch or lot for this item. Internal IDs are handled automatically.
               } @else {
                 Choose the warehouse and storage location for this item. Internal IDs are handled automatically.
@@ -178,13 +178,15 @@
                       </mat-option>
                     }
                   </mat-select>
-                  @if (storageAssignmentLoading()) {
-                    <mat-hint id="inventory-id-help-assignment">Loading warehouse choices...</mat-hint>
-                  } @else if (inventoryAssignmentOptions().length === 0) {
-                    <mat-hint id="inventory-id-help-assignment">No warehouse inventory records are available for this item yet.</mat-hint>
-                  } @else {
-                    <mat-hint id="inventory-id-help-assignment">Select the warehouse where this item should be stored.</mat-hint>
-                  }
+                  <mat-hint id="inventory-id-help-assignment">
+                    @if (storageAssignmentLoading()) {
+                      Loading warehouse choices...
+                    } @else if (inventoryAssignmentOptions().length === 0) {
+                      No warehouse inventory records are available for this item yet.
+                    } @else {
+                      Select the warehouse where this item should be stored.
+                    }
+                  </mat-hint>
                   @if (getLocationFieldError('inventory_id'); as error) { <mat-error>{{ error }}</mat-error> }
                 </mat-form-field>
                 <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
@@ -209,7 +211,7 @@
                   }
                   @if (getLocationFieldError('location_id'); as error) { <mat-error>{{ error }}</mat-error> }
                 </mat-form-field>
-                @if (isBatchedItem()) {
+                @if (assignmentIsBatched()) {
                   <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
                     <mat-label>Batch / Lot</mat-label>
                     <mat-select formControlName="batch_id"
