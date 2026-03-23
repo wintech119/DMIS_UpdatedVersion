@@ -169,6 +169,20 @@ class LocationAssignmentApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="executor-1",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.needs_list.execute"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_assignment_options_do_not_allow_needs_list_execute_only(self) -> None:
+        response = self.client.get(self.OPTIONS_ENDPOINT, {"item_id": 11})
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="md-viewer",
         DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
         DEV_AUTH_PERMISSIONS=["masterdata.view"],

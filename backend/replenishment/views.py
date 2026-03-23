@@ -4672,7 +4672,6 @@ criticality_hazard_default_reject.required_permission = PERM_CRITICALITY_HAZARD_
 storage_assignment_options.required_permission = [
     PERM_MASTERDATA_VIEW,
     PERM_MASTERDATA_EDIT,
-    PERM_NEEDS_LIST_EXECUTE,
 ]
 assign_storage_location.required_permission = [PERM_NEEDS_LIST_EXECUTE, PERM_MASTERDATA_EDIT]
 inventory_repackaging.required_permission = {
