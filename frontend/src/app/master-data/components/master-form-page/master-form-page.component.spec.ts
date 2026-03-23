@@ -125,6 +125,31 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
   };
 }
 
+function buildStorageAssignmentOptions(overrides: Partial<{
+  is_batched: boolean;
+  inventories: { value: number; label: string; detail?: string }[];
+  locations: { value: number; inventory_id: number; label: string; detail?: string }[];
+  batches: { value: number; inventory_id: number; label: string; detail?: string }[];
+}> = {}) {
+  return {
+    item_id: 17,
+    is_batched: true,
+    inventories: [
+      { value: 1, label: 'Kingston Central Depot', detail: 'Internal inventory ID 1' },
+      { value: 2, label: 'Montego Bay Hub', detail: 'Internal inventory ID 2' },
+    ],
+    locations: [
+      { value: 11, inventory_id: 1, label: 'Rack A-01', detail: 'Internal location ID 11' },
+      { value: 22, inventory_id: 2, label: 'Cold Room B-02', detail: 'Internal location ID 22' },
+    ],
+    batches: [
+      { value: 101, inventory_id: 1, label: 'LOT-101 · Expires 2026-04-01', detail: 'Internal batch ID 101' },
+      { value: 202, inventory_id: 2, label: 'LOT-202 · Expires 2026-05-15', detail: 'Internal batch ID 202' },
+    ],
+    ...overrides,
+  };
+}
+
 describe('MasterFormPageComponent', () => {
   function setup(routePath = 'items', params: Record<string, string> = {}) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
@@ -146,7 +171,10 @@ describe('MasterFormPageComponent', () => {
       'showError',
       'showWarning',
     ]);
-    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', ['assignStorageLocation']);
+    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', [
+      'assignStorageLocation',
+      'getStorageAssignmentOptions',
+    ]);
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
 
@@ -275,6 +303,7 @@ describe('MasterFormPageComponent', () => {
       location_id: 2,
       batch_id: null,
     }));
+    replenishmentService.getStorageAssignmentOptions.and.returnValue(of(buildStorageAssignmentOptions()));
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
 
     TestBed.configureTestingModule({
@@ -701,18 +730,44 @@ describe('MasterFormPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
   });
 
-  it('keeps storage assignment visible in wizard edit flows before the review step', () => {
+  it('shows storage assignment on the review step instead of earlier wizard steps', () => {
     const { component, fixture } = setup('items', { pk: '17' });
 
     component.currentStep.set(0);
     fixture.detectChanges();
 
-    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
-
     expect(component.canAssignLocation()).toBeTrue();
     expect(component.isOnReviewStep()).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.location-assignment-section')).toBeNull();
+
+    component.currentStep.set(component.renderableFieldGroups().length);
+    fixture.detectChanges();
+
+    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
+
+    expect(component.isOnReviewStep()).toBeTrue();
     expect(assignmentSection).not.toBeNull();
     expect(assignmentSection?.textContent).toContain('Storage Location Assignment');
+    expect(assignmentSection?.textContent).toContain('Kingston Central Depot');
+    expect(assignmentSection?.textContent).not.toContain('Inventory ID');
+  });
+
+  it('keeps Can Expire in the same wizard step as Issuance Order', () => {
+    const inventoryRulesGroup = ITEM_CONFIG.formFields.filter((field) => field.group === 'Inventory Rules');
+    const trackingGroup = ITEM_CONFIG.formFields.filter((field) => field.group === 'Tracking & Behaviour');
+
+    expect(inventoryRulesGroup.map((field) => field.field)).toContain('issuance_order');
+    expect(inventoryRulesGroup.map((field) => field.field)).toContain('can_expire_flag');
+    expect(trackingGroup.map((field) => field.field)).not.toContain('can_expire_flag');
+  });
+
+  it('filters storage locations and batches to the selected warehouse', () => {
+    const { component } = setup('items', { pk: '17' });
+
+    component.locationForm.controls.inventory_id.setValue(2);
+
+    expect(component.locationAssignmentOptions().map((option) => option.label)).toEqual(['Cold Room B-02']);
+    expect(component.batchAssignmentOptions().map((option) => option.label)).toEqual(['LOT-202 · Expires 2026-05-15']);
   });
 
   it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {

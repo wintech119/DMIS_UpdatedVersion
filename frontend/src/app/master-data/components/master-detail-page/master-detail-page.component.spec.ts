@@ -13,6 +13,25 @@ import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
 
+function buildStorageAssignmentOptions() {
+  return {
+    item_id: 17,
+    is_batched: true,
+    inventories: [
+      { value: 1, label: 'Kingston Central Depot', detail: 'Internal inventory ID 1' },
+      { value: 2, label: 'Montego Bay Hub', detail: 'Internal inventory ID 2' },
+    ],
+    locations: [
+      { value: 11, inventory_id: 1, label: 'Rack A-01', detail: 'Internal location ID 11' },
+      { value: 22, inventory_id: 2, label: 'Cold Room B-02', detail: 'Internal location ID 22' },
+    ],
+    batches: [
+      { value: 101, inventory_id: 1, label: 'LOT-101 · Expires 2026-04-01', detail: 'Internal batch ID 101' },
+      { value: 202, inventory_id: 2, label: 'LOT-202 · Expires 2026-05-15', detail: 'Internal batch ID 202' },
+    ],
+  };
+}
+
 describe('MasterDetailPageComponent', () => {
   function setup(
     routePath = 'events',
@@ -21,7 +40,10 @@ describe('MasterDetailPageComponent', () => {
     editGuidance: CatalogEditGuidance | null = null,
   ) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', ['get', 'inactivate', 'activate']);
-    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', ['assignStorageLocation']);
+    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', [
+      'assignStorageLocation',
+      'getStorageAssignmentOptions',
+    ]);
     const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
       'showSuccess',
       'showError',
@@ -34,6 +56,7 @@ describe('MasterDetailPageComponent', () => {
     masterDataService.get.and.returnValue(of({
       record: {
         event_id: 14,
+        item_id: 17,
         event_name: 'Kingston Floods',
         status_code: 'I',
         closed_date: '2026-03-15',
@@ -44,6 +67,7 @@ describe('MasterDetailPageComponent', () => {
       warnings: [],
       edit_guidance: editGuidance ?? undefined,
     }));
+    replenishmentService.getStorageAssignmentOptions.and.returnValue(of(buildStorageAssignmentOptions()));
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
 
     TestBed.configureTestingModule({
@@ -150,5 +174,19 @@ describe('MasterDetailPageComponent', () => {
     fixture.detectChanges();
 
     expect(notifications.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows warehouse-friendly storage assignment options for item records', () => {
+    const { fixture } = setup('items', {
+      item_id: 17,
+      item_name: 'Water Tabs',
+      is_batched_flag: true,
+      status_code: 'A',
+    }, '17');
+
+    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
+
+    expect(assignmentSection?.textContent).toContain('Kingston Central Depot');
+    expect(assignmentSection?.textContent).not.toContain('Inventory ID');
   });
 });

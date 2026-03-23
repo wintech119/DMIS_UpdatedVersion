@@ -40,6 +40,7 @@ from replenishment.views import (
     needs_list_transfer_confirm,
     needs_list_transfer_update,
     needs_list_transfers,
+    storage_assignment_options,
     needs_list_donations,
     needs_list_donations_allocate,
     needs_list_donations_export,
@@ -116,6 +117,11 @@ urlpatterns = [
         name="event_phase_window_detail",
     ),
     path("warehouses", get_all_warehouses, name="get_all_warehouses"),
+    path(
+        "inventory/location-assignment/options",
+        storage_assignment_options,
+        name="storage_assignment_options",
+    ),
     path(
         "inventory/location-assignment",
         assign_storage_location,

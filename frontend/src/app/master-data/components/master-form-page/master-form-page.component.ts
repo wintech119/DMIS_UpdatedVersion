@@ -51,7 +51,11 @@ import { MasterDataService } from '../../services/master-data.service';
 import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { IfrcSuggestService } from '../../services/ifrc-suggest.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
-import { ReplenishmentService } from '../../../replenishment/services/replenishment.service';
+import {
+  ReplenishmentService,
+  StorageAssignmentOption,
+  StorageAssignmentOptionsResponse,
+} from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
@@ -144,10 +148,14 @@ export class MasterFormPageComponent implements OnInit {
   isLoading = signal(false);
   isSaving = signal(false);
   assigningLocation = signal(false);
+  storageAssignmentLoading = signal(false);
+  storageAssignmentError = signal<string | null>(null);
+  storageAssignmentOptions = signal<StorageAssignmentOptionsResponse | null>(null);
   lookups = signal<Record<string, LookupItem[]>>({});
   lookupLoading = signal<Record<string, boolean>>({});
   lookupErrors = signal<Record<string, string>>({});
   private readonly formStateVersion = signal(0);
+  private readonly locationFormVersion = signal(0);
   catalogEditGuidance = signal<CatalogEditGuidance | null>(null);
   catalogSuggestion = signal<CatalogAuthoringSuggestionResponse | null>(null);
   catalogSuggestionLoading = signal(false);
@@ -306,11 +314,52 @@ export class MasterFormPageComponent implements OnInit {
   itemCategoryOptions = computed(() => this.readLookup<ItemCategoryLookup>('item_categories'));
   itemIfrcFamilyOptions = computed(() => this.readLookup<IfrcFamilyLookup>('ifrc_families'));
   itemIfrcReferenceOptions = computed(() => this.readLookup<IfrcReferenceLookup>('ifrc_references'));
+  inventoryAssignmentOptions = computed<StorageAssignmentOption[]>(() => (
+    this.storageAssignmentOptions()?.inventories ?? []
+  ));
+  selectedAssignmentInventoryId = computed<number | null>(() => {
+    this.locationFormVersion();
+    return this.toPositiveInt(this.locationForm.controls.inventory_id.value);
+  });
+  locationAssignmentOptions = computed<StorageAssignmentOption[]>(() => {
+    const inventoryId = this.selectedAssignmentInventoryId();
+    const options = this.storageAssignmentOptions()?.locations ?? [];
+    if (inventoryId == null) {
+      return [];
+    }
+    return options.filter((option) => this.toPositiveInt(option.inventory_id) === inventoryId);
+  });
+  batchAssignmentOptions = computed<StorageAssignmentOption[]>(() => {
+    const inventoryId = this.selectedAssignmentInventoryId();
+    const options = this.storageAssignmentOptions()?.batches ?? [];
+    if (inventoryId == null) {
+      return [];
+    }
+    return options.filter((option) => this.toPositiveInt(option.inventory_id) === inventoryId);
+  });
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => {
       if (this._ifrcBadgeTimeout) {
         clearTimeout(this._ifrcBadgeTimeout);
+      }
+    });
+
+    this.locationForm.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(() => {
+      this.locationFormVersion.update((version) => version + 1);
+    });
+
+    this.locationForm.controls.inventory_id.valueChanges.pipe(
+      startWith(this.locationForm.controls.inventory_id.value),
+      pairwise(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(([previousValue, currentValue]) => {
+      if (!this.sameValue(previousValue, currentValue)) {
+        this.locationForm.controls.location_id.setValue(null, { emitEvent: false });
+        this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
+        this.locationFormVersion.update((version) => version + 1);
       }
     });
 
@@ -326,6 +375,9 @@ export class MasterFormPageComponent implements OnInit {
         this.setupItemTaxonomyState(cfg);
         this.setupItemIfrcSuggestion(cfg);
         this.loadLookups(cfg);
+        if (cfg.tableKey !== 'items') {
+          this.resetStorageAssignmentState();
+        }
         if (this.pk()) {
           this.primeGovernedEditState();
           this.loadRecord();
@@ -346,6 +398,7 @@ export class MasterFormPageComponent implements OnInit {
         return;
       }
 
+      this.resetStorageAssignmentState();
       this.pk.set(null);
       this.isEdit.set(false);
     });
@@ -1087,8 +1140,6 @@ export class MasterFormPageComponent implements OnInit {
       lookupTables.set(field.lookupTable!, field.label);
     }
     if (cfg.tableKey === 'items') {
-      lookupTables.set('inventory', 'Inventory');
-      lookupTables.set('locations', 'Location');
       this.loadItemCategoryOptions();
       this.writeLookup('ifrc_families', []);
       this.writeLookup('ifrc_references', []);
@@ -1665,6 +1716,7 @@ export class MasterFormPageComponent implements OnInit {
         this.updateItemTaxonomyControlState();
         this.form.updateValueAndValidity({ emitEvent: false });
         this.form.markAsPristine();
+        this.loadStorageAssignmentOptionsForCurrentItem();
 
         this.isLoading.set(false);
         this.maybePromptGovernedEditWarning();
@@ -2936,13 +2988,13 @@ export class MasterFormPageComponent implements OnInit {
     if (this.isBatchedItem() && !batchId) {
       this.locationForm.controls.batch_id.setErrors({ required: true });
       this.locationForm.controls.batch_id.markAsTouched();
-      this.notify.showWarning('Batch ID is required for batched items.');
+      this.notify.showWarning('Select a batch or lot for batched items.');
       return;
     }
 
     if (!this.isBatchedItem() && batchId) {
-      this.notify.showWarning('Batch ID must be empty for non-batched items.');
-      this.locationForm.controls.batch_id.setErrors({ server: 'Must be empty for non-batched items.' });
+      this.notify.showWarning('Batch or lot must stay empty for non-batched items.');
+      this.locationForm.controls.batch_id.setErrors({ server: 'Must stay empty for non-batched items.' });
       this.locationForm.controls.batch_id.markAsTouched();
       return;
     }
@@ -3034,10 +3086,19 @@ export class MasterFormPageComponent implements OnInit {
   getLocationFieldError(fieldName: 'inventory_id' | 'location_id' | 'batch_id'): string | null {
     const control = this.locationForm.controls[fieldName];
     if (!control || !control.touched || !control.errors) return null;
-    if (control.errors['required']) return 'This field is required.';
+    if (control.errors['required']) {
+      if (fieldName === 'inventory_id') return 'Select a warehouse.';
+      if (fieldName === 'location_id') return 'Select a location.';
+      return 'Select a batch or lot.';
+    }
     if (control.errors['min']) return 'Must be a positive number.';
     if (control.errors['server']) return String(control.errors['server']);
     return 'Invalid value.';
+  }
+
+  getStorageAssignmentOptionDetail(option: StorageAssignmentOption): string | null {
+    const detail = String(option.detail ?? '').trim();
+    return detail || null;
   }
 
   private navigateBack(): void {
@@ -3095,6 +3156,86 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     this.notify.showError(fallbackMessage || 'Storage location assignment failed.');
+  }
+
+  private resetStorageAssignmentState(): void {
+    this.storageAssignmentLoading.set(false);
+    this.storageAssignmentError.set(null);
+    this.storageAssignmentOptions.set(null);
+    this.locationForm.reset(
+      {
+        inventory_id: null,
+        location_id: null,
+        batch_id: null,
+      },
+      { emitEvent: false },
+    );
+    this.locationForm.markAsPristine();
+    this.locationForm.markAsUntouched();
+    this.locationFormVersion.update((version) => version + 1);
+  }
+
+  private loadStorageAssignmentOptionsForCurrentItem(): void {
+    const itemId = this.canAssignLocation() ? this.toPositiveInt(this.pk()) : null;
+    if (itemId == null) {
+      this.resetStorageAssignmentState();
+      return;
+    }
+
+    this.storageAssignmentLoading.set(true);
+    this.storageAssignmentError.set(null);
+    this.replenishmentService.getStorageAssignmentOptions(itemId).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.storageAssignmentLoading.set(false)),
+    ).subscribe({
+      next: (options) => {
+        this.storageAssignmentOptions.set(options);
+        this.storageAssignmentError.set(null);
+        this.syncStorageAssignmentSelections();
+      },
+      error: (err) => {
+        this.storageAssignmentOptions.set(null);
+        this.storageAssignmentError.set(
+          String(err?.error?.detail || 'Failed to load storage assignment choices.'),
+        );
+      },
+    });
+  }
+
+  private syncStorageAssignmentSelections(): void {
+    const inventoryId = this.toPositiveInt(this.locationForm.controls.inventory_id.value);
+    if (inventoryId == null) {
+      return;
+    }
+
+    if (!this.hasStorageOption(this.inventoryAssignmentOptions(), inventoryId)) {
+      this.locationForm.reset(
+        {
+          inventory_id: null,
+          location_id: null,
+          batch_id: null,
+        },
+        { emitEvent: false },
+      );
+      this.locationFormVersion.update((version) => version + 1);
+      return;
+    }
+
+    const locationId = this.toPositiveInt(this.locationForm.controls.location_id.value);
+    if (locationId != null && !this.hasStorageOption(this.locationAssignmentOptions(), locationId)) {
+      this.locationForm.controls.location_id.setValue(null, { emitEvent: false });
+    }
+
+    const batchId = this.toPositiveInt(this.locationForm.controls.batch_id.value);
+    if (batchId != null && !this.hasStorageOption(this.batchAssignmentOptions(), batchId)) {
+      this.locationForm.controls.batch_id.setValue(null, { emitEvent: false });
+    }
+
+    this.locationFormVersion.update((version) => version + 1);
+  }
+
+  private hasStorageOption(options: StorageAssignmentOption[], value: number): boolean {
+    return options.some((option) => this.toPositiveInt(option.value) === value);
   }
 
   getFormErrorMessage(errorKey: string): string {

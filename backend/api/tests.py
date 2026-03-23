@@ -175,6 +175,39 @@ class RbacResolutionTests(TestCase):
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("masterdata.view", permissions)
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=True,
+    )
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value={"replenishment.needs_list.preview"},
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_dev_auth_preserves_role_bundle_when_db_rbac_returns_partial_permissions(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id="dev-user",
+            username="sysadmin.odpem+tst@odpem.gov.jm",
+            roles=["SYSTEM_ADMINISTRATOR"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn("replenishment.needs_list.preview", permissions)
+        self.assertIn("masterdata.create", permissions)
+        self.assertIn("masterdata.edit", permissions)
+
 
 class NeedsListPermissionTests(SimpleTestCase):
     def _build_request(self, method: str, *, authenticated: bool = True) -> SimpleNamespace:
