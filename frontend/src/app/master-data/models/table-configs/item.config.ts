@@ -172,6 +172,15 @@ export const ITEM_CONFIG: MasterTableConfig = {
       tooltip: 'FIFO issues oldest stock first. FEFO issues earliest expiry first (required when Can Expire is enabled). LIFO issues newest first.',
     },
     {
+      field: 'can_expire_flag',
+      label: 'Can Expire',
+      type: 'boolean',
+      defaultValue: false,
+      group: 'Inventory Rules',
+      hint: 'Tracks expiration dates. When enabled, Issuance Order must be set to FEFO.',
+      tooltip: 'ON for food, medicine, batteries, water tablets. OFF for tarpaulins, blankets, tools.',
+    },
+    {
       field: 'baseline_burn_rate',
       label: 'Baseline Burn Rate',
       type: 'number',
@@ -215,15 +224,6 @@ export const ITEM_CONFIG: MasterTableConfig = {
       group: 'Tracking & Behaviour',
       hint: 'Enable lot/batch tracking for stock movements.',
       tooltip: 'ON for canned food, medicine, donated goods. OFF for generic supplies like rope or nails.',
-    },
-    {
-      field: 'can_expire_flag',
-      label: 'Can Expire',
-      type: 'boolean',
-      defaultValue: false,
-      group: 'Tracking & Behaviour',
-      hint: 'Tracks expiration dates. When enabled, Issuance Order must be set to FEFO.',
-      tooltip: 'ON for food, medicine, batteries, water tablets. OFF for tarpaulins, blankets, tools.',
     },
     {
       field: 'units_size_vary_flag',

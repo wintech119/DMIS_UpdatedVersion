@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import date
 
 from django.conf import settings
 from django.db import DatabaseError, connection, transaction
@@ -128,6 +129,158 @@ def _ensure_itembatch_exists(inventory_id: int, item_id: int, batch_id: int) -> 
                 ),
                 status_code=404,
             )
+
+
+def _format_inventory_option_label(warehouse_name: object, inventory_id: int) -> str:
+    name = str(warehouse_name or "").strip()
+    return name or f"Warehouse {inventory_id}"
+
+
+def _format_location_option_label(location_desc: object, location_id: int) -> str:
+    description = str(location_desc or "").strip()
+    return description or f"Location {location_id}"
+
+
+def _format_batch_option_label(
+    *,
+    batch_id: int,
+    batch_no: object,
+    expiry_date: date | None,
+) -> str:
+    batch_label = str(batch_no or "").strip() or f"Batch {batch_id}"
+    if expiry_date is None:
+        return batch_label
+    return f"{batch_label} · Expires {expiry_date.isoformat()}"
+
+
+def _fetch_inventory_assignment_options(item_id: int) -> list[dict[str, object]]:
+    schema = _schema_name()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            WITH inventory_ids AS (
+                SELECT DISTINCT inventory_id
+                FROM {schema}.inventory
+                WHERE item_id = %s
+                UNION
+                SELECT DISTINCT inventory_id
+                FROM {schema}.itembatch
+                WHERE item_id = %s
+            )
+            SELECT inventory_ids.inventory_id, w.warehouse_name
+            FROM inventory_ids
+            LEFT JOIN {schema}.warehouse w
+              ON w.warehouse_id = inventory_ids.inventory_id
+            ORDER BY COALESCE(w.warehouse_name, ''), inventory_ids.inventory_id
+            """,
+            [item_id, item_id],
+        )
+        return [
+            {
+                "value": int(inventory_id),
+                "label": _format_inventory_option_label(warehouse_name, int(inventory_id)),
+                "detail": f"Internal inventory ID {int(inventory_id)}",
+            }
+            for inventory_id, warehouse_name in cursor.fetchall()
+        ]
+
+
+def _fetch_location_assignment_options(item_id: int) -> list[dict[str, object]]:
+    schema = _schema_name()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            WITH inventory_ids AS (
+                SELECT DISTINCT inventory_id
+                FROM {schema}.inventory
+                WHERE item_id = %s
+                UNION
+                SELECT DISTINCT inventory_id
+                FROM {schema}.itembatch
+                WHERE item_id = %s
+            )
+            SELECT l.location_id, l.inventory_id, l.location_desc
+            FROM {schema}.location l
+            INNER JOIN inventory_ids
+              ON inventory_ids.inventory_id = l.inventory_id
+            ORDER BY l.inventory_id, COALESCE(l.location_desc, ''), l.location_id
+            """,
+            [item_id, item_id],
+        )
+        return [
+            {
+                "value": int(location_id),
+                "inventory_id": int(inventory_id),
+                "label": _format_location_option_label(location_desc, int(location_id)),
+                "detail": f"Internal location ID {int(location_id)}",
+            }
+            for location_id, inventory_id, location_desc in cursor.fetchall()
+        ]
+
+
+def _fetch_batch_assignment_options(item_id: int) -> list[dict[str, object]]:
+    schema = _schema_name()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT batch_id, inventory_id, batch_no, expiry_date
+            FROM {schema}.itembatch
+            WHERE item_id = %s
+            ORDER BY inventory_id, COALESCE(batch_no, ''), expiry_date NULLS LAST, batch_id
+            """,
+            [item_id],
+        )
+        return [
+            {
+                "value": int(batch_id),
+                "inventory_id": int(inventory_id),
+                "label": _format_batch_option_label(
+                    batch_id=int(batch_id),
+                    batch_no=batch_no,
+                    expiry_date=expiry_date,
+                ),
+                "detail": f"Internal batch ID {int(batch_id)}",
+            }
+            for batch_id, inventory_id, batch_no, expiry_date in cursor.fetchall()
+        ]
+
+
+def get_storage_assignment_options(*, item_id: int) -> dict[str, object]:
+    if _is_sqlite():
+        raise LocationAssignmentError(
+            "db_unavailable",
+            "Storage assignment lookups require PostgreSQL and are unavailable in SQLite mode.",
+            status_code=503,
+        )
+
+    if item_id <= 0:
+        raise LocationAssignmentError(
+            "validation",
+            "item_id must be a positive integer.",
+            status_code=400,
+        )
+
+    is_batched = _fetch_item_batched_flag(item_id)
+
+    try:
+        return {
+            "item_id": item_id,
+            "is_batched": is_batched,
+            "inventories": _fetch_inventory_assignment_options(item_id),
+            "locations": _fetch_location_assignment_options(item_id),
+            "batches": _fetch_batch_assignment_options(item_id),
+        }
+    except DatabaseError as exc:
+        logger.warning(
+            "Storage assignment options lookup failed for item_id=%s: %s",
+            item_id,
+            exc,
+        )
+        raise LocationAssignmentError(
+            "location_storage_error",
+            "Unable to load storage assignment options because of a storage error.",
+            status_code=500,
+        ) from exc
 
 
 def _assign_item_location(

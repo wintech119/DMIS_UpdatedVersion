@@ -118,6 +118,21 @@ export interface AssignStorageLocationResponse {
   batch_id: number | null;
 }
 
+export interface StorageAssignmentOption {
+  value: number;
+  label: string;
+  detail?: string;
+  inventory_id?: number;
+}
+
+export interface StorageAssignmentOptionsResponse {
+  item_id: number;
+  is_batched: boolean;
+  inventories: StorageAssignmentOption[];
+  locations: StorageAssignmentOption[];
+  batches: StorageAssignmentOption[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -414,6 +429,14 @@ export class ReplenishmentService {
     return this.http.post<AssignStorageLocationResponse>(
       `${this.apiUrl}/inventory/location-assignment`,
       payload
+    );
+  }
+
+  getStorageAssignmentOptions(
+    itemId: number
+  ): Observable<StorageAssignmentOptionsResponse> {
+    return this.http.get<StorageAssignmentOptionsResponse>(
+      `${this.apiUrl}/inventory/location-assignment/options?item_id=${encodeURIComponent(String(itemId))}`
     );
   }
 

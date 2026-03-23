@@ -125,6 +125,39 @@ function buildResolvedSuggestion(overrides: Partial<IFRCSuggestion> = {}): IFRCS
   };
 }
 
+function buildStorageAssignmentOptions(overrides: Partial<{
+  item_id: number;
+  is_batched: boolean;
+  inventories: { value: number; label: string; detail?: string }[];
+  locations: { value: number; inventory_id: number; label: string; detail?: string }[];
+  batches: { value: number; inventory_id: number; label: string; detail?: string }[];
+}> = {}) {
+  return {
+    item_id: 17,
+    is_batched: true,
+    inventories: [
+      { value: 1, label: 'Kingston Central Depot', detail: 'Internal inventory ID 1' },
+      { value: 2, label: 'Montego Bay Hub', detail: 'Internal inventory ID 2' },
+    ],
+    locations: [
+      { value: 11, inventory_id: 1, label: 'Rack A-01', detail: 'Internal location ID 11' },
+      { value: 22, inventory_id: 2, label: 'Cold Room B-02', detail: 'Internal location ID 22' },
+    ],
+    batches: [
+      { value: 101, inventory_id: 1, label: 'LOT-101 · Expires 2026-04-01', detail: 'Internal batch ID 101' },
+      { value: 202, inventory_id: 2, label: 'LOT-202 · Expires 2026-05-15', detail: 'Internal batch ID 202' },
+    ],
+    ...overrides,
+  };
+}
+
+type MasterFormPageComponentTestAccess = MasterFormPageComponent & {
+  setLocalDraftMode(isActive: boolean): void;
+  isStepValid(stepIndex: number): boolean;
+  resetWizardUiState(): void;
+  loadStorageAssignmentOptionsForCurrentItem(): void;
+};
+
 describe('MasterFormPageComponent', () => {
   function setup(routePath = 'items', params: Record<string, string> = {}) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
@@ -146,7 +179,10 @@ describe('MasterFormPageComponent', () => {
       'showError',
       'showWarning',
     ]);
-    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', ['assignStorageLocation']);
+    const replenishmentService = jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', [
+      'assignStorageLocation',
+      'getStorageAssignmentOptions',
+    ]);
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
 
@@ -275,6 +311,7 @@ describe('MasterFormPageComponent', () => {
       location_id: 2,
       batch_id: null,
     }));
+    replenishmentService.getStorageAssignmentOptions.and.returnValue(of(buildStorageAssignmentOptions()));
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
 
     TestBed.configureTestingModule({
@@ -299,6 +336,7 @@ describe('MasterFormPageComponent', () => {
       masterDataService,
       ifrcSuggestService,
       notificationService,
+      replenishmentService,
       router,
       dialog,
     };
@@ -701,24 +739,117 @@ describe('MasterFormPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Local draft mode is active');
   });
 
-  it('keeps storage assignment visible in wizard edit flows before the review step', () => {
+  it('shows storage assignment on the review step instead of earlier wizard steps', () => {
     const { component, fixture } = setup('items', { pk: '17' });
 
     component.currentStep.set(0);
     fixture.detectChanges();
 
-    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
-
     expect(component.canAssignLocation()).toBeTrue();
     expect(component.isOnReviewStep()).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.location-assignment-section')).toBeNull();
+
+    component.currentStep.set(component.renderableFieldGroups().length);
+    fixture.detectChanges();
+
+    const assignmentSection = fixture.nativeElement.querySelector('.location-assignment-section') as HTMLElement | null;
+
+    expect(component.isOnReviewStep()).toBeTrue();
     expect(assignmentSection).not.toBeNull();
     expect(assignmentSection?.textContent).toContain('Storage Location Assignment');
+    expect(assignmentSection?.textContent).toContain('Kingston Central Depot');
+    expect(assignmentSection?.textContent).not.toContain('Inventory ID');
+  });
+
+  it('keeps Can Expire in the same wizard step as Issuance Order', () => {
+    const inventoryRulesGroup = ITEM_CONFIG.formFields.filter((field) => field.group === 'Inventory Rules');
+    const trackingGroup = ITEM_CONFIG.formFields.filter((field) => field.group === 'Tracking & Behaviour');
+
+    expect(inventoryRulesGroup.map((field) => field.field)).toContain('issuance_order');
+    expect(inventoryRulesGroup.map((field) => field.field)).toContain('can_expire_flag');
+    expect(trackingGroup.map((field) => field.field)).not.toContain('can_expire_flag');
+  });
+
+  it('filters storage locations and batches to the selected inventory_id', () => {
+    const { component } = setup('items', { pk: '17' });
+
+    component.locationForm.controls.inventory_id.setValue(2);
+
+    expect(component.locationAssignmentOptions().map((option) => option.label)).toEqual(['Cold Room B-02']);
+    expect(component.batchAssignmentOptions().map((option) => option.label)).toEqual(['LOT-202 · Expires 2026-05-15']);
+  });
+
+  it('uses persisted storage-assignment batching instead of the dirty form toggle', () => {
+    const { component, fixture, replenishmentService } = setup('items', { pk: '17' });
+
+    component.currentStep.set(component.renderableFieldGroups().length);
+    component.storageAssignmentOptions.set(buildStorageAssignmentOptions({
+      is_batched: false,
+      batches: [],
+    }));
+    component.form.get('is_batched_flag')?.setValue(true);
+    component.locationForm.patchValue({
+      inventory_id: 1,
+      location_id: 11,
+      batch_id: null,
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Batch / Lot');
+
+    component.onAssignStorageLocation();
+
+    expect(replenishmentService.assignStorageLocation).toHaveBeenCalledWith(jasmine.objectContaining({
+      item_id: 17,
+      inventory_id: 1,
+      location_id: 11,
+    }));
+  });
+
+  it('ignores stale storage-assignment option responses after a newer item load starts', () => {
+    const { component, replenishmentService } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
+    const firstResponse$ = new Subject<ReturnType<typeof buildStorageAssignmentOptions>>();
+    const secondResponse$ = new Subject<ReturnType<typeof buildStorageAssignmentOptions>>();
+
+    replenishmentService.getStorageAssignmentOptions.and.returnValues(
+      firstResponse$.asObservable(),
+      secondResponse$.asObservable(),
+    );
+
+    component.pk.set('17');
+    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+    component.pk.set('18');
+    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+
+    secondResponse$.next(buildStorageAssignmentOptions({
+      item_id: 18,
+      inventories: [{ value: 18, label: 'Shelter Warehouse', detail: 'Internal inventory ID 18' }],
+      locations: [{ value: 181, inventory_id: 18, label: 'Zone S-01', detail: 'Internal location ID 181' }],
+      batches: [{ value: 1801, inventory_id: 18, label: 'LOT-1801 · Expires 2026-06-01', detail: 'Internal batch ID 1801' }],
+    }));
+
+    expect(component.storageAssignmentOptions()?.item_id).toBe(18);
+    expect(component.inventoryAssignmentOptions().map((option) => option.label)).toEqual(['Shelter Warehouse']);
+    expect(component.storageAssignmentLoading()).toBeFalse();
+
+    firstResponse$.next(buildStorageAssignmentOptions({
+      item_id: 17,
+      inventories: [{ value: 17, label: 'Stale Warehouse', detail: 'Internal inventory ID 17' }],
+      locations: [{ value: 171, inventory_id: 17, label: 'Stale Location', detail: 'Internal location ID 171' }],
+      batches: [{ value: 1701, inventory_id: 17, label: 'LOT-1701 · Expires 2026-05-01', detail: 'Internal batch ID 1701' }],
+    }));
+
+    expect(component.storageAssignmentOptions()?.item_id).toBe(18);
+    expect(component.inventoryAssignmentOptions().map((option) => option.label)).toEqual(['Shelter Warehouse']);
+    expect(component.storageAssignmentLoading()).toBeFalse();
   });
 
   it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {
     const { component, fixture } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
 
-    (component as any).setLocalDraftMode(true);
+    testAccess.setLocalDraftMode(true);
     component.currentStep.set(1);
     fixture.detectChanges();
 
@@ -740,6 +871,7 @@ describe('MasterFormPageComponent', () => {
 
   it('treats form-level FEFO validation errors as invalid for the affected wizard step', () => {
     const { component } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
     const stepIndex = component.renderableFieldGroups().findIndex((group) => (
       group.fields.some((field) => field.field === 'issuance_order')
     ));
@@ -752,7 +884,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(stepIndex).toBeGreaterThanOrEqual(0);
     expect(component.form.hasError('fefoRequiresExpiry')).toBeTrue();
-    expect((component as any).isStepValid(stepIndex)).toBeFalse();
+    expect(testAccess.isStepValid(stepIndex)).toBeFalse();
   });
 
   it('includes the governed taxonomy in the review step summary', () => {
@@ -776,6 +908,7 @@ describe('MasterFormPageComponent', () => {
 
   it('resets wizard-only UI state before loading a different record', () => {
     const { component } = setup('items', { pk: '17' });
+    const testAccess = component as unknown as MasterFormPageComponentTestAccess;
 
     component.currentStep.set(3);
     component.ifrcAppliedConfirmation.set({
@@ -786,7 +919,7 @@ describe('MasterFormPageComponent', () => {
     component.ifrcCodeUpdatedOnStep1.set(true);
     component.expandedCandidateIds.set(new Set([401]));
 
-    (component as any).resetWizardUiState();
+    testAccess.resetWizardUiState();
 
     expect(component.currentStep()).toBe(0);
     expect(component.ifrcAppliedConfirmation()).toBeNull();
