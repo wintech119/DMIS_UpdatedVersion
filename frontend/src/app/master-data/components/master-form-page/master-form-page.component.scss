@@ -633,6 +633,8 @@ fieldset.form-grid {
 
 // ── Collapsible rationale ──
 .ifrc-rationale-details {
+  display: block;
+  margin-top: 8px;
   border: none;
 }
 

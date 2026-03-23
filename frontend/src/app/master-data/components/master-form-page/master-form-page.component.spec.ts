@@ -716,10 +716,14 @@ describe('MasterFormPageComponent', () => {
   });
 
   it('disables Next and returns to the first invalid earlier step when wizard prerequisites change later', () => {
-    const { component, fixture } = setup();
+    const { component, fixture } = setup('items', { pk: '17' });
 
-    component.currentStep.set(1);
     (component as any).setLocalDraftMode(true);
+    component.currentStep.set(1);
+    fixture.detectChanges();
+
+    expect(component.canGoNext()).toBeTrue();
+
     component.form.get('legacy_item_code')?.setValue('');
     component.form.get('legacy_item_code')?.markAsTouched();
     fixture.detectChanges();
@@ -1234,7 +1238,12 @@ describe('MasterFormPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Corned beef, canned');
 
     // Variant details are now behind progressive disclosure — expand to verify
-    component.expandedCandidateIds.set(new Set([502]));
+    const toggle = fixture.nativeElement.querySelector(
+      '[aria-controls="ifrc-candidate-details-502"]',
+    ) as HTMLButtonElement | null;
+
+    expect(toggle).not.toBeNull();
+    toggle?.click();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('500 G');
   });

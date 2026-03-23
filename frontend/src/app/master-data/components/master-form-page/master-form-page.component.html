@@ -878,18 +878,16 @@
                               <dd>{{ detail.value }}</dd>
                             </div>
                           }
-                          @if (suggestion.construction_rationale) {
-                            <div class="colspan-2">
-                              <details class="ifrc-rationale-details">
-                                <summary class="ifrc-rationale-summary">
-                                  <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
-                                  Search Rationale
-                                </summary>
-                                <dd class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</dd>
-                              </details>
-                            </div>
-                          }
                         </dl>
+                        @if (suggestion.construction_rationale) {
+                          <details class="ifrc-rationale-details">
+                            <summary class="ifrc-rationale-summary">
+                              <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
+                              Search Rationale
+                            </summary>
+                            <div class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</div>
+                          </details>
+                        }
 
                         @if (getIfrcSuggestionExplanation(); as explanation) {
                           <p
@@ -901,7 +899,7 @@
                         }
 
                         @if (shouldShowSuggestionCandidates()) {
-                          <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
+                          <div class="ifrc-suggestion-card__candidate-list" role="radiogroup" aria-label="Governed IFRC candidates">
                             @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
                               <div
                                 class="ifrc-suggestion-candidate"
@@ -910,7 +908,8 @@
                                 <button
                                   class="ifrc-suggestion-candidate__select"
                                   type="button"
-                                  [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                                  role="radio"
+                                  [attr.aria-checked]="isSuggestionCandidateSelected(candidate)"
                                   (click)="onSelectSuggestionCandidate(candidate)">
                                   <div class="ifrc-suggestion-candidate__header">
                                     <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
@@ -1679,31 +1678,30 @@
                         @if (getSuggestedIfrcCode(); as suggestedCode) { <div><dt>Governed IFRC Code</dt><dd>{{ suggestedCode }}</dd></div> }
                         @if (getResolvedSuggestionReferenceLabel(); as suggestionReference) { <div><dt>Governed Reference</dt><dd>{{ suggestionReference }}</dd></div> }
                         @for (detail of getResolvedSuggestionVariantDetails(); track detail.label) { <div><dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd></div> }
-                        @if (suggestion.construction_rationale) {
-                          <div class="colspan-2">
-                            <details class="ifrc-rationale-details">
-                              <summary class="ifrc-rationale-summary">
-                                <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
-                                Search Rationale
-                              </summary>
-                              <dd class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</dd>
-                            </details>
-                          </div>
-                        }
                       </dl>
+                      @if (suggestion.construction_rationale) {
+                        <details class="ifrc-rationale-details">
+                          <summary class="ifrc-rationale-summary">
+                            <mat-icon class="ifrc-rationale-chevron">expand_more</mat-icon>
+                            Search Rationale
+                          </summary>
+                          <div class="ifrc-rationale-body">{{ suggestion.construction_rationale }}</div>
+                        </details>
+                      }
                       @if (getIfrcSuggestionExplanation(); as explanation) {
                         <p class="ifrc-suggestion-card__message"
                           [class.info]="ifrcSuggestionResolution()?.status !== 'unresolved'"
                           [class.warning]="ifrcSuggestionResolution()?.status === 'unresolved'">{{ explanation }}</p>
                       }
                       @if (shouldShowSuggestionCandidates()) {
-                        <div class="ifrc-suggestion-card__candidate-list" aria-label="Governed IFRC candidates">
+                        <div class="ifrc-suggestion-card__candidate-list" role="radiogroup" aria-label="Governed IFRC candidates">
                           @for (candidate of getSuggestionCandidates(); track candidate.reference.value) {
                             <div class="ifrc-suggestion-candidate"
                               [class.is-selected]="isSuggestionCandidateSelected(candidate)"
                               [class.is-auto-highlight]="isSuggestionCandidateAutoHighlighted(candidate)">
                               <button class="ifrc-suggestion-candidate__select" type="button"
-                                [attr.aria-pressed]="isSuggestionCandidateSelected(candidate)"
+                                role="radio"
+                                [attr.aria-checked]="isSuggestionCandidateSelected(candidate)"
                                 (click)="onSelectSuggestionCandidate(candidate)">
                                 <div class="ifrc-suggestion-candidate__header">
                                   <span class="ifrc-suggestion-candidate__title">#{{ candidate.rank }} {{ candidate.reference.label }}</span>
