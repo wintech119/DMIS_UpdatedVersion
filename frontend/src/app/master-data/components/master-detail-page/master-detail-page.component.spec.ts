@@ -19,7 +19,7 @@ describe('MasterDetailPageComponent', () => {
     pk = '14',
     editGuidance: CatalogEditGuidance | null = null,
   ) {
-    const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', ['get', 'inactivate', 'activate']);
+    const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', ['get', 'inactivate', 'activate', 'lookup']);
     const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
       'showSuccess',
       'showError',
@@ -43,6 +43,16 @@ describe('MasterDetailPageComponent', () => {
       warnings: [],
       edit_guidance: editGuidance ?? undefined,
     }));
+    masterDataService.lookup.and.callFake((tableKey: string) => {
+      if (tableKey === 'uom') {
+        return of([
+          { value: 'EA', label: 'Each' },
+          { value: 'BX', label: 'Box' },
+          { value: 'CS', label: 'Case' },
+        ]);
+      }
+      return of([]);
+    });
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
 
     TestBed.configureTestingModule({
@@ -169,6 +179,8 @@ describe('MasterDetailPageComponent', () => {
     const conversionsSection = fixture.nativeElement.querySelector('.detail-uom-conversions') as HTMLElement | null;
     expect(conversionsSection).toBeTruthy();
     expect(conversionsSection?.textContent).toContain('Each');
+    expect(conversionsSection?.textContent).toContain('Box');
+    expect(conversionsSection?.textContent).toContain('Case');
     expect(conversionsSection?.textContent).toContain('24');
     expect(conversionsSection?.textContent).toContain('144');
   });

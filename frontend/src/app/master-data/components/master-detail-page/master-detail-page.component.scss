@@ -188,7 +188,7 @@
   border-radius: var(--radius-inner, 6px);
 }
 
-.detail-uom-conversions__rows > .detail-uom-row:nth-child(even) {
+.detail-uom-conversions__rows > .detail-uom-row:not(.detail-uom-row--default):nth-child(even) {
   background: color-mix(in srgb, var(--color-surface) 97%, var(--color-text-primary));
 }
 

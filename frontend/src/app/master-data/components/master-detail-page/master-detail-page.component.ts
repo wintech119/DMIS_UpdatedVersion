@@ -27,6 +27,13 @@ interface DetailFieldGroup {
   fields: MasterFieldConfig[];
 }
 
+interface DetailUomConversion {
+  uom_code: string;
+  conversion_factor: number;
+  is_default?: boolean;
+  label?: string;
+}
+
 @Component({
   selector: 'dmis-master-detail-page',
   standalone: true,
@@ -55,7 +62,7 @@ export class MasterDetailPageComponent implements OnInit {
   editGuidance = signal<CatalogEditGuidance | null>(null);
   isLoading = signal(true);
   pk = signal<string | number | null>(null);
-  itemUomConversions = signal<{uom_code: string; conversion_factor: number; is_default?: boolean}[]>([]);
+  itemUomConversions = signal<DetailUomConversion[]>([]);
 
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
 
@@ -153,15 +160,23 @@ export class MasterDetailPageComponent implements OnInit {
 
         // Extract UOM conversions for item records
         const uomOptions = res.record['uom_options'] as
-          Array<{ uom_code: string; conversion_factor: number; is_default?: boolean }> | undefined;
+          Array<{ uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }> | undefined;
         if (Array.isArray(uomOptions)) {
-          this.itemUomConversions.set(
-            uomOptions.map(o => ({
-              uom_code: o.uom_code,
-              conversion_factor: o.conversion_factor,
-              is_default: o.is_default,
-            })),
-          );
+          this.service.lookup('uom').pipe(
+            takeUntilDestroyed(this.destroyRef),
+          ).subscribe({
+            next: (uomLookup) => {
+              if (requestId !== this.latestRecordRequestId) return;
+              this.itemUomConversions.set(this.mapItemUomConversions(uomOptions, uomLookup));
+              this.isLoading.set(false);
+            },
+            error: () => {
+              if (requestId !== this.latestRecordRequestId) return;
+              this.itemUomConversions.set(this.mapItemUomConversions(uomOptions));
+              this.isLoading.set(false);
+            },
+          });
+          return;
         } else {
           this.itemUomConversions.set([]);
         }
@@ -350,7 +365,40 @@ export class MasterDetailPageComponent implements OnInit {
     if (record && String(record['default_uom_code']).toUpperCase() === uomCode.toUpperCase()) {
       return this.getDefaultUomLabel();
     }
+
+    const storedLabel = this.itemUomConversions()
+      .find((entry) => entry.uom_code.toUpperCase() === uomCode.toUpperCase())
+      ?.label;
+    if (storedLabel) {
+      return storedLabel;
+    }
+
     return uomCode;
+  }
+
+  private mapItemUomConversions(
+    uomOptions: Array<{ uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }>,
+    uomLookup: Array<{ value: string | number; label: string }> = [],
+  ): DetailUomConversion[] {
+    return uomOptions.map((option) => ({
+      uom_code: option.uom_code,
+      conversion_factor: option.conversion_factor,
+      is_default: option.is_default,
+      label: this.resolveUomOptionLabel(option, uomLookup),
+    }));
+  }
+
+  private resolveUomOptionLabel(
+    option: { uom_code: string; label?: string; uom_desc?: string },
+    uomLookup: Array<{ value: string | number; label: string }>,
+  ): string | undefined {
+    const explicitLabel = String(option.label ?? option.uom_desc ?? '').trim();
+    if (explicitLabel) {
+      return explicitLabel;
+    }
+
+    const lookupMatch = uomLookup.find((entry) => String(entry.value).toUpperCase() === option.uom_code.toUpperCase());
+    return lookupMatch?.label;
   }
 
   private toPositiveInt(value: unknown): number | null {
