@@ -374,7 +374,9 @@ export class MasterDetailPageComponent implements OnInit {
     if (!uomCode) return '';
     // Check if it's the default UOM
     const record = this.record();
-    if (record && String(record['default_uom_code']).toUpperCase() === uomCode.toUpperCase()) {
+    const normalizedDefaultUomCode = this.normalizeUomCode(record?.['default_uom_code']);
+    const normalizedUomCode = this.normalizeUomCode(uomCode);
+    if (normalizedDefaultUomCode && normalizedDefaultUomCode === normalizedUomCode) {
       return this.getDefaultUomLabel();
     }
 
