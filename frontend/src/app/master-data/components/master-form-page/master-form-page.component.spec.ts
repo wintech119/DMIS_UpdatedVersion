@@ -2083,15 +2083,28 @@ describe('MasterFormPageComponent', () => {
     expect(component.itemUomConversions()).toEqual([]);
   });
 
-  it('addUomConversion adds a row with empty uom_code and factor 1', () => {
+  it('addUomConversion adds a row with the next available alternate UOM and factor 1', () => {
     const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
     component.addUomConversion();
+
     expect(component.itemUomConversions().length).toBe(1);
-    expect(component.itemUomConversions()[0]).toEqual({ uom_code: '', conversion_factor: 1 });
+    expect(component.itemUomConversions()[0]).toEqual({ uom_code: 'BX', conversion_factor: 1 });
   });
 
   it('removeUomConversion removes the row at the given index', () => {
     const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+      { value: 'CS', label: 'Case' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
     component.addUomConversion();
     component.addUomConversion();
     component.updateUomConversionUom(0, 'BX');
@@ -2183,6 +2196,11 @@ describe('MasterFormPageComponent', () => {
   it('buildPreparedFormPayload includes uom_options from itemUomConversions', () => {
     const { component } = setup('items');
     populateRequiredCreateFields(component);
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
     component.addUomConversion();
     component.updateUomConversionUom(0, 'BX');
     component.updateUomConversionFactor(0, 24);
@@ -2193,8 +2211,30 @@ describe('MasterFormPageComponent', () => {
     ]);
   });
 
+  it('buildPreparedFormPayload rejects invalid rendered item UOM conversions', () => {
+    const { component } = setup('items');
+    populateRequiredCreateFields(component);
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
+    component.addUomConversion();
+    component.updateUomConversionFactor(0, Number.NaN);
+
+    expect(component.form.hasError('invalidItemUomConversions')).toBeTrue();
+    expect(() => component['buildPreparedFormPayload'](ITEM_CONFIG)).toThrowError(
+      'Item UOM conversions contain invalid rows.',
+    );
+  });
+
   it('changing default_uom_code with existing alternates clears on confirm', () => {
     const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
     component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
     (component as any).previousDefaultUom = 'EA';
 
@@ -2211,6 +2251,10 @@ describe('MasterFormPageComponent', () => {
 
   it('changing default_uom_code with existing alternates reverts on cancel', () => {
     const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
     component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
     (component as any).previousDefaultUom = 'EA';
 
@@ -2233,6 +2277,8 @@ describe('MasterFormPageComponent', () => {
     component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
 
     expect(component.availableAlternateUoms().length).toBe(0);
+    component.addUomConversion();
+    expect(component.itemUomConversions().length).toBe(0);
   });
 });
 

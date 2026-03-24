@@ -47,7 +47,7 @@
     <mat-progress-bar mode="indeterminate" />
   } @else if (record(); as r) {
     <div class="detail-content">
-      @for (group of fieldGroups(); track group.label; let first = $first) {
+      @for (group of fieldGroups(); track group.key; let first = $first) {
         <section class="detail-section" [attr.aria-label]="group.label + ' section'">
           <h3 class="section-title">
             <mat-icon class="section-icon">{{ getSectionIcon(fieldGroups().length === 1 ? 'General' : group.label) }}</mat-icon>
@@ -83,24 +83,26 @@
               </div>
             }
           </div>
-          @if (group.label === 'UOM & Conversions' && isItemRecord() && itemUomConversions().length > 0) {
+          @if (group.key === 'uom-conversions' && isItemRecord() && itemUomConversions().length > 0) {
             <div class="detail-uom-conversions" aria-label="UOM conversion rows">
               <h4 class="detail-uom-conversions__title">Conversion Table</h4>
-              @for (conv of itemUomConversions(); track conv.uom_code) {
-                <div class="detail-uom-row" [class.detail-uom-row--default]="conv.is_default">
-                  <span class="detail-uom-row__uom">
-                    {{ getUomLabel(conv.uom_code) || conv.uom_code }}
-                  </span>
-                  <span class="detail-uom-row__factor">
-                    @if (conv.is_default) {
-                      1 (default)
-                      <mat-icon class="detail-uom-row__lock" aria-hidden="true">lock</mat-icon>
-                    } @else {
-                      {{ conv.conversion_factor }} {{ getDefaultUomLabel() }}
-                    }
-                  </span>
-                </div>
-              }
+              <div class="detail-uom-conversions__rows">
+                @for (conv of itemUomConversions(); track conv.uom_code) {
+                  <div class="detail-uom-row" [class.detail-uom-row--default]="conv.is_default">
+                    <span class="detail-uom-row__uom">
+                      {{ getUomLabel(conv.uom_code) || conv.uom_code }}
+                    </span>
+                    <span class="detail-uom-row__factor">
+                      @if (conv.is_default) {
+                        1 (default)
+                        <mat-icon class="detail-uom-row__lock" aria-hidden="true">lock</mat-icon>
+                      } @else {
+                        {{ conv.conversion_factor }} {{ getDefaultUomLabel() }}
+                      }
+                    </span>
+                  </div>
+                }
+              </div>
             </div>
           }
         </section>

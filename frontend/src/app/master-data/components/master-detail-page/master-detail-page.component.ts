@@ -21,6 +21,12 @@ import { DmisNotificationService } from '../../../replenishment/services/notific
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 
+interface DetailFieldGroup {
+  key: string;
+  label: string;
+  fields: MasterFieldConfig[];
+}
+
 @Component({
   selector: 'dmis-master-detail-page',
   standalone: true,
@@ -87,17 +93,24 @@ export class MasterDetailPageComponent implements OnInit {
   fieldGroups = computed(() => {
     const cfg = this.config();
     if (!cfg) return [];
-    const groups: { label: string; fields: MasterFieldConfig[] }[] = [];
-    const seen = new Map<string, MasterFieldConfig[]>();
+    const groups: DetailFieldGroup[] = [];
+    const seen = new Map<string, DetailFieldGroup>();
+    const usedKeys = new Map<string, number>();
 
     for (const f of cfg.formFields) {
       if (f.group === 'Status') continue;
       const groupLabel = f.group || 'General';
-      if (!seen.has(groupLabel)) {
-        seen.set(groupLabel, []);
-        groups.push({ label: groupLabel, fields: seen.get(groupLabel)! });
+      let group = seen.get(groupLabel);
+      if (!group) {
+        group = {
+          key: this.buildFieldGroupKey(groupLabel, usedKeys),
+          label: groupLabel,
+          fields: [],
+        };
+        seen.set(groupLabel, group);
+        groups.push(group);
       }
-      seen.get(groupLabel)!.push(f);
+      group.fields.push(f);
     }
     return groups;
   });
@@ -270,6 +283,21 @@ export class MasterDetailPageComponent implements OnInit {
 
   getSectionIcon(groupLabel: string): string {
     return this.sectionIconMap[groupLabel] || 'folder';
+  }
+
+  private buildFieldGroupKey(label: string, usedKeys: Map<string, number>): string {
+    const slugBase = this.slugifyFieldGroupLabel(label) || 'general';
+    const duplicateCount = usedKeys.get(slugBase) ?? 0;
+    usedKeys.set(slugBase, duplicateCount + 1);
+    return duplicateCount === 0 ? slugBase : `${slugBase}-${duplicateCount + 1}`;
+  }
+
+  private slugifyFieldGroupLabel(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   getDisplayValue(field: MasterFieldConfig, value: unknown): string {

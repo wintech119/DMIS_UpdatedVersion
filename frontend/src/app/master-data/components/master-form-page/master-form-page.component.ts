@@ -115,6 +115,18 @@ interface FormFieldGroup {
   fields: MasterFieldConfig[];
 }
 
+interface ItemUomConversionRow {
+  uom_code: string;
+  conversion_factor: number | null;
+}
+
+class ItemUomConversionValidationError extends Error {
+  constructor(readonly details: string[]) {
+    super('Item UOM conversions contain invalid rows.');
+    this.name = 'ItemUomConversionValidationError';
+  }
+}
+
 @Component({
   selector: 'dmis-master-form-page',
   standalone: true,
@@ -184,7 +196,7 @@ export class MasterFormPageComponent implements OnInit {
   referenceSearchControl = new FormControl<string>('', { nonNullable: true });
 
   // ── Item UOM Conversion state ──
-  itemUomConversions = signal<{uom_code: string; conversion_factor: number}[]>([]);
+  itemUomConversions = signal<ItemUomConversionRow[]>([]);
   private previousDefaultUom: string | null = null;
 
   availableAlternateUoms = computed(() => {
@@ -438,6 +450,7 @@ export class MasterFormPageComponent implements OnInit {
       this.form.setValidators([
         validateFefoRequiresExpiry,
         (control) => this.validateItemClassification(control),
+        (control) => this.validateItemUomConversions(control),
       ]);
       this.updateLocalDraftFieldValidators();
       this.form.updateValueAndValidity({ emitEvent: false });
@@ -602,7 +615,7 @@ export class MasterFormPageComponent implements OnInit {
         );
         if (confirmed) {
           this.itemUomConversions.set([]);
-          this.formStateVersion.update(v => v + 1);
+          this.syncItemUomConversionState();
           this.previousDefaultUom = newValue ?? null;
         } else {
           defaultUomControl.setValue(previousValue, { emitEvent: false });
@@ -610,6 +623,7 @@ export class MasterFormPageComponent implements OnInit {
         }
       } else {
         this.previousDefaultUom = newValue ?? null;
+        this.form.updateValueAndValidity({ emitEvent: false });
       }
     });
   }
@@ -1790,6 +1804,16 @@ export class MasterFormPageComponent implements OnInit {
 
   onSave(): void {
     this.clearSubmissionError();
+    this.form.updateValueAndValidity({ emitEvent: false });
+
+    if (this.form.hasError('invalidItemUomConversions')) {
+      this.form.markAllAsTouched();
+      this.handleInvalidItemUomConversionSubmission();
+      if (this.isWizardMode()) {
+        this.navigateToFirstInvalidStep();
+      }
+      return;
+    }
 
     if (!this.form.valid) {
       this.form.markAllAsTouched();
@@ -1813,8 +1837,22 @@ export class MasterFormPageComponent implements OnInit {
       return;
     }
 
+    let rawData: MasterRecord;
+    try {
+      rawData = this.buildPreparedFormPayload(cfg);
+    } catch (error) {
+      if (error instanceof ItemUomConversionValidationError) {
+        this.form.markAllAsTouched();
+        this.handleInvalidItemUomConversionSubmission(error.details);
+        if (this.isWizardMode()) {
+          this.navigateToFirstInvalidStep();
+        }
+        return;
+      }
+      throw error;
+    }
+
     this.isSaving.set(true);
-    const rawData = this.buildPreparedFormPayload(cfg);
 
     const obs$ = isReplacementSave
       ? this.service.createCatalogReplacement(
@@ -2368,8 +2406,7 @@ export class MasterFormPageComponent implements OnInit {
     }
 
     if (cfg.tableKey === 'items') {
-      const conversions = this.itemUomConversions()
-        .filter(c => c.uom_code && c.conversion_factor > 0);
+      const conversions = this.getValidatedItemUomConversions();
       rawData['uom_options'] = conversions.map(c => ({
         uom_code: c.uom_code,
         conversion_factor: c.conversion_factor,
@@ -2654,33 +2691,38 @@ export class MasterFormPageComponent implements OnInit {
   }
 
   addUomConversion(): void {
+    const [nextAlternateUom] = this.availableAlternateUoms();
+    if (!nextAlternateUom) {
+      return;
+    }
+
     this.itemUomConversions.update(current => [
       ...current,
-      { uom_code: '', conversion_factor: 1 },
+      { uom_code: String(nextAlternateUom.value ?? ''), conversion_factor: 1 },
     ]);
-    this.formStateVersion.update(v => v + 1);
+    this.syncItemUomConversionState();
   }
 
   removeUomConversion(index: number): void {
     this.itemUomConversions.update(current =>
       current.filter((_, i) => i !== index),
     );
-    this.formStateVersion.update(v => v + 1);
+    this.syncItemUomConversionState();
   }
 
   updateUomConversionUom(index: number, uomCode: string): void {
     this.itemUomConversions.update(current =>
       current.map((row, i) => i === index ? { ...row, uom_code: uomCode } : row),
     );
-    this.formStateVersion.update(v => v + 1);
+    this.syncItemUomConversionState();
   }
 
   updateUomConversionFactor(index: number, factor: number): void {
-    if (isNaN(factor) || factor <= 0) return;
+    const nextFactor = Number.isNaN(factor) ? null : factor;
     this.itemUomConversions.update(current =>
-      current.map((row, i) => i === index ? { ...row, conversion_factor: factor } : row),
+      current.map((row, i) => i === index ? { ...row, conversion_factor: nextFactor } : row),
     );
-    this.formStateVersion.update(v => v + 1);
+    this.syncItemUomConversionState();
   }
 
   isItemFamilyRequired(): boolean {
@@ -3690,7 +3732,71 @@ export class MasterFormPageComponent implements OnInit {
       return true;
     }
 
+    if (group.key === 'uom-conversions' && this.form.hasError('invalidItemUomConversions')) {
+      return true;
+    }
+
     return false;
+  }
+
+  private validateItemUomConversions(_: AbstractControl): ValidationErrors | null {
+    if (this.config()?.tableKey !== 'items') {
+      return null;
+    }
+
+    return this.getItemUomConversionValidationDetails().length > 0
+      ? { invalidItemUomConversions: true }
+      : null;
+  }
+
+  private getItemUomConversionValidationDetails(): string[] {
+    return this.itemUomConversions().flatMap((row, index) => {
+      const details: string[] = [];
+      const rowNumber = index + 1;
+      const normalizedUomCode = row.uom_code.trim();
+
+      if (!normalizedUomCode) {
+        details.push(`Item UOM conversion row ${rowNumber} is missing an alternate UOM.`);
+      }
+
+      if (row.conversion_factor == null) {
+        details.push(`Item UOM conversion row ${rowNumber} is missing the units-in-alternate value.`);
+      } else if (row.conversion_factor <= 0) {
+        details.push(`Item UOM conversion row ${rowNumber} must use a conversion factor greater than 0.`);
+      }
+
+      return details;
+    });
+  }
+
+  private getValidatedItemUomConversions(): { uom_code: string; conversion_factor: number }[] {
+    const details = this.getItemUomConversionValidationDetails();
+    if (details.length > 0) {
+      throw new ItemUomConversionValidationError(details);
+    }
+
+    return this.itemUomConversions().map((row) => ({
+      uom_code: row.uom_code.trim(),
+      conversion_factor: row.conversion_factor as number,
+    }));
+  }
+
+  private handleInvalidItemUomConversionSubmission(details = this.getItemUomConversionValidationDetails()): void {
+    this.setSubmissionError(
+      'Please complete each item UOM conversion row before saving.',
+      details,
+      'submitFailure',
+    );
+    this.notify.showWarning('Please fix the validation errors.');
+  }
+
+  private syncItemUomConversionState(): void {
+    this.form.markAsDirty();
+    this.formStateVersion.update(v => v + 1);
+    this.form.updateValueAndValidity({ emitEvent: false });
+    if (this.submissionError()) {
+      this.clearSubmissionError();
+    }
   }
 
   private markStepFieldsTouched(stepIndex: number): void {

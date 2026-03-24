@@ -175,16 +175,21 @@
   letter-spacing: 0.04em;
 }
 
+.detail-uom-conversions__rows {
+  display: grid;
+  gap: 4px;
+}
+
 .detail-uom-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
   border-radius: var(--radius-inner, 6px);
+}
 
-  &:nth-child(even) {
-    background: color-mix(in srgb, var(--color-surface) 97%, var(--color-text-primary));
-  }
+.detail-uom-conversions__rows > .detail-uom-row:nth-child(even) {
+  background: color-mix(in srgb, var(--color-surface) 97%, var(--color-text-primary));
 }
 
 .detail-uom-row--default {

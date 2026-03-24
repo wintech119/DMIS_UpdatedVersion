@@ -439,7 +439,7 @@ Evidence to capture:
 3. If batch or lot is required, select the available active batch for this item.
 4. In `Source UOM`, select `EA`.
 5. In `Source Quantity`, type `10`.
-6. In `Target UOM`, select the alternate UOM created in Step 8.
+6. In `Target UOM`, select the alternate UOM created in Step 7.
 7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `10 EA` converts at `10:1`, the computed target quantity should display `1` in the target UOM.
 8. In `Reason`, type `SPLIT_EACHES`.
 9. Click `Preview`, `Validate`, or the equivalent pre-submit action if present.
