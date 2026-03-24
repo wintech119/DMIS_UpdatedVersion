@@ -71,6 +71,10 @@ Use the following values unless they already exist. If a value already exists, g
 | SKU Code | `SKU-S07-WTAB-100` |
 | Item Description | `Water purification tablet, 100 tabs, chlorine based, emergency response stock` |
 | Default UOM | `EA` |
+| Alternate UOM 1 | `CASE` |
+| Units in Alternate UOM 1 | `24` |
+| Alternate UOM 2 | `PACK` |
+| Units in Alternate UOM 2 | `6` |
 | Reorder Quantity | `100` |
 | Baseline Burn Rate | `10` |
 | Min Stock Threshold | `75` |
@@ -90,7 +94,7 @@ Before executing the use case, confirm:
 3. At least one valid custodian exists for warehouse creation.
 4. At least one parish exists for warehouse and agency setup.
 5. At least one UOM such as `EA` exists and is active.
-6. UOM conversion setup and UOM repackaging UI are available in the environment.
+6. Item Master Step 3 includes the inline `Item UOM Conversions` section and the UOM repackaging UI is available in the environment.
 7. Inventory stock exists for the test item before running the repackaging steps.
 8. A stock-health view is available either in Item detail, Inventory, or the Stock Status Dashboard.
 
@@ -263,7 +267,7 @@ Evidence to capture:
 
 ## Use Case 3: Create Item Master and Validate Rules
 
-### Step 7. Create Item
+### Step 7. Create Item And Configure Inline UOM Conversions
 
 1. In `Master Data`, click `Items`.
 2. Click `New` or `Add Item`.
@@ -284,11 +288,19 @@ Evidence to capture:
 17. Ensure `Batch Tracked` is enabled.
 18. Ensure `Can Expire` is enabled.
 19. Leave `Units Size Vary` disabled.
-20. In `Usage Description`, type `Issued to shelters and field teams during water safety response`.
-21. In `Storage Description`, type `Store in a cool dry area and rotate by expiry`.
-22. In `Comments`, type `Sprint 07 user acceptance test item`.
-23. In `Status`, leave `Active`.
-24. Click `Save`.
+20. In the same Step 3 `UOM & Conversions` screen, locate the inline `Item UOM Conversions` section near `Default UOM`.
+21. Confirm the section shows that the default UOM is treated as `1` or is otherwise marked as system-managed.
+22. Click `Add Conversion`.
+23. In `Alternate UOM`, select `CASE`.
+24. In `Units in Alternate UOM`, type `24`.
+25. Click `Add Conversion` again.
+26. In the new row, select `PACK` for `Alternate UOM`.
+27. In `Units in Alternate UOM`, type `6`.
+28. In `Usage Description`, type `Issued to shelters and field teams during water safety response`.
+29. In `Storage Description`, type `Store in a cool dry area and rotate by expiry`.
+30. In `Comments`, type `Sprint 07 user acceptance test item`.
+31. In `Status`, leave `Active`.
+32. Click `Save`.
 
 Expected result:
 
@@ -296,31 +308,33 @@ Expected result:
 - the item code is generated or retained correctly
 - the item remains linked to the chosen IFRC family and IFRC reference
 - `FEFO` and `Can Expire` remain aligned after save
+- the inline `Item UOM Conversions` entries for `CASE = 24` and `PACK = 6` save successfully
 - the record appears active in the item list
 
 Evidence to capture:
 
 - saved item detail page
+- screenshot of Step 3 `UOM & Conversions` showing the inline `Item UOM Conversions` section before save
 
-### Step 8. Verify UOM Conversion Setup Exists For The Item
+### Step 8. Verify Inline UOM Conversion Setup Persists On Edit
 
-1. From the saved item page, open the item UOM conversion area or the equivalent Sprint 07 UOM conversion maintenance entry point.
-2. Click `Add Conversion`, `Add UOM`, or the equivalent button.
-3. Create or verify at least one alternate conversion for the saved item.
-4. Use source UOM `EA`.
-5. Use a target UOM that is valid in the environment, such as `BOX`, `PACK`, or another configured operational UOM.
-6. Enter a conversion factor that supports an exact calculation, such as `10 EA = 1 PACK`.
-7. Save the conversion.
+1. From the saved item page, click `Edit`.
+2. Return to Step 3: `UOM & Conversions`.
+3. Locate the inline `Item UOM Conversions` section near `Default UOM`.
+4. Confirm the saved rows for `CASE = 24` and `PACK = 6` are visible as editable alternate rows.
+5. Confirm the default UOM `EA` is still treated as system-managed rather than as a manually editable alternate row.
+6. Do not change the values.
+7. Click `Cancel` or return to the saved item page without changing the item.
 
 Expected result:
 
-- the conversion saves successfully
-- both source and target UOM values appear as active options for the item
-- the saved conversion is available to the repackaging flow
+- the inline alternate UOM rows load correctly on edit
+- both alternate UOM values remain available for the item
+- the saved conversions are available to the repackaging flow
 
 Evidence to capture:
 
-- screenshot of the item UOM conversion entry
+- screenshot of Step 3 `UOM & Conversions` on edit showing the saved alternate UOM rows
 
 ## Use Case 4: Verify Stock, Location, and Stock Health
 
@@ -424,9 +438,9 @@ Evidence to capture:
 2. In `Item`, select `WATER PURIFICATION TABLET, 100 TABS`.
 3. If batch or lot is required, select the available active batch for this item.
 4. In `Source UOM`, select `EA`.
-5. In `Source Quantity`, type `10`.
-6. In `Target UOM`, select the alternate UOM created in Step 8.
-7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `10 EA` converts at `10:1`, the computed target quantity should display `1` in the target UOM.
+5. In `Source Quantity`, type `6`.
+6. In `Target UOM`, select `PACK`.
+7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `6 EA` converts at `6:1`, the computed target quantity should display `1` in `PACK`.
 8. In `Reason`, type `SPLIT_EACHES`.
 9. Click `Preview`, `Validate`, or the equivalent pre-submit action if present.
 10. Review the computed values.

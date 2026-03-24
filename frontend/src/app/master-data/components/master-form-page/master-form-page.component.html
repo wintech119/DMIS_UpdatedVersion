@@ -286,6 +286,17 @@
                       </div>
                     }
                   </dl>
+                  @if (rg.groupLabel === 'UOM & Conversions' && isItemRecord() && itemUomConversions().length > 0) {
+                    <div class="review-uom-conversions">
+                      <h5 class="review-uom-conversions__title">Item UOM Conversions</h5>
+                      @for (conv of itemUomConversions(); track $index) {
+                        <div class="review-uom-conversion-row">
+                          <span class="review-uom-conversion-row__uom">{{ getUomLabel(conv.uom_code) || conv.uom_code }}</span>
+                          <span class="review-uom-conversion-row__factor">{{ conv.conversion_factor }} {{ getUomLabel(form.get('default_uom_code')?.value) || 'units' }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
                 </div>
               }
             </section>
@@ -1973,6 +1984,69 @@
               </div>
             }
           </fieldset>
+
+          @if (isUomConversionsGroup(group.label) && isItemRecord()) {
+            <section class="uom-conversion-section" aria-label="Item UOM Conversions">
+              <h4 class="uom-conversion-section__title">
+                <mat-icon aria-hidden="true">swap_horiz</mat-icon>
+                Item UOM Conversions
+              </h4>
+              <p class="uom-conversion-section__help">
+                The default UOM is treated as 1 and managed by the system.
+                Add alternate UOMs below to define how many default units make up each alternate.
+              </p>
+              <p class="uom-conversion-section__example">
+                <mat-icon aria-hidden="true">info_outline</mat-icon>
+                <em>Example: If Default UOM is BOTTLE and Alternate UOM is CASE, enter 24 for a case of 24 bottles.</em>
+              </p>
+
+              @if (form.get('default_uom_code')?.value; as defaultUom) {
+                <div class="uom-conversion-row uom-conversion-row--default">
+                  <span class="uom-conversion-row__uom">{{ getUomLabel(defaultUom) || defaultUom }}</span>
+                  <span class="uom-conversion-row__factor">1 (default)</span>
+                  <span class="uom-conversion-row__action">
+                    <mat-icon aria-hidden="true" matTooltip="System-managed default row">lock</mat-icon>
+                  </span>
+                </div>
+              }
+
+              @for (conv of itemUomConversions(); track $index; let i = $index) {
+                <div class="uom-conversion-row">
+                  <mat-form-field appearance="outline" class="uom-conversion-row__uom-field" subscriptSizing="dynamic">
+                    <mat-label>Alternate UOM</mat-label>
+                    <mat-select [value]="conv.uom_code"
+                      (selectionChange)="updateUomConversionUom(i, $event.value)">
+                      @if (conv.uom_code) {
+                        <mat-option [value]="conv.uom_code">{{ getUomLabel(conv.uom_code) || conv.uom_code }}</mat-option>
+                      }
+                      @for (uom of availableAlternateUoms(); track uom.value) {
+                        <mat-option [value]="uom.value">{{ uom.label }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+
+                  <mat-form-field appearance="outline" class="uom-conversion-row__factor-field" subscriptSizing="dynamic">
+                    <mat-label>Units in Alternate UOM</mat-label>
+                    <input matInput type="number" [value]="conv.conversion_factor" min="0.000001" step="any"
+                      (input)="updateUomConversionFactor(i, $any($event.target).valueAsNumber)" />
+                    <mat-hint>How many {{ getUomLabel(form.get('default_uom_code')?.value) || 'default units' }} in 1 {{ getUomLabel(conv.uom_code) || 'alternate unit' }}</mat-hint>
+                  </mat-form-field>
+
+                  <button mat-icon-button type="button" class="uom-conversion-row__remove"
+                    (click)="removeUomConversion(i)" [attr.aria-label]="'Remove ' + (getUomLabel(conv.uom_code) || 'alternate') + ' conversion'">
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                </div>
+              }
+
+              <button mat-stroked-button type="button" class="uom-conversion-section__add"
+                (click)="addUomConversion()"
+                [disabled]="availableAlternateUoms().length === 0">
+                <mat-icon aria-hidden="true">add</mat-icon>
+                Add Conversion
+              </button>
+            </section>
+          }
         </ng-template>
 
         <!-- ══════ SHARED TEMPLATE: Catalog Suggest CTA ══════ -->

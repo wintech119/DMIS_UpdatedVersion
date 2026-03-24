@@ -151,12 +151,8 @@ function buildStorageAssignmentOptions(overrides: Partial<{
   };
 }
 
-type MasterFormPageComponentTestAccess = MasterFormPageComponent & {
-  setLocalDraftMode(isActive: boolean): void;
-  isStepValid(stepIndex: number): boolean;
-  resetWizardUiState(): void;
-  loadStorageAssignmentOptionsForCurrentItem(): void;
-};
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type MasterFormPageComponentTestAccess = Record<string, any>;
 
 describe('MasterFormPageComponent', () => {
   function setup(routePath = 'items', params: Record<string, string> = {}) {
@@ -818,9 +814,9 @@ describe('MasterFormPageComponent', () => {
     );
 
     component.pk.set('17');
-    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+    testAccess['loadStorageAssignmentOptionsForCurrentItem']();
     component.pk.set('18');
-    testAccess.loadStorageAssignmentOptionsForCurrentItem();
+    testAccess['loadStorageAssignmentOptionsForCurrentItem']();
 
     secondResponse$.next(buildStorageAssignmentOptions({
       item_id: 18,
@@ -849,7 +845,7 @@ describe('MasterFormPageComponent', () => {
     const { component, fixture } = setup('items', { pk: '17' });
     const testAccess = component as unknown as MasterFormPageComponentTestAccess;
 
-    testAccess.setLocalDraftMode(true);
+    testAccess['setLocalDraftMode'](true);
     component.currentStep.set(1);
     fixture.detectChanges();
 
@@ -884,7 +880,7 @@ describe('MasterFormPageComponent', () => {
 
     expect(stepIndex).toBeGreaterThanOrEqual(0);
     expect(component.form.hasError('fefoRequiresExpiry')).toBeTrue();
-    expect(testAccess.isStepValid(stepIndex)).toBeFalse();
+    expect(testAccess['isStepValid'](stepIndex)).toBeFalse();
   });
 
   it('includes the governed taxonomy in the review step summary', () => {
@@ -919,7 +915,7 @@ describe('MasterFormPageComponent', () => {
     component.ifrcCodeUpdatedOnStep1.set(true);
     component.expandedCandidateIds.set(new Set([401]));
 
-    testAccess.resetWizardUiState();
+    testAccess['resetWizardUiState']();
 
     expect(component.currentStep()).toBe(0);
     expect(component.ifrcAppliedConfirmation()).toBeNull();
@@ -2078,6 +2074,211 @@ describe('MasterFormPageComponent', () => {
     );
     expect(masterDataService.update).not.toHaveBeenCalled();
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', 91]);
+  });
+
+  // ── Item UOM Conversion Tests ──
+
+  it('starts with empty itemUomConversions on create', () => {
+    const { component } = setup('items');
+    expect(component.itemUomConversions()).toEqual([]);
+  });
+
+  it('addUomConversion adds a row with the next available alternate UOM and factor 1', () => {
+    const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
+    component.addUomConversion();
+
+    expect(component.itemUomConversions().length).toBe(1);
+    expect(component.itemUomConversions()[0]).toEqual({ uom_code: 'BX', conversion_factor: 1 });
+  });
+
+  it('removeUomConversion removes the row at the given index', () => {
+    const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+      { value: 'CS', label: 'Case' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+    component.addUomConversion();
+    component.addUomConversion();
+    component.updateUomConversionUom(0, 'BX');
+    component.updateUomConversionUom(1, 'CS');
+    expect(component.itemUomConversions().length).toBe(2);
+
+    component.removeUomConversion(0);
+    expect(component.itemUomConversions().length).toBe(1);
+    expect(component.itemUomConversions()[0].uom_code).toBe('CS');
+  });
+
+  it('availableAlternateUoms excludes default UOM and already-used alternates', () => {
+    const { component } = setup('items');
+    // Set up multiple UOM lookup options
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+      { value: 'CS', label: 'Case' },
+      { value: 'PK', label: 'Pack' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
+    // EA is default, should be excluded
+    const available1 = component.availableAlternateUoms();
+    expect(available1.length).toBe(3);
+    expect(available1.find(u => u.value === 'EA')).toBeUndefined();
+
+    // Add BX as alternate
+    component.addUomConversion();
+    component.updateUomConversionUom(0, 'BX');
+
+    const available2 = component.availableAlternateUoms();
+    expect(available2.length).toBe(2);
+    expect(available2.find(u => u.value === 'BX')).toBeUndefined();
+    expect(available2.find(u => u.value === 'EA')).toBeUndefined();
+  });
+
+  it('loadRecord populates itemUomConversions from uom_options (non-default only)', () => {
+    const recordWithUomOptions = buildBaseItemRecord({
+      uom_options: [
+        { item_uom_option_id: 1, uom_code: 'EA', conversion_factor: 1, is_default: true, sort_order: 0, status_code: 'A' },
+        { item_uom_option_id: 2, uom_code: 'BX', conversion_factor: 24, is_default: false, sort_order: 1, status_code: 'A' },
+        { item_uom_option_id: 3, uom_code: 'CS', conversion_factor: 144, is_default: false, sort_order: 2, status_code: 'A' },
+      ],
+    });
+
+    // Override get before setup to return uom_options in the record
+    const masterDataServicePre = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
+      'lookup', 'lookupItemCategories', 'lookupIfrcFamilies', 'lookupIfrcReferences',
+      'get', 'create', 'update', 'clearLookupCache',
+      'suggestIfrcFamilyValues', 'suggestIfrcReferenceValues', 'createCatalogReplacement',
+    ]);
+    masterDataServicePre.lookup.and.callFake((tableKey: string) => {
+      if (tableKey === 'uom') return of([{ value: 'EA', label: 'Each' }]);
+      if (tableKey === 'item_categories') return of([{ value: 102, label: 'WASH' }]);
+      if (tableKey === 'ifrc_families') return of([{ value: 301, label: 'Water Treatment' }]);
+      return of([]);
+    });
+    masterDataServicePre.lookupItemCategories.and.returnValue(of([{ value: 102, label: 'WASH', category_code: 'WASH' }]));
+    masterDataServicePre.lookupIfrcFamilies.and.returnValue(of([]));
+    masterDataServicePre.lookupIfrcReferences.and.returnValue(of([]));
+    masterDataServicePre.get.and.returnValue(of({ record: recordWithUomOptions, warnings: [] }));
+    masterDataServicePre.create.and.returnValue(of({ record: { item_id: 99 }, warnings: [] }));
+    masterDataServicePre.update.and.returnValue(of({ record: { item_id: 17 }, warnings: [] }));
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [MasterFormPageComponent, NoopAnimationsModule],
+      providers: [
+        { provide: ActivatedRoute, useValue: { data: of({ routePath: 'items' }), params: of({ pk: '17' }) } },
+        { provide: Router, useValue: jasmine.createSpyObj<Router>('Router', ['navigate']) },
+        { provide: MatDialog, useValue: jasmine.createSpyObj<MatDialog>('MatDialog', ['open']) },
+        { provide: MasterDataService, useValue: masterDataServicePre },
+        { provide: IfrcSuggestService, useValue: jasmine.createSpyObj<IfrcSuggestService>('IfrcSuggestService', ['suggest']) },
+        { provide: DmisNotificationService, useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', ['showSuccess', 'showError', 'showWarning']) },
+        { provide: ReplenishmentService, useValue: jasmine.createSpyObj<ReplenishmentService>('ReplenishmentService', ['assignStorageLocation']) },
+      ],
+    });
+
+    const fixture = TestBed.createComponent(MasterFormPageComponent);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    expect(component.itemUomConversions().length).toBe(2);
+    expect(component.itemUomConversions()[0]).toEqual({ uom_code: 'BX', conversion_factor: 24 });
+    expect(component.itemUomConversions()[1]).toEqual({ uom_code: 'CS', conversion_factor: 144 });
+  });
+
+  it('buildPreparedFormPayload includes uom_options from itemUomConversions', () => {
+    const { component } = setup('items');
+    populateRequiredCreateFields(component);
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+    component.addUomConversion();
+    component.updateUomConversionUom(0, 'BX');
+    component.updateUomConversionFactor(0, 24);
+
+    const payload = component['buildPreparedFormPayload'](ITEM_CONFIG);
+    expect(payload['uom_options']).toEqual([
+      { uom_code: 'BX', conversion_factor: 24 },
+    ]);
+  });
+
+  it('buildPreparedFormPayload rejects invalid rendered item UOM conversions', () => {
+    const { component } = setup('items');
+    populateRequiredCreateFields(component);
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
+    component.addUomConversion();
+    component.updateUomConversionFactor(0, Number.NaN);
+
+    expect(component.form.hasError('invalidItemUomConversions')).toBeTrue();
+    expect(() => component['buildPreparedFormPayload'](ITEM_CONFIG)).toThrowError(
+      'Item UOM conversions contain invalid rows.',
+    );
+  });
+
+  it('changing default_uom_code with existing alternates clears on confirm', () => {
+    const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+    (component as any).previousDefaultUom = 'EA';
+
+    component.addUomConversion();
+    component.updateUomConversionUom(0, 'BX');
+    expect(component.itemUomConversions().length).toBe(1);
+
+    spyOn(window, 'confirm').and.returnValue(true);
+    component.form.get('default_uom_code')?.setValue('KG');
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(component.itemUomConversions().length).toBe(0);
+  });
+
+  it('changing default_uom_code with existing alternates reverts on cancel', () => {
+    const { component } = setup('items');
+    component['writeLookup']('uom', [
+      { value: 'EA', label: 'Each' },
+      { value: 'BX', label: 'Box' },
+    ]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+    (component as any).previousDefaultUom = 'EA';
+
+    component.addUomConversion();
+    component.updateUomConversionUom(0, 'BX');
+    expect(component.itemUomConversions().length).toBe(1);
+
+    spyOn(window, 'confirm').and.returnValue(false);
+    component.form.get('default_uom_code')?.setValue('KG');
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(component.itemUomConversions().length).toBe(1);
+    expect(component.form.get('default_uom_code')?.value).toBe('EA');
+  });
+
+  it('cannot add conversion when no available UOMs', () => {
+    const { component } = setup('items');
+    // Only one UOM available (EA) which is the default
+    component['writeLookup']('uom', [{ value: 'EA', label: 'Each' }]);
+    component.form.get('default_uom_code')?.setValue('EA', { emitEvent: false });
+
+    expect(component.availableAlternateUoms().length).toBe(0);
+    component.addUomConversion();
+    expect(component.itemUomConversions().length).toBe(0);
   });
 });
 
