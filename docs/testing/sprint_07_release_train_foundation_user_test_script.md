@@ -438,9 +438,9 @@ Evidence to capture:
 2. In `Item`, select `WATER PURIFICATION TABLET, 100 TABS`.
 3. If batch or lot is required, select the available active batch for this item.
 4. In `Source UOM`, select `EA`.
-5. In `Source Quantity`, type `12`.
-6. In `Target UOM`, select the alternate UOM created in Step 7.
-7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `12 EA` converts at `6:1`, the computed target quantity should display `2` in `PACK`.
+5. In `Source Quantity`, type `6`.
+6. In `Target UOM`, select `PACK`.
+7. Verify that `Computed Target Quantity` is shown by the system and matches the expected conversion for the selected UOMs. Example: if `6 EA` converts at `6:1`, the computed target quantity should display `1` in `PACK`.
 8. In `Reason`, type `SPLIT_EACHES`.
 9. Click `Preview`, `Validate`, or the equivalent pre-submit action if present.
 10. Review the computed values.
