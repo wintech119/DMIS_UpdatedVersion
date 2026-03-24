@@ -288,7 +288,7 @@ Evidence to capture:
 17. Ensure `Batch Tracked` is enabled.
 18. Ensure `Can Expire` is enabled.
 19. Leave `Units Size Vary` disabled.
-20. In the same Step 3 `Inventory Rules` screen, locate the inline `Item UOM Conversions` section near `Default UOM`.
+20. In the same Step 3 `UOM & Conversions` screen, locate the inline `Item UOM Conversions` section near `Default UOM`.
 21. Confirm the section shows that the default UOM is treated as `1` or is otherwise marked as system-managed.
 22. Click `Add Conversion`.
 23. In `Alternate UOM`, select `CASE`.
@@ -314,12 +314,12 @@ Expected result:
 Evidence to capture:
 
 - saved item detail page
-- screenshot of Step 3 showing the inline `Item UOM Conversions` section before save
+- screenshot of Step 3 `UOM & Conversions` showing the inline `Item UOM Conversions` section before save
 
 ### Step 8. Verify Inline UOM Conversion Setup Persists On Edit
 
 1. From the saved item page, click `Edit`.
-2. Return to Step 3: `Inventory Rules`.
+2. Return to Step 3: `UOM & Conversions`.
 3. Locate the inline `Item UOM Conversions` section near `Default UOM`.
 4. Confirm the saved rows for `CASE = 24` and `PACK = 6` are visible as editable alternate rows.
 5. Confirm the default UOM `EA` is still treated as system-managed rather than as a manually editable alternate row.
@@ -334,7 +334,7 @@ Expected result:
 
 Evidence to capture:
 
-- screenshot of Step 3 on edit showing the saved alternate UOM rows
+- screenshot of Step 3 `UOM & Conversions` on edit showing the saved alternate UOM rows
 
 ## Use Case 4: Verify Stock, Location, and Stock Health
 
