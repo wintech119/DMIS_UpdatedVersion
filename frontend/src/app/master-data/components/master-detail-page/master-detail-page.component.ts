@@ -360,8 +360,14 @@ export class MasterDetailPageComponent implements OnInit {
     const record = this.record();
     const desc = record?.['default_uom_desc'];
     if (desc) return String(desc);
-    const code = record?.['default_uom_code'];
-    return code ? String(code) : 'units';
+
+    const code = String(record?.['default_uom_code'] ?? '').trim();
+    const resolvedLabel = this.getStoredUomLabel(code);
+    if (resolvedLabel) {
+      return resolvedLabel;
+    }
+
+    return code || 'units';
   }
 
   getUomLabel(uomCode: string): string {
@@ -372,14 +378,23 @@ export class MasterDetailPageComponent implements OnInit {
       return this.getDefaultUomLabel();
     }
 
-    const storedLabel = this.itemUomConversions()
-      .find((entry) => entry.uom_code.toUpperCase() === uomCode.toUpperCase())
-      ?.label;
+    const storedLabel = this.getStoredUomLabel(uomCode);
     if (storedLabel) {
       return storedLabel;
     }
 
     return uomCode;
+  }
+
+  private getStoredUomLabel(uomCode: string): string | undefined {
+    const normalizedUomCode = uomCode.trim().toUpperCase();
+    if (!normalizedUomCode) {
+      return undefined;
+    }
+
+    return this.itemUomConversions()
+      .find((entry) => entry.uom_code.toUpperCase() === normalizedUomCode)
+      ?.label;
   }
 
   private mapItemUomConversions(
