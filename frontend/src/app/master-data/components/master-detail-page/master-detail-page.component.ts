@@ -162,6 +162,12 @@ export class MasterDetailPageComponent implements OnInit {
         const uomOptions = res.record['uom_options'] as
           Array<{ uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }> | undefined;
         if (Array.isArray(uomOptions)) {
+          this.itemUomConversions.set(this.mapItemUomConversions(uomOptions));
+          if (uomOptions.length === 0) {
+            this.isLoading.set(false);
+            return;
+          }
+
           this.service.lookup('uom').pipe(
             takeUntilDestroyed(this.destroyRef),
           ).subscribe({
