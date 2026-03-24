@@ -386,14 +386,14 @@ export class MasterDetailPageComponent implements OnInit {
     return uomCode;
   }
 
-  private getStoredUomLabel(uomCode: string): string | undefined {
-    const normalizedUomCode = uomCode.trim().toUpperCase();
+  private getStoredUomLabel(uomCode: unknown): string | undefined {
+    const normalizedUomCode = this.normalizeUomCode(uomCode);
     if (!normalizedUomCode) {
       return undefined;
     }
 
     return this.itemUomConversions()
-      .find((entry) => entry.uom_code.toUpperCase() === normalizedUomCode)
+      .find((entry) => this.normalizeUomCode(entry.uom_code) === normalizedUomCode)
       ?.label;
   }
 
@@ -402,7 +402,7 @@ export class MasterDetailPageComponent implements OnInit {
     uomLookup: Array<{ value: string | number; label: string }> = [],
   ): DetailUomConversion[] {
     return uomOptions.map((option) => ({
-      uom_code: option.uom_code,
+      uom_code: this.normalizeUomCode(option.uom_code),
       conversion_factor: option.conversion_factor,
       is_default: option.is_default,
       label: this.resolveUomOptionLabel(option, uomLookup),
@@ -413,13 +413,31 @@ export class MasterDetailPageComponent implements OnInit {
     option: { uom_code: string; label?: string; uom_desc?: string },
     uomLookup: Array<{ value: string | number; label: string }>,
   ): string | undefined {
-    const explicitLabel = String(option.label ?? option.uom_desc ?? '').trim();
+    const normalizedUomCode = this.normalizeUomCode(option.uom_code);
+    const explicitLabel = typeof option.label === 'string' ? option.label.trim() : '';
     if (explicitLabel) {
       return explicitLabel;
     }
 
-    const lookupMatch = uomLookup.find((entry) => String(entry.value).toUpperCase() === option.uom_code.toUpperCase());
+    const fallbackDescription = typeof option.uom_desc === 'string' ? option.uom_desc.trim() : '';
+    if (fallbackDescription) {
+      return fallbackDescription;
+    }
+
+    if (!normalizedUomCode) {
+      return undefined;
+    }
+
+    const lookupMatch = uomLookup.find((entry) => String(entry.value).toUpperCase() === normalizedUomCode);
     return lookupMatch?.label;
+  }
+
+  private normalizeUomCode(uomCode: unknown): string {
+    if (typeof uomCode !== 'string') {
+      return '';
+    }
+
+    return uomCode.trim().toUpperCase();
   }
 
   private toPositiveInt(value: unknown): number | null {
