@@ -13,11 +13,24 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NeedsListFulfillmentLine, NeedsListResponse } from '../models/needs-list.model';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { formatExecutionStatus } from '../execution/execution-status.util';
 
 const APPROVED_STATUSES: ReadonlySet<string> = new Set([
   'APPROVED', 'IN_PROGRESS', 'IN_PREPARATION'
+]);
+
+const OPERATIONAL_WORKSPACE_STATUSES: ReadonlySet<string> = new Set([
+  'APPROVED',
+  'IN_PROGRESS',
+  'IN_PREPARATION',
+  'DISPATCHED',
+  'IN_TRANSIT',
+  'RECEIVED',
+  'COMPLETED',
+  'FULFILLED',
 ]);
 
 @Component({
@@ -43,6 +56,7 @@ export class NeedsListFulfillmentTrackerComponent {
   private readonly router = inject(Router);
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly notifications = inject(DmisNotificationService);
+  private readonly auth = inject(AuthRbacService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly now = signal(Date.now());
 
@@ -126,6 +140,66 @@ export class NeedsListFulfillmentTrackerComponent {
   readonly showExecutionActions = computed(() =>
     this.mode() === 'track' && this.isApproved()
   );
+
+  readonly showOperationalWorkspaces = computed(() => {
+    const status = String(this.needsList()?.status ?? '').trim().toUpperCase();
+    return this.mode() === 'track'
+      && (
+        OPERATIONAL_WORKSPACE_STATUSES.has(status)
+        || this.hasAllocationCommit()
+        || !!String(this.needsList()?.waybill_no ?? '').trim()
+      );
+  });
+
+  readonly canExecuteWorkflows = computed(() =>
+    this.auth.hasPermission('replenishment.needs_list.execute')
+  );
+
+  readonly operationalWorkspacesVisible = computed(() =>
+    this.showOperationalWorkspaces() && this.canExecuteWorkflows()
+  );
+
+  readonly hasAllocationCommit = computed(() => {
+    const executionStatus = String(this.needsList()?.execution_status ?? '').trim().toUpperCase();
+    return (this.needsList()?.allocation_lines?.length ?? 0) > 0
+      || executionStatus === 'COMMITTED'
+      || executionStatus === 'DISPATCHED'
+      || executionStatus === 'RECEIVED';
+  });
+
+  readonly dispatchBlocked = computed(() => {
+    const executionStatus = String(this.needsList()?.execution_status ?? '').trim().toUpperCase();
+    return !this.hasAllocationCommit() || executionStatus === 'PENDING_OVERRIDE_APPROVAL';
+  });
+
+  readonly executionStatusLabel = computed(() =>
+    formatExecutionStatus(this.needsList()?.execution_status)
+  );
+
+  readonly allocationActionDescription = computed(() => {
+    const executionStatus = String(this.needsList()?.execution_status ?? '').trim().toUpperCase();
+    if (executionStatus === 'PENDING_OVERRIDE_APPROVAL') {
+      return 'Reservation is visible and waiting for narrow override approval.';
+    }
+    if (this.hasAllocationCommit()) {
+      return 'Review or update the reserved stock plan before moving to dispatch.';
+    }
+    return 'Reserve stock-aware lines and create request and package tracking references.';
+  });
+
+  readonly dispatchActionDescription = computed(() => {
+    const executionStatus = String(this.needsList()?.execution_status ?? '').trim().toUpperCase();
+    if (executionStatus === 'PENDING_OVERRIDE_APPROVAL') {
+      return 'Dispatch is blocked until the pending override is approved.';
+    }
+    if (!this.hasAllocationCommit()) {
+      return 'Commit a reservation first to unlock operational handoff and dispatch.';
+    }
+    if (String(this.needsList()?.waybill_no ?? '').trim()) {
+      return 'Reopen the dispatch workspace to review the waybill reference and current handoff status.';
+    }
+    return 'Start preparation, record dispatch, and expose the minimal waybill reference.';
+  });
 
   readonly coverageLevel = computed<'full' | 'partial' | 'none'>(() => {
     const pct = this.totalCoverage();
@@ -276,6 +350,7 @@ export class NeedsListFulfillmentTrackerComponent {
   }
 
   constructor() {
+    this.auth.load();
     const timerId = window.setInterval(() => this.now.set(Date.now()), 60_000);
     this.destroyRef.onDestroy(() => window.clearInterval(timerId));
 
@@ -326,6 +401,14 @@ export class NeedsListFulfillmentTrackerComponent {
 
   navigateToTransfers(): void {
     this.router.navigate(['/replenishment/needs-list', this.needsListId, 'transfers']);
+  }
+
+  navigateToAllocationWorkspace(): void {
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'allocation']);
+  }
+
+  navigateToDispatchWorkspace(): void {
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'dispatch']);
   }
 
   navigateToDonations(): void {
