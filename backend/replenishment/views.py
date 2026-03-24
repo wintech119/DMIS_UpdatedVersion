@@ -5,12 +5,14 @@ import re
 import math
 import json
 import os
+from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
+from django.db import DatabaseError, OperationalError, ProgrammingError, transaction
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -57,7 +59,13 @@ from api.tenancy import (
 )
 from api.task_engine import TaskRule, resolve_available_tasks
 from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
-from replenishment.models import Procurement
+from replenishment.models import (
+    NeedsList,
+    NeedsListAllocationLine,
+    NeedsListExecutionLink,
+    Procurement,
+)
+from replenishment.services import allocation_dispatch
 from replenishment.services import approval as approval_service
 from replenishment.services import criticality_governance
 from replenishment.services import data_access, needs_list, phase_window_policy
@@ -395,6 +403,295 @@ def _parse_selected_item_keys(
 
 def _actor_id(request) -> str | None:
     return getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+
+
+def _parse_required_decimal(value: Any, field_name: str, errors: Dict[str, str]) -> Decimal | None:
+    if value in (None, ""):
+        errors[field_name] = "This field is required."
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        errors[field_name] = "Must be a decimal number."
+        return None
+    if parsed <= 0:
+        errors[field_name] = "Must be greater than zero."
+        return None
+    return parsed
+
+
+def _normalize_selected_method_for_execution(value: Any) -> str | None:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        return None
+    if normalized in {"FEFO", "FIFO", "MIXED", "MANUAL"}:
+        return normalized
+    return None
+
+
+def _parse_allocation_selections(
+    raw_allocations: Any,
+    errors: Dict[str, str],
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_allocations, list) or not raw_allocations:
+        errors["allocations"] = "Must provide a non-empty array of allocations."
+        return []
+
+    selections: list[dict[str, Any]] = []
+    for idx, raw_line in enumerate(raw_allocations):
+        if not isinstance(raw_line, dict):
+            errors[f"allocations[{idx}]"] = "Each allocation must be an object."
+            continue
+
+        line_errors: Dict[str, str] = {}
+        item_id = _parse_positive_int(raw_line.get("item_id"), f"allocations[{idx}].item_id", line_errors)
+        quantity = _parse_required_decimal(
+            raw_line.get("quantity", raw_line.get("allocated_qty")),
+            f"allocations[{idx}].quantity",
+            line_errors,
+        )
+        inventory_id = _parse_positive_int(
+            raw_line.get("inventory_id"),
+            f"allocations[{idx}].inventory_id",
+            line_errors,
+        )
+        batch_id = _parse_positive_int(
+            raw_line.get("batch_id"),
+            f"allocations[{idx}].batch_id",
+            line_errors,
+        )
+        source_type = str(raw_line.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND"
+        if source_type not in {"ON_HAND", "TRANSFER", "DONATION", "PROCUREMENT"}:
+            line_errors[f"allocations[{idx}].source_type"] = "Invalid source type."
+        needs_list_item_id = None
+        if raw_line.get("needs_list_item_id") not in (None, ""):
+            needs_list_item_id = _parse_positive_int(
+                raw_line.get("needs_list_item_id"),
+                f"allocations[{idx}].needs_list_item_id",
+                line_errors,
+            )
+        source_record_id = None
+        if raw_line.get("source_record_id") not in (None, ""):
+            source_record_id = _parse_positive_int(
+                raw_line.get("source_record_id"),
+                f"allocations[{idx}].source_record_id",
+                line_errors,
+            )
+        if source_type != "PROCUREMENT":
+            if inventory_id is None:
+                line_errors[f"allocations[{idx}].inventory_id"] = "This field is required."
+            if batch_id is None:
+                line_errors[f"allocations[{idx}].batch_id"] = "This field is required."
+
+        if line_errors:
+            errors.update(line_errors)
+            continue
+
+        selections.append(
+            {
+                "item_id": item_id,
+                "quantity": quantity,
+                "inventory_id": inventory_id,
+                "batch_id": batch_id,
+                "source_type": source_type,
+                "source_record_id": source_record_id,
+                "uom_code": str(raw_line.get("uom_code") or "").strip() or None,
+                "needs_list_item_id": needs_list_item_id,
+                "override_reason_code": (
+                    str(raw_line.get("override_reason_code") or "").strip() or None
+                ),
+                "override_note": str(raw_line.get("override_note") or "").strip() or None,
+            }
+        )
+    return selections
+
+
+def _upsert_execution_link(
+    *,
+    needs_list_id: int,
+    actor_user_id: str,
+    reliefrqst_id: int | None = None,
+    reliefpkg_id: int | None = None,
+    selected_method: str | None = None,
+    execution_status: str,
+    waybill_no: str | None = None,
+    waybill_payload: Any = None,
+    prepared: bool = False,
+    committed: bool = False,
+    override_requested: bool = False,
+    override_approved: bool = False,
+    dispatched: bool = False,
+    received: bool = False,
+    cancelled: bool = False,
+) -> NeedsListExecutionLink | None:
+    if not _use_db_workflow_store():
+        return None
+    now = timezone.now()
+    try:
+        defaults: Dict[str, Any] = {
+            "update_by_id": actor_user_id,
+            "execution_status": execution_status,
+        }
+        if reliefrqst_id is not None:
+            defaults["reliefrqst_id"] = reliefrqst_id
+        if reliefpkg_id is not None:
+            defaults["reliefpkg_id"] = reliefpkg_id
+        if selected_method is not None:
+            defaults["selected_method"] = selected_method
+        if waybill_no is not None:
+            defaults["waybill_no"] = waybill_no
+        if waybill_payload is not None:
+            defaults["waybill_payload_json"] = waybill_payload
+        if prepared:
+            defaults["prepared_at"] = now
+            defaults["prepared_by"] = actor_user_id
+        if committed:
+            defaults["committed_at"] = now
+            defaults["committed_by"] = actor_user_id
+        if override_requested:
+            defaults["override_requested_at"] = now
+            defaults["override_requested_by"] = actor_user_id
+        if override_approved:
+            defaults["override_approved_at"] = now
+            defaults["override_approved_by"] = actor_user_id
+        if dispatched:
+            defaults["dispatched_at"] = now
+            defaults["dispatched_by"] = actor_user_id
+        if received:
+            defaults["received_at"] = now
+            defaults["received_by"] = actor_user_id
+        if cancelled:
+            defaults["cancelled_at"] = now
+            defaults["cancelled_by"] = actor_user_id
+
+        link, created = NeedsListExecutionLink.objects.get_or_create(
+            needs_list_id=needs_list_id,
+            defaults={
+                "create_by_id": actor_user_id,
+                "reliefrqst_id": reliefrqst_id,
+                **defaults,
+            },
+        )
+        if created:
+            return link
+        for field, value in defaults.items():
+            setattr(link, field, value)
+        link.save()
+        return link
+    except (DatabaseError, OperationalError, ProgrammingError):
+        return None
+
+
+def _replace_execution_allocation_lines(
+    *,
+    needs_list: NeedsList,
+    selections: list[dict[str, Any]],
+    actor_user_id: str,
+    rule_bypass_flag: bool,
+    override_reason_code: str | None = None,
+    override_note: str | None = None,
+    supervisor_user_id: str | None = None,
+) -> None:
+    if not _use_db_workflow_store():
+        return
+    try:
+        NeedsListAllocationLine.objects.filter(needs_list=needs_list).delete()
+        item_map = {item.item_id: item for item in needs_list.items.all()}
+        now = timezone.now()
+        rows: list[NeedsListAllocationLine] = []
+        for index, selection in enumerate(selections, start=1):
+            needs_item = item_map.get(selection["item_id"])
+            rows.append(
+                NeedsListAllocationLine(
+                    needs_list=needs_list,
+                    needs_list_item=needs_item,
+                    item_id=selection["item_id"],
+                    inventory_id=selection.get("inventory_id") or 0,
+                    batch_id=selection.get("batch_id") or 0,
+                    uom_code=selection.get("uom_code") or getattr(needs_item, "uom_code", None) or "EA",
+                    source_type=selection.get("source_type") or "ON_HAND",
+                    source_record_id=selection.get("source_record_id"),
+                    allocated_qty=selection["quantity"],
+                    allocation_rank=index,
+                    rule_bypass_flag=rule_bypass_flag,
+                    override_reason_code=override_reason_code,
+                    override_note=override_note,
+                    supervisor_approved_by=supervisor_user_id,
+                    supervisor_approved_at=now if supervisor_user_id else None,
+                    create_by_id=actor_user_id,
+                    update_by_id=actor_user_id,
+                )
+            )
+        NeedsListAllocationLine.objects.bulk_create(rows)
+    except (DatabaseError, OperationalError, ProgrammingError):
+        return
+
+
+def _stored_execution_allocation_lines(needs_list_id: int) -> list[dict[str, Any]]:
+    try:
+        rows = list(
+            NeedsListAllocationLine.objects.filter(needs_list_id=needs_list_id)
+            .order_by("allocation_rank", "allocation_line_id")
+            .values(
+                "needs_list_item_id",
+                "item_id",
+                "inventory_id",
+                "batch_id",
+                "uom_code",
+                "source_type",
+                "source_record_id",
+                "allocated_qty",
+                "allocation_rank",
+                "rule_bypass_flag",
+                "override_reason_code",
+                "override_note",
+                "supervisor_approved_by",
+                "supervisor_approved_at",
+            )
+        )
+    except (DatabaseError, OperationalError, ProgrammingError):
+        return []
+
+    allocations: list[dict[str, Any]] = []
+    for row in rows:
+        allocations.append(
+            {
+                "needs_list_item_id": row.get("needs_list_item_id"),
+                "item_id": row.get("item_id"),
+                "inventory_id": row.get("inventory_id"),
+                "batch_id": row.get("batch_id"),
+                "uom_code": row.get("uom_code"),
+                "source_type": row.get("source_type"),
+                "source_record_id": row.get("source_record_id"),
+                "quantity": str(allocation_dispatch._quantize_qty(row.get("allocated_qty") or 0)),
+                "allocation_rank": row.get("allocation_rank"),
+                "rule_bypass_flag": bool(row.get("rule_bypass_flag")),
+                "override_reason_code": row.get("override_reason_code"),
+                "override_note": row.get("override_note"),
+                "supervisor_approved_by": row.get("supervisor_approved_by"),
+                "supervisor_approved_at": (
+                    row.get("supervisor_approved_at").isoformat()
+                    if row.get("supervisor_approved_at")
+                    else None
+                ),
+            }
+        )
+    return allocations
+
+
+def _selection_signature(lines: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    return [
+        (
+            int(line.get("item_id") or 0),
+            int(line.get("inventory_id") or 0),
+            int(line.get("batch_id") or 0),
+            str(allocation_dispatch._quantize_qty(line.get("quantity", line.get("allocated_qty")) or 0)),
+            str(line.get("source_type") or "ON_HAND").strip().upper(),
+            int(line.get("source_record_id") or 0),
+            str(line.get("uom_code") or "").strip().upper(),
+        )
+        for line in lines
+    ]
 
 
 _DIRECTOR_PEOD_ROLE_CODES = {
@@ -1206,6 +1503,206 @@ def _available_actions_for_record(request, record: Dict[str, Any]) -> list[str]:
     )
 
 
+def _execution_needs_list_pk(record: Mapping[str, Any]) -> int | None:
+    needs_list_pk = _to_int_or_none(record.get("needs_list_id"))
+    if needs_list_pk is not None:
+        return needs_list_pk
+    if not _use_db_workflow_store():
+        return None
+    needs_list_no = str(record.get("needs_list_no") or "").strip()
+    if not needs_list_no:
+        return None
+    try:
+        return int(
+            NeedsList.objects.only("needs_list_id").get(needs_list_no=needs_list_no).needs_list_id
+        )
+    except (
+        NeedsList.DoesNotExist,
+        DatabaseError,
+        OperationalError,
+        ProgrammingError,
+        ValueError,
+        TypeError,
+    ):
+        return None
+
+
+def _execution_link_for_record(record: Mapping[str, Any]) -> NeedsListExecutionLink | None:
+    needs_list_pk = _execution_needs_list_pk(record)
+    if needs_list_pk is None or not _use_db_workflow_store():
+        return None
+    try:
+        return (
+            NeedsListExecutionLink.objects.select_related("needs_list")
+            .get(needs_list_id=needs_list_pk)
+        )
+    except (
+        NeedsListExecutionLink.DoesNotExist,
+        DatabaseError,
+        OperationalError,
+        ProgrammingError,
+    ):
+        return None
+
+
+def _summarize_execution_lines(lines: list[dict[str, Any]]) -> dict[str, Any]:
+    by_item_batch: dict[tuple[int, int | None], float] = {}
+    total_qty = 0.0
+    for line in lines:
+        item_id = _to_int_or_none(line.get("item_id")) or 0
+        batch_id = _to_int_or_none(line.get("batch_id"))
+        qty = _to_float_or_none(line.get("quantity") or line.get("allocated_qty")) or 0.0
+        total_qty += qty
+        key = (item_id, batch_id)
+        by_item_batch[key] = round(by_item_batch.get(key, 0.0) + qty, 4)
+    return {
+        "line_count": len(lines),
+        "total_qty": round(total_qty, 4),
+        "by_item_batch": [
+            {
+                "item_id": item_id,
+                "batch_id": batch_id,
+                "reserved_qty": qty,
+            }
+            for (item_id, batch_id), qty in sorted(by_item_batch.items())
+        ],
+    }
+
+
+def _execution_payload_for_record(record: Mapping[str, Any]) -> Dict[str, Any]:
+    link = _execution_link_for_record(record)
+    if link is None:
+        return {}
+
+    waybill_payload = link.waybill_payload_json if isinstance(link.waybill_payload_json, dict) else {}
+    payload: Dict[str, Any] = {
+        "execution_status": link.execution_status,
+        "reliefrqst_id": link.reliefrqst_id,
+        "reliefpkg_id": link.reliefpkg_id,
+        "selected_method": link.selected_method,
+        "waybill_no": link.waybill_no,
+        "waybill_payload": link.waybill_payload_json,
+        "request_tracking_no": waybill_payload.get("request_tracking_no"),
+        "package_tracking_no": waybill_payload.get("package_tracking_no"),
+    }
+
+    allocation_lines: list[dict[str, Any]] = []
+    if link.reliefrqst_id and link.reliefpkg_id:
+        try:
+            current = allocation_dispatch.get_current_allocation(
+                {
+                    "needs_list_id": link.needs_list_id,
+                    "reliefrqst_id": link.reliefrqst_id,
+                    "reliefpkg_id": link.reliefpkg_id,
+                }
+            )
+            payload.update(
+                {
+                    "request_tracking_no": current.get("request_tracking_no"),
+                    "package_tracking_no": current.get("package_tracking_no"),
+                    "waybill_no": payload.get("waybill_no") or current.get("waybill_no"),
+                    "package_status": current.get("package_status"),
+                    "dispatch_dtime": current.get("dispatch_dtime"),
+                }
+            )
+            allocation_lines = list(current.get("allocation_lines") or [])
+            payload["reserved_stock_summary"] = current.get("reserved_stock_summary") or {}
+        except (
+            allocation_dispatch.AllocationDispatchError,
+            DatabaseError,
+            OperationalError,
+            ProgrammingError,
+        ):
+            allocation_lines = []
+
+    if not allocation_lines:
+        try:
+            allocation_lines = _stored_execution_allocation_lines(link.needs_list_id)
+            payload["reserved_stock_summary"] = _summarize_execution_lines(allocation_lines)
+        except (DatabaseError, OperationalError, ProgrammingError):
+            allocation_lines = []
+
+    payload["allocation_lines"] = allocation_lines
+    payload["linked_sources"] = [
+        {
+            "source_type": str(line.get("source_type") or ""),
+            "source_record_id": line.get("source_record_id"),
+        }
+        for line in allocation_lines
+        if line.get("source_type") and line.get("source_record_id") is not None
+    ]
+    return payload
+
+
+def _allocation_context_from_record(
+    record: Mapping[str, Any],
+    payload: Mapping[str, Any] | None = None,
+    *,
+    link: NeedsListExecutionLink | None = None,
+) -> Dict[str, Any]:
+    data = dict(payload or {})
+    needs_list_pk = _execution_needs_list_pk(record)
+    return {
+        "needs_list_id": needs_list_pk,
+        "reliefrqst_id": getattr(link, "reliefrqst_id", None),
+        "reliefpkg_id": getattr(link, "reliefpkg_id", None),
+        "agency_id": data.get("agency_id"),
+        "destination_warehouse_id": _to_int_or_none(record.get("warehouse_id")),
+        "event_id": _to_int_or_none(record.get("event_id")),
+        "submitted_by": getattr(link, "override_requested_by", None) or record.get("submitted_by"),
+        "needs_list_no": record.get("needs_list_no"),
+        "transport_mode": data.get("transport_mode"),
+        "urgency_ind": data.get("urgency_ind"),
+        "request_notes": data.get("request_notes") or data.get("rqst_notes_text"),
+        "package_comments": data.get("package_comments") or data.get("comments_text"),
+    }
+
+
+def _release_execution_reservations(
+    record: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+    reason_code: str,
+    cancel: bool = False,
+) -> None:
+    if not _use_db_workflow_store():
+        return
+    link = _execution_link_for_record(record)
+    if (
+        link is None
+        or link.reliefrqst_id is None
+        or link.reliefpkg_id is None
+        or link.execution_status not in {
+            NeedsListExecutionLink.ExecutionStatus.COMMITTED,
+            NeedsListExecutionLink.ExecutionStatus.PENDING_OVERRIDE_APPROVAL,
+        }
+    ):
+        return
+
+    allocation_dispatch.release_allocation(
+        {
+            "needs_list_id": link.needs_list_id,
+            "reliefrqst_id": link.reliefrqst_id,
+            "reliefpkg_id": link.reliefpkg_id,
+        },
+        actor_user_id=actor_user_id,
+        reason_code=reason_code,
+    )
+    _upsert_execution_link(
+        needs_list_id=link.needs_list_id,
+        actor_user_id=actor_user_id,
+        reliefrqst_id=link.reliefrqst_id,
+        reliefpkg_id=link.reliefpkg_id,
+        selected_method=link.selected_method,
+        execution_status=(
+            NeedsListExecutionLink.ExecutionStatus.CANCELLED
+            if cancel
+            else NeedsListExecutionLink.ExecutionStatus.PREPARING
+        ),
+        cancelled=cancel,
+    )
+
+
 def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool = True) -> Dict[str, Any]:
     snapshot = (
         workflow_store.apply_overrides(record)
@@ -1270,6 +1767,7 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "tenant_id": _record_tenant_id(record, snapshot),
         }
     )
+    response.update(_execution_payload_for_record(record))
     return response
 
 
@@ -3617,11 +4115,17 @@ def needs_list_return(request, needs_list_id: str):
     if not reason:
         reason = "Changes requested by approver."
 
-    target_status = _workflow_target_status("MODIFIED")
-    record = workflow_store.transition_status(record, target_status, actor, reason=reason)
-    record["return_reason"] = reason
-    record["return_reason_code"] = reason_code
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        _release_execution_reservations(
+            record,
+            actor_user_id=actor or "SYSTEM",
+            reason_code=f"return:{reason_code}",
+        )
+        target_status = _workflow_target_status("MODIFIED")
+        record = workflow_store.transition_status(record, target_status, actor, reason=reason)
+        record["return_reason"] = reason
+        record["return_reason_code"] = reason_code
+        workflow_store.update_record(needs_list_id, record)
 
     logger.info(
         "needs_list_changes_requested",
@@ -3689,8 +4193,14 @@ def needs_list_reject(request, needs_list_id: str):
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
-    record = workflow_store.transition_status(record, "REJECTED", actor, reason=reason)
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        _release_execution_reservations(
+            record,
+            actor_user_id=actor or "SYSTEM",
+            reason_code="reject",
+        )
+        record = workflow_store.transition_status(record, "REJECTED", actor, reason=reason)
+        workflow_store.update_record(needs_list_id, record)
 
     logger.info(
         "needs_list_rejected",
@@ -3944,14 +4454,27 @@ def needs_list_start_preparation(request, needs_list_id: str):
     if record.get("status") != "APPROVED":
         return Response({"errors": {"status": "Needs list must be approved."}}, status=409)
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
     target_status = _workflow_target_status("IN_PREPARATION")
-    record = workflow_store.transition_status(
-        record,
-        target_status,
-        _actor_id(request),
-        stage="IN_PREPARATION",
-    )
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        record = workflow_store.transition_status(
+            record,
+            target_status,
+            actor_user_id,
+            stage="IN_PREPARATION",
+        )
+        workflow_store.update_record(needs_list_id, record)
+        needs_list_pk = _execution_needs_list_pk(record)
+        if needs_list_pk is not None:
+            _upsert_execution_link(
+                needs_list_id=needs_list_pk,
+                actor_user_id=actor_user_id,
+                selected_method=_normalize_selected_method_for_execution(
+                    (request.data or {}).get("selected_method") or record.get("selected_method")
+                ),
+                execution_status=NeedsListExecutionLink.ExecutionStatus.PREPARING,
+                prepared=True,
+            )
 
     logger.info(
         "needs_list_preparation_started",
@@ -3991,15 +4514,50 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     if record.get("dispatched_at"):
         return Response({"errors": {"status": "Needs list already dispatched."}}, status=409)
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
-    record = workflow_store.transition_status(
-        record,
-        target_status,
-        _actor_id(request),
-        stage="DISPATCHED",
-    )
-    workflow_store.update_record(needs_list_id, record)
+    link = _execution_link_for_record(record)
+    if (
+        _use_db_workflow_store()
+        and link is not None
+        and link.reliefrqst_id is not None
+        and link.reliefpkg_id is not None
+    ):
+        try:
+            with transaction.atomic():
+                dispatch_result = allocation_dispatch.dispatch_package(
+                    _allocation_context_from_record(record, request.data or {}, link=link),
+                    actor_user_id=actor_user_id,
+                    transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+                )
+                record = workflow_store.transition_status(
+                    record,
+                    target_status,
+                    actor_user_id,
+                    stage="DISPATCHED",
+                )
+                workflow_store.update_record(needs_list_id, record)
+                _upsert_execution_link(
+                    needs_list_id=link.needs_list_id,
+                    actor_user_id=actor_user_id,
+                    reliefrqst_id=dispatch_result.get("reliefrqst_id"),
+                    reliefpkg_id=dispatch_result.get("reliefpkg_id"),
+                    execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                    waybill_no=dispatch_result.get("waybill_no"),
+                    waybill_payload=dispatch_result.get("waybill_payload"),
+                    dispatched=True,
+                )
+        except allocation_dispatch.AllocationDispatchError as exc:
+            return Response({"errors": {exc.code: exc.message}}, status=409)
+    else:
+        record = workflow_store.transition_status(
+            record,
+            target_status,
+            actor_user_id,
+            stage="DISPATCHED",
+        )
+        workflow_store.update_record(needs_list_id, record)
 
     logger.info(
         "needs_list_dispatched",
@@ -4039,15 +4597,28 @@ def needs_list_mark_received(request, needs_list_id: str):
     if record.get("received_at"):
         return Response({"errors": {"status": "Needs list already received."}}, status=409)
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("RECEIVED")
-    record = workflow_store.transition_status(
-        record,
-        target_status,
-        _actor_id(request),
-        stage="RECEIVED",
-    )
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        record = workflow_store.transition_status(
+            record,
+            target_status,
+            actor_user_id,
+            stage="RECEIVED",
+        )
+        workflow_store.update_record(needs_list_id, record)
+        link = _execution_link_for_record(record)
+        if link is not None:
+            _upsert_execution_link(
+                needs_list_id=link.needs_list_id,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=link.reliefrqst_id,
+                reliefpkg_id=link.reliefpkg_id,
+                selected_method=link.selected_method,
+                execution_status=NeedsListExecutionLink.ExecutionStatus.RECEIVED,
+                received=True,
+            )
 
     logger.info(
         "needs_list_received",
@@ -4087,10 +4658,12 @@ def needs_list_mark_completed(request, needs_list_id: str):
     if record.get("completed_at"):
         return Response({"errors": {"status": "Needs list already completed."}}, status=409)
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("COMPLETED")
-    record = workflow_store.transition_status(record, target_status, _actor_id(request))
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        record = workflow_store.transition_status(record, target_status, actor_user_id)
+        workflow_store.update_record(needs_list_id, record)
 
     logger.info(
         "needs_list_completed",
@@ -4136,11 +4709,19 @@ def needs_list_cancel(request, needs_list_id: str):
     if not reason:
         return Response({"errors": {"reason": "Reason is required."}}, status=400)
 
+    actor_user_id = _actor_id(request) or "SYSTEM"
     from_status = record.get("status")
-    record = workflow_store.transition_status(
-        record, "CANCELLED", _actor_id(request), reason=reason
-    )
-    workflow_store.update_record(needs_list_id, record)
+    with transaction.atomic():
+        _release_execution_reservations(
+            record,
+            actor_user_id=actor_user_id,
+            reason_code="cancel",
+            cancel=True,
+        )
+        record = workflow_store.transition_status(
+            record, "CANCELLED", actor_user_id, reason=reason
+        )
+        workflow_store.update_record(needs_list_id, record)
 
     logger.info(
         "needs_list_cancelled",
@@ -4156,6 +4737,270 @@ def needs_list_cancel(request, needs_list_id: str):
     )
 
     return Response(_serialize_workflow_record(record, include_overrides=True))
+
+
+def _allocation_contracts_unavailable_response() -> Response:
+    return Response(
+        {
+            "errors": {
+                "allocation": "Allocation and dispatch contracts require the DB-backed replenishment workflow."
+            }
+        },
+        status=409,
+    )
+
+
+def _allocation_record_or_response(
+    request,
+    needs_list_id: str,
+    *,
+    write: bool,
+) -> tuple[dict[str, Any] | None, Response | None]:
+    try:
+        workflow_store.store_enabled_or_raise()
+    except RuntimeError:
+        return None, _workflow_disabled_response()
+
+    record = workflow_store.get_record(needs_list_id)
+    if not record:
+        return None, Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+    scope_error = _require_record_scope(request, record, write=write)
+    if scope_error:
+        return None, scope_error
+    if not _use_db_workflow_store():
+        return None, _allocation_contracts_unavailable_response()
+    if _execution_needs_list_pk(record) is None:
+        return None, Response({"errors": {"needs_list_id": "Needs list is not DB-backed."}}, status=409)
+    return record, None
+
+
+def _allocation_commit_response(
+    request,
+    needs_list_id: str,
+    *,
+    approval_required: bool,
+    payload_override: Mapping[str, Any] | None = None,
+) -> Response:
+    record, error_response = _allocation_record_or_response(request, needs_list_id, write=True)
+    if error_response is not None:
+        return error_response
+    assert record is not None
+
+    payload = dict(payload_override or request.data or {})
+    actor_user_id = _actor_id(request) or "SYSTEM"
+    link = _execution_link_for_record(record)
+    needs_list_pk = _execution_needs_list_pk(record)
+    if not _status_matches(
+        record.get("status"),
+        "APPROVED",
+        "IN_PREPARATION",
+        "IN_PROGRESS",
+        include_db_transitions=True,
+    ):
+        return Response(
+            {"errors": {"status": "Allocations can only be committed from approved or active preparation states."}},
+            status=409,
+        )
+    parse_errors: Dict[str, str] = {}
+    stored_selections: list[dict[str, Any]] = []
+    if approval_required:
+        if (
+            link is None
+            or link.execution_status != NeedsListExecutionLink.ExecutionStatus.PENDING_OVERRIDE_APPROVAL
+        ):
+            return Response(
+                {"errors": {"status": "Override approval requires a pending override allocation."}},
+                status=409,
+            )
+        stored_selections = _stored_execution_allocation_lines(int(needs_list_pk))
+        if not stored_selections:
+            return Response(
+                {"errors": {"allocations": "No pending override allocation is available to approve."}},
+                status=409,
+            )
+        if payload.get("allocations") not in (None, ""):
+            provided_selections = _parse_allocation_selections(payload.get("allocations"), parse_errors)
+            if parse_errors:
+                return Response({"errors": parse_errors}, status=400)
+            if _selection_signature(provided_selections) != _selection_signature(stored_selections):
+                return Response(
+                    {
+                        "errors": {
+                            "allocations": (
+                                "Override approval must use the same pending allocation plan that was submitted."
+                            )
+                        }
+                    },
+                    status=409,
+                )
+        selections = stored_selections
+    else:
+        selections = _parse_allocation_selections(payload.get("allocations"), parse_errors)
+    selected_method = _normalize_selected_method_for_execution(
+        payload.get("selected_method") or getattr(link, "selected_method", None)
+    )
+    if payload.get("selected_method") is not None and selected_method is None:
+        parse_errors["selected_method"] = "Must be one of FEFO, FIFO, MIXED, or MANUAL."
+    if approval_required and payload.get("selected_method") not in (None, ""):
+        stored_method = str(getattr(link, "selected_method", "") or "").strip().upper()
+        if stored_method and selected_method and selected_method != stored_method:
+            return Response(
+                {"errors": {"selected_method": "Override approval must use the originally submitted method."}},
+                status=409,
+            )
+    if not approval_required and link is None and payload.get("agency_id") in (None, ""):
+        parse_errors["agency_id"] = "agency_id is required for the first formal allocation commit."
+    if not approval_required and link is None and not str(payload.get("urgency_ind") or "").strip():
+        parse_errors["urgency_ind"] = "urgency_ind is required for the first formal allocation commit."
+    if parse_errors:
+        return Response({"errors": parse_errors}, status=400)
+
+    stored_override_reason_code = next(
+        (
+            str(line.get("override_reason_code") or "").strip()
+            for line in stored_selections
+            if str(line.get("override_reason_code") or "").strip()
+        ),
+        "",
+    )
+    stored_override_note = next(
+        (
+            str(line.get("override_note") or "").strip()
+            for line in stored_selections
+            if str(line.get("override_note") or "").strip()
+        ),
+        "",
+    )
+    override_reason_code = str(payload.get("override_reason_code") or stored_override_reason_code or "").strip()
+    override_note = str(payload.get("override_note") or stored_override_note or "").strip()
+
+    roles, _ = resolve_roles_and_permissions(request, request.user)
+    context = _allocation_context_from_record(record, payload, link=link)
+    if selected_method is not None:
+        context["selected_method"] = selected_method
+
+    try:
+        with transaction.atomic():
+            if approval_required:
+                result = allocation_dispatch.approve_override(
+                    context,
+                    selections,
+                    actor_user_id=actor_user_id,
+                    supervisor_user_id=actor_user_id,
+                    supervisor_role_codes=roles,
+                    submitter_user_id=getattr(link, "override_requested_by", None),
+                    override_reason_code=override_reason_code,
+                    override_note=override_note,
+                )
+            else:
+                result = allocation_dispatch.commit_allocation(
+                    context,
+                    selections,
+                    actor_user_id=actor_user_id,
+                    override_reason_code=override_reason_code or None,
+                    override_note=override_note or None,
+                )
+
+            needs_list_obj = NeedsList.objects.select_for_update().get(needs_list_id=needs_list_pk)
+            _replace_execution_allocation_lines(
+                needs_list=needs_list_obj,
+                selections=selections,
+                actor_user_id=actor_user_id,
+                rule_bypass_flag=bool(result.get("override_required")),
+                override_reason_code=override_reason_code or None,
+                override_note=override_note or None,
+                supervisor_user_id=actor_user_id if approval_required else None,
+            )
+            _upsert_execution_link(
+                needs_list_id=needs_list_pk,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=result.get("reliefrqst_id"),
+                reliefpkg_id=result.get("reliefpkg_id"),
+                selected_method=selected_method,
+                execution_status=(
+                    NeedsListExecutionLink.ExecutionStatus.COMMITTED
+                    if result.get("status") == "COMMITTED"
+                    else NeedsListExecutionLink.ExecutionStatus.PENDING_OVERRIDE_APPROVAL
+                ),
+                committed=result.get("status") == "COMMITTED",
+                override_requested=result.get("status") == "PENDING_OVERRIDE_APPROVAL",
+                override_approved=approval_required,
+            )
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
+    except NeedsList.DoesNotExist:
+        return Response({"errors": {"needs_list_id": "Not found."}}, status=404)
+
+    refreshed = workflow_store.get_record(needs_list_id) or record
+    response_payload = _serialize_workflow_record(refreshed, include_overrides=True)
+    response_payload["override_required"] = bool(result.get("override_required"))
+    response_payload["override_markers"] = result.get("override_markers") or []
+    return Response(response_payload)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_allocation_options(request, needs_list_id: str):
+    record, error_response = _allocation_record_or_response(request, needs_list_id, write=False)
+    if error_response is not None:
+        return error_response
+    assert record is not None
+
+    try:
+        options = allocation_dispatch.get_allocation_options(_execution_needs_list_pk(record))
+    except allocation_dispatch.AllocationDispatchError as exc:
+        status = 409 if exc.code in {"needs_list_closed", "overlapping_open_needs_list"} else 400
+        return Response({"errors": {exc.code: exc.message}}, status=status)
+    return Response(options)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_allocations_current(request, needs_list_id: str):
+    record, error_response = _allocation_record_or_response(request, needs_list_id, write=False)
+    if error_response is not None:
+        return error_response
+    assert record is not None
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    return Response(response_payload)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_allocations_commit(request, needs_list_id: str):
+    return _allocation_commit_response(request, needs_list_id, approval_required=False)
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_allocations_override_approve(request, needs_list_id: str):
+    return _allocation_commit_response(request, needs_list_id, approval_required=True)
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([NeedsListPermission])
+def needs_list_waybill(request, needs_list_id: str):
+    record, error_response = _allocation_record_or_response(request, needs_list_id, write=False)
+    if error_response is not None:
+        return error_response
+    assert record is not None
+    payload = _execution_payload_for_record(record)
+    if not payload.get("waybill_no"):
+        return Response({"errors": {"waybill": "Waybill not available."}}, status=404)
+    return Response(
+        {
+            "needs_list_id": needs_list_id,
+            "waybill_no": payload.get("waybill_no"),
+            "waybill_payload": payload.get("waybill_payload"),
+            "request_tracking_no": payload.get("request_tracking_no"),
+            "package_tracking_no": payload.get("package_tracking_no"),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -4449,18 +5294,50 @@ def needs_list_donations(request, needs_list_id: str):
     items = snapshot.get("items", [])
 
     horizon_b_lines = []
-    for item in items:
-        horizon = item.get("horizon") or {}
-        b_qty = (horizon.get("B") or {}).get("recommended_qty") or 0
-        if b_qty > 0:
-            horizon_b_lines.append({
-                "item_id": item["item_id"],
-                "item_name": item.get("item_name", f"Item {item['item_id']}"),
-                "uom": item.get("uom_code", "EA"),
-                "required_qty": b_qty,
-                "allocated_qty": 0,
-                "available_donations": [],
-            })
+    if _use_db_workflow_store() and _execution_needs_list_pk(record) is not None:
+        try:
+            options = allocation_dispatch.get_allocation_options(_execution_needs_list_pk(record))
+            candidates_by_item: dict[int, list[dict[str, Any]]] = {}
+            for group in options.get("items", []):
+                donation_candidates = [
+                    candidate
+                    for candidate in group.get("candidates", [])
+                    if str(candidate.get("source_type") or "").upper() == "DONATION"
+                ]
+                if donation_candidates:
+                    candidates_by_item[int(group["item_id"])] = donation_candidates
+            for item in items:
+                horizon = item.get("horizon") or {}
+                b_qty = (horizon.get("B") or {}).get("recommended_qty") or 0
+                if b_qty > 0:
+                    item_id = int(item["item_id"])
+                    available_donations = candidates_by_item.get(item_id, [])
+                    horizon_b_lines.append(
+                        {
+                            "item_id": item_id,
+                            "item_name": item.get("item_name", f"Item {item_id}"),
+                            "uom": item.get("uom_code", "EA"),
+                            "required_qty": b_qty,
+                            "allocated_qty": 0,
+                            "available_donations": available_donations,
+                        }
+                    )
+        except allocation_dispatch.AllocationDispatchError:
+            horizon_b_lines = []
+
+    if not horizon_b_lines:
+        for item in items:
+            horizon = item.get("horizon") or {}
+            b_qty = (horizon.get("B") or {}).get("recommended_qty") or 0
+            if b_qty > 0:
+                horizon_b_lines.append({
+                    "item_id": item["item_id"],
+                    "item_name": item.get("item_name", f"Item {item['item_id']}"),
+                    "uom": item.get("uom_code", "EA"),
+                    "required_qty": b_qty,
+                    "allocated_qty": 0,
+                    "available_donations": [],
+                })
 
     auth_payload = getattr(request, "auth", None)
     auth_sub = auth_payload.get("sub") if isinstance(auth_payload, dict) else None
@@ -4505,27 +5382,42 @@ def needs_list_donations_allocate(request, needs_list_id: str):
     if scope_error:
         return scope_error
 
-    allocations = request.data if isinstance(request.data, list) else []
+    if not _use_db_workflow_store():
+        return Response(
+            {"errors": {"donations": "donation_allocation_not_implemented"}},
+            status=501,
+        )
+
+    raw_payload = request.data or {}
+    metadata = raw_payload if isinstance(raw_payload, dict) else {}
+    allocations = raw_payload if isinstance(raw_payload, list) else list(metadata.get("allocations") or [])
     if not allocations:
         return Response(
             {"errors": {"allocations": "Must provide a list of allocations."}},
             status=400,
         )
 
-    logger.info(
-        "needs_list_donations_allocate_not_implemented",
-        extra={
-            "event_type": "EXECUTION",
-            "user_id": getattr(request.user, "user_id", None),
-            "username": getattr(request.user, "username", None),
-            "needs_list_id": needs_list_id,
-            "allocation_count": len(allocations),
-        },
-    )
-
-    return Response(
-        {"errors": {"donations": "donation_allocation_not_implemented"}},
-        status=501,
+    commit_payload = {
+        "agency_id": metadata.get("agency_id"),
+        "urgency_ind": metadata.get("urgency_ind"),
+        "allocations": [
+            {
+                **allocation,
+                "quantity": allocation.get("quantity", allocation.get("allocated_qty")),
+                "source_type": "DONATION",
+                "source_record_id": allocation.get("donation_id") or allocation.get("source_record_id"),
+            }
+            for allocation in allocations
+        ],
+        "override_reason_code": metadata.get("override_reason_code"),
+        "override_note": metadata.get("override_note"),
+        "transport_mode": metadata.get("transport_mode"),
+    }
+    return _allocation_commit_response(
+        request,
+        needs_list_id,
+        approval_required=False,
+        payload_override=commit_payload,
     )
 
 
@@ -4680,6 +5572,10 @@ needs_list_review_reminder.required_permission = [
 needs_list_bulk_submit.required_permission = PERM_NEEDS_LIST_SUBMIT
 needs_list_bulk_delete.required_permission = PERM_NEEDS_LIST_CANCEL
 needs_list_start_preparation.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_allocation_options.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_allocations_current.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_allocations_commit.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_allocations_override_approve.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_dispatched.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_received.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_mark_completed.required_permission = PERM_NEEDS_LIST_EXECUTE
@@ -4691,6 +5587,7 @@ needs_list_transfer_confirm.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_allocate.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_donations_export.required_permission = PERM_NEEDS_LIST_EXECUTE
+needs_list_waybill.required_permission = PERM_NEEDS_LIST_EXECUTE
 needs_list_procurement_export.required_permission = PERM_NEEDS_LIST_EXECUTE
 criticality_event_overrides.required_permission = {
     "GET": [PERM_CRITICALITY_OVERRIDE_VIEW, PERM_CRITICALITY_OVERRIDE_MANAGE],
@@ -4741,6 +5638,10 @@ for view_func in (
     needs_list_bulk_submit,
     needs_list_bulk_delete,
     needs_list_start_preparation,
+    needs_list_allocation_options,
+    needs_list_allocations_current,
+    needs_list_allocations_commit,
+    needs_list_allocations_override_approve,
     needs_list_mark_dispatched,
     needs_list_mark_received,
     needs_list_mark_completed,
@@ -4752,6 +5653,7 @@ for view_func in (
     needs_list_donations,
     needs_list_donations_allocate,
     needs_list_donations_export,
+    needs_list_waybill,
     needs_list_procurement_export,
 ):
     if hasattr(view_func, "cls"):

@@ -14,6 +14,10 @@ from replenishment.views import (
     criticality_hazard_default_approve,
     criticality_hazard_default_reject,
     needs_list_approve,
+    needs_list_allocation_options,
+    needs_list_allocations_commit,
+    needs_list_allocations_current,
+    needs_list_allocations_override_approve,
     needs_list_bulk_delete,
     needs_list_bulk_submit,
     needs_list_cancel,
@@ -40,6 +44,7 @@ from replenishment.views import (
     needs_list_transfer_confirm,
     needs_list_transfer_update,
     needs_list_transfers,
+    needs_list_waybill,
     storage_assignment_options,
     needs_list_donations,
     needs_list_donations_allocate,
@@ -201,6 +206,26 @@ urlpatterns = [
         name="needs_list_start_preparation",
     ),
     path(
+        "needs-list/<str:needs_list_id>/allocation-options",
+        needs_list_allocation_options,
+        name="needs_list_allocation_options",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/current",
+        needs_list_allocations_current,
+        name="needs_list_allocations_current",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/commit",
+        needs_list_allocations_commit,
+        name="needs_list_allocations_commit",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/override-approve",
+        needs_list_allocations_override_approve,
+        name="needs_list_allocations_override_approve",
+    ),
+    path(
         "needs-list/<str:needs_list_id>/mark-dispatched",
         needs_list_mark_dispatched,
         name="needs_list_mark_dispatched",
@@ -254,6 +279,11 @@ urlpatterns = [
         "needs-list/<str:needs_list_id>/donations/export",
         needs_list_donations_export,
         name="needs_list_donations_export",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/waybill",
+        needs_list_waybill,
+        name="needs_list_waybill",
     ),
     path(
         "needs-list/<str:needs_list_id>/procurement/export",

@@ -10,6 +10,9 @@ SUPPORTED_SQL_TEMPLATE_NAMES = (
     "20260307_needs_list_item_effective_criticality.sql",
     "20260308_inbound_stock_view.sql",
     "20260308_items_criticality_layers.sql",
+    "20260324_sprint08_allocation_persistence.sql",
+    "20260324_sprint08_audit_actions.sql",
+    "20260324_sprint08_allocation_precision_fix.sql",
 )
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
