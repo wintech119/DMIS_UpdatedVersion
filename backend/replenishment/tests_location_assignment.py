@@ -424,4 +424,5 @@ class EnforceLocationStoragePolicyCommandTests(TestCase):
         self.assertIn("CREATE TRIGGER trg_enforce_item_location_policy", executed_sql)
         self.assertIn("CREATE OR REPLACE FUNCTION enforce_batchlocation_write_policy()", executed_sql)
         self.assertIn("CREATE TRIGGER trg_enforce_batchlocation_policy", executed_sql)
-        self.assertIn("CREATE OR REPLACE VIEW v_item_location_batched", executed_sql)
+        self.assertIn("DROP VIEW IF EXISTS v_item_location_batched", executed_sql)
+        self.assertIn("CREATE VIEW v_item_location_batched", executed_sql)

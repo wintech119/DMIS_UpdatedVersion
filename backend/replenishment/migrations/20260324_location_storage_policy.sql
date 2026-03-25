@@ -61,7 +61,8 @@ BEFORE INSERT OR UPDATE ON batchlocation
 FOR EACH ROW
 EXECUTE FUNCTION enforce_batchlocation_write_policy();
 
-CREATE OR REPLACE VIEW v_item_location_batched AS
+DROP VIEW IF EXISTS v_item_location_batched;
+CREATE VIEW v_item_location_batched AS
 SELECT
     il.inventory_id,
     il.item_id,
