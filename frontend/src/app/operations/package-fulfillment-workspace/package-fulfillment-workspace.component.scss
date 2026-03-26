@@ -1,0 +1,234 @@
+.ops-workspace {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.ops-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.ops-hero__eyebrow,
+.ops-pane__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-hero__title {
+  margin: 8px 0 12px;
+  font-size: clamp(2.1rem, 4vw, 3.8rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.ops-hero__description {
+  margin: 0;
+  color: var(--color-text-secondary);
+  max-width: 58rem;
+}
+
+.ops-hero__actions,
+.ops-pane__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ops-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-kpi-card,
+.ops-pane,
+.ops-stepper,
+.ops-confirmation-card {
+  background: var(--color-surface-container-lowest);
+  border-radius: 22px;
+  box-shadow: 0 20px 40px rgba(26, 28, 28, 0.04);
+}
+
+.ops-kpi-card {
+  padding: 18px 20px;
+}
+
+.ops-kpi-card__label,
+.ops-context-card__label,
+.ops-rail-card__label,
+.ops-confirmation-card span {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-kpi-card__value {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: clamp(1.9rem, 4vw, 2.7rem);
+  line-height: 1;
+}
+
+.ops-kpi-card__note,
+.ops-context-card p,
+.ops-confirmation-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.ops-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.72fr);
+  gap: 18px;
+}
+
+.ops-pane {
+  padding: 22px;
+}
+
+.ops-pane__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.ops-pane__header h2 {
+  margin: 4px 0 0;
+  font-size: 1.3rem;
+}
+
+.ops-context-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-context-card,
+.ops-rail-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--color-surface-container-low);
+}
+
+.ops-context-card strong,
+.ops-rail-card strong,
+.ops-confirmation-card strong {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 1rem;
+  color: var(--color-text-primary);
+}
+
+.ops-callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-accent) 8%, white);
+  color: var(--color-accent);
+}
+
+.ops-rail-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.ops-stepper {
+  padding: 18px;
+}
+
+.ops-step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.ops-confirmation {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.ops-confirmation-card {
+  padding: 24px;
+}
+
+.ops-confirmation-card h2 {
+  margin: 0 0 10px;
+  font-size: 1.5rem;
+}
+
+.ops-confirmation-card__hint {
+  margin-top: 10px;
+}
+
+.ops-confirmation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.ops-confirmation-grid > div {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--color-surface-container-low);
+}
+
+@media (max-width: 1140px) {
+  .ops-split {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .ops-workspace {
+    padding: 12px;
+  }
+
+  .ops-hero {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .ops-context-grid,
+  .ops-confirmation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-step-actions,
+  .ops-hero__actions,
+  .ops-pane__actions {
+    width: 100%;
+  }
+
+  .ops-step-actions button,
+  .ops-hero__actions button,
+  .ops-pane__actions button {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .ops-kpi-strip {
+    grid-template-columns: 1fr;
+  }
+}

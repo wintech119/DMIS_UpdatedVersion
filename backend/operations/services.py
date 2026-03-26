@@ -7,6 +7,9 @@ from django.db import connection, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from api.tenancy import TenantContext
+from operations import policy as operations_policy
+from operations.exceptions import OperationValidationError
 from replenishment.legacy_models import Agency, Item, ReliefPkg, ReliefRqst
 from replenishment.models import NeedsListExecutionLink
 from replenishment.services import data_access
@@ -83,12 +86,6 @@ REQUEST_LIST_FILTERS = {
 }
 
 
-class OperationValidationError(ValueError):
-    def __init__(self, errors: dict[str, Any]):
-        super().__init__("Validation error")
-        self.errors = errors
-
-
 def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
     with connection.cursor() as cursor:
         cursor.execute(sql, list(params or []))
@@ -123,6 +120,15 @@ def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | 
         errors[field_name] = "Must be a positive integer."
         return None
     return parsed
+
+
+def _event_exists(event_id: int) -> bool:
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM event WHERE event_id = %s LIMIT 1", [int(event_id)])
+            return cursor.fetchone() is not None
+    except Exception:
+        return False
 
 
 def _load_request(reliefrqst_id: int, *, for_update: bool = False) -> ReliefRqst:
@@ -350,6 +356,8 @@ def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = Fal
             normalized["eligible_event_id"] = None
         else:
             normalized["eligible_event_id"] = _positive_int(payload.get("eligible_event_id"), "eligible_event_id", errors)
+            if normalized["eligible_event_id"] is not None and not _event_exists(int(normalized["eligible_event_id"])):
+                errors["eligible_event_id"] = "Selected event does not exist."
     normalized["rqst_notes_text"] = str(payload.get("rqst_notes_text") or "").strip() or None
     raw_items = payload.get("items")
     normalized_items: list[dict[str, Any]] = []
@@ -404,8 +412,22 @@ def get_request(reliefrqst_id: int, *, actor_id: str | None = None) -> dict[str,
 
 
 @transaction.atomic
-def create_request(*, payload: Mapping[str, Any], actor_id: str) -> dict[str, Any]:
+def create_request(
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
+) -> dict[str, Any]:
     normalized = _validate_request_payload(payload)
+    decision = operations_policy.validate_relief_request_agency_selection(
+        agency_id=int(normalized["agency_id"]),
+        tenant_context=tenant_context,
+    )
+    operations_policy.enforce_relief_request_origin_mode_permission(
+        decision=decision,
+        permissions=permissions or (),
+    )
     reliefrqst_id = _next_int_id("reliefrqst", "reliefrqst_id")
     now = timezone.now()
     ReliefRqst.objects.create(
@@ -427,11 +449,27 @@ def create_request(*, payload: Mapping[str, Any], actor_id: str) -> dict[str, An
 
 
 @transaction.atomic
-def update_request(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: str) -> dict[str, Any]:
+def update_request(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
+) -> dict[str, Any]:
     request = _load_request(reliefrqst_id, for_update=True)
     if int(request.status_code) != STATUS_DRAFT:
         raise OperationValidationError({"status": "Only draft requests can be updated."})
     normalized = _validate_request_payload(payload, partial=True)
+    target_agency_id = int(normalized["agency_id"]) if "agency_id" in normalized else int(request.agency_id)
+    decision = operations_policy.validate_relief_request_agency_selection(
+        agency_id=target_agency_id,
+        tenant_context=tenant_context,
+    )
+    operations_policy.enforce_relief_request_origin_mode_permission(
+        decision=decision,
+        permissions=permissions or (),
+    )
     if "agency_id" in normalized:
         request.agency_id = normalized["agency_id"]
     if "urgency_ind" in normalized:
@@ -459,10 +497,14 @@ def update_request(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: 
 
 
 @transaction.atomic
-def submit_request(reliefrqst_id: int, *, actor_id: str) -> dict[str, Any]:
+def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantContext) -> dict[str, Any]:
     request = _load_request(reliefrqst_id, for_update=True)
     if int(request.status_code) != STATUS_DRAFT:
         raise OperationValidationError({"status": "Only draft requests can be submitted."})
+    operations_policy.validate_relief_request_agency_selection(
+        agency_id=int(request.agency_id),
+        tenant_context=tenant_context,
+    )
     if not _request_item_rows_for_allocation(reliefrqst_id):
         raise OperationValidationError({"items": "At least one item is required before submission."})
     request.status_code = STATUS_AWAITING_APPROVAL

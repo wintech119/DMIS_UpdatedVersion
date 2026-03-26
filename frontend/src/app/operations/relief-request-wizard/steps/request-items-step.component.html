@@ -1,0 +1,232 @@
+<div class="request-stage" [formGroup]="form">
+  <section class="request-panel request-panel--muted">
+    <div class="request-panel__intro">
+      <div>
+        <p class="request-panel__eyebrow">Request header</p>
+        <h2 class="request-panel__title">Operational intake context</h2>
+      </div>
+      <p class="request-panel__copy">
+        Keep the DMIS transaction structure, but use the Stitch intake rhythm: select the requesting agency and event by
+        name, stamp the urgency visually, and keep the intake lane clear under pressure.
+      </p>
+    </div>
+
+    @if (creationBlocked) {
+      <div class="request-step-alert" role="alert">
+        <mat-icon aria-hidden="true">lock</mat-icon>
+        <div>
+          <strong>Relief request entry is not available for this tenant.</strong>
+          <p>{{ submissionModeHint }}</p>
+        </div>
+      </div>
+    }
+
+    <div class="request-context-grid">
+      <mat-form-field appearance="outline">
+        <mat-label>Requesting Agency</mat-label>
+        <mat-select formControlName="agency_id" [disabled]="creationBlocked || agencyOptions.length === 0">
+          @for (option of agencyOptions; track option.value) {
+            <mat-option [value]="option.value">{{ option.label }}</mat-option>
+          }
+        </mat-select>
+        <mat-hint>{{ submissionModeHint }}</mat-hint>
+        @if (getControlError('agency_id'); as message) {
+          <mat-error>{{ message }}</mat-error>
+        }
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Event</mat-label>
+        <mat-select formControlName="eligible_event_id" [disabled]="creationBlocked">
+          <mat-option [value]="null">No linked event</mat-option>
+          @for (option of eventOptions; track option.value) {
+            <mat-option [value]="option.value">{{ option.label }}</mat-option>
+          }
+        </mat-select>
+        <mat-hint>Optional. Use the active event name when this request is tied to a live incident.</mat-hint>
+        @if (getControlError('eligible_event_id'); as message) {
+          <mat-error>{{ message }}</mat-error>
+        }
+      </mat-form-field>
+
+      <article class="request-context-card">
+        <span class="request-context-card__label">Request date</span>
+        <strong>{{ requestDateText }}</strong>
+        <p>{{ requestDateHint }}</p>
+      </article>
+
+      <article class="request-context-card">
+        <span class="request-context-card__label">Submission mode</span>
+        <strong>{{ submissionModeLabel }}</strong>
+        <p>{{ submissionModeHint }}</p>
+      </article>
+    </div>
+
+    <div class="urgency-block" [class.urgency-block--invalid]="!!getControlError('urgency_ind')">
+      <div class="urgency-block__header">
+        <div>
+          <p class="request-panel__eyebrow">Request urgency</p>
+          <h3>Choose the overall request priority</h3>
+        </div>
+        <p>This sets the intake tone for eligibility review, packaging, and dispatch sequencing.</p>
+      </div>
+
+      <div class="urgency-pills" role="group" aria-label="Select request urgency">
+        @for (option of urgencyOptions; track option.value) {
+          <button
+            type="button"
+            class="urgency-pill"
+            [class.is-active]="form.get('urgency_ind')?.value === option.value"
+            [class.is-critical]="option.value === 'C'"
+            [class.is-high]="option.value === 'H'"
+            [class.is-medium]="option.value === 'M'"
+            [class.is-low]="option.value === 'L'"
+            [disabled]="creationBlocked"
+            [attr.aria-pressed]="form.get('urgency_ind')?.value === option.value"
+            (click)="selectRequestUrgency(option.value)">
+            <span class="urgency-pill__code">{{ option.value }}</span>
+            <span class="urgency-pill__body">
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.hint }}</small>
+            </span>
+          </button>
+        }
+      </div>
+
+      @if (getControlError('urgency_ind'); as message) {
+        <p class="urgency-block__error" role="alert">{{ message }}</p>
+      }
+    </div>
+  </section>
+
+  <section class="request-panel">
+    <p class="request-panel__eyebrow">Narrative</p>
+    <h2 class="request-panel__title">Request notes</h2>
+    <p class="request-panel__copy">
+      Capture what ODPEM reviewers, packers, and dispatch staff should keep in view once the request leaves intake.
+    </p>
+
+    <mat-form-field appearance="outline" class="step-full-width">
+      <mat-label>Notes</mat-label>
+      <textarea
+        matInput
+        formControlName="rqst_notes_text"
+        rows="3"
+        placeholder="Add operational notes, constraints, or context that should travel with this request"></textarea>
+    </mat-form-field>
+  </section>
+
+  <section class="request-panel request-panel--ledger">
+    <div class="step-items-header">
+      <div>
+        <p class="request-panel__eyebrow">Requested items</p>
+        <h2 class="step-items-title">
+          Item lines
+          <span class="step-items-count">({{ itemsArray.length }})</span>
+        </h2>
+      </div>
+
+      <button
+        mat-flat-button
+        type="button"
+        (click)="onAddItem()"
+        [disabled]="creationBlocked"
+        aria-label="Add another item to this request">
+        <mat-icon>add</mat-icon>
+        Add Item
+      </button>
+    </div>
+
+    @if (itemsArray.length === 0) {
+      <div class="step-items-empty" role="status">
+        <mat-icon aria-hidden="true">inventory_2</mat-icon>
+        <p>No items added yet. Click "Add Item" to begin.</p>
+      </div>
+    } @else {
+      <div class="step-items-list" formArrayName="items">
+        @for (item of itemsArray.controls; track trackByIndex($index); let i = $index) {
+          <div class="step-item-row" [formGroupName]="i">
+            <span class="step-item-number" aria-hidden="true">{{ i + 1 }}</span>
+
+            <div class="step-item-fields">
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--id">
+                <mat-label>Item ID</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  formControlName="item_id"
+                  [disabled]="creationBlocked"
+                  required />
+                @if (item.get('item_id')?.hasError('required') && item.get('item_id')?.touched) {
+                  <mat-error>Required</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--qty">
+                <mat-label>Quantity</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  formControlName="request_qty"
+                  [disabled]="creationBlocked"
+                  required
+                  min="1" />
+                @if (item.get('request_qty')?.hasError('required') && item.get('request_qty')?.touched) {
+                  <mat-error>Required</mat-error>
+                }
+                @if (item.get('request_qty')?.hasError('min') && item.get('request_qty')?.touched) {
+                  <mat-error>Must be at least 1</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--urgency">
+                <mat-label>Item urgency</mat-label>
+                <mat-select formControlName="urgency_ind" [disabled]="creationBlocked">
+                  <mat-option [value]="null">Follow request urgency</mat-option>
+                  @for (option of urgencyOptions; track option.value) {
+                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--reason">
+                <mat-label>Reason</mat-label>
+                <input
+                  matInput
+                  formControlName="rqst_reason_desc"
+                  [disabled]="creationBlocked"
+                  [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required for critical or high urgency' : 'Optional'" />
+                @if (item.get('rqst_reason_desc')?.hasError('required') && item.get('rqst_reason_desc')?.touched) {
+                  <mat-error>Reason required for Critical or High urgency</mat-error>
+                }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--date">
+                <mat-label>Required by</mat-label>
+                <input
+                  matInput
+                  [matDatepicker]="picker"
+                  formControlName="required_by_date"
+                  [disabled]="creationBlocked"
+                  placeholder="Optional" />
+                <mat-datepicker-toggle matIconSuffix [for]="picker" />
+                <mat-datepicker #picker />
+              </mat-form-field>
+            </div>
+
+            <button
+              mat-icon-button
+              type="button"
+              class="step-item-remove"
+              (click)="onRemoveItem(i)"
+              [disabled]="creationBlocked"
+              [matTooltip]="'Remove item ' + (i + 1)"
+              [attr.aria-label]="'Remove item ' + (i + 1)">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </section>
+</div>

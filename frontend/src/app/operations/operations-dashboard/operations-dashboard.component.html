@@ -1,0 +1,202 @@
+<div class="ops-page-shell">
+  <header class="ops-hero">
+    <div>
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">dashboard</mat-icon>
+        Operations
+      </p>
+      <h1 class="ops-hero__title">Command Center</h1>
+      <p class="ops-hero__copy">{{ dashboardSubtitle() }}</p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-flat-button color="primary" type="button" (click)="open('/operations/relief-requests/new')">
+        <mat-icon>add</mat-icon>
+        New Relief Request
+      </button>
+      <button mat-stroked-button type="button" (click)="open('/operations/eligibility-review')">
+        <mat-icon>fact_check</mat-icon>
+        Review Queue
+      </button>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <div class="ops-kpi-grid" aria-hidden="true">
+      @for (_ of [1, 2, 3, 4]; track $index) {
+        <div class="ops-kpi-card">
+          <div class="ops-kpi-card__label">Loading</div>
+          <div class="ops-kpi-card__value">--</div>
+          <p class="ops-kpi-card__meta">Synchronizing operational queues</p>
+        </div>
+      }
+    </div>
+  } @else {
+    <app-ops-metric-strip [items]="heroMetricItems()" />
+
+    <div class="ops-grid ops-grid--split">
+      <section class="ops-panel">
+        <div class="ops-panel__header">
+          <div>
+            <p class="ops-section__eyebrow">Priority work</p>
+            <h2 class="ops-section__title">Queue overview</h2>
+            <p class="ops-section__copy">Live relief requests and the next actions that keep the workflow moving.</p>
+          </div>
+          <button mat-stroked-button type="button" (click)="open('/operations/relief-requests')">
+            <mat-icon>open_in_new</mat-icon>
+            Open Queue
+          </button>
+        </div>
+
+        <div class="ops-panel__body">
+          @if (priorityWork().length === 0) {
+            <div class="ops-empty">
+              <p class="ops-empty__title">No active work items</p>
+              <p class="ops-empty__copy">The current queues are empty or the backend is unavailable.</p>
+            </div>
+          } @else {
+            <div class="ops-row-list">
+              @for (item of priorityWork(); track item.title) {
+                <article
+                  class="ops-row ops-row--interactive"
+                  tabindex="0"
+                  role="button"
+                  (click)="open(item.route)"
+                  (keydown.enter)="open(item.route)"
+                  (keydown.space)="open(item.route); $event.preventDefault()">
+                  <div class="ops-row__lead">
+                    <p class="ops-row__title">{{ item.title }}</p>
+                    <div class="ops-row__meta">
+                      <span>{{ item.detail }}</span>
+                      <app-ops-status-chip [label]="item.status" [tone]="queueTone(item.tone)"></app-ops-status-chip>
+                    </div>
+                  </div>
+                  <div class="ops-row__actions">
+                    <app-ops-status-chip [label]="item.age" tone="neutral"></app-ops-status-chip>
+                    <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                  </div>
+                </article>
+              }
+            </div>
+          }
+        </div>
+      </section>
+
+      <aside class="ops-grid">
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Workflow map</p>
+              <h2 class="ops-section__title">Current lanes</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-timeline">
+              <div class="ops-timeline__step">
+                <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+                <div class="ops-timeline__content">
+                  <p class="ops-timeline__title">Relief Requests</p>
+                  <div class="ops-timeline__meta">
+                    <span>Create, edit, and submit operational demand.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ops-timeline__step">
+                <span class="ops-timeline__dot" style="background: #92400e;"></span>
+                <div class="ops-timeline__content">
+                  <p class="ops-timeline__title">Eligibility Review</p>
+                  <div class="ops-timeline__meta">
+                    <span>Approve or decline requests with auditable decisions.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ops-timeline__step">
+                <span class="ops-timeline__dot" style="background: #065f46;"></span>
+                <div class="ops-timeline__content">
+                  <p class="ops-timeline__title">Package Fulfillment</p>
+                  <div class="ops-timeline__meta">
+                    <span>Reserve stock and prepare handoff documents.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ops-timeline__step">
+                <span class="ops-timeline__dot" style="background: #991b1b;"></span>
+                <div class="ops-timeline__content">
+                  <p class="ops-timeline__title">Dispatch</p>
+                  <div class="ops-timeline__meta">
+                    <span>Record transport handoff and waybill generation.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Action items</p>
+              <h2 class="ops-section__title">Recent tasks</h2>
+            </div>
+            <button mat-stroked-button type="button" (click)="open('/operations/tasks')">
+              <mat-icon>open_in_new</mat-icon>
+              All Tasks
+            </button>
+          </div>
+          <div class="ops-card__body">
+            @if (recentTasks().length === 0) {
+              <div class="ops-empty">
+                <p class="ops-empty__title">No pending tasks</p>
+                <p class="ops-empty__copy">Workflow notifications will appear here as operations progress.</p>
+              </div>
+            } @else {
+              <div class="ops-row-list">
+                @for (task of recentTasks(); track task.title) {
+                  <article
+                    class="ops-row ops-row--interactive"
+                    tabindex="0"
+                    role="button"
+                    (click)="open(task.route)"
+                    (keydown.enter)="open(task.route)"
+                    (keydown.space)="open(task.route); $event.preventDefault()">
+                    <div class="ops-row__lead">
+                      <p class="ops-row__title">{{ task.title }}</p>
+                      <div class="ops-row__meta">
+                        <span>{{ task.detail }}</span>
+                        <app-ops-status-chip [label]="task.status" [tone]="queueTone(task.tone)"></app-ops-status-chip>
+                      </div>
+                    </div>
+                    <div class="ops-row__actions">
+                      <app-ops-status-chip [label]="task.age" tone="neutral"></app-ops-status-chip>
+                      <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                    </div>
+                  </article>
+                }
+              </div>
+            }
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Cutover note</p>
+              <h2 class="ops-section__title">Live path</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-callout">
+              <mat-icon aria-hidden="true">info</mat-icon>
+              <div>
+                <p class="ops-section__copy">
+                  This workspace is wired to the Django Operations API. Relief management stays in Angular and no
+                  longer relies on Flask navigation for the approved live path.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  }
+</div>

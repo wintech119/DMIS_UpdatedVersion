@@ -100,6 +100,10 @@ def _auto_pk_config(table_key: str) -> tuple["TableConfig", "FieldDef"] | tuple[
     return cfg, pk_def
 
 
+def _table_config_by_db_table(db_table: str) -> "TableConfig" | None:
+    return next((cfg for cfg in TABLE_REGISTRY.values() if cfg.db_table == db_table), None)
+
+
 def inspect_auto_pk_sequence(table_key: str) -> tuple[dict[str, Any] | None, list[str]]:
     cfg, pk_def = _auto_pk_config(table_key)
     if cfg is None or pk_def is None:
@@ -1759,15 +1763,21 @@ def check_dependencies(
     warnings: List[str] = []
 
     for dep in cfg.dependencies:
+        dep_cfg = _table_config_by_db_table(dep.table)
+        where_clauses = [f"{dep.fk_column} = %s"]
+        params: list[Any] = [pk_value]
+        if dep_cfg is not None and dep_cfg.has_status:
+            where_clauses.append(f"{dep_cfg.status_field} = %s")
+            params.append(dep_cfg.active_status)
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
                     SELECT COUNT(*)
                     FROM {schema}.{dep.table}
-                    WHERE {dep.fk_column} = %s
+                    WHERE {" AND ".join(where_clauses)}
                     """,
-                    [pk_value],
+                    params,
                 )
                 count = cursor.fetchone()[0]
                 if count > 0:

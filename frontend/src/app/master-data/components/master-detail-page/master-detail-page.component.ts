@@ -160,7 +160,7 @@ export class MasterDetailPageComponent implements OnInit {
 
         // Extract UOM conversions for item records
         const uomOptions = res.record['uom_options'] as
-          Array<{ uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }> | undefined;
+          { uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }[] | undefined;
         if (Array.isArray(uomOptions)) {
           this.itemUomConversions.set(this.mapItemUomConversions(uomOptions));
           if (uomOptions.length === 0) {
@@ -400,8 +400,8 @@ export class MasterDetailPageComponent implements OnInit {
   }
 
   private mapItemUomConversions(
-    uomOptions: Array<{ uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }>,
-    uomLookup: Array<{ value: string | number; label: string }> = [],
+    uomOptions: { uom_code: string; conversion_factor: number; is_default?: boolean; label?: string; uom_desc?: string }[],
+    uomLookup: { value: string | number; label: string }[] = [],
   ): DetailUomConversion[] {
     return uomOptions.map((option) => ({
       uom_code: this.normalizeUomCode(option.uom_code),
@@ -413,7 +413,7 @@ export class MasterDetailPageComponent implements OnInit {
 
   private resolveUomOptionLabel(
     option: { uom_code: string; label?: string; uom_desc?: string },
-    uomLookup: Array<{ value: string | number; label: string }>,
+    uomLookup: { value: string | number; label: string }[],
   ): string | undefined {
     const normalizedUomCode = this.normalizeUomCode(option.uom_code);
     const explicitLabel = typeof option.label === 'string' ? option.label.trim() : '';

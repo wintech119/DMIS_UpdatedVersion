@@ -1,0 +1,217 @@
+<div class="ops-doc-shell">
+  <section class="ops-doc-hero">
+    <div>
+      <p class="ops-doc-hero__eyebrow">
+        <mat-icon aria-hidden="true">receipt_long</mat-icon>
+        Operations / Waybill
+      </p>
+      <h1 class="ops-doc-hero__title">Digital Waybill</h1>
+      <p class="ops-doc-hero__description">
+        Deterministic document view rebuilt from the dispatch record. The artifact is not separately persisted yet.
+      </p>
+      @if (waybill(); as wb) {
+        <div class="ops-doc-chip-row">
+          <app-ops-status-chip
+            [label]="wb.persisted ? 'Persisted' : 'Deterministic rebuild'"
+            [tone]="wb.persisted ? 'success' : 'info'" />
+          @if (wb.compatibility_bridge) {
+            <app-ops-status-chip label="Compatibility bridge" tone="warning" />
+          }
+        </div>
+      }
+    </div>
+
+    <div class="ops-doc-hero__actions">
+      <button mat-stroked-button type="button" (click)="backToDispatch()">
+        <mat-icon>arrow_back</mat-icon>
+        Back to Dispatch
+      </button>
+      <button mat-flat-button color="primary" type="button" (click)="printPage()">
+        <mat-icon>print</mat-icon>
+        Print
+      </button>
+    </div>
+  </section>
+
+  @if (loading()) {
+    <mat-card class="ops-doc-surface">
+      <dmis-skeleton-loader variant="summary-card" [count]="3" />
+    </mat-card>
+  } @else if (error(); as errorMessage) {
+    <dmis-empty-state
+      icon="description"
+      title="Waybill unavailable"
+      [message]="errorMessage"
+      actionLabel="Back to Dispatch"
+      actionIcon="arrow_back"
+      (action)="backToDispatch()"
+    />
+  } @else if (waybill(); as wb) {
+    <div class="ops-doc-layout">
+      <section class="ops-doc-main">
+        <!-- Card 1: Waybill Header + Route Graphic -->
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Waybill</p>
+              <h2>{{ wb.waybill_no }}</h2>
+            </div>
+            <div class="ops-doc-card__actions">
+              <app-ops-status-chip
+                [label]="wb.persisted ? 'Persisted' : 'Deterministic rebuild'"
+                [tone]="wb.persisted ? 'success' : 'info'" />
+            </div>
+          </div>
+
+          <app-ops-metric-strip [items]="summary()" />
+
+          <!-- Route Graphic -->
+          <div class="ops-route-graphic">
+            <div class="ops-route-graphic__stop">
+              <span class="ops-route-graphic__dot ops-route-graphic__dot--origin"></span>
+              <span class="ops-route-graphic__label">{{ sourceWarehouseLabel() }}</span>
+              <span class="ops-route-graphic__type">Origin</span>
+            </div>
+            <div class="ops-route-graphic__line">
+              <mat-icon class="ops-route-graphic__icon">local_shipping</mat-icon>
+              <span class="ops-route-graphic__mode">{{ transportModeLabel() }}</span>
+            </div>
+            <div class="ops-route-graphic__stop">
+              <span class="ops-route-graphic__dot ops-route-graphic__dot--dest"></span>
+              <span class="ops-route-graphic__label">{{ destinationLabel() }}</span>
+              <span class="ops-route-graphic__type">Destination</span>
+            </div>
+          </div>
+
+          <div class="ops-doc-banner" role="status">
+            <mat-icon aria-hidden="true">info</mat-icon>
+            <span>
+              @if (wb.compatibility_bridge) {
+                Compatibility bridge rendering is active for this package.
+              } @else {
+                Waybill derived from the live dispatch record. Can be regenerated on demand.
+              }
+            </span>
+          </div>
+        </article>
+
+        <!-- Card 2: Driver & Transport Details -->
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Transport operator</p>
+              <h2>Driver &amp; vehicle</h2>
+            </div>
+          </div>
+
+          <dl class="ops-doc-dl">
+            <div>
+              <dt>Request Tracking</dt>
+              <dd>{{ wb.waybill_payload.request_tracking_no || 'Pending' }}</dd>
+            </div>
+            <div>
+              <dt>Package Tracking</dt>
+              <dd>{{ wb.waybill_payload.package_tracking_no || 'Pending' }}</dd>
+            </div>
+            <div>
+              <dt>Dispatch Time</dt>
+              <dd>{{ wb.waybill_payload.dispatch_dtime ? (wb.waybill_payload.dispatch_dtime | date:'medium') : 'Pending dispatch' }}</dd>
+            </div>
+            <div>
+              <dt>Transport Mode</dt>
+              <dd>{{ wb.waybill_payload.transport_mode || 'Not specified' }}</dd>
+            </div>
+            <div>
+              <dt>Destination</dt>
+              <dd>{{ wb.waybill_payload.destination_warehouse_name || 'Not set' }}</dd>
+            </div>
+            <div>
+              <dt>Dispatched By</dt>
+              <dd>{{ wb.waybill_payload.actor_user_id || 'System' }}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <!-- Card 3: Manifest Table -->
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Manifest</p>
+              <h2>{{ lineItemCount() }} line items</h2>
+            </div>
+          </div>
+
+          @if (lineItemCount() === 0) {
+            <p class="ops-doc-empty">No line items were embedded in the rebuild payload.</p>
+          } @else {
+            <div class="ops-doc-card__body">
+              <table class="ops-table ops-manifest-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Batch / Lot</th>
+                    <th>Source</th>
+                    <th class="ops-manifest-table__qty">Qty</th>
+                    <th>UOM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (line of wb.waybill_payload.line_items || []; track line.inventory_id + '-' + line.batch_id + '-' + line.item_id) {
+                    <tr>
+                      <td>
+                        <strong>Item {{ line.item_id }}</strong>
+                      </td>
+                      <td>{{ line.batch_no || ('Batch ' + line.batch_id) }}</td>
+                      <td>{{ line.source_type || 'ON_HAND' }}</td>
+                      <td class="ops-manifest-table__qty">{{ line.quantity }}</td>
+                      <td>{{ line.uom_code || 'units' }}</td>
+                    </tr>
+                  }
+                </tbody>
+                <tfoot>
+                  <tr class="ops-manifest-table__totals">
+                    <td colspan="3"><strong>TOTAL</strong></td>
+                    <td class="ops-manifest-table__qty"><strong>{{ totalQuantity() }}</strong></td>
+                    <td>mixed</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          }
+        </article>
+      </section>
+
+      <aside class="ops-doc-rail">
+        <!-- QR Placeholder Card -->
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Scan code</p>
+              <h2>Document identifier</h2>
+            </div>
+          </div>
+          <div class="ops-qr-placeholder">
+            <div class="ops-qr-placeholder__box">
+              <mat-icon>qr_code_2</mat-icon>
+              <span>QR generation pending</span>
+            </div>
+            <code class="ops-qr-placeholder__code">{{ wb.waybill_no }}</code>
+          </div>
+        </article>
+
+        <!-- Audit note card -->
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Audit note</p>
+              <h2>Visibility</h2>
+            </div>
+          </div>
+          <p class="ops-doc-empty">
+            This screen documents the handoff record only. Receipt confirmation remains a separate route.
+          </p>
+        </article>
+      </aside>
+    </div>
+  }
+</div>

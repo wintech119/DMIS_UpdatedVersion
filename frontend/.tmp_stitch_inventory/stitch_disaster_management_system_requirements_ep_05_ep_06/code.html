@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Disaster Ops - Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#5e5e5e",
+              "on-surface-variant": "#474747",
+              "surface-container-low": "#f3f3f4",
+              "on-tertiary-fixed-variant": "#e2e2e2",
+              "secondary-fixed-dim": "#acabab",
+              "surface-dim": "#dadada",
+              "primary": "#000000",
+              "surface-container-high": "#e8e8e8",
+              "surface": "#f9f9f9",
+              "error-container": "#ffdad6",
+              "tertiary-fixed": "#5d5f5f",
+              "on-tertiary-container": "#ffffff",
+              "primary-fixed": "#5e5e5e",
+              "on-surface": "#1a1c1c",
+              "on-error-container": "#410002",
+              "surface-container": "#eeeeee",
+              "secondary-fixed": "#c8c6c6",
+              "on-tertiary-fixed": "#ffffff",
+              "inverse-primary": "#c6c6c6",
+              "outline": "#777777",
+              "on-secondary-fixed": "#1b1c1c",
+              "tertiary": "#3a3c3c",
+              "secondary": "#5f5e5e",
+              "on-tertiary": "#e2e2e2",
+              "on-primary-fixed": "#ffffff",
+              "surface-container-lowest": "#ffffff",
+              "tertiary-fixed-dim": "#454747",
+              "on-error": "#ffffff",
+              "primary-container": "#3b3b3b",
+              "inverse-surface": "#2f3131",
+              "background": "#f9f9f9",
+              "on-primary-container": "#ffffff",
+              "on-primary-fixed-variant": "#e2e2e2",
+              "surface-variant": "#e2e2e2",
+              "primary-fixed-dim": "#474747",
+              "inverse-on-surface": "#f0f1f1",
+              "on-primary": "#e2e2e2",
+              "on-background": "#1a1c1c",
+              "on-secondary-fixed-variant": "#3b3b3b",
+              "on-secondary-container": "#1b1c1c",
+              "surface-container-highest": "#e2e2e2",
+              "tertiary-container": "#737575",
+              "on-secondary": "#ffffff",
+              "error": "#ba1a1a",
+              "secondary-container": "#d6d4d3",
+              "outline-variant": "#c6c6c6",
+              "surface-bright": "#f9f9f9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      body { font-family: 'Inter', sans-serif; }
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased">
+<!-- Sidebar Shell -->
+<aside class="fixed inset-y-0 left-0 z-50 h-screen w-64 bg-stone-50 dark:bg-zinc-900 border-r border-transparent flex flex-col p-4 gap-y-2 font-inter antialiased tracking-tight text-sm font-medium">
+<div class="flex items-center gap-3 px-2 mb-8 mt-2">
+<div class="w-8 h-8 bg-primary flex items-center justify-center rounded-md">
+<span class="material-symbols-outlined text-white text-sm" data-icon="dashboard">dashboard</span>
+</div>
+<div>
+<h1 class="text-lg font-bold tracking-tighter text-zinc-900 dark:text-zinc-100">Disaster Ops</h1>
+<p class="text-[10px] text-zinc-500 uppercase tracking-widest">Regional Command</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-50 rounded-md shadow-sm transition-opacity opacity-90" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="warning">warning</span>
+<span>Active Alerts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+<span>Resource Map</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="local_shipping">local_shipping</span>
+<span>Logistics</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Reports</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-stone-100 dark:border-zinc-800">
+<button class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-md text-sm font-semibold mb-6">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Incident
+            </button>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+<span>Help Center</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800/80 transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="sensors">sensors</span>
+<span>System Status</span>
+</a>
+</div>
+<div class="mt-4 flex items-center gap-3 px-2">
+<img class="w-8 h-8 rounded-full object-cover" data-alt="close-up portrait of a professional rescue coordinator in a minimalist office setting with soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuClfXUoy8q-0UPEeQom2mKkCDgvnf35F1BDoebA1YUJMSWywZJuxA-0WPLBnY3xloMTNd_rjv-OIopwzrq-63VpLSVlP6XTE6Qc0yI3WW01n7YcJy-exXh8IHx7LhqmCLypM0P-r1UX5yanfMyTQbSZaPhejNaK-z6MY2kEABt5lhHxig5vI53Xk8tPdUiNpmv-5QcdgNhp-c3kgsCnYq3tEU7XEx9lmAQNaU59tfTwj0QhbT_Yf8bdDczuRdso9FmpFXKKDu0r-P0"/>
+<div class="flex flex-col">
+<span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">User Profile</span>
+<span class="text-[10px] text-zinc-500 uppercase">Lead Dispatch</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Top Floating Command Bar -->
+<header class="fixed top-0 left-64 right-0 z-50 flex items-center justify-between px-6 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl rounded-xl max-w-4xl mx-auto mt-4 border border-zinc-200/20 dark:border-zinc-700/20 shadow-[0px_20px_40px_rgba(0,0,0,0.04)] font-inter text-sm uppercase tracking-widest">
+<div class="flex items-center flex-1">
+<div class="relative w-full max-w-xs focus-within:ring-1 focus-within:ring-zinc-400 dark:focus-within:ring-zinc-600 rounded-md transition-all">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-zinc-400 text-lg" data-icon="search">search</span>
+<input class="bg-transparent border-none text-zinc-900 focus:ring-0 pl-10 w-full placeholder:text-zinc-300 text-xs tracking-widest uppercase" placeholder="Search directives..." type="text"/>
+</div>
+</div>
+<nav class="flex items-center gap-8 ml-8">
+<a class="text-zinc-900 dark:text-zinc-100 underline decoration-2 underline-offset-4 hover:text-zinc-900 transition-all" href="#">Directives</a>
+<a class="text-zinc-400 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50 transition-all" href="#">Personnel</a>
+</nav>
+<div class="flex items-center gap-4 ml-8">
+<button class="text-zinc-400 hover:text-zinc-900 transition-all">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-zinc-400 hover:text-zinc-900 transition-all">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+</button>
+<div class="w-7 h-7 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200">
+<img class="w-full h-full object-cover" data-alt="professional corporate headshot of a male operations administrator with a clean grey background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxtpra_-3soj5As7sV8D9fsT6oKl6yoKR-Ppb403_0I69BQA3NCOs-h5-uaqjDkX9Pc3QH7RtCDkFqb0Qh_Ilr54WWjo8aNNgE6yEXO8uj04zk47Q6aeyQVDoHvSiB-Mw3UBoRSiPDR-Y3GqgNE3Ofks2QvDJ1U5B3w96OL0bBIUMxDLKLZRkvSlPokKcmpzMqBdc6Z_CQrGap-ZK2boYHe8a9VmZD9EDzOVO14bnrR5AZjzEhzjRv6t5jYRoWxo7lRKg06Y9wnvM"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-28 px-10 pb-20 max-w-[1400px] mx-auto">
+<!-- Header Section -->
+<header class="mb-12">
+<h2 class="text-[3.5rem] font-bold tracking-tight text-primary leading-none mb-4">Command Center</h2>
+<p class="text-on-surface-variant text-lg max-w-2xl">Real-time fulfillment oversight and logistics management for active regional disaster responses.</p>
+</header>
+<!-- Bento Grid: Request Status Overview -->
+<section class="mb-20">
+<div class="grid grid-cols-1 md:grid-cols-6 gap-0 bg-surface-container-low rounded-xl overflow-hidden">
+<div class="p-8 border-r border-surface-container-high hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Pending</span>
+<div class="text-4xl font-light text-primary mb-1">124</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">+12 since 1h</div>
+</div>
+<div class="p-8 border-r border-surface-container-high hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Preparing</span>
+<div class="text-4xl font-light text-primary mb-1">82</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">Active queue</div>
+</div>
+<div class="p-8 border-r border-surface-container-high hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Ready</span>
+<div class="text-4xl font-light text-primary mb-1">45</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">At loading dock</div>
+</div>
+<div class="p-8 border-r border-surface-container-high hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Dispatched</span>
+<div class="text-4xl font-light text-primary mb-1">211</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">In transit</div>
+</div>
+<div class="p-8 border-r border-surface-container-high hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Delivered</span>
+<div class="text-4xl font-light text-primary mb-1">1,402</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">Total fulfilled</div>
+</div>
+<div class="p-8 hover:bg-surface-container-lowest transition-colors group">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant block mb-6">Returns</span>
+<div class="text-4xl font-light text-primary mb-1">14</div>
+<div class="text-[10px] text-zinc-400 group-hover:text-zinc-900 transition-colors uppercase tracking-widest">Re-routed</div>
+</div>
+</div>
+</section>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-12 items-start">
+<!-- Column 1 & 2: Main Operational View -->
+<div class="lg:col-span-2 space-y-20">
+<!-- Order Cycle Time Section -->
+<section>
+<div class="flex items-baseline justify-between mb-8">
+<h3 class="text-2xl font-bold tracking-tight">Order Cycle Time</h3>
+<span class="text-xs font-medium uppercase tracking-widest text-on-surface-variant">Last 24 Hours</span>
+</div>
+<div class="bg-surface-container-lowest p-10 rounded-xl">
+<div class="flex items-center gap-12 mb-12">
+<div>
+<div class="text-6xl font-extrabold tracking-tighter">4.2<span class="text-xl font-normal text-on-surface-variant ml-2 uppercase tracking-widest">Hours</span></div>
+<p class="text-sm text-on-surface-variant mt-2 uppercase tracking-widest">Avg. Completion Time</p>
+</div>
+<div class="h-16 w-px bg-surface-container-high"></div>
+<div class="flex-1 space-y-6">
+<div class="flex justify-between items-end">
+<div class="space-y-1">
+<p class="text-xs uppercase font-bold tracking-widest">Submission to Packing</p>
+<p class="text-lg font-medium">0.8h</p>
+</div>
+<div class="w-full max-w-[200px] h-1.5 bg-surface-container-low rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[15%]"></div>
+</div>
+</div>
+<div class="flex justify-between items-end">
+<div class="space-y-1">
+<p class="text-xs uppercase font-bold tracking-widest">Packing to Dispatch</p>
+<p class="text-lg font-medium">1.2h</p>
+</div>
+<div class="w-full max-w-[200px] h-1.5 bg-surface-container-low rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[28%]"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Mini Trend Plot (Abstract/Geometric) -->
+<div class="h-32 flex items-end gap-1 px-2">
+<div class="flex-1 bg-surface-container-high h-[40%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[55%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-primary h-[85%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[60%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[45%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[30%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[50%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-primary h-[95%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[70%]" style="border-radius: 2px 2px 0 0"></div>
+<div class="flex-1 bg-surface-container-high h-[40%]" style="border-radius: 2px 2px 0 0"></div>
+</div>
+</div>
+</section>
+<!-- High-Urgency Requests -->
+<section>
+<div class="flex items-baseline justify-between mb-8">
+<h3 class="text-2xl font-bold tracking-tight">High-Urgency Requests</h3>
+<button class="text-xs font-bold uppercase tracking-widest underline underline-offset-4">View All Queue</button>
+</div>
+<div class="space-y-4">
+<!-- Request Item -->
+<div class="group bg-surface-container-lowest p-6 rounded-xl flex items-center justify-between hover:bg-surface-container transition-colors duration-300">
+<div class="flex items-center gap-6">
+<div class="w-12 h-12 bg-surface-container-low flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-primary" data-icon="medical_services">medical_services</span>
+</div>
+<div>
+<div class="text-xs uppercase tracking-widest font-bold text-zinc-400 mb-1">REQ-88219</div>
+<h4 class="text-lg font-bold">Trauma Support Kits</h4>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Severity</div>
+<div class="text-sm font-bold text-error">CRITICAL</div>
+</div>
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Age</div>
+<div class="text-sm font-medium">14m</div>
+</div>
+<button class="material-symbols-outlined text-zinc-300 group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+</div>
+<!-- Request Item -->
+<div class="group bg-surface-container-lowest p-6 rounded-xl flex items-center justify-between hover:bg-surface-container transition-colors duration-300">
+<div class="flex items-center gap-6">
+<div class="w-12 h-12 bg-surface-container-low flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-primary" data-icon="water_drop">water_drop</span>
+</div>
+<div>
+<div class="text-xs uppercase tracking-widest font-bold text-zinc-400 mb-1">REQ-88224</div>
+<h4 class="text-lg font-bold">Potable Water Tankers (5kL)</h4>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Severity</div>
+<div class="text-sm font-bold text-error">CRITICAL</div>
+</div>
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Age</div>
+<div class="text-sm font-medium">28m</div>
+</div>
+<button class="material-symbols-outlined text-zinc-300 group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+</div>
+<!-- Request Item -->
+<div class="group bg-surface-container-lowest p-6 rounded-xl flex items-center justify-between hover:bg-surface-container transition-colors duration-300">
+<div class="flex items-center gap-6">
+<div class="w-12 h-12 bg-surface-container-low flex items-center justify-center rounded-lg">
+<span class="material-symbols-outlined text-primary" data-icon="electric_bolt">electric_bolt</span>
+</div>
+<div>
+<div class="text-xs uppercase tracking-widest font-bold text-zinc-400 mb-1">REQ-88231</div>
+<h4 class="text-lg font-bold">Mobile Power Grid Units</h4>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Severity</div>
+<div class="text-sm font-bold">URGENT</div>
+</div>
+<div class="text-right">
+<div class="text-[10px] uppercase tracking-widest text-zinc-400">Age</div>
+<div class="text-sm font-medium">42m</div>
+</div>
+<button class="material-symbols-outlined text-zinc-300 group-hover:text-primary transition-colors" data-icon="chevron_right">chevron_right</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Column 3: Sidebar Details -->
+<div class="space-y-20">
+<!-- Critical Alerts -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-6">SLA Breaches</h3>
+<div class="space-y-3">
+<div class="p-4 bg-error-container/30 border-l-2 border-error flex gap-4">
+<span class="material-symbols-outlined text-error text-lg" data-icon="error">error</span>
+<div>
+<h5 class="text-sm font-bold text-on-error-container">Medical Kit Approval #TX-902</h5>
+<p class="text-[11px] text-error mt-1 uppercase tracking-wider">Delayed by 4.5h</p>
+</div>
+</div>
+<div class="p-4 bg-surface-container-high/50 border-l-2 border-zinc-400 flex gap-4">
+<span class="material-symbols-outlined text-zinc-600 text-lg" data-icon="schedule">schedule</span>
+<div>
+<h5 class="text-sm font-bold">Fleet Dispatch #FL-442</h5>
+<p class="text-[11px] text-on-surface-variant mt-1 uppercase tracking-wider">Delayed by 0.8h</p>
+</div>
+</div>
+</div>
+</section>
+<!-- MPF RAG Scoring -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-6">MPF RAG Scoring</h3>
+<div class="bg-surface-container-low rounded-xl overflow-hidden">
+<table class="w-full text-left">
+<thead class="bg-surface-container-high/50">
+<tr>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest font-bold">Parish</th>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest font-bold text-right">Score</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-high/30">
+<tr class="hover:bg-white/50 transition-colors">
+<td class="px-4 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-sm font-medium">St. Andrew</span>
+</div>
+</td>
+<td class="px-4 py-4 text-right text-sm font-bold">98%</td>
+</tr>
+<tr class="hover:bg-white/50 transition-colors">
+<td class="px-4 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-sm font-medium">Kingston Central</span>
+</div>
+</td>
+<td class="px-4 py-4 text-right text-sm font-bold">94%</td>
+</tr>
+<tr class="hover:bg-white/50 transition-colors">
+<td class="px-4 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-amber-500"></div>
+<span class="text-sm font-medium">St. Catherine</span>
+</div>
+</td>
+<td class="px-4 py-4 text-right text-sm font-bold">82%</td>
+</tr>
+<tr class="hover:bg-white/50 transition-colors">
+<td class="px-4 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-rose-500"></div>
+<span class="text-sm font-medium">Portmore West</span>
+</div>
+</td>
+<td class="px-4 py-4 text-right text-sm font-bold">64%</td>
+</tr>
+<tr class="hover:bg-white/50 transition-colors">
+<td class="px-4 py-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-amber-500"></div>
+<span class="text-sm font-medium">Clarendon North</span>
+</div>
+</td>
+<td class="px-4 py-4 text-right text-sm font-bold">79%</td>
+</tr>
+</tbody>
+</table>
+<div class="p-4 bg-surface-container-high/30 border-t border-surface-container-high text-center">
+<button class="text-[10px] uppercase font-bold tracking-widest hover:text-primary transition-colors">Export Region Report</button>
+</div>
+</div>
+</section>
+<!-- Tactical Map Preview -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-6">Deployment Map</h3>
+<div class="aspect-square bg-surface-container-high rounded-xl overflow-hidden relative group">
+<img class="w-full h-full object-cover opacity-60 grayscale group-hover:scale-105 transition-transform duration-700" data-alt="minimalist overhead grayscale map of a coastal city with highlighted tactical zones and deployment points" data-location="Kingston, Jamaica" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBscOj6pyFrbRXYBvRoc0DB6fKxdEG92WXSCRCsJ6tzez97XNl4j7UOUkaj89wksZC1guWF4OK_YLXGmxBirftSjDWuLKT79Y6_itlyHCcz4f6ZkXNVyjeP4aK9ITgf2LEpuxbaxPkkoxKHLO2-6_SzCiA894sv_Be8Njk8fN7NvNynu8Iur7Jr_ePN95QiI7wekyZ61HjdN2_g43mixcsMluucIjRwJ9vsIv1ZPRfQ_iDjD_9TlKzKEkS3Ja9EclqYapGgVkjnjfM"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<div class="bg-primary text-white text-[10px] uppercase font-bold tracking-widest px-4 py-2 rounded shadow-2xl">Open Live Map</div>
+</div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between">
+<div class="flex gap-1">
+<div class="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
+<div class="text-[8px] uppercase font-bold tracking-tighter text-white drop-shadow-md">Active Zone Alpha</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Footer Meta -->
+<footer class="ml-64 px-10 py-8 border-t border-surface-container-high flex justify-between items-center bg-surface-container-low/30">
+<div class="flex items-center gap-6">
+<span class="text-[10px] uppercase font-bold tracking-widest text-zinc-400">© 2024 Command Systems</span>
+<div class="flex items-center gap-2 text-[10px] uppercase font-bold tracking-widest text-zinc-400">
+<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                Latency: 22ms
+            </div>
+</div>
+<div class="flex gap-8">
+<a class="text-[10px] uppercase font-bold tracking-widest text-zinc-400 hover:text-primary" href="#">Operational Privacy</a>
+<a class="text-[10px] uppercase font-bold tracking-widest text-zinc-400 hover:text-primary" href="#">SOP Directives</a>
+</div>
+</footer>
+</body></html>

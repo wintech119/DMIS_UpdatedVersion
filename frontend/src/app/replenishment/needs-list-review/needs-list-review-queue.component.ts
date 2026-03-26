@@ -149,7 +149,7 @@ export class NeedsListReviewQueueComponent implements OnInit {
 
   openReview(row: NeedsListResponse): void {
     if (row.needs_list_id) {
-      this.router.navigate(['/replenishment/needs-list-review', row.needs_list_id]);
+      this.router.navigate(['/replenishment/needs-list', row.needs_list_id, 'review']);
     }
   }
 

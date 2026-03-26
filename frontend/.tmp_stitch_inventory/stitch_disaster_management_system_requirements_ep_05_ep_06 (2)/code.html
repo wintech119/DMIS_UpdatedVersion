@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Beneficiary Receipt Confirmation | DMS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-fixed-dim": "#acabab",
+              "on-tertiary-fixed-variant": "#e2e2e2",
+              "surface-bright": "#f9f9f9",
+              "primary-fixed": "#5e5e5e",
+              "secondary-container": "#d6d4d3",
+              "outline": "#777777",
+              "on-secondary-container": "#1b1c1c",
+              "surface-container-highest": "#e2e2e2",
+              "surface-dim": "#dadada",
+              "surface": "#f9f9f9",
+              "on-error-container": "#410002",
+              "surface-container": "#eeeeee",
+              "inverse-surface": "#2f3131",
+              "secondary-fixed": "#c8c6c6",
+              "inverse-primary": "#c6c6c6",
+              "on-primary-fixed": "#ffffff",
+              "tertiary-container": "#737575",
+              "tertiary": "#3a3c3c",
+              "on-error": "#ffffff",
+              "on-tertiary": "#e2e2e2",
+              "primary": "#000000",
+              "on-background": "#1a1c1c",
+              "primary-fixed-dim": "#474747",
+              "outline-variant": "#c6c6c6",
+              "on-primary": "#e2e2e2",
+              "primary-container": "#3b3b3b",
+              "error-container": "#ffdad6",
+              "on-tertiary-fixed": "#ffffff",
+              "on-surface": "#1a1c1c",
+              "on-primary-container": "#ffffff",
+              "inverse-on-surface": "#f0f1f1",
+              "on-secondary-fixed": "#1b1c1c",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary-fixed-variant": "#3b3b3b",
+              "tertiary-fixed": "#5d5f5f",
+              "on-secondary": "#ffffff",
+              "on-surface-variant": "#474747",
+              "surface-container-low": "#f3f3f4",
+              "secondary": "#5f5e5e",
+              "error": "#ba1a1a",
+              "on-primary-fixed-variant": "#e2e2e2",
+              "on-tertiary-container": "#ffffff",
+              "surface-variant": "#e2e2e2",
+              "tertiary-fixed-dim": "#454747",
+              "surface-tint": "#5e5e5e",
+              "surface-container-high": "#e8e8e8",
+              "background": "#f9f9f9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9f9f9;
+        }
+        .notion-shadow {
+            box-shadow: 0px 20px 40px rgba(26, 28, 28, 0.04);
+        }
+    </style>
+</head>
+<body class="text-on-surface">
+<!-- Sidebar Navigation -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-50 bg-[#f3f3f4] dark:bg-[#121212] flex flex-col h-full py-8 px-4 gap-y-2 font-['Inter'] text-sm font-normal">
+<div class="mb-8 px-2">
+<div class="text-sm font-bold uppercase tracking-widest text-[#474747] dark:text-[#a3a3a3]">DMS Command</div>
+<div class="text-[10px] text-on-surface-variant opacity-60">Global Operations</div>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span>Dashboard</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">warning</span>
+<span>Active Alerts</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">map</span>
+<span>Resource Map</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md bg-[#ffffff] text-[#000000] font-semibold transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">local_shipping</span>
+<span>Logistics</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">analytics</span>
+<span>Reports</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">settings</span>
+<span>Settings</span>
+</div>
+</nav>
+<div class="mt-auto space-y-1 border-t border-outline-variant/10 pt-4">
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">contact_support</span>
+<span>Support</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] hover:bg-[#e8e8e8] transition-all cursor-pointer">
+<span class="material-symbols-outlined text-lg">inventory_2</span>
+<span>Archive</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 min-h-screen bg-surface">
+<!-- Header -->
+<header class="w-full sticky top-0 z-40 bg-[#f9f9f9] dark:bg-[#0a0a0a] flex items-center justify-between px-10 h-14 w-full font-['Inter'] antialiased text-sm tracking-tight">
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant opacity-50">Logistics</span>
+<span class="material-symbols-outlined text-xs opacity-50">chevron_right</span>
+<span class="font-medium text-primary">Receipt Confirmation</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4 text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:bg-[#e8e8e8] p-1.5 rounded-full transition-colors duration-200">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-[#e8e8e8] p-1.5 rounded-full transition-colors duration-200">help_outline</span>
+</div>
+<div class="h-8 w-8 rounded-full bg-surface-container-highest overflow-hidden cursor-pointer active:scale-95 transition-transform">
+<img alt="User avatar" class="w-full h-full object-cover" data-alt="close-up portrait of professional male operations manager with a confident expression in a clean studio setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRf7AAmvSrU5o3srcNMqMeMSAexUTz3SEhJgidIqH0Oa3UDKPijAuugpHBuLHJh19LvAu7bszGX3vpIGA4c9MYmJLrK78VXg9RUOx6gO9nC8c8mmOu6Y6LjSDxjZOlcHmM3EkOe2PXglkmezGPyu21jvE9ZZ1VQ9329ILLBZ6sH-CIIFLm_xEibVunhcwMrpakkKh5YlMXYM6sy_z-Fbn3i310NVCntGDTNCcvs4ZqMprBcH-NRXUssv-3uakza-VJ_7UyMQ-DpA4"/>
+</div>
+</div>
+</header>
+<div class="px-10 py-12 max-w-6xl mx-auto">
+<!-- Page Title & KPI -->
+<section class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h1 class="text-4xl font-bold tracking-tight text-primary mb-2">Confirm Receipt</h1>
+<p class="text-on-surface-variant text-lg">Review and verify delivered resources for Waybill <span class="font-mono text-primary bg-surface-container px-1.5 py-0.5 rounded">WB-2023-A9422</span></p>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl notion-shadow flex flex-col min-w-[240px]">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-1">Order Cycle Time</span>
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-bold text-primary">4.2</span>
+<span class="text-sm font-medium text-on-surface-variant">Hours</span>
+</div>
+<p class="text-[11px] text-on-surface-variant mt-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+                        Submission to Receipt
+                    </p>
+</div>
+</section>
+<!-- Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- Items Verification Section (Left Column) -->
+<div class="lg:col-span-8 space-y-8">
+<div class="bg-surface-container-lowest rounded-xl notion-shadow overflow-hidden">
+<div class="px-6 py-4 border-b border-outline-variant/10 flex justify-between items-center">
+<h3 class="font-semibold text-primary">Manifest Items</h3>
+<span class="text-[11px] font-medium px-2 py-0.5 bg-surface-container rounded-full text-on-surface-variant">3 Items Total</span>
+</div>
+<div class="divide-y divide-outline-variant/10">
+<!-- Item 1 -->
+<div class="p-6 flex items-center justify-between group hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-4">
+<div class="h-12 w-12 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">medical_services</span>
+</div>
+<div>
+<p class="font-medium text-primary">Emergency Medical Kits (Type A)</p>
+<p class="text-xs text-on-surface-variant">Batch #MD-902 • Cold Chain Intact</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="font-mono font-bold text-primary">24 Units</p>
+<p class="text-[10px] uppercase text-on-surface-variant">Quantity</p>
+</div>
+<label class="flex items-center cursor-pointer">
+<input checked="" class="h-5 w-5 rounded border-outline-variant text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+<span class="ml-2 text-xs font-semibold text-primary hidden sm:inline">Verified</span>
+</label>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="p-6 flex items-center justify-between group hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-4">
+<div class="h-12 w-12 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">water_drop</span>
+</div>
+<div>
+<p class="font-medium text-primary">Purification Tablets (Pack of 50)</p>
+<p class="text-xs text-on-surface-variant">SKU: WTR-PUR-04 • Shelf Life: 24m</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="font-mono font-bold text-primary">150 Packs</p>
+<p class="text-[10px] uppercase text-on-surface-variant">Quantity</p>
+</div>
+<label class="flex items-center cursor-pointer">
+<input checked="" class="h-5 w-5 rounded border-outline-variant text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+<span class="ml-2 text-xs font-semibold text-primary hidden sm:inline">Verified</span>
+</label>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="p-6 flex items-center justify-between group hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-4">
+<div class="h-12 w-12 rounded bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">night_shelter</span>
+</div>
+<div>
+<p class="font-medium text-primary">Heavy Duty Tarpaulins</p>
+<p class="text-xs text-on-surface-variant">Size: 4m x 6m • Reinforced Eyelets</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="font-mono font-bold text-primary">80 Units</p>
+<p class="text-[10px] uppercase text-on-surface-variant">Quantity</p>
+</div>
+<label class="flex items-center cursor-pointer">
+<input class="h-5 w-5 rounded border-outline-variant text-primary focus:ring-0 cursor-pointer" type="checkbox"/>
+<span class="ml-2 text-xs font-semibold text-primary hidden sm:inline">Verified</span>
+</label>
+</div>
+</div>
+</div>
+</div>
+<!-- Digital Signature Pad -->
+<div class="bg-surface-container-lowest rounded-xl notion-shadow p-8">
+<div class="mb-6">
+<h3 class="font-semibold text-primary">Receiving Agent Signature</h3>
+<p class="text-xs text-on-surface-variant">I hereby confirm that the items listed above have been received in good condition.</p>
+</div>
+<div class="relative w-full aspect-[4/1] bg-surface-container-low rounded-lg border border-dashed border-outline-variant flex items-center justify-center overflow-hidden">
+<span class="text-on-surface-variant/30 font-medium">Draw signature here</span>
+<!-- Placeholder for a signature path -->
+<svg class="absolute inset-0 w-full h-full text-primary opacity-80" fill="none" viewbox="0 0 800 200" xmlns="http://www.w3.org/2000/svg">
+<path d="M100 120C150 100 200 80 250 110C300 140 350 160 400 130C450 100 500 70 600 90C700 110 750 150 780 140" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="mt-4 flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded bg-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">person</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-primary">Sarah Jenkins</p>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Field Officer • UNHCR Partner</p>
+</div>
+</div>
+<button class="text-xs font-semibold text-on-surface-variant hover:text-primary transition-colors">Clear Signature</button>
+</div>
+</div>
+</div>
+<!-- Logistics Context (Right Column) -->
+<div class="lg:col-span-4 space-y-6 sticky top-24">
+<div class="bg-surface-container-lowest rounded-xl notion-shadow p-6">
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant/60 mb-4">Journey Log</h4>
+<div class="space-y-4">
+<div class="flex gap-4">
+<div class="flex flex-col items-center">
+<div class="h-2 w-2 rounded-full bg-outline-variant"></div>
+<div class="w-px flex-1 bg-outline-variant/30 my-1"></div>
+</div>
+<div>
+<p class="text-xs font-bold text-primary">Dispatched</p>
+<p class="text-[10px] text-on-surface-variant">Central Hub • 08:30 AM</p>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="flex flex-col items-center">
+<div class="h-2 w-2 rounded-full bg-outline-variant"></div>
+<div class="w-px flex-1 bg-outline-variant/30 my-1"></div>
+</div>
+<div>
+<p class="text-xs font-bold text-primary">In Transit</p>
+<p class="text-[10px] text-on-surface-variant">Checkpoint 4 • 10:15 AM</p>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="flex flex-col items-center">
+<div class="h-2.5 w-2.5 rounded-full bg-primary ring-4 ring-primary/10"></div>
+</div>
+<div>
+<p class="text-xs font-bold text-primary">Delivered</p>
+<p class="text-[10px] text-on-surface-variant">Zone B Station • 12:42 PM</p>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl notion-shadow p-6">
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant/60 mb-4">Agent Identification</h4>
+<div class="rounded-lg bg-surface p-4 border border-outline-variant/20 mb-4">
+<img alt="Agent ID" class="w-full h-24 object-cover rounded mb-3" data-alt="close-up of a laminated identity badge with a female portrait, security hologram, and organizational logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAnHEemTvOSGfwOUR6UUVrkuHOJvlscqaNbLBf2rtJaNPiGQwpZZeIvmfSy1etywWLeiEAlBBUvGdHUXdWJX4BL46NKermpN7vd4A4nKjgutFSLh2okYavIzI26nkEoZcXSUiM9imOwGD3rb7HPPYzAg-LYbzBpS2CLqMPN1EzSGO9w5U5ggK2kUWSCUrXhrMj9AZdFCSIIOlcBKrUNQzJqHiV_XYMa7cZakVZu7khcA9jWebigXUIVT5-15pQK7Rw0iCmA3ZWO1Ns"/>
+<p class="text-xs font-semibold text-primary">ID: UN-LOG-4492</p>
+<p class="text-[10px] text-on-surface-variant">Verified via Biometric Token</p>
+</div>
+</div>
+<!-- Final Actions -->
+<div class="space-y-3">
+<button class="w-full py-4 bg-primary text-on-primary rounded-xl font-bold tracking-tight active:scale-[0.98] transition-all flex items-center justify-center gap-2 notion-shadow">
+                            Confirm Receipt
+                            <span class="material-symbols-outlined text-lg">check_circle</span>
+</button>
+<button class="w-full py-3 bg-surface-container-highest text-on-surface rounded-xl font-bold tracking-tight active:scale-[0.98] transition-all">
+                            Close Request
+                        </button>
+<p class="text-[10px] text-center text-on-surface-variant px-6">By confirming, you finalize this logistics cycle and release the transporter.</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

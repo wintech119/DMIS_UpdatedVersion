@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import io
 import logging
 import re
@@ -4439,6 +4439,9 @@ def needs_list_review_reminder(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_start_preparation(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -4495,6 +4498,9 @@ def needs_list_start_preparation(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_mark_dispatched(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -4578,6 +4584,9 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_mark_received(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -4639,6 +4648,9 @@ def needs_list_mark_received(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_mark_completed(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -4684,6 +4696,9 @@ def needs_list_mark_completed(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_cancel(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     try:
         workflow_store.store_enabled_or_raise()
     except RuntimeError:
@@ -4971,6 +4986,9 @@ def needs_list_allocations_current(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_allocations_commit(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     return _allocation_commit_response(request, needs_list_id, approval_required=False)
 
 
@@ -4978,6 +4996,9 @@ def needs_list_allocations_commit(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_allocations_override_approve(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     return _allocation_commit_response(request, needs_list_id, approval_required=True)
 
 
@@ -4985,6 +5006,9 @@ def needs_list_allocations_override_approve(request, needs_list_id: str):
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_waybill(request, needs_list_id: str):
+    """
+    Transitional compatibility endpoint frozen pending retirement during the Operations cutover.
+    """
     record, error_response = _allocation_record_or_response(request, needs_list_id, write=False)
     if error_response is not None:
         return error_response
@@ -6075,4 +6099,5 @@ for _pview in (
 ):
     if hasattr(_pview, "cls"):
         _pview.cls.required_permission = _pview.required_permission
+
 

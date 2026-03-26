@@ -1282,6 +1282,52 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         self.assertEqual(mock_connection.rollback.call_count, 9)
 
 
+class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_generic_dependency_check_filters_to_active_status_when_supported(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+
+        blocking, warnings = check_dependencies("ifrc_item_references", 797)
+
+        self.assertEqual(blocking, ["Items (1 records)"])
+        self.assertEqual(warnings, [])
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("FROM tenant_a.item", sql)
+        self.assertIn("ifrc_item_ref_id = %s", sql)
+        self.assertIn("status_code = %s", sql)
+        self.assertEqual(params, [797, "A"])
+
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_generic_dependency_check_does_not_add_status_filter_when_unsupported(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (2,)
+
+        blocking, warnings = check_dependencies("countries", 1)
+
+        self.assertEqual(blocking, ["Donors (2 records)"])
+        self.assertEqual(warnings, [])
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("FROM tenant_a.donor", sql)
+        self.assertIn("country_id = %s", sql)
+        self.assertNotIn("status_code = %s", sql)
+        self.assertEqual(params, [1])
+
+
 class InactiveItemLookupFailureTests(SimpleTestCase):
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")

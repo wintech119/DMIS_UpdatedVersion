@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Item Selection &amp; Packing | DMS Command</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-fixed-dim": "#acabab",
+              "on-tertiary-fixed-variant": "#e2e2e2",
+              "surface-bright": "#f9f9f9",
+              "primary-fixed": "#5e5e5e",
+              "secondary-container": "#d6d4d3",
+              "outline": "#777777",
+              "on-secondary-container": "#1b1c1c",
+              "surface-container-highest": "#e2e2e2",
+              "surface-dim": "#dadada",
+              "surface": "#f9f9f9",
+              "on-error-container": "#410002",
+              "surface-container": "#eeeeee",
+              "inverse-surface": "#2f3131",
+              "secondary-fixed": "#c8c6c6",
+              "inverse-primary": "#c6c6c6",
+              "on-primary-fixed": "#ffffff",
+              "tertiary-container": "#737575",
+              "tertiary": "#3a3c3c",
+              "on-error": "#ffffff",
+              "on-tertiary": "#e2e2e2",
+              "primary": "#000000",
+              "on-background": "#1a1c1c",
+              "primary-fixed-dim": "#474747",
+              "outline-variant": "#c6c6c6",
+              "on-primary": "#e2e2e2",
+              "primary-container": "#3b3b3b",
+              "error-container": "#ffdad6",
+              "on-tertiary-fixed": "#ffffff",
+              "on-surface": "#1a1c1c",
+              "on-primary-container": "#ffffff",
+              "inverse-on-surface": "#f0f1f1",
+              "on-secondary-fixed": "#1b1c1c",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary-fixed-variant": "#3b3b3b",
+              "tertiary-fixed": "#5d5f5f",
+              "on-secondary": "#ffffff",
+              "on-surface-variant": "#474747",
+              "surface-container-low": "#f3f3f4",
+              "secondary": "#5f5e5e",
+              "error": "#ba1a1a",
+              "on-primary-fixed-variant": "#e2e2e2",
+              "on-tertiary-container": "#ffffff",
+              "surface-variant": "#e2e2e2",
+              "tertiary-fixed-dim": "#454747",
+              "surface-tint": "#5e5e5e",
+              "surface-container-high": "#e8e8e8",
+              "background": "#f9f9f9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      body { font-family: 'Inter', sans-serif; }
+      .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .compact-table-row { border-bottom: 1px solid rgba(198, 198, 198, 0.2); transition: background-color 0.15s ease; }
+      .compact-table-row:hover { background-color: rgba(243, 243, 244, 0.5); }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased">
+<!-- Sidebar Navigation -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-50 bg-[#f3f3f4] dark:bg-[#121212] flex flex-col py-8 px-4 gap-y-2 font-['Inter'] text-sm font-normal">
+<div class="mb-8 px-2">
+<h2 class="text-sm font-bold uppercase tracking-widest text-[#474747] dark:text-[#a3a3a3]">DMS Command</h2>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-tighter opacity-70">Global Operations</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] rounded-md transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] rounded-md transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">warning</span>
+<span>Active Alerts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] rounded-md transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">map</span>
+<span>Resource Map</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-[#ffffff] dark:bg-[#1e1e1e] text-[#000000] dark:text-[#ffffff] font-semibold rounded-md shadow-sm" href="#">
+<span class="material-symbols-outlined text-lg">local_shipping</span>
+<span>Logistics</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] rounded-md transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">analytics</span>
+<span>Reports</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] rounded-md transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-outline-variant/10 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] rounded-md" href="#">
+<span class="material-symbols-outlined text-lg">contact_support</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] rounded-md" href="#">
+<span class="material-symbols-outlined text-lg">inventory_2</span>
+<span>Archive</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 min-h-screen flex flex-col">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-40 bg-[#f9f9f9] dark:bg-[#0a0a0a] flex items-center justify-between px-6 h-14 font-['Inter'] antialiased text-sm tracking-tight border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<span class="text-lg font-semibold tracking-tighter text-[#000000] dark:text-[#ffffff]">Disaster Management System</span>
+<span class="h-4 w-px bg-outline-variant/30"></span>
+<nav class="flex gap-4">
+<span class="text-[#474747] dark:text-[#a3a3a3]">REQ-0922-G7</span>
+<span class="text-[#000000] dark:text-[#ffffff] font-medium">Packing Process</span>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-surface-container-low px-3 py-1.5 rounded-md">
+<span class="material-symbols-outlined text-lg text-on-surface-variant">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-xs w-48" placeholder="Search items..." type="text"/>
+</div>
+<div class="flex gap-2">
+<button class="p-2 hover:bg-[#e8e8e8] dark:hover:bg-[#1a1a1a] rounded-full transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface">notifications</span>
+</button>
+<button class="p-2 hover:bg-[#e8e8e8] dark:hover:bg-[#1a1a1a] rounded-full transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface">help_outline</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden ml-2 bg-surface-container-high">
+<img alt="User profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDv6SN385v3CjSMFA0rwE1ENVkGZpPSf60gKlpNVt-jHFFUs7dMKImzdFEPy8Abr-w5rI6aBhCY-BOlUKuO3wwnq2bDrLa41oQGNtXYO9fDzh4KD0ikPDEo5s1VaeUvpVPMze1ez99MCOVIieJfFE3ap0DV7BxmgcD8hwVGqnqNXsVCsc60ugFphJcpn2oGOco5pVttWBOB8zVgFTQ-nbubD99-SbknXtTV4LRaegHlhEdn2R7xvOARsJH6k3E_ThJen8qr5YdkNWQ"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Body -->
+<div class="p-8 max-w-7xl w-full mx-auto grid grid-cols-12 gap-8">
+<!-- Left Column: Item List & Selection -->
+<div class="col-span-8 space-y-6">
+<section>
+<div class="flex justify-between items-end mb-6">
+<div>
+<h1 class="text-2xl font-bold tracking-tight text-primary">Item Selection</h1>
+<p class="text-on-surface-variant mt-1 text-sm">Select approved items from request REQ-0922-G7. Automated logic applied.</p>
+</div>
+<div class="flex gap-2">
+<span class="px-3 py-1 bg-surface-container-high rounded text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Auto-Allocate Active</span>
+</div>
+</div>
+<!-- Filter Bar -->
+<div class="flex gap-2 mb-6">
+<button class="px-3 py-1.5 bg-primary text-on-primary rounded text-xs font-semibold">All Items</button>
+<button class="px-3 py-1.5 bg-surface-container-low text-on-surface-variant rounded text-xs hover:bg-surface-container-high transition-colors">Medical</button>
+<button class="px-3 py-1.5 bg-surface-container-low text-on-surface-variant rounded text-xs hover:bg-surface-container-high transition-colors">Food &amp; Water</button>
+<button class="px-3 py-1.5 bg-surface-container-low text-on-surface-variant rounded text-xs hover:bg-surface-container-high transition-colors">Shelter</button>
+</div>
+<!-- Compact Item List -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
+<div class="grid grid-cols-12 gap-4 px-6 py-3 bg-surface-container-low text-[10px] font-bold text-on-surface-variant uppercase tracking-widest border-b border-outline-variant/20">
+<div class="col-span-4">Item Name / ID</div>
+<div class="col-span-2">Strategy</div>
+<div class="col-span-3">Zone Availability</div>
+<div class="col-span-3 text-right">Action</div>
+</div>
+<div class="divide-y divide-outline-variant/10">
+<!-- Item 1 -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center compact-table-row">
+<div class="col-span-4 flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-low rounded flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg text-primary">medication</span>
+</div>
+<div class="truncate">
+<p class="text-sm font-semibold text-primary truncate">Emergency Trauma Kit (L2)</p>
+<p class="text-[10px] text-on-surface-variant uppercase font-medium">MED-0042 • Approved: 50</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-error/10 text-error text-[9px] font-bold rounded">FEFO</span>
+<p class="text-[9px] text-on-surface-variant mt-0.5">Exp: 12 Nov 24</p>
+</div>
+<div class="col-span-3 space-y-1">
+<div class="flex items-center justify-between text-[10px]">
+<span class="text-on-surface-variant">Zone A</span>
+<span class="font-bold">12 <span class="font-normal opacity-70">avail</span></span>
+</div>
+<div class="w-full bg-surface-container-high h-1 rounded-full">
+<div class="bg-green-500 h-1 rounded-full w-[100%]"></div>
+</div>
+<p class="text-[9px] text-on-surface-variant italic">Zone B: 340 avail</p>
+</div>
+<div class="col-span-3 flex items-center justify-end gap-3">
+<div class="flex items-center border border-outline-variant/30 rounded bg-white">
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">-</button>
+<input class="w-8 text-center text-xs border-none bg-transparent focus:ring-0 p-0" type="number" value="12"/>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">+</button>
+</div>
+<button class="bg-primary text-on-primary p-2 rounded hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-base">add</span>
+</button>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center compact-table-row">
+<div class="col-span-4 flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-low rounded flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg text-primary">water_drop</span>
+</div>
+<div class="truncate">
+<p class="text-sm font-semibold text-primary truncate">Purified Water Pack (24x)</p>
+<p class="text-[10px] text-on-surface-variant uppercase font-medium">WTR-0911 • Approved: 200</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-high text-on-surface-variant text-[9px] font-bold rounded">FIFO</span>
+<p class="text-[9px] text-on-surface-variant mt-0.5">Batch: BT-2201</p>
+</div>
+<div class="col-span-3 space-y-1">
+<div class="flex items-center justify-between text-[10px]">
+<span class="text-on-surface-variant">Zone C</span>
+<span class="font-bold">1,200 <span class="font-normal opacity-70">avail</span></span>
+</div>
+<div class="w-full bg-surface-container-high h-1 rounded-full">
+<div class="bg-primary h-1 rounded-full w-[60%]"></div>
+</div>
+<p class="text-[9px] text-on-surface-variant italic">Zone A: 450 avail</p>
+</div>
+<div class="col-span-3 flex items-center justify-end gap-3">
+<div class="flex items-center border border-outline-variant/30 rounded bg-white">
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">-</button>
+<input class="w-8 text-center text-xs border-none bg-transparent focus:ring-0 p-0" type="number" value="50"/>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">+</button>
+</div>
+<button class="bg-primary text-on-primary p-2 rounded hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-base">add</span>
+</button>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 items-center compact-table-row">
+<div class="col-span-4 flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-low rounded flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg text-primary">home</span>
+</div>
+<div class="truncate">
+<p class="text-sm font-semibold text-primary truncate">Temp Shelter Kit (T2)</p>
+<p class="text-[10px] text-on-surface-variant uppercase font-medium">SHL-0082 • Approved: 15</p>
+</div>
+</div>
+<div class="col-span-2">
+<span class="px-2 py-0.5 bg-surface-container-high text-on-surface-variant text-[9px] font-bold rounded">BULK</span>
+<p class="text-[9px] text-on-surface-variant mt-0.5">Ref: SHEL-A1</p>
+</div>
+<div class="col-span-3 space-y-1">
+<div class="flex items-center justify-between text-[10px]">
+<span class="text-on-surface-variant">Zone D</span>
+<span class="font-bold">42 <span class="font-normal opacity-70">avail</span></span>
+</div>
+<div class="w-full bg-surface-container-high h-1 rounded-full">
+<div class="bg-primary h-1 rounded-full w-[30%]"></div>
+</div>
+<p class="text-[9px] text-error font-medium italic">Oversized Unit</p>
+</div>
+<div class="col-span-3 flex items-center justify-end gap-3">
+<div class="flex items-center border border-outline-variant/30 rounded bg-white">
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">-</button>
+<input class="w-8 text-center text-xs border-none bg-transparent focus:ring-0 p-0" type="number" value="5"/>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container-low text-xs">+</button>
+</div>
+<button class="bg-primary text-on-primary p-2 rounded hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-base">add</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Column: Package Summary -->
+<div class="col-span-4">
+<div class="sticky top-24 space-y-6">
+<!-- Package Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border border-outline-variant/10">
+<div class="p-5 bg-primary text-on-primary">
+<h2 class="text-base font-bold">Build Summary</h2>
+<p class="text-[10px] opacity-70 uppercase tracking-widest font-medium">PKG-2024-001</p>
+</div>
+<div class="p-6 space-y-6">
+<!-- Metrics -->
+<div class="grid grid-cols-2 gap-4">
+<div class="p-3 bg-surface-container-low rounded-lg border border-outline-variant/5">
+<p class="text-[9px] font-bold text-on-surface-variant uppercase mb-1 tracking-wider">Total Weight</p>
+<p class="text-lg font-bold">729.8 <span class="text-[10px] font-normal">kg</span></p>
+<div class="w-full bg-surface-container-high h-1 rounded-full mt-2">
+<div class="bg-primary h-1 rounded-full w-3/4"></div>
+</div>
+<p class="text-[9px] mt-1 text-on-surface-variant">75% capacity</p>
+</div>
+<div class="p-3 bg-surface-container-low rounded-lg border border-outline-variant/5">
+<p class="text-[9px] font-bold text-on-surface-variant uppercase mb-1 tracking-wider">Total Volume</p>
+<p class="text-lg font-bold">4.94 <span class="text-[10px] font-normal">m³</span></p>
+<div class="w-full bg-surface-container-high h-1 rounded-full mt-2">
+<div class="bg-primary h-1 rounded-full w-1/2"></div>
+</div>
+<p class="text-[9px] mt-1 text-on-surface-variant">50% pallet</p>
+</div>
+</div>
+<!-- List of Reserved Items -->
+<div>
+<h4 class="text-[10px] font-bold text-on-surface-variant uppercase mb-4 tracking-widest border-b border-outline-variant/10 pb-2">Reserved Inventory</h4>
+<div class="space-y-3 max-h-48 overflow-y-auto pr-2 no-scrollbar">
+<div class="flex justify-between items-center group">
+<div class="flex gap-2 items-center">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<div>
+<p class="text-[11px] font-semibold">Trauma Kit (L2)</p>
+<p class="text-[9px] text-on-surface-variant">Zone A • 12 Units</p>
+</div>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-xs text-error">close</span>
+</button>
+</div>
+<div class="flex justify-between items-center group">
+<div class="flex gap-2 items-center">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<div>
+<p class="text-[11px] font-semibold">Water Pack (24x)</p>
+<p class="text-[9px] text-on-surface-variant">Zone C • 50 Units</p>
+</div>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-xs text-error">close</span>
+</button>
+</div>
+<div class="flex justify-between items-center group">
+<div class="flex gap-2 items-center">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<div>
+<p class="text-[11px] font-semibold">Temp Shelter Kit</p>
+<p class="text-[9px] text-on-surface-variant">Zone D • 5 Units</p>
+</div>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-xs text-error">close</span>
+</button>
+</div>
+</div>
+</div>
+<div class="pt-5 border-t border-outline-variant/20">
+<div class="flex justify-between items-center mb-4">
+<span class="text-xs font-bold uppercase tracking-wider">Total Units</span>
+<span class="text-xs font-bold">67</span>
+</div>
+<button class="w-full bg-primary text-on-primary py-3 rounded font-bold text-xs uppercase tracking-widest hover:opacity-90 active:scale-[0.98] transition-all">
+                                Confirm &amp; Print List
+                            </button>
+<button class="w-full mt-2 text-on-surface-variant py-2 rounded font-medium text-[10px] uppercase hover:bg-surface-container-low transition-all">
+                                Clear Draft
+                            </button>
+</div>
+</div>
+</div>
+<!-- Info Widget -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border-l-4 border-primary shadow-sm">
+<div class="flex gap-3">
+<span class="material-symbols-outlined text-primary text-xl">info</span>
+<div>
+<h4 class="text-xs font-bold uppercase tracking-tight">Shipping Priority</h4>
+<p class="text-[10px] text-on-surface-variant mt-1 leading-relaxed">Air Transport flagged. Max weight: 1,000kg. Priority Level: Critical.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Contextual FAB -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="w-12 h-12 bg-primary text-on-primary rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-xl">qr_code_scanner</span>
+</button>
+</div>
+</body></html>

@@ -1,4 +1,4 @@
-const http = require('node:http');
+﻿const http = require('node:http');
 
 const backendTarget = 'http://localhost:8001';
 const backendAgent = new http.Agent();
@@ -13,8 +13,8 @@ function formatUpstream(req) {
   }
 }
 
-module.exports = {
-  '/api': {
+function createProxyConfig() {
+  return {
     target: backendTarget,
     agent: backendAgent,
     secure: false,
@@ -37,5 +37,14 @@ module.exports = {
         console.error(`[proxy] error ${req.method} ${formatUpstream(req)}: ${message}`);
       });
     },
-  },
+  };
+}
+
+module.exports = {
+  '/api': createProxyConfig(),
+  '/relief-requests': createProxyConfig(),
+  '/eligibility': createProxyConfig(),
+  '/packaging': createProxyConfig(),
+  '/dashboard': createProxyConfig(),
+  '/static': createProxyConfig(),
 };

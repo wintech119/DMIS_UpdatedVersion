@@ -14,9 +14,11 @@ from operations.views import (
     operations_package_draft,
     operations_package_override_approve,
     operations_packages_queue,
+    operations_receipt_confirm,
     operations_request_detail,
     operations_request_submit,
     operations_requests,
+    operations_tasks,
 )
 
 urlpatterns = [
@@ -60,5 +62,11 @@ urlpatterns = [
         operations_dispatch_waybill,
         name="operations_dispatch_waybill",
     ),
+    path(
+        "receipt-confirmation/<int:reliefpkg_id>",
+        operations_receipt_confirm,
+        name="operations_receipt_confirm",
+    ),
+    path("tasks", operations_tasks, name="operations_tasks"),
 ]
 

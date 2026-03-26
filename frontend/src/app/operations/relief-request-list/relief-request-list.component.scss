@@ -1,0 +1,27 @@
+.ops-kpi-card {
+  text-align: left;
+  border: 0;
+  width: 100%;
+}
+
+.ops-row__meta:last-child {
+  justify-content: space-between;
+}
+
+.ops-row__meta > span:first-child {
+  min-width: 0;
+}
+
+.ops-row__meta > span:nth-child(2) {
+  opacity: 0.6;
+}
+
+.ops-row__actions mat-icon {
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 768px) {
+  .ops-row__meta:last-child {
+    justify-content: flex-start;
+  }
+}

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Dispatch &amp; Transport Log | Disaster Management System</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-fixed-dim": "#acabab",
+              "on-tertiary-fixed-variant": "#e2e2e2",
+              "surface-bright": "#f9f9f9",
+              "primary-fixed": "#5e5e5e",
+              "secondary-container": "#d6d4d3",
+              "outline": "#777777",
+              "on-secondary-container": "#1b1c1c",
+              "surface-container-highest": "#e2e2e2",
+              "surface-dim": "#dadada",
+              "surface": "#f9f9f9",
+              "on-error-container": "#410002",
+              "surface-container": "#eeeeee",
+              "inverse-surface": "#2f3131",
+              "secondary-fixed": "#c8c6c6",
+              "inverse-primary": "#c6c6c6",
+              "on-primary-fixed": "#ffffff",
+              "tertiary-container": "#737575",
+              "tertiary": "#3a3c3c",
+              "on-error": "#ffffff",
+              "on-tertiary": "#e2e2e2",
+              "primary": "#000000",
+              "on-background": "#1a1c1c",
+              "primary-fixed-dim": "#474747",
+              "outline-variant": "#c6c6c6",
+              "on-primary": "#e2e2e2",
+              "primary-container": "#3b3b3b",
+              "error-container": "#ffdad6",
+              "on-tertiary-fixed": "#ffffff",
+              "on-surface": "#1a1c1c",
+              "on-primary-container": "#ffffff",
+              "inverse-on-surface": "#f0f1f1",
+              "on-secondary-fixed": "#1b1c1c",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary-fixed-variant": "#3b3b3b",
+              "tertiary-fixed": "#5d5f5f",
+              "on-secondary": "#ffffff",
+              "on-surface-variant": "#474747",
+              "surface-container-low": "#f3f3f4",
+              "secondary": "#5f5e5e",
+              "error": "#ba1a1a",
+              "on-primary-fixed-variant": "#e2e2e2",
+              "on-tertiary-container": "#ffffff",
+              "surface-variant": "#e2e2e2",
+              "tertiary-fixed-dim": "#454747",
+              "surface-tint": "#5e5e5e",
+              "surface-container-high": "#e8e8e8",
+              "background": "#f9f9f9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(24px);
+        }
+        /* Custom scrollbar for minimalist feel */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e2e2; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body antialiased">
+<!-- Top Navigation Anchor -->
+<header class="w-full sticky top-0 z-40 no-line bg-[#f9f9f9] dark:bg-[#0a0a0a] flex items-center justify-between px-6 h-14 w-full">
+<div class="flex items-center gap-4">
+<span class="text-lg font-semibold tracking-tighter text-[#000000] dark:text-[#ffffff]">Disaster Management System</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<nav class="flex items-center gap-6">
+<a class="text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#1a1a1a] transition-colors duration-200 cursor-pointer active:scale-95 transition-transform font-['Inter'] antialiased text-sm tracking-tight" href="#">Dashboard</a>
+<a class="text-[#000000] dark:text-[#ffffff] font-medium hover:bg-[#e8e8e8] dark:hover:bg-[#1a1a1a] transition-colors duration-200 cursor-pointer active:scale-95 transition-transform font-['Inter'] antialiased text-sm tracking-tight" href="#">Logistics</a>
+<a class="text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#1a1a1a] transition-colors duration-200 cursor-pointer active:scale-95 transition-transform font-['Inter'] antialiased text-sm tracking-tight" href="#">Reports</a>
+</nav>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer">help_outline</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="User profile avatar" class="w-full h-full object-cover" data-alt="professional portrait of an operations manager in a clean minimalist style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBtsaceiz3I38INUuEyM1RNmbX9LsHmsmGkLw6lNmOIn1bPkKI5Y8RyFVTODHIqgd68ZhSYC_jqwuQ0wsT61I4PFwSpDzpeRfupueGHcN8L9lWFNj-v3_1l6CI-dS8kjbvaGCxBNTKuiXgkuSMqkPCXx2jWKXClR5uBCmdHKXaDaQe5bwKTBufKjnmuRlHISN3stR6FnZFsIADvl6UGZ8z5QqXVwzaz_llhtzHEfDdXzlJJZRls2x_i_pb60CjnXr1eCVjN3BeO-fc"/>
+</div>
+</div>
+</div>
+</header>
+<div class="flex">
+<!-- Sidebar Navigation Anchor -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-50 no-line tonal-depth-shift bg-[#f3f3f4] dark:bg-[#121212] flex flex-col h-full py-8 px-4 gap-y-2 hidden md:flex">
+<div class="mb-10 px-2">
+<h2 class="text-sm font-bold uppercase tracking-widest text-[#474747] dark:text-[#a3a3a3]">DMS Command</h2>
+<p class="text-[10px] text-on-surface-variant opacity-60">Global Operations</p>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+<span class="font-['Inter'] text-sm font-normal">Dashboard</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">warning</span>
+<span class="font-['Inter'] text-sm font-normal">Active Alerts</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">map</span>
+<span class="font-['Inter'] text-sm font-normal">Resource Map</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md bg-[#ffffff] dark:bg-[#1e1e1e] text-[#000000] dark:text-[#ffffff] font-semibold transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">local_shipping</span>
+<span class="font-['Inter'] text-sm font-normal">Logistics</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">analytics</span>
+<span class="font-['Inter'] text-sm font-normal">Reports</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 ease-in-out cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+<span class="font-['Inter'] text-sm font-normal">Settings</span>
+</div>
+</nav>
+<div class="pt-6 border-t border-outline-variant/10 flex flex-col gap-1">
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined text-[18px]">contact_support</span>
+<span class="text-xs">Support</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 rounded-md text-[#474747] dark:text-[#a3a3a3] hover:bg-[#e8e8e8] dark:hover:bg-[#262626] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined text-[18px]">inventory_2</span>
+<span class="text-xs">Archive</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-64 p-8 min-h-screen">
+<div class="max-w-6xl mx-auto">
+<!-- Header & Flow Indicator -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+<div class="space-y-1">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Step 2 of 2</span>
+<h1 class="text-4xl font-primary font-bold tracking-tight text-primary">Dispatch &amp; Transport Log</h1>
+<p class="text-on-surface-variant max-w-lg">Finalize transport details and authorize the recommended tactical route for resource deployment.</p>
+</div>
+<div class="flex items-center gap-4 bg-surface-container-low px-4 py-2 rounded-lg">
+<div class="flex items-center gap-2">
+<span class="w-6 h-6 rounded-full bg-primary-fixed-dim text-[10px] flex items-center justify-center text-white font-bold">1</span>
+<span class="text-xs font-medium text-on-surface-variant">Manifest</span>
+</div>
+<div class="h-px w-8 bg-outline-variant/30"></div>
+<div class="flex items-center gap-2">
+<span class="w-6 h-6 rounded-full bg-primary text-[10px] flex items-center justify-center text-on-primary font-bold">2</span>
+<span class="text-xs font-bold text-primary">Dispatch</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- Form Section (Bento Style Layout) -->
+<div class="lg:col-span-5 space-y-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10">
+<h3 class="text-sm font-bold uppercase tracking-wider mb-6 text-on-surface border-b border-outline-variant/10 pb-2">Vehicle &amp; Personnel</h3>
+<div class="space-y-5">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Vehicle ID</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border-none rounded-md px-4 py-3 text-sm focus:ring-1 focus:ring-primary font-mono transition-all" type="text" value="TX-992-ALPHA"/>
+<span class="material-symbols-outlined absolute right-3 top-2.5 text-on-surface-variant/50 text-sm">qr_code_2</span>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Driver Name</label>
+<input class="w-full bg-surface-container-low border-none rounded-md px-4 py-3 text-sm focus:ring-1 focus:ring-primary transition-all" type="text" value="Marcus Sterling"/>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Contact Number</label>
+<div class="flex items-center gap-2">
+<span class="text-xs bg-surface-container px-3 py-3 rounded-md text-on-surface-variant">+1</span>
+<input class="w-full bg-surface-container-low border-none rounded-md px-4 py-3 text-sm focus:ring-1 focus:ring-primary transition-all" type="tel" value="(555) 092-4412"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Override Justification Section -->
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-sm font-bold uppercase tracking-wider text-on-surface-variant">Route Override</h3>
+<button class="text-[10px] font-bold uppercase tracking-widest bg-error/10 text-error px-3 py-1.5 rounded-full hover:bg-error hover:text-white transition-colors">Activate Override</button>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Mandatory Justification</label>
+<textarea class="w-full h-24 bg-surface-container-lowest border-none rounded-md px-4 py-3 text-sm focus:ring-1 focus:ring-primary resize-none placeholder:text-on-surface-variant/30" placeholder="Required if changing the recommended tactical route..."></textarea>
+</div>
+</div>
+</div>
+<!-- Map & Navigation Details Section -->
+<div class="lg:col-span-7 space-y-6">
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 overflow-hidden">
+<div class="p-4 border-b border-outline-variant/10 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">route</span>
+<span class="text-sm font-bold tracking-tight">Recommended Route: <span class="text-primary-fixed-dim">FR05.20</span></span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Est: 42 mins</span>
+<span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Dist: 12.4 km</span>
+</div>
+</div>
+<!-- Tactical Map Visualization -->
+<div class="relative h-[420px] bg-surface-container-high group">
+<img alt="Tactical Map" class="w-full h-full object-cover grayscale opacity-80 mix-blend-multiply" data-alt="top-down high-contrast grayscale map of an urban grid with highlighted tactical routes and markers in a clean architectural style" data-location="Austin, Texas" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDONL3mfmxZir-o_pr6ookGOl4exHzE4JBnwVpTiVTjGPG14ujjvHonZ-Eht3Z_qz1kcMIBQn1XGcdmUu4iByLPEKrlArRd8lYyITpe2NMD1mKEckUIGNrJ8x0A1nbWrTe_jzqqrfiIVRJS3xFum7vHMzzf8CIwbt_PlwGOS7LZkav8oh_CDg8wybA7c88XoXHGG-0kNYSNEkZ8JkXkPTRU2mUWAkXt37f8HmQCzYvX2mVQ8DjUYKIx7aVbD0DWlBAssA7Ij9WqzHM"/>
+<!-- Map Overlay (Simulated UI) -->
+<div class="absolute inset-0 pointer-events-none p-6 flex flex-col justify-between">
+<div class="flex justify-start">
+<div class="glass-panel px-4 py-2 rounded shadow-sm border border-white/20">
+<p class="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">Incident Perimeter</p>
+<p class="text-[11px] text-on-surface font-medium italic">Zone Bravo - Active Hazard</p>
+</div>
+</div>
+<div class="flex justify-end">
+<div class="bg-primary px-3 py-4 rounded flex flex-col gap-3 shadow-xl pointer-events-auto">
+<button class="text-white hover:scale-110 transition-transform"><span class="material-symbols-outlined">add</span></button>
+<button class="text-white hover:scale-110 transition-transform"><span class="material-symbols-outlined">remove</span></button>
+<button class="text-white hover:scale-110 transition-transform"><span class="material-symbols-outlined">my_location</span></button>
+</div>
+</div>
+</div>
+</div>
+<div class="p-6 bg-surface-container-lowest grid grid-cols-2 gap-8">
+<div class="space-y-1">
+<p class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Current Dispatch Location</p>
+<p class="text-sm font-semibold">Central Logistics Hub - Terminal B</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Destination Target</p>
+<p class="text-sm font-semibold">Field Station Alpha - Ridge Road</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="mt-12 pt-8 border-t border-outline-variant/10 flex flex-col md:flex-row items-center justify-between gap-6 mb-20">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors py-3 px-6">
+<span class="material-symbols-outlined">arrow_back</span>
+<span class="text-sm font-bold uppercase tracking-widest">Manifest Review</span>
+</button>
+<div class="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+<div class="text-right hidden md:block">
+<p class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Timestamp Ready</p>
+<p class="text-xs font-mono font-bold text-primary">2024-05-20 14:32:01 UTC</p>
+</div>
+<button class="w-full md:w-64 bg-primary text-on-primary py-4 px-8 rounded-md font-bold uppercase tracking-[0.2em] text-sm hover:opacity-90 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-3">
+                            Authorize Dispatch
+                            <span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Mobile Navigation Shell -->
+<div class="md:hidden fixed bottom-0 left-0 right-0 glass-panel border-t border-outline-variant/10 z-50 flex justify-around items-center h-16 px-4">
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-[10px] font-bold uppercase">Home</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">local_shipping</span>
+<span class="text-[10px] font-bold uppercase">Dispatch</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">map</span>
+<span class="text-[10px] font-bold uppercase">Map</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px] font-bold uppercase">Settings</span>
+</button>
+</div>
+</body></html>

@@ -1,7 +1,8 @@
-export interface NavItem {
+﻿export interface NavItem {
   label: string;
   icon: string;
   route?: string;
+  href?: string;
   queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
   sysadminOnly?: boolean;
@@ -11,6 +12,7 @@ export interface NavGroup {
   label: string;
   icon: string;
   route?: string;
+  href?: string;
   queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
   sysadminOnly?: boolean;
@@ -46,7 +48,6 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: 'My Drafts & Submissions', icon: 'assignment', route: '/replenishment/my-submissions' },
           { label: 'Needs List Wizard', icon: 'playlist_add', route: '/replenishment/needs-list-wizard' },
           { label: 'Review Queue', icon: 'fact_check', route: '/replenishment/needs-list-review' },
-          { label: 'Procurement Orders', icon: 'shopping_cart', route: '/replenishment/procurement/new' },
         ],
       },
     ],
@@ -62,10 +63,19 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     sectionLabel: 'OPERATIONS',
     groups: [
-      { label: 'Relief Requests', icon: 'request_page', disabled: true },
-      { label: 'Eligibility Review', icon: 'verified_user', disabled: true },
-      { label: 'Package Fulfillment', icon: 'package_2', disabled: true },
-      { label: 'Dispatch', icon: 'local_shipping', disabled: true },
+      {
+        label: 'Operations',
+        icon: 'assignment',
+        expanded: true,
+        children: [
+          { label: 'Dashboard', icon: 'dashboard', route: '/operations/dashboard' },
+          { label: 'Relief Requests', icon: 'request_page', route: '/operations/relief-requests' },
+          { label: 'Eligibility Review', icon: 'verified_user', route: '/operations/eligibility-review' },
+          { label: 'Package Fulfillment', icon: 'package_2', route: '/operations/package-fulfillment' },
+          { label: 'Dispatch', icon: 'local_shipping', route: '/operations/dispatch' },
+          { label: 'Task Center', icon: 'task_alt', route: '/operations/tasks' },
+        ],
+      },
     ],
   },
   {

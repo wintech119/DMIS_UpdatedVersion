@@ -1,0 +1,71 @@
+{
+  "agencies": [
+    {
+      "agency_id": 95001,
+      "agency_name": "ODPEM LOGISTICS TEST AGENCY",
+      "agency_status_code": "A",
+      "agency_type": "DISTRIBUTOR",
+      "resolution_reason": "Agency resolves only to an ODPEM-owned tenant.",
+      "resolution_status": "ODPEM_ONLY",
+      "tenant_code": "OFFICE-OF-DISASTER-P",
+      "tenant_id": 27,
+      "tenant_name": "OFFICE OF DISASTER PREPAREDNESS AND EMERGENCY MANAGEMENT (ODPEM)",
+      "tenant_type": "NATIONAL",
+      "warehouse_id": 1,
+      "warehouse_name": "ODPEM KINGSTON WAREHOUSE (KW)",
+      "warehouse_status_code": "A"
+    },
+    {
+      "agency_id": 4,
+      "agency_name": "S07 TEST DISTRIBUTOR AGENCY - FFP",
+      "agency_status_code": "A",
+      "agency_type": "DISTRIBUTOR",
+      "resolution_reason": "Agency resolves to a non-ODPEM tenant and is ready.",
+      "resolution_status": "READY_NON_ODPEM",
+      "tenant_code": "FFP",
+      "tenant_id": 20,
+      "tenant_name": "FOOD FOR THE POOR",
+      "tenant_type": "EXTERNAL",
+      "warehouse_id": 15,
+      "warehouse_name": "S07 TEST MAIN HUB - FFP",
+      "warehouse_status_code": "A"
+    },
+    {
+      "agency_id": 3,
+      "agency_name": "S07 TEST DISTRIBUTOR AGENCY - JRC",
+      "agency_status_code": "A",
+      "agency_type": "DISTRIBUTOR",
+      "resolution_reason": "Agency resolves to a non-ODPEM tenant and is ready.",
+      "resolution_status": "READY_NON_ODPEM",
+      "tenant_code": "JRC",
+      "tenant_id": 19,
+      "tenant_name": "JAMAICA RED CROSS",
+      "tenant_type": "EXTERNAL",
+      "warehouse_id": 14,
+      "warehouse_name": "S07 TEST MAIN HUB - JRC",
+      "warehouse_status_code": "A"
+    },
+    {
+      "agency_id": 5,
+      "agency_name": "S07 TEST DISTRIBUTOR AGENCY - PARISH_KN",
+      "agency_status_code": "A",
+      "agency_type": "DISTRIBUTOR",
+      "resolution_reason": "Agency resolves to a non-ODPEM tenant and is ready.",
+      "resolution_status": "READY_NON_ODPEM",
+      "tenant_code": "PARISH-KN",
+      "tenant_id": 14,
+      "tenant_name": "KINGSTON AND ST. ANDREW MUNICIPAL CORPORATION",
+      "tenant_type": "PARISH",
+      "warehouse_id": 16,
+      "warehouse_name": "S07 TEST MAIN HUB - PARISH_KN",
+      "warehouse_status_code": "A"
+    }
+  ],
+  "generated_at": "2026-03-26T19:26:37.897755+00:00",
+  "summary": {
+    "active_agencies": 4,
+    "odpem_owned_agencies": 1,
+    "ready_non_odpem_agencies": 3,
+    "unresolved_agencies": 0
+  }
+}

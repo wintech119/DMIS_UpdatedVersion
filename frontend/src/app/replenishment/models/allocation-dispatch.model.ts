@@ -111,7 +111,7 @@ export interface AllocationOptionsResponse {
     create_dtime?: string | null;
   };
   items: AllocationItemGroup[];
-  flat_candidates: Array<AllocationCandidate & { item_id: number }>;
+  flat_candidates: (AllocationCandidate & { item_id: number })[];
 }
 
 export interface AllocationSelectionPayload {
@@ -183,14 +183,14 @@ export interface WaybillResponse {
   package_tracking_no?: string | null;
 }
 
-export const EXECUTION_URGENCY_OPTIONS: ReadonlyArray<{ value: ExecutionUrgencyCode; label: string; hint: string }> = [
+export const EXECUTION_URGENCY_OPTIONS: readonly { value: ExecutionUrgencyCode; label: string; hint: string }[] = [
   { value: 'C', label: 'Critical', hint: 'Immediate action is required.' },
   { value: 'H', label: 'High', hint: 'Prioritize for urgent dispatch planning.' },
   { value: 'M', label: 'Medium', hint: 'Standard operational urgency.' },
   { value: 'L', label: 'Low', hint: 'Can be scheduled after higher-priority work.' },
 ];
 
-export const EXECUTION_OVERRIDE_REASON_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+export const EXECUTION_OVERRIDE_REASON_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'FEFO_BYPASS', label: 'FEFO / FIFO bypass' },
   { value: 'SHORT_PICK', label: 'Short pick / limited compliant stock' },
   { value: 'SOURCE_EXCEPTION', label: 'Source exception' },

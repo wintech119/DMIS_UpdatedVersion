@@ -74,6 +74,40 @@ class AuthWhoAmITests(TestCase):
         self.assertEqual(body["user_id"], "dev-user")
         self.assertIn("replenishment.needs_list.preview", body["permissions"])
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.views.operations_policy.get_relief_request_capabilities",
+        return_value={
+            "can_create_relief_request": True,
+            "can_create_relief_request_on_behalf": False,
+            "relief_request_submission_mode": "self",
+            "default_requesting_tenant_id": 20,
+        },
+    )
+    def test_whoami_includes_operations_capabilities(self, _mock_capabilities) -> None:
+        response = self.client.get("/api/v1/auth/whoami/")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["operations_capabilities"],
+            {
+                "can_create_relief_request": True,
+                "can_create_relief_request_on_behalf": False,
+                "relief_request_submission_mode": "self",
+                "default_requesting_tenant_id": 20,
+            },
+        )
+
 
 class RbacResolutionTests(TestCase):
     @patch(

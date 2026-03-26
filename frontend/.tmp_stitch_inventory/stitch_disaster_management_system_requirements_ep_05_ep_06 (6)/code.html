@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#5e5e5e",
+              "on-surface-variant": "#474747",
+              "surface-container-low": "#f3f3f4",
+              "on-tertiary-fixed-variant": "#e2e2e2",
+              "secondary-fixed-dim": "#acabab",
+              "surface-dim": "#dadada",
+              "primary": "#000000",
+              "surface-container-high": "#e8e8e8",
+              "surface": "#f9f9f9",
+              "error-container": "#ffdad6",
+              "tertiary-fixed": "#5d5f5f",
+              "on-tertiary-container": "#ffffff",
+              "primary-fixed": "#5e5e5e",
+              "on-surface": "#1a1c1c",
+              "on-error-container": "#410002",
+              "surface-container": "#eeeeee",
+              "secondary-fixed": "#c8c6c6",
+              "on-tertiary-fixed": "#ffffff",
+              "inverse-primary": "#c6c6c6",
+              "outline": "#777777",
+              "on-secondary-fixed": "#1b1c1c",
+              "tertiary": "#3a3c3c",
+              "secondary": "#5f5e5e",
+              "on-tertiary": "#e2e2e2",
+              "on-primary-fixed": "#ffffff",
+              "surface-container-lowest": "#ffffff",
+              "tertiary-fixed-dim": "#454747",
+              "on-error": "#ffffff",
+              "primary-container": "#3b3b3b",
+              "inverse-surface": "#2f3131",
+              "background": "#f9f9f9",
+              "on-primary-container": "#ffffff",
+              "on-primary-fixed-variant": "#e2e2e2",
+              "surface-variant": "#e2e2e2",
+              "primary-fixed-dim": "#474747",
+              "inverse-on-surface": "#f0f1f1",
+              "on-primary": "#e2e2e2",
+              "on-background": "#1a1c1c",
+              "on-secondary-fixed-variant": "#3b3b3b",
+              "on-secondary-container": "#1b1c1c",
+              "surface-container-highest": "#e2e2e2",
+              "tertiary-container": "#737575",
+              "on-secondary": "#ffffff",
+              "error": "#ba1a1a",
+              "secondary-container": "#d6d4d3",
+              "outline-variant": "#c6c6c6",
+              "surface-bright": "#f9f9f9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(24px);
+        }
+        .ghost-border {
+            border: 1px solid rgba(198, 198, 198, 0.2);
+        }
+        input:focus, select:focus {
+            outline: none !important;
+            border-color: #000000 !important;
+            ring: 0 !important;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-surface-container-highest">
+<!-- SideNavBar Integration -->
+<aside class="fixed left-0 top-0 h-screen w-64 bg-stone-50 border-r border-transparent flex flex-col p-4 gap-y-2 z-40 hidden md:flex">
+<div class="mb-8 px-2">
+<h1 class="text-lg font-bold tracking-tighter text-zinc-900">Disaster Ops</h1>
+<p class="text-[10px] uppercase tracking-widest text-zinc-500 font-medium">Regional Command</p>
+</div>
+<nav class="flex-1 flex flex-col gap-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 hover:bg-stone-200/50 transition-colors duration-200 rounded-md text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 bg-white text-zinc-950 rounded-md shadow-sm text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="warning">warning</span>
+                Active Alerts
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 hover:bg-stone-200/50 transition-colors duration-200 rounded-md text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+                Resource Map
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 hover:bg-stone-200/50 transition-colors duration-200 rounded-md text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="local_shipping">local_shipping</span>
+                Logistics
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 hover:bg-stone-200/50 transition-colors duration-200 rounded-md text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+                Reports
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 hover:bg-stone-200/50 transition-colors duration-200 rounded-md text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                Settings
+            </a>
+</nav>
+<div class="mt-auto border-t border-zinc-200/50 pt-4 flex flex-col gap-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+                Help Center
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-zinc-500 hover:text-zinc-900 text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="sensors">sensors</span>
+                System Status
+            </a>
+</div>
+</aside>
+<!-- Top Command Bar Integration -->
+<header class="fixed top-0 left-0 md:left-64 right-0 z-50 flex items-center justify-between px-6 h-14 bg-white/80 backdrop-blur-xl border border-zinc-200/20 max-w-4xl mx-auto mt-4 rounded-xl shadow-[0px_20px_40px_rgba(0,0,0,0.04)]">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-zinc-400" data-icon="search">search</span>
+<span class="text-xs font-inter uppercase tracking-widest text-zinc-400">Search Command...</span>
+</div>
+<nav class="hidden sm:flex items-center gap-4">
+<a class="text-xs font-inter uppercase tracking-widest text-zinc-900 underline decoration-2 underline-offset-4" href="#">Directives</a>
+<a class="text-xs font-inter uppercase tracking-widest text-zinc-400 hover:text-zinc-900 transition-all" href="#">Personnel</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-zinc-400 hover:text-zinc-900 transition-all">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+</button>
+<button class="text-zinc-400 hover:text-zinc-900 transition-all relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 w-1.5 h-1.5 bg-primary rounded-full"></span>
+</button>
+<div class="w-8 h-8 rounded-full bg-zinc-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="close up professional headshot of male emergency dispatch operator with calm expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUkRweREypPWsT7a_P1cb2TDnfC4BUZ_dtmPQdA8TxrbGyoIqoViATmkWtpMA4diLeeynn5npd_6ujvh7idzrukmiwLy0fXJTqFgbvlbvvlRnunQW3sysg57qm6jRWsLRt2nUqrRCjynIaLkhyvc9eo8GZdcUi7wl8stl61rz6DGfyXBHPc-BmxZ7T3vizYU5-Ftmt1W2UjDUmY4sZ5H-djGPzwc-LcjOHfULKgUngNgKRfH0HD95XS_bhM8pzXoq1_D5F_xkDQE0"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-32 pb-20 px-6 md:ml-64 flex flex-col items-center">
+<div class="w-full max-w-2xl">
+<!-- Header Section -->
+<div class="mb-16 space-y-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-xs font-medium tracking-widest uppercase">
+<span>Requests</span>
+<span class="text-outline-variant">/</span>
+<span class="text-primary">Step 1 of 3</span>
+</div>
+<h2 class="text-4xl font-extrabold tracking-tight text-primary">New Relief Request</h2>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="w-1/3 h-full bg-primary"></div>
+</div>
+</div>
+<!-- Form Content -->
+<form class="space-y-12">
+<!-- Agency Information -->
+<section class="space-y-6">
+<h3 class="text-sm font-bold uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-xs" data-icon="corporate_fare">corporate_fare</span>
+                        Agency Information
+                    </h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-2">
+<label class="block text-xs font-semibold text-on-surface-variant uppercase tracking-tighter">Receiving Agency</label>
+<select class="w-full bg-surface-container-lowest ghost-border rounded-md px-4 py-3 text-sm text-on-surface appearance-none focus:border-primary transition-all cursor-pointer">
+<option>Select Agency...</option>
+<option>Federal Relief Command</option>
+<option>Coastal Rescue Unit</option>
+<option>International Red Cross</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="block text-xs font-semibold text-on-surface-variant uppercase tracking-tighter">Request Date</label>
+<div class="w-full bg-surface-container-low px-4 py-3 rounded-md text-sm text-on-surface-variant font-medium">
+                                October 24, 2023 — 14:42 UTC
+                            </div>
+</div>
+</div>
+<div class="space-y-2">
+<label class="block text-xs font-semibold text-on-surface-variant uppercase tracking-tighter">Event Name</label>
+<input class="w-full bg-surface-container-lowest ghost-border rounded-md px-4 py-3 text-sm placeholder:text-outline/50" placeholder="e.g. Cyclone Omega - Northern Sector" type="text"/>
+</div>
+</section>
+<!-- Urgency Selector -->
+<section class="space-y-6">
+<h3 class="text-sm font-bold uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-xs" data-icon="priority_high">priority_high</span>
+                        Urgency Level
+                    </h3>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+<button class="py-4 rounded-md border border-transparent bg-surface-container-lowest text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors text-on-surface-variant" type="button">Low</button>
+<button class="py-4 rounded-md border border-transparent bg-surface-container-lowest text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors text-on-surface-variant" type="button">Medium</button>
+<button class="py-4 rounded-md border-2 border-primary bg-primary text-on-primary text-xs font-bold uppercase tracking-widest" type="button">High</button>
+<button class="py-4 rounded-md border border-transparent bg-surface-container-lowest text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors text-on-surface-variant" type="button">Critical</button>
+</div>
+</section>
+<!-- Primary Contact -->
+<section class="space-y-6">
+<h3 class="text-sm font-bold uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-xs" data-icon="person">person</span>
+                        Primary Contact
+                    </h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-2">
+<label class="block text-xs font-semibold text-on-surface-variant uppercase tracking-tighter">Full Name</label>
+<input class="w-full bg-surface-container-lowest ghost-border rounded-md px-4 py-3 text-sm placeholder:text-outline/50" placeholder="Commander Elias Vance" type="text"/>
+</div>
+<div class="space-y-2">
+<label class="block text-xs font-semibold text-on-surface-variant uppercase tracking-tighter">Comms ID / Email</label>
+<input class="w-full bg-surface-container-lowest ghost-border rounded-md px-4 py-3 text-sm placeholder:text-outline/50" placeholder="vance.e@disasterops.gov" type="email"/>
+</div>
+</div>
+</section>
+<!-- Contextual Footer Panel -->
+<section class="bg-surface-container-low rounded-xl p-8 flex flex-col md:flex-row gap-8 items-start">
+<div class="flex-1 space-y-4">
+<div class="space-y-1">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em]">Assignment ID</span>
+<div class="text-xl font-mono font-bold tracking-tighter text-primary">REQ-7742-XP</div>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                            This request will be prioritized based on local logistics availability. Current sector load is 74% capacity.
+                        </p>
+</div>
+<div class="w-full md:w-48 h-32 rounded-lg bg-white overflow-hidden ghost-border shrink-0 relative">
+<img class="w-full h-full object-cover grayscale opacity-50" data-alt="abstract monochromatic satellite view of city street grid with clean minimalist vector-like aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCGUMUCMBPMx7aTVLdEhORmaXk2P8_zlP7z58VfyimvxmEU_byXwr5qH5UYAvtFVnsTaxNCTyyc4q3ZGtvQvKy36aPzVtWQsksr8n_k-wz4og-liKxNMVkZps-cyC_OWocq7zR5y5CPUagp8HA0fX-H1WupxGZ1MG0xgY_fGtJdeDzBxLIpCET_oTUiCBNykBNFJT-8cDZOuANq4C_8hZNkzW5e5g20wHDBG8j_Lp_cjk7wg78ZURZQIpeVqloZ7LPZLxzUDpnAOno"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<div class="w-4 h-4 bg-primary rounded-full animate-pulse shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>
+</div>
+<div class="absolute bottom-2 left-2 px-1.5 py-0.5 bg-black text-[8px] text-white uppercase tracking-widest font-bold rounded">Live Grid</div>
+</div>
+</section>
+<!-- Navigation Actions -->
+<div class="pt-8 flex items-center justify-between border-t border-surface-container-high">
+<button class="text-sm font-bold text-on-surface-variant hover:text-primary transition-all flex items-center gap-2" type="button">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+                        Cancel
+                    </button>
+<button class="px-8 py-3 bg-primary text-on-primary rounded-md font-bold text-sm tracking-widest uppercase hover:opacity-90 transition-opacity flex items-center gap-3" type="button">
+                        Continue to Logistics
+                        <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</form>
+</div>
+</main>
+<!-- Contextual FAB - Only for Help -->
+<button class="fixed bottom-8 right-8 w-12 h-12 bg-white text-primary rounded-full shadow-lg flex items-center justify-center border border-zinc-200 hover:scale-105 transition-transform z-50">
+<span class="material-symbols-outlined" data-icon="support_agent">support_agent</span>
+</button>
+</body></html>

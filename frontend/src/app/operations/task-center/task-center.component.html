@@ -1,0 +1,171 @@
+<div class="ops-page-shell">
+  <header class="ops-hero">
+    <div>
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">task_alt</mat-icon>
+        Operations / Task Center
+      </p>
+      <h1 class="ops-hero__title">Task Center</h1>
+      <p class="ops-hero__copy">
+        Live queue assignments and workflow notifications across the operations module.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-stroked-button type="button" (click)="loadTasks()">
+        <mat-icon>refresh</mat-icon>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <section class="ops-kpi-grid" aria-label="Task summary">
+    @for (metric of metrics(); track metric.label) {
+      <div class="ops-kpi-card">
+        <span class="ops-kpi-card__label">{{ metric.label }}</span>
+        <span class="ops-kpi-card__value">{{ metric.value }}</span>
+        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
+      </div>
+    }
+  </section>
+
+  <div class="ops-grid ops-grid--split">
+    <section class="ops-panel">
+      <div class="ops-panel__header">
+        <div>
+          <p class="ops-section__eyebrow">Queue</p>
+          <h2 class="ops-section__title">Action items</h2>
+          <p class="ops-section__copy">Filter by status and open a live assignment or notification to navigate to the related workflow.</p>
+        </div>
+      </div>
+
+      <div class="ops-panel__body">
+        <div class="ops-toolbar">
+          <label class="ops-toolbar__search" aria-label="Search tasks">
+            <mat-icon aria-hidden="true">search</mat-icon>
+            <input
+              #searchBox
+              type="search"
+              placeholder="Search by title or description"
+              [value]="searchTerm()"
+              (input)="onSearch(searchBox.value)"
+            />
+          </label>
+
+          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter task queue">
+            @for (filter of filterOptions; track filter.value) {
+              <button
+                class="ops-chip"
+                [class.ops-chip--active]="activeFilter() === filter.value"
+                type="button"
+                role="radio"
+                [attr.aria-checked]="activeFilter() === filter.value"
+                (click)="setFilter(filter.value)">
+                {{ filter.label }}
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (loading()) {
+          <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (filteredTasks().length === 0) {
+          <dmis-empty-state
+            icon="task_alt"
+            title="No tasks found"
+            message="No queue assignments or notifications match the current filter."
+          />
+        } @else {
+          <div class="ops-row-list">
+            @for (task of filteredTasks(); track trackByTaskId($index, task)) {
+              <article
+                class="ops-row ops-row--interactive"
+                tabindex="0"
+                role="button"
+                (click)="openTask(task)"
+                (keydown.enter)="openTask(task)"
+                (keydown.space)="openTask(task); $event.preventDefault()">
+                <div class="ops-row__lead">
+                  <p class="ops-row__title">{{ task.title }}</p>
+                  <div class="ops-row__meta">
+                    <span>{{ task.description }}</span>
+                  </div>
+                  <div class="ops-row__meta">
+                    <app-ops-status-chip [label]="sourceLabel(task)" [tone]="sourceTone(task)"></app-ops-status-chip>
+                    <app-ops-status-chip [label]="formatTaskType(task.task_type)" [tone]="chipTone(getTaskTone(task.task_type))"></app-ops-status-chip>
+                    @if (task.priority) {
+                      <app-ops-status-chip [label]="formatOperationsUrgency(task.priority)" [tone]="chipTone(getOperationsUrgencyTone(task.priority))"></app-ops-status-chip>
+                    }
+                  </div>
+                </div>
+
+                <div class="ops-row__actions">
+                  <app-ops-status-chip [label]="formatOperationsAge(task.created_at)" tone="neutral"></app-ops-status-chip>
+                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      </div>
+    </section>
+
+    <aside class="ops-grid">
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">About</p>
+            <h2 class="ops-section__title">Task Center</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <p>
+            The Task Center aggregates live queue assignments alongside workflow notifications.
+            Each row links to the related entity so you can move from notification to action without rebuilding the
+            worklist in the browser.
+          </p>
+        </div>
+      </section>
+
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">Workflow</p>
+            <h2 class="ops-section__title">Task types</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-timeline">
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Request notifications</p>
+                <div class="ops-timeline__meta">
+                  <span>Submitted, approved, rejected, or ineligible request events.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Package notifications</p>
+                <div class="ops-timeline__meta">
+                  <span>Locked, committed, or override-requested package events.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #065f46;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Dispatch and receipt</p>
+                <div class="ops-timeline__meta">
+                  <span>Dispatch completed and receipt confirmed events.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>

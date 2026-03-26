@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Relief Request Detail | REQ-0922-G7</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-fixed-dim": "#454747",
+                        "tertiary": "#3a3c3c",
+                        "on-secondary-container": "#1b1c1c",
+                        "error": "#ba1a1a",
+                        "error-container": "#ffdad6",
+                        "inverse-primary": "#c6c6c6",
+                        "secondary-fixed-dim": "#acabab",
+                        "inverse-on-surface": "#f0f1f1",
+                        "tertiary-fixed": "#5d5f5f",
+                        "outline-variant": "#c6c6c6",
+                        "on-tertiary-fixed": "#ffffff",
+                        "on-primary": "#e2e2e2",
+                        "on-tertiary": "#e2e2e2",
+                        "on-error": "#ffffff",
+                        "surface-bright": "#f9f9f9",
+                        "secondary": "#5f5e5e",
+                        "tertiary-container": "#737575",
+                        "surface-variant": "#e2e2e2",
+                        "surface-container": "#eeeeee",
+                        "primary-container": "#3b3b3b",
+                        "on-primary-fixed": "#ffffff",
+                        "on-secondary-fixed": "#1b1c1c",
+                        "inverse-surface": "#2f3131",
+                        "on-primary-fixed-variant": "#e2e2e2",
+                        "surface-container-low": "#f3f3f4",
+                        "outline": "#777777",
+                        "primary-fixed-dim": "#474747",
+                        "surface-container-high": "#e8e8e8",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-fixed-variant": "#e2e2e2",
+                        "on-surface": "#1a1c1c",
+                        "on-primary-container": "#ffffff",
+                        "primary": "#000000",
+                        "primary-fixed": "#5e5e5e",
+                        "surface-tint": "#5e5e5e",
+                        "secondary-fixed": "#c8c6c6",
+                        "on-surface-variant": "#474747",
+                        "on-error-container": "#410002",
+                        "on-background": "#1a1c1c",
+                        "background": "#f9f9f9",
+                        "on-tertiary-container": "#ffffff",
+                        "on-secondary-fixed-variant": "#3b3b3b",
+                        "on-secondary": "#ffffff",
+                        "surface-dim": "#dadada",
+                        "secondary-container": "#d6d4d3",
+                        "surface-container-highest": "#e2e2e2",
+                        "surface": "#f9f9f9"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e2e2; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary selection:text-on-primary">
+<div class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="hidden md:flex flex-col py-8 px-4 gap-y-2 h-screen w-64 border-r border-zinc-200/20 bg-surface-container-low sticky top-0">
+<div class="flex items-center gap-3 px-2 mb-10">
+<div class="w-8 h-8 bg-primary flex items-center justify-center rounded-sm">
+<span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings: 'FILL' 1;">layers</span>
+</div>
+<div>
+<h2 class="text-sm font-black text-primary leading-none uppercase tracking-tighter">Disaster Management</h2>
+<p class="text-[10px] text-on-surface-variant font-medium uppercase tracking-widest mt-1">Operational Hub</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-primary font-bold bg-surface-container-lowest rounded-md transition-transform scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="list_alt">list_alt</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Relief Requests</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="fact_check">fact_check</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Eligibility Review</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="inventory_2">inventory_2</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Package Fulfillment</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="local_shipping">local_shipping</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Dispatch Queue</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="analytics">analytics</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Analytics</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:text-on-surface hover:bg-zinc-200/50 transition-all rounded-md" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="contact_support">contact_support</span>
+<span class="font-['Inter'] text-xs uppercase tracking-widest">Support</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-6 w-full h-16 border-b border-zinc-200/20 bg-surface">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold tracking-tighter text-primary">ReliefOps</span>
+<div class="h-4 w-[1px] bg-outline-variant/30"></div>
+<span class="font-['Inter'] font-medium text-sm tracking-tight text-on-surface-variant">REQ-0922-G7</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-surface-container-lowest border border-outline-variant/20 rounded-md text-xs w-64 focus:ring-0 focus:border-primary transition-all" placeholder="Search operations..." type="text"/>
+</div>
+<div class="flex gap-1">
+<button class="p-2 hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface text-xl" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface text-xl" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+<img alt="User profile avatar" class="w-8 h-8 rounded-full object-cover border border-outline-variant/20" data-alt="Close-up professional headshot of a middle-aged man with short hair and clean-shaven face, warm lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQzOsar2Apsh1iXiV7JJxCKy6GzWqoY9stkLom6dUV3KLbsEhsrwnHkmvsgP4LNxk-zfhNbQAOZ_AALiW5giYtUJXUFlFrP5I5IhQ30XFw6dtwCHVRWdP2nN-5CROeY8bdg66-SZhK-8h-MSRJdIeqxV4wJvhMYmJFmVnvuNhB3Oqgv-5cQmuFLknsqRAD7V7LgckoxFqXHREKrW4zqi0dy6TL4EUa-hhqjuRcwu-ijJY6NKnRqcHeTsbKJXE2stxBn1Ersx-2bAI"/>
+</div>
+</header>
+<!-- Page Content -->
+<div class="p-8 md:p-12 max-w-7xl mx-auto w-full space-y-20">
+<!-- Hero Section: Identity & Urgency -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+<div class="lg:col-span-8 space-y-6">
+<div class="flex items-center gap-3">
+<span class="px-2 py-0.5 bg-error text-[10px] font-bold text-on-error uppercase tracking-widest rounded-sm">Priority: Critical</span>
+<span class="px-2 py-0.5 bg-surface-container-high text-[10px] font-bold text-on-surface-variant uppercase tracking-widest rounded-sm">Status: In Review</span>
+</div>
+<h1 class="text-4xl md:text-5xl font-bold tracking-tight text-primary leading-[1.1]">
+                            Flood Relief Support for <br class="hidden md:block"/> Central District Metro.
+                        </h1>
+<p class="text-lg text-on-surface-variant max-w-2xl leading-relaxed">
+                            Comprehensive material request for emergency displacement center hosting 1,200+ individuals following the flash flood event on September 22nd.
+                        </p>
+</div>
+<div class="lg:col-span-4 bg-surface-container-low p-6 rounded-md space-y-6">
+<div class="space-y-1">
+<p class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Requesting Agency</p>
+<p class="text-sm font-semibold text-primary">Red Cross Regional Chapter III</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Lead Coordinator</p>
+<p class="text-sm font-semibold text-primary">Sarah Jenkins-Wei</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Submission Date</p>
+<p class="text-sm font-semibold text-primary">Sep 22, 2024 • 14:32 UTC</p>
+</div>
+</div>
+</section>
+<!-- Context & Justification: Asymmetric Grid -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-16 border-t border-outline-variant/10 pt-12">
+<div class="space-y-4">
+<h3 class="text-[11px] uppercase tracking-[0.2em] font-black text-on-surface-variant">Event Context</h3>
+<p class="text-sm text-on-surface-variant leading-7 italic border-l-2 border-primary pl-6">
+                            "Flash floods exceeded 100-year thresholds, displacing residents from the low-lying Central District. Current sheltering capacity at the Municipal Stadium is at 95%. Immediate logistics support is required to maintain sanitation and basic caloric intake standards."
+                        </p>
+</div>
+<div class="space-y-4">
+<h3 class="text-[11px] uppercase tracking-[0.2em] font-black text-on-surface-variant">Urgency Justification</h3>
+<p class="text-sm text-on-surface-variant leading-7">
+                            Resources are requested to prevent secondary health crises. Current potable water reserves are estimated to last less than 18 hours given the inflow of evacuees. Medical triage units report a sharp increase in minor traumatic injuries and cold exposure symptoms requiring immediate therapeutic interventions.
+                        </p>
+</div>
+</section>
+<!-- BOM Table: Minimalist Layout -->
+<section class="space-y-8">
+<div class="flex justify-between items-end border-b border-primary/10 pb-4">
+<h3 class="text-[11px] uppercase tracking-[0.2em] font-black text-primary">Itemized Bill of Materials (BOM)</h3>
+<span class="text-[10px] text-on-surface-variant font-medium">14 Total Items Identified</span>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="text-[10px] uppercase tracking-widest text-on-surface-variant">
+<th class="py-4 font-bold">Item Identifier</th>
+<th class="py-4 font-bold">Category</th>
+<th class="py-4 font-bold text-right">Quantity Requested</th>
+<th class="py-4 font-bold text-right">Status</th>
+</tr>
+</thead>
+<tbody class="text-sm border-t border-outline-variant/10">
+<tr class="border-b border-outline-variant/5 hover:bg-surface-container-low transition-colors">
+<td class="py-5 font-semibold text-primary">Potable Water (10L Containers)</td>
+<td class="py-5 text-on-surface-variant">Sanitation</td>
+<td class="py-5 text-right font-mono">500 Units</td>
+<td class="py-5 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-[10px] font-bold text-green-700 rounded-sm">
+<span class="w-1 h-1 bg-green-600 rounded-full"></span> Allocated
+                                        </span>
+</td>
+</tr>
+<tr class="border-b border-outline-variant/5 hover:bg-surface-container-low transition-colors">
+<td class="py-5 font-semibold text-primary">Emergency Thermal Blankets</td>
+<td class="py-5 text-on-surface-variant">Logistics/Bedding</td>
+<td class="py-5 text-right font-mono">1,500 Units</td>
+<td class="py-5 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-yellow-50 text-[10px] font-bold text-yellow-700 rounded-sm">
+<span class="w-1 h-1 bg-yellow-600 rounded-full"></span> Sourcing
+                                        </span>
+</td>
+</tr>
+<tr class="border-b border-outline-variant/5 hover:bg-surface-container-low transition-colors">
+<td class="py-5 font-semibold text-primary">Hygiene Kits (Type A)</td>
+<td class="py-5 text-on-surface-variant">Medical/Personal</td>
+<td class="py-5 text-right font-mono">1,200 Kits</td>
+<td class="py-5 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-[10px] font-bold text-green-700 rounded-sm">
+<span class="w-1 h-1 bg-green-600 rounded-full"></span> Allocated
+                                        </span>
+</td>
+</tr>
+<tr class="border-b border-outline-variant/5 hover:bg-surface-container-low transition-colors">
+<td class="py-5 font-semibold text-primary">High-Calorie Field Rations</td>
+<td class="py-5 text-on-surface-variant">Food Security</td>
+<td class="py-5 text-right font-mono">4,000 Pks</td>
+<td class="py-5 text-right">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-zinc-100 text-[10px] font-bold text-zinc-600 rounded-sm">
+<span class="w-1 h-1 bg-zinc-400 rounded-full"></span> Pending
+                                        </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Audit Log / Timeline: Vertical Structured -->
+<section class="space-y-12 pb-24">
+<div class="flex items-center gap-4">
+<h3 class="text-[11px] uppercase tracking-[0.2em] font-black text-on-surface-variant shrink-0">Audit Log &amp; Timeline</h3>
+<div class="h-[1px] w-full bg-outline-variant/20"></div>
+</div>
+<div class="space-y-0 max-w-4xl">
+<!-- Timeline Item 1 -->
+<div class="flex gap-8 group">
+<div class="flex flex-col items-center">
+<div class="w-2.5 h-2.5 bg-primary rounded-full mt-1.5 z-10"></div>
+<div class="w-[1px] h-full bg-outline-variant/30 -mt-1 group-last:hidden"></div>
+</div>
+<div class="pb-12">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Sep 23, 10:15 UTC</p>
+<div class="bg-surface-container-lowest p-5 rounded-md border border-outline-variant/5">
+<p class="text-sm font-semibold text-primary">Eligibility Review Initiated</p>
+<p class="text-xs text-on-surface-variant mt-2 leading-relaxed">System flag: Request matches disaster profile D-2024-081. Routing to Regional Director for signature.</p>
+<div class="mt-4 flex items-center gap-2">
+<div class="w-5 h-5 bg-zinc-200 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px]" data-icon="person">person</span>
+</div>
+<span class="text-[10px] font-medium text-on-surface-variant italic">Assigned to: Marcus Thorne</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Timeline Item 2 -->
+<div class="flex gap-8 group">
+<div class="flex flex-col items-center">
+<div class="w-2.5 h-2.5 bg-zinc-300 rounded-full mt-1.5 z-10"></div>
+<div class="w-[1px] h-full bg-outline-variant/30 -mt-1 group-last:hidden"></div>
+</div>
+<div class="pb-12">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Sep 22, 16:45 UTC</p>
+<div class="bg-surface-container-lowest p-5 rounded-md border border-outline-variant/5">
+<p class="text-sm font-semibold text-primary">Partial Allocation Successful</p>
+<p class="text-xs text-on-surface-variant mt-2 leading-relaxed">Inventory identified in Warehouse-A (Potable Water) and Warehouse-C (Hygiene Kits). Logistics locks applied.</p>
+</div>
+</div>
+</div>
+<!-- Timeline Item 3 -->
+<div class="flex gap-8 group">
+<div class="flex flex-col items-center">
+<div class="w-2.5 h-2.5 bg-zinc-300 rounded-full mt-1.5 z-10"></div>
+<div class="w-[1px] h-full bg-outline-variant/30 -mt-1 group-last:hidden"></div>
+</div>
+<div class="pb-12">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Sep 22, 14:32 UTC</p>
+<div class="bg-surface-container-lowest p-5 rounded-md border border-outline-variant/5">
+<p class="text-sm font-semibold text-primary">Request Submission</p>
+<p class="text-xs text-on-surface-variant mt-2 leading-relaxed">Relief request generated via API gateway. Originating IP verified for Red Cross Regional Chapter III.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Footer Meta -->
+<footer class="mt-auto py-10 px-8 md:px-12 bg-surface-container-low border-t border-outline-variant/10 text-center">
+<p class="text-[10px] text-on-surface-variant font-medium uppercase tracking-[0.3em]">
+                    End of Document • Internal Use Only • ReliefOps v4.2.0
+                </p>
+</footer>
+</main>
+</div>
+<!-- Floating Command Bar Concept (As per Design System) -->
+<div class="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-lg px-6 z-50">
+<div class="bg-surface-container-lowest/90 backdrop-blur-xl border border-outline-variant/10 p-3 rounded-full flex items-center gap-3 shadow-[0px_20px_40px_rgba(26,28,28,0.04)]">
+<div class="px-4 py-1.5 bg-primary text-on-primary rounded-full text-[10px] font-black uppercase tracking-widest">
+                Read Only
+            </div>
+<div class="h-6 w-[1px] bg-outline-variant/20"></div>
+<p class="text-xs font-medium text-on-surface-variant truncate">
+                Locked for review by Admin Council.
+            </p>
+<button class="ml-auto p-2 hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="share">share</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="print">print</span>
+</button>
+</div>
+</div>
+</body></html>

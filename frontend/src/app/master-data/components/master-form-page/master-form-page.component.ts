@@ -450,7 +450,7 @@ export class MasterFormPageComponent implements OnInit {
       this.form.setValidators([
         validateFefoRequiresExpiry,
         (control) => this.validateItemClassification(control),
-        (control) => this.validateItemUomConversions(control),
+        () => this.validateItemUomConversions(),
       ]);
       this.updateLocalDraftFieldValidators();
       this.form.updateValueAndValidity({ emitEvent: false });
@@ -1773,7 +1773,7 @@ export class MasterFormPageComponent implements OnInit {
 
           // Load UOM conversions (non-default rows only)
           const uomOptions = record['uom_options'] as
-            Array<{ uom_code: string; conversion_factor: number; is_default?: boolean }> | undefined;
+            { uom_code: string; conversion_factor: number; is_default?: boolean }[] | undefined;
           if (Array.isArray(uomOptions)) {
             this.itemUomConversions.set(
               uomOptions
@@ -3739,7 +3739,7 @@ export class MasterFormPageComponent implements OnInit {
     return false;
   }
 
-  private validateItemUomConversions(_: AbstractControl): ValidationErrors | null {
+  private validateItemUomConversions(): ValidationErrors | null {
     if (this.config()?.tableKey !== 'items') {
       return null;
     }

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
+﻿import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { Router, NavigationEnd, RouterLink } from '@angular/router';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatListModule } from '@angular/material/list';
@@ -65,8 +65,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
     if (group.route && this.isRouteActive(group.route, group.queryParams)) {
       return true;
     }
+    if (group.href && this.isHrefActive(group.href)) {
+      return true;
+    }
     return this.visibleChildren(group).some(
-      (child) => child.route && this.isRouteActive(child.route, child.queryParams)
+      (child) => (child.route && this.isRouteActive(child.route, child.queryParams))
+        || (child.href && this.isHrefActive(child.href))
     );
   }
 
@@ -87,7 +91,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   firstVisibleChild(group: NavGroup) {
-    return this.visibleChildren(group).find((child) => !child.disabled && !!child.route) ?? null;
+    return this.visibleChildren(group).find((child) => !child.disabled && (!!child.route || !!child.href)) ?? null;
   }
 
   isRouteActive(route: string, queryParams?: Record<string, string | number | boolean>): boolean {
@@ -102,6 +106,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
       return true;
     }
     return path === route || path.startsWith(route + '/');
+  }
+
+  isHrefActive(href: string): boolean {
+    const { path } = this.parseUrlParts(this.currentUrl());
+    return path === href || path.startsWith(href + '/');
   }
 
   onItemClick(): void {

@@ -1,0 +1,133 @@
+<div class="review-step">
+  <section class="review-banner">
+    <p class="review-banner__eyebrow">Review & route</p>
+    <h2>Final submission check</h2>
+    <p>
+      Confirm the requesting agency, event, urgency, and item lines before this request is saved and routed into the
+      eligibility review queue.
+    </p>
+  </section>
+
+  <section class="review-stats" aria-label="Review summary">
+    <div class="review-stat">
+      <span class="review-stat-value">{{ totalItems }}</span>
+      <span class="review-stat-label">Total items</span>
+    </div>
+    <div class="review-stat">
+      <span class="review-stat-value">{{ totalQuantity | number }}</span>
+      <span class="review-stat-label">Total quantity</span>
+    </div>
+    <div class="review-stat">
+      <span class="review-stat-value">{{ formValue.urgency_ind ? formatUrgency(formValue.urgency_ind) : 'Pending' }}</span>
+      <span class="review-stat-label">Request urgency</span>
+    </div>
+  </section>
+
+  <section class="review-section">
+    <header class="review-section__header">
+      <p class="review-section__eyebrow">Request overview</p>
+      <h3>Submission snapshot</h3>
+    </header>
+
+    <div class="review-info-grid">
+      <div class="review-info-item">
+        <span class="review-info-label">Requesting agency</span>
+        <span class="review-info-value">{{ formValue.agency_name || (formValue.agency_id ? 'Agency ' + formValue.agency_id : 'Not selected') }}</span>
+      </div>
+      <div class="review-info-item">
+        <span class="review-info-label">Event</span>
+        <span class="review-info-value">{{ formValue.event_name || (formValue.eligible_event_id ? 'Event ' + formValue.eligible_event_id : 'No linked event') }}</span>
+      </div>
+      <div class="review-info-item">
+        <span class="review-info-label">Request date</span>
+        <span class="review-info-value">{{ formValue.request_date_text }}</span>
+      </div>
+      <div class="review-info-item">
+        <span class="review-info-label">Submission mode</span>
+        <span class="review-info-value">{{ formValue.submission_mode_label }}</span>
+      </div>
+      <div class="review-info-item">
+        <span class="review-info-label">Urgency</span>
+        <span class="review-info-value">
+          @if (formValue.urgency_ind) {
+            <span class="status-badge" [class]="getUrgencyCssClass(formValue.urgency_ind)">
+              {{ formatUrgency(formValue.urgency_ind) }}
+            </span>
+          } @else {
+            Not set
+          }
+        </span>
+      </div>
+      <div class="review-info-item">
+        <span class="review-info-label">Submission lane</span>
+        <span class="review-info-value">Eligibility review queue</span>
+      </div>
+      @if (formValue.rqst_notes_text) {
+        <div class="review-info-item review-info-item--full">
+          <span class="review-info-label">Notes</span>
+          <span class="review-info-value">{{ formValue.rqst_notes_text }}</span>
+        </div>
+      }
+    </div>
+  </section>
+
+  @if (totalItems > 0) {
+    <section class="review-section">
+      <header class="review-section__header">
+        <p class="review-section__eyebrow">Item ledger</p>
+        <h3>Requested lines</h3>
+      </header>
+
+      <div class="review-table-wrapper">
+        <table
+          mat-table
+          [dataSource]="formValue.items"
+          [trackBy]="trackByIndex"
+          class="review-table"
+          aria-label="Review items">
+
+          <ng-container matColumnDef="index">
+            <th mat-header-cell *matHeaderCellDef>#</th>
+            <td mat-cell *matCellDef="let item; let i = index">{{ i + 1 }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="item_id">
+            <th mat-header-cell *matHeaderCellDef>Item ID</th>
+            <td mat-cell *matCellDef="let item">{{ item.item_id ?? 'Not set' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="request_qty">
+            <th mat-header-cell *matHeaderCellDef class="text-right">Quantity</th>
+            <td mat-cell *matCellDef="let item" class="text-right">{{ item.request_qty | number }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="urgency_ind">
+            <th mat-header-cell *matHeaderCellDef>Urgency</th>
+            <td mat-cell *matCellDef="let item">
+              @if (item.urgency_ind) {
+                <span class="status-badge" [class]="getUrgencyCssClass(item.urgency_ind)">
+                  {{ formatUrgency(item.urgency_ind) }}
+                </span>
+              } @else {
+                <span class="text-muted">Follow request urgency</span>
+              }
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="rqst_reason_desc">
+            <th mat-header-cell *matHeaderCellDef>Reason</th>
+            <td mat-cell *matCellDef="let item">{{ item.rqst_reason_desc || 'Not provided' }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="required_by_date">
+            <th mat-header-cell *matHeaderCellDef>Required by</th>
+            <td mat-cell *matCellDef="let item">{{ item.required_by_date ? (item.required_by_date | date:'mediumDate') : 'Not set' }}</td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="itemColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: itemColumns;"></tr>
+        </table>
+      </div>
+    </section>
+  }
+</div>

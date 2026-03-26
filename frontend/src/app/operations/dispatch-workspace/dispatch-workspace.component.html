@@ -1,0 +1,209 @@
+<div class="ops-workspace">
+  <section class="ops-hero" aria-labelledby="dispatch-title">
+    <div class="ops-hero__copy">
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">local_shipping</mat-icon>
+        Operations / Dispatch
+      </p>
+      <h1 id="dispatch-title" class="ops-hero__title">Dispatch and Transport Log</h1>
+      <p class="ops-hero__description">
+        Confirm the handoff, preserve the dispatch record, and expose the deterministic waybill rebuild before the
+        receiving-agency confirmation arrives later.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-stroked-button type="button" (click)="openFulfillment()">
+        <mat-icon>inventory</mat-icon>
+        Open Fulfillment
+      </button>
+      <button mat-stroked-button type="button" (click)="refresh()">
+        <mat-icon>refresh</mat-icon>
+        Refresh
+      </button>
+    </div>
+  </section>
+
+  @if (loading()) {
+    <dmis-skeleton-loader variant="summary-card" [count]="4" />
+  }
+
+  @if (!loading() && loadError()) {
+    <dmis-empty-state
+      icon="error_outline"
+      title="Unable to load dispatch workspace"
+      [message]="loadError() || 'Please try again.'"
+      actionLabel="Retry"
+      actionIcon="refresh"
+      (action)="refresh()">
+    </dmis-empty-state>
+  }
+
+  @if (!loading() && !loadError() && dispatchDetail(); as detail) {
+    <app-ops-metric-strip [items]="workspaceMetrics()" />
+
+    <div class="ops-split">
+      <section class="ops-pane ops-pane--wide" aria-labelledby="dispatch-context-title">
+        <div class="ops-pane__header">
+          <div>
+            <p class="ops-pane__eyebrow">Dispatch context</p>
+            <h2 id="dispatch-context-title">Request and package metadata</h2>
+          </div>
+          <div class="ops-pane__actions">
+            <button mat-stroked-button type="button" (click)="openWaybill()" [disabled]="!waybillReadback() && !detail.waybill">
+              <mat-icon>description</mat-icon>
+              Waybill
+            </button>
+            <button mat-stroked-button type="button" (click)="openReceiptConfirmation()">
+              <mat-icon>fact_check</mat-icon>
+              Receipt
+            </button>
+          </div>
+        </div>
+
+        <div class="ops-context-grid">
+          <article class="ops-context-card">
+            <span class="ops-context-card__label">Agency</span>
+            <strong>{{ detail.request.agency_name || ('Agency ' + detail.agency_id) }}</strong>
+            <p>{{ detail.request.event_name || 'No event set' }}</p>
+          </article>
+          <article class="ops-context-card">
+            <span class="ops-context-card__label">Destination</span>
+            <strong>{{ detail.destination_warehouse_name || ('Warehouse ' + detail.to_inventory_id) || 'Not set' }}</strong>
+            <p>{{ detail.transport_mode || 'Transport mode pending' }}</p>
+          </article>
+          <article class="ops-context-card">
+            <span class="ops-context-card__label">Dispatch Time</span>
+            <strong>{{ detail.dispatch_dtime ? (detail.dispatch_dtime | date:'medium') : 'Pending dispatch' }}</strong>
+            <p>{{ detail.received_dtime ? ('Received ' + (detail.received_dtime | date:'medium')) : 'Receipt not yet confirmed' }}</p>
+          </article>
+          <article class="ops-context-card">
+            <span class="ops-context-card__label">Waybill State</span>
+            <strong>{{ detail.waybill ? 'Available' : 'Pending' }}</strong>
+            <p>Deterministic rebuild contract.</p>
+          </article>
+        </div>
+
+        @if (displayConfirmation(); as confirmation) {
+          <div class="ops-callout" role="status">
+            <mat-icon aria-hidden="true">info</mat-icon>
+            <span>{{ confirmation.message }}</span>
+          </div>
+        }
+      </section>
+
+      <aside class="ops-pane ops-pane--rail" aria-labelledby="dispatch-rail-title">
+        <div class="ops-pane__header">
+          <div>
+            <p class="ops-pane__eyebrow">Transport log</p>
+            <h2 id="dispatch-rail-title">Operational guardrails</h2>
+          </div>
+        </div>
+
+        <div class="ops-rail-stack">
+          <article class="ops-rail-card">
+            <span class="ops-rail-card__label">Reservation Ready</span>
+            <strong>{{ hasCommittedAllocation() && !hasPendingOverride() ? 'Yes' : 'Blocked' }}</strong>
+          </article>
+          <article class="ops-rail-card">
+            <span class="ops-rail-card__label">Can Dispatch Now</span>
+            <strong>{{ canDispatchNow() ? 'Yes' : 'No' }}</strong>
+          </article>
+          <article class="ops-rail-card">
+            <span class="ops-rail-card__label">Already Dispatched</span>
+            <strong>{{ alreadyDispatched() ? 'Yes' : 'No' }}</strong>
+          </article>
+          <article class="ops-rail-card">
+            <span class="ops-rail-card__label">Receipt Confirmation</span>
+            <strong>{{ detail.received_dtime ? 'Recorded' : 'Live after dispatch' }}</strong>
+          </article>
+        </div>
+      </aside>
+    </div>
+
+    <mat-stepper linear #stepper class="ops-stepper">
+      <mat-step>
+        <ng-template matStepLabel>Readiness</ng-template>
+        <app-ops-dispatch-readiness-step
+          [detail]="detail"
+          [transportMode]="transportMode()"
+          (transportModeChange)="transportMode.set($event)"
+          [driverName]="driverName()"
+          (driverNameChange)="driverName.set($event)"
+          [vehicleIdentifier]="vehicleIdentifier()"
+          (vehicleIdentifierChange)="vehicleIdentifier.set($event)"
+          [departureTime]="departureTime()"
+          (departureTimeChange)="departureTime.set($event)"
+          [estimatedArrival]="estimatedArrival()"
+          (estimatedArrivalChange)="estimatedArrival.set($event)"
+          [transportNotes]="transportNotes()"
+          (transportNotesChange)="transportNotes.set($event)" />
+        <div class="ops-step-actions">
+          <button mat-stroked-button type="button" (click)="openFulfillment()">Back to Fulfillment</button>
+          <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
+        </div>
+      </mat-step>
+
+      <mat-step>
+        <ng-template matStepLabel>Review & Dispatch</ng-template>
+        <app-ops-dispatch-review-step
+          [detail]="detail"
+          [waybillReadback]="waybillReadback()"
+          [transportMode]="transportMode()"
+          [driverName]="driverName()"
+          [vehicleIdentifier]="vehicleIdentifier()"
+          [departureTime]="departureTime()"
+          [estimatedArrival]="estimatedArrival()"
+          [transportNotes]="transportNotes()" />
+        <div class="ops-step-actions">
+          <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+          <button mat-flat-button color="primary" type="button" [disabled]="submitting()" (click)="completeDispatchAction()">
+            <mat-icon>{{ submitting() ? 'hourglass_top' : 'local_shipping' }}</mat-icon>
+            {{ submitting() ? 'Working...' : primaryActionLabel() }}
+          </button>
+        </div>
+      </mat-step>
+
+      <mat-step [editable]="false">
+        <ng-template matStepLabel>Confirmation</ng-template>
+        <div class="ops-confirmation">
+          @if (displayConfirmation(); as confirmation) {
+            <article class="ops-confirmation-card">
+              <h2>{{ confirmation.title }}</h2>
+              <p>{{ confirmation.message }}</p>
+              <p class="ops-confirmation-card__hint">{{ confirmation.hint }}</p>
+
+              <div class="ops-confirmation-grid">
+                <div>
+                  <span>Waybill Number</span>
+                  <strong>{{ waybillReadback()?.waybill_no || detail.waybill?.waybill_no || 'Assigned on dispatch' }}</strong>
+                </div>
+                <div>
+                  <span>Dispatch Time</span>
+                  <strong>{{ detail.dispatch_dtime || 'Pending refresh' }}</strong>
+                </div>
+              </div>
+
+              @if (waybillReadback(); as wb) {
+                <div class="ops-callout" role="status">
+                  <mat-icon aria-hidden="true">info</mat-icon>
+                  <span>
+                    Waybill artifact mode: <strong>{{ wb.artifact_mode || 'deterministic rebuild' }}</strong>.
+                    @if (!wb.persisted) {
+                      This waybill is rebuilt from the dispatch record and is not persisted separately yet.
+                    }
+                  </span>
+                </div>
+              }
+
+              <div class="ops-step-actions">
+                <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                <button mat-flat-button color="primary" type="button" (click)="backToQueue()">Return to Dispatch Queue</button>
+              </div>
+            </article>
+          }
+        </div>
+      </mat-step>
+    </mat-stepper>
+  }
+</div>

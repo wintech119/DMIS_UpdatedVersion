@@ -1,0 +1,197 @@
+<div class="ops-page-shell">
+  <header class="ops-hero">
+    <div>
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">assignment</mat-icon>
+        Operations / Relief Requests
+      </p>
+      <h1 class="ops-hero__title">Relief Requests</h1>
+      <p class="ops-hero__copy">
+        Queue, create, and follow each operational request from draft through eligibility and fulfillment.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-flat-button color="primary" type="button" (click)="newRequest()">
+        <mat-icon>add</mat-icon>
+        New Request
+      </button>
+      <button mat-stroked-button type="button" (click)="setFilter('review')">
+        <mat-icon>fact_check</mat-icon>
+        Review Queue
+      </button>
+    </div>
+  </header>
+
+  <section class="ops-kpi-grid" aria-label="Request summary">
+    @for (metric of metrics(); track metric.label) {
+      <button class="ops-kpi-card" type="button" (click)="openMetric(metric)">
+        <span class="ops-kpi-card__label">{{ metric.label }}</span>
+        <span class="ops-kpi-card__value">{{ metric.value }}</span>
+        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
+      </button>
+    }
+  </section>
+
+  <div class="ops-grid ops-grid--split">
+    <section class="ops-panel">
+      <div class="ops-panel__header">
+        <div>
+          <p class="ops-section__eyebrow">Queue</p>
+          <h2 class="ops-section__title">Live request list</h2>
+          <p class="ops-section__copy">Search and filter the current operational demand.</p>
+        </div>
+        <button mat-stroked-button type="button" (click)="newRequest()">
+          <mat-icon>edit_note</mat-icon>
+          Create Request
+        </button>
+      </div>
+
+      <div class="ops-panel__body">
+        <div class="ops-toolbar">
+          <label class="ops-toolbar__search" aria-label="Search requests">
+            <mat-icon aria-hidden="true">search</mat-icon>
+            <input
+              #searchBox
+              type="search"
+              placeholder="Search by tracking number, agency, event, or notes"
+              [value]="searchTerm()"
+              (input)="onSearch(searchBox.value)"
+            />
+          </label>
+          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter requests by state">
+            @for (filter of filterOptions; track filter.value) {
+              <button
+                class="ops-chip"
+                [class.ops-chip--active]="activeFilter() === filter.value"
+                type="button"
+                role="radio"
+                [attr.aria-checked]="activeFilter() === filter.value"
+                (click)="setFilter(filter.value)">
+                {{ filter.label }}
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (loading()) {
+          <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (filteredRequests().length === 0) {
+          <dmis-empty-state
+            icon="assignment"
+            title="No requests found"
+            message="No relief requests match the current search or filter."
+            actionLabel="New Request"
+            actionIcon="add"
+            (action)="newRequest()"
+          />
+        } @else {
+          <div class="ops-row-list">
+            @for (request of filteredRequests(); track trackByRequestId($index, request)) {
+              <article
+                class="ops-row ops-row--interactive"
+                tabindex="0"
+                role="button"
+                (click)="openRequest(request)"
+                (keydown.enter)="openRequest(request)"
+                (keydown.space)="openRequest(request); $event.preventDefault()">
+                <div class="ops-row__lead">
+                  <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                  <div class="ops-row__meta">
+                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
+                    <span aria-hidden="true">|</span>
+                    <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
+                    <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
+                  </div>
+                  <div class="ops-row__meta">
+                    <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
+                  </div>
+                </div>
+
+                <div class="ops-row__actions">
+                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral"></app-ops-status-chip>
+                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      </div>
+    </section>
+
+    <aside class="ops-grid">
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">Workload</p>
+            <h2 class="ops-section__title">Queue metrics</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-summary-grid">
+            <div class="ops-summary-card">
+              <span class="ops-summary-card__label">Total shown</span>
+              <p class="ops-summary-card__value">{{ statusSummary().total }}</p>
+            </div>
+            <div class="ops-summary-card">
+              <span class="ops-summary-card__label">Critical</span>
+              <p class="ops-summary-card__value">{{ statusSummary().critical }}</p>
+            </div>
+            <div class="ops-summary-card">
+              <span class="ops-summary-card__label">High</span>
+              <p class="ops-summary-card__value">{{ statusSummary().high }}</p>
+            </div>
+            <div class="ops-summary-card">
+              <span class="ops-summary-card__label">Newest</span>
+              <p class="ops-summary-card__value">
+                {{ statusSummary().newest.tracking_no ?? 'Pending' }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">Guidance</p>
+            <h2 class="ops-section__title">What to do next</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-timeline">
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Draft requests remain editable.</p>
+                <div class="ops-timeline__meta">
+                  <span>Open a draft to add or correct lines before submission.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Submitted requests move into review.</p>
+                <div class="ops-timeline__meta">
+                  <span>Eligibility decisions happen in the review queue.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #065f46;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Fulfillment starts after approval.</p>
+                <div class="ops-timeline__meta">
+                  <span>Package commitment and dispatch stay in the Operations module.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
