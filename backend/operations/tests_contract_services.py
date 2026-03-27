@@ -465,6 +465,35 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.save_package")
+    def test_package_commit_tolerates_missing_first_inventory_id(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        dispatch = OperationsDispatch.objects.get(package_id=90)
+        self.assertIsNone(package_record.source_warehouse_id)
+        self.assertIsNone(dispatch.source_warehouse_id)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
     def test_system_administrator_can_commit_package_and_own_lock(
         self,
         save_package_mock,

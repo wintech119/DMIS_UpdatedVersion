@@ -969,7 +969,12 @@ def save_package(
     first_inventory_id = None
     allocations = payload.get("allocations")
     if isinstance(allocations, list) and allocations:
-        first_inventory_id = int(allocations[0].get("inventory_id"))
+        raw_inventory_id = allocations[0].get("inventory_id")
+        if raw_inventory_id is not None:
+            try:
+                first_inventory_id = int(raw_inventory_id)
+            except (TypeError, ValueError):
+                first_inventory_id = None
     status_code = PACKAGE_STATUS_DRAFT
     override_status = None
     if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
