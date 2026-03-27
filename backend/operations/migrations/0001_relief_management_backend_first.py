@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name='OperationsDispatchTransport',
             fields=[
                 ('dispatch_transport_id', models.BigAutoField(primary_key=True, serialize=False)),
-                ('dispatch_id', models.IntegerField(unique=True)),
+                ('dispatch_id', models.BigIntegerField(unique=True)),
                 ('driver_name', models.CharField(max_length=120)),
                 ('driver_license_no', models.CharField(blank=True, max_length=50, null=True)),
                 ('vehicle_id', models.CharField(blank=True, max_length=50, null=True)),
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
             name='OperationsReceipt',
             fields=[
                 ('receipt_id', models.BigAutoField(primary_key=True, serialize=False)),
-                ('dispatch_id', models.IntegerField(unique=True)),
+                ('dispatch_id', models.BigIntegerField(unique=True)),
                 ('package_id', models.IntegerField(db_index=True)),
                 ('receipt_status_code', models.CharField(db_index=True, max_length=30)),
                 ('received_by_user_id', models.CharField(blank=True, max_length=50, null=True)),
@@ -123,7 +123,7 @@ class Migration(migrations.Migration):
             name='OperationsWaybill',
             fields=[
                 ('waybill_id', models.BigAutoField(primary_key=True, serialize=False)),
-                ('dispatch_id', models.IntegerField(db_index=True)),
+                ('dispatch_id', models.BigIntegerField(db_index=True)),
                 ('waybill_no', models.CharField(max_length=50, unique=True)),
                 ('artifact_payload_json', models.JSONField()),
                 ('artifact_version', models.PositiveIntegerField(default=1)),

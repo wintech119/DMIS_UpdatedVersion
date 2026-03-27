@@ -176,7 +176,7 @@ class OperationsDispatch(AuditedModel):
 
 class OperationsDispatchTransport(models.Model):
     dispatch_transport_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.IntegerField(unique=True)
+    dispatch_id = models.BigIntegerField(unique=True)
     driver_name = models.CharField(max_length=120)
     driver_license_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_id = models.CharField(max_length=50, blank=True, null=True)
@@ -194,7 +194,7 @@ class OperationsDispatchTransport(models.Model):
 
 class OperationsWaybill(models.Model):
     waybill_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.IntegerField(db_index=True)
+    dispatch_id = models.BigIntegerField(db_index=True)
     waybill_no = models.CharField(max_length=50, unique=True)
     artifact_payload_json = models.JSONField()
     artifact_version = models.PositiveIntegerField(default=1)
@@ -211,7 +211,7 @@ class OperationsWaybill(models.Model):
 
 class OperationsReceipt(models.Model):
     receipt_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.IntegerField(unique=True)
+    dispatch_id = models.BigIntegerField(unique=True)
     package_id = models.IntegerField(db_index=True)
     receipt_status_code = models.CharField(max_length=30, db_index=True)
     received_by_user_id = models.CharField(max_length=50, blank=True, null=True)

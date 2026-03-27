@@ -222,3 +222,20 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_receipt.call_args.kwargs["payload"]["received_by_name"], "Receiver")
         self.assertEqual(mock_receipt.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_tasks.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_package_allocation_options", return_value={"items": [{"item_id": 101}]})
+    def test_package_allocation_options_reject_invalid_source_warehouse_id(
+        self,
+        mock_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/packages/70/allocation-options?source_warehouse_id=abc")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "Must be a positive integer."}})
+        mock_options.assert_not_called()

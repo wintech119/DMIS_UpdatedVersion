@@ -293,7 +293,7 @@ urlpatterns = [
         needs_list_procurement_export,
         name="needs_list_procurement_export",
     ),
-    # â”€â”€ Procurement (Horizon C) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Procurement (Horizon C)
     path("procurement/", procurement_list_create, name="procurement_list_create"),
     path("procurement/<int:procurement_id>", procurement_detail, name="procurement_detail"),
     path("procurement/<int:procurement_id>/submit", procurement_submit, name="procurement_submit"),
@@ -303,7 +303,7 @@ urlpatterns = [
     path("procurement/<int:procurement_id>/ship", procurement_mark_shipped, name="procurement_mark_shipped"),
     path("procurement/<int:procurement_id>/receive", procurement_receive, name="procurement_receive"),
     path("procurement/<int:procurement_id>/cancel", procurement_cancel, name="procurement_cancel"),
-    # â”€â”€ Suppliers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Suppliers
     path("suppliers/", supplier_list_create, name="supplier_list_create"),
     path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
     path(

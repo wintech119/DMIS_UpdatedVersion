@@ -75,6 +75,18 @@ def _service_error_response(exc: Exception) -> Response:
     raise exc
 
 
+def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -> int | None:
+    if raw_value in (None, ""):
+        return None
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError({field_name: "Must be a positive integer."}) from exc
+    if parsed <= 0:
+        raise OperationValidationError({field_name: "Must be a positive integer."})
+    return parsed
+
+
 @api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
@@ -293,7 +305,7 @@ def operations_package_allocation_options(request, reliefrqst_id: int):
         return Response(
             operations_service.get_package_allocation_options(
                 reliefrqst_id,
-                source_warehouse_id=int(source_warehouse_id) if source_warehouse_id not in (None, "") else None,
+                source_warehouse_id=_optional_positive_int_query_param(source_warehouse_id, "source_warehouse_id"),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),

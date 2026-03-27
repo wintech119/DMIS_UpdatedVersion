@@ -45,7 +45,7 @@ Owns:
 Target runtime shape:
 
 - Angular routes under `/operations/*`
-- Django APIs under `/api/operations/*`
+- Django APIs under `/api/v1/operations/*`
 - request and package contracts keyed by `reliefrqst_id` and `reliefpkg_id`, not `needs_list_id`
 
 ## Execution Sequence

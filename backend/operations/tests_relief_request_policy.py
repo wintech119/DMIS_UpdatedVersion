@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -374,3 +375,85 @@ class ReliefRequestServiceTests(TestCase):
         operations_service.submit_request(88, actor_id="user-1", tenant_context=tenant_context)
 
         validate_scope_mock.assert_called_once_with(agency_id=501, tenant_context=tenant_context)
+
+    @patch("operations.services.validate_override_approval")
+    @patch("operations.services._apply_package_header_updates")
+    @patch("operations.services._apply_stock_delta_for_rows")
+    @patch("operations.services._upsert_package_rows")
+    @patch(
+        "operations.services.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1002,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": None,
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("operations.services.sort_batch_candidates", return_value=[])
+    @patch("operations.services._fetch_batch_candidates", return_value=[])
+    @patch("operations.services.Item.objects.filter")
+    @patch("operations.services._request_item_rows_for_allocation", return_value=[{"item_id": 101}])
+    @patch("operations.services._resolve_candidate_warehouse_ids", return_value=[1])
+    @patch("operations.services._current_package_status", return_value="A")
+    @patch("operations.services._ensure_package")
+    @patch("operations.services._load_request")
+    @patch("operations.services._execution_link_for_request", return_value=None)
+    def test_approved_override_uses_request_creator_and_commits_stock(
+        self,
+        _execution_link_mock,
+        load_request_mock,
+        ensure_package_mock,
+        _current_status_mock,
+        _warehouse_ids_mock,
+        _request_rows_mock,
+        item_filter_mock,
+        _batch_candidates_mock,
+        _sort_candidates_mock,
+        _allocation_plan_mock,
+        upsert_rows_mock,
+        stock_delta_mock,
+        header_updates_mock,
+        validate_override_mock,
+    ) -> None:
+        load_request_mock.return_value = SimpleNamespace(create_by_id="planner-1", tracking_no="RQ00088")
+        ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
+        item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
+
+        result = operations_service._save_package_allocation(
+            88,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "2",
+                    }
+                ],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Approved by supervisor",
+            },
+            actor_id="manager-1",
+            allow_pending_override=False,
+            supervisor_user_id="manager-1",
+            supervisor_role_codes=["LOGISTICS_MANAGER"],
+        )
+
+        self.assertEqual(result["status"], "COMMITTED")
+        validate_override_mock.assert_called_once_with(
+            approver_user_id="manager-1",
+            approver_role_codes=["LOGISTICS_MANAGER"],
+            submitter_user_id="planner-1",
+            needs_list_submitted_by="planner-1",
+        )
+        upsert_rows_mock.assert_called_once()
+        stock_delta_mock.assert_called_once()
+        self.assertEqual(header_updates_mock.call_args.kwargs["status_code"], operations_service.PKG_STATUS_PENDING)

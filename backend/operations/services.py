@@ -751,8 +751,15 @@ def _normalized_allocations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     return allocations
 
 
-@transaction.atomic
-def save_package(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: str) -> dict[str, Any]:
+def _save_package_allocation(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    allow_pending_override: bool,
+    supervisor_user_id: str | None = None,
+    supervisor_role_codes: Iterable[str] | None = None,
+) -> dict[str, Any]:
     if not payload.get("allocations"):
         return _package_detail(_ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload))
 
@@ -821,29 +828,37 @@ def save_package(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: st
             override_markers.append("allocation_order_override")
     override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
     override_note = str(payload.get("override_note") or "").strip() or None
-    if override_required and (not override_reason_code or not override_note):
-        raise OverrideApprovalError(
-            "Override reason code and note are required for non-compliant allocations.",
-            code="override_details_missing",
-        )
+    if override_required:
+        if not override_reason_code or not override_note:
+            raise OverrideApprovalError(
+                "Override reason code and note are required for non-compliant allocations.",
+                code="override_details_missing",
+            )
+        if not allow_pending_override:
+            validate_override_approval(
+                approver_user_id=supervisor_user_id,
+                approver_role_codes=supervisor_role_codes,
+                submitter_user_id=request.create_by_id,
+                needs_list_submitted_by=request.create_by_id,
+            )
     _upsert_package_rows(
         package_id=int(package.reliefpkg_id),
         plan_rows=plan_rows,
         actor_user_id=actor_id,
         notes=override_note or f"RR:{reliefrqst_id}",
     )
-    if not override_required:
+    if not override_required or not allow_pending_override:
         _apply_stock_delta_for_rows(plan_rows, actor_user_id=actor_id, delta_sign=1, update_needs_list=False)
     _apply_package_header_updates(
         request=request,
         package=package,
         needs_list=None,
         actor_user_id=actor_id,
-        status_code=PKG_STATUS_DRAFT if override_required else PKG_STATUS_PENDING,
+        status_code=PKG_STATUS_DRAFT if override_required and allow_pending_override else PKG_STATUS_PENDING,
         transport_mode=str(payload.get("transport_mode") or "").strip() or None,
     )
     return {
-        "status": "PENDING_OVERRIDE_APPROVAL" if override_required else "COMMITTED",
+        "status": "PENDING_OVERRIDE_APPROVAL" if override_required and allow_pending_override else "COMMITTED",
         "reliefrqst_id": reliefrqst_id,
         "reliefpkg_id": int(package.reliefpkg_id),
         "request_tracking_no": request.tracking_no,
@@ -852,6 +867,16 @@ def save_package(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: st
         "override_markers": override_markers,
         "allocation_lines": [{**row, "quantity": str(_quantize_qty(row["quantity"]))} for row in plan_rows],
     }
+
+
+@transaction.atomic
+def save_package(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id: str) -> dict[str, Any]:
+    return _save_package_allocation(
+        reliefrqst_id,
+        payload=payload,
+        actor_id=actor_id,
+        allow_pending_override=True,
+    )
 
 
 @transaction.atomic
@@ -873,13 +898,14 @@ def approve_override(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id
             override_note=str(payload.get("override_note") or "").strip(),
             submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
         )
-    validate_override_approval(
-        approver_user_id=actor_id,
-        approver_role_codes=actor_roles,
-        submitter_user_id=actor_id,
-        needs_list_submitted_by=_load_request(reliefrqst_id).create_by_id,
+    return _save_package_allocation(
+        reliefrqst_id,
+        payload=payload,
+        actor_id=actor_id,
+        allow_pending_override=False,
+        supervisor_user_id=actor_id,
+        supervisor_role_codes=actor_roles,
     )
-    return save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
 
 
 def list_dispatch_queue(*, actor_id: str | None = None) -> dict[str, Any]:

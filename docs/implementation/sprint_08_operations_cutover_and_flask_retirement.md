@@ -11,11 +11,11 @@ This document is the cutover source of truth for removing Flask Operations from 
 
 | Legacy Flask Surface | Target Angular Route | Target Django API Namespace | Notes |
 | --- | --- | --- | --- |
-| `/executive/operations` | `/operations/dashboard` | `/api/operations/dashboard/*` | Angular becomes the live landing point |
-| `/relief-requests/*` | `/operations/relief-requests/*` | `/api/operations/requests/*` | Request create, list, detail, edit, tracking |
-| `/eligibility/*` | `/operations/eligibility-review/*` | `/api/operations/eligibility/*` | Review queues and decisions |
-| `/packaging/pending-fulfillment` | `/operations/package-fulfillment` | `/api/operations/packages/*` | Queue and package preparation |
-| `/packaging/dispatch/*` | `/operations/dispatch/*` | `/api/operations/dispatch/*` | Dispatch queue, detail, and handover |
+| `/executive/operations` | `/operations/dashboard` | `/api/v1/operations/dashboard/*` | Angular becomes the live landing point |
+| `/relief-requests/*` | `/operations/relief-requests/*` | `/api/v1/operations/requests/*` | Request create, list, detail, edit, tracking |
+| `/eligibility/*` | `/operations/eligibility-review/*` | `/api/v1/operations/eligibility/*` | Review queues and decisions |
+| `/packaging/pending-fulfillment` | `/operations/package-fulfillment` | `/api/v1/operations/packages/*` | Queue and package preparation |
+| `/packaging/dispatch/*` | `/operations/dispatch/*` | `/api/v1/operations/dispatch/*` | Dispatch queue, detail, and handover |
 
 ## Entry Criteria For Cutover
 
@@ -28,7 +28,7 @@ This document is the cutover source of truth for removing Flask Operations from 
 
 - live navigation no longer sends users to Flask Operations pages
 - Angular `operations/*` is the default Operations route tree
-- Django `/api/operations/*` handles the live Operations reads and writes
+- Django `/api/v1/operations/*` handles the live Operations reads and writes
 - required parity, stock-integrity, and audit checks are green
 - release docs and QA evidence no longer describe Flask as the live Operations path
 

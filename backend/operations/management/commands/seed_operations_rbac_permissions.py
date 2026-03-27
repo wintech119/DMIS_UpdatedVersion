@@ -291,6 +291,7 @@ class Command(BaseCommand):
 
     def _next_perm_id(self) -> int:
         with connection.cursor() as cursor:
+            cursor.execute("LOCK TABLE permission IN EXCLUSIVE MODE")
             cursor.execute("SELECT COALESCE(MAX(perm_id), 0) + 1 FROM permission")
             row = cursor.fetchone()
         return int(row[0] or 1)
