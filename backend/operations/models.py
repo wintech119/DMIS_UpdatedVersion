@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -255,6 +256,26 @@ class OperationsReceipt(models.Model):
 
     class Meta:
         db_table = "operations_receipt"
+        constraints = [
+            models.UniqueConstraint(fields=["package"], name="operations_receipt_unique_package"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.dispatch_id is None or self.package_id is None:
+            return
+        dispatch_package_id = (
+            OperationsDispatch.objects.filter(dispatch_id=self.dispatch_id)
+            .values_list("package_id", flat=True)
+            .first()
+        )
+        if dispatch_package_id is not None and self.package_id != dispatch_package_id:
+            raise ValidationError({"package": "Receipt package must match the dispatch package."})
+
+    def save(self, *args, **kwargs):
+        if not kwargs.get("raw", False):
+            self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class OperationsNotification(models.Model):

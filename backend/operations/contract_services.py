@@ -1337,7 +1337,7 @@ def confirm_receipt(
     OperationsReceipt.objects.update_or_create(
         dispatch_id=int(dispatch.dispatch_id),
         defaults={
-            "package_id": reliefpkg_id,
+            "package_id": int(dispatch.package_id),
             "receipt_status_code": DISPATCH_STATUS_RECEIVED,
             "received_by_user_id": actor_id,
             "received_by_name": receipt_artifact["received_by_name"],

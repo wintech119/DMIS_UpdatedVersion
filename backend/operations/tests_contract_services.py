@@ -1117,6 +1117,7 @@ class OperationsWorkflowContractTests(TestCase):
         receipt = OperationsReceipt.objects.get(dispatch_id=dispatch.dispatch_id)
         self.assertEqual(receipt.received_by_name, "Receiver One")
         self.assertEqual(receipt.receipt_status_code, "RECEIVED")
+        self.assertEqual(receipt.package_id, dispatch.package_id)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
