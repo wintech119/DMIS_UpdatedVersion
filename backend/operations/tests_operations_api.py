@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient
 
+from api.authentication import Principal
 from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT
 
 
@@ -32,6 +33,10 @@ class OperationsApiTests(SimpleTestCase):
     )
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch(
+        "operations.views.operations_service.get_request_reference_data",
+        return_value={"agencies": [{"value": 5, "label": "FFP Shelter"}], "events": [], "items": []},
+    )
     @patch("operations.views.operations_service.submit_request", return_value={"reliefrqst_id": 70, "status_label": "Awaiting Approval"})
     @patch("operations.views.operations_service.update_request", return_value={"reliefrqst_id": 70, "status_label": "Draft"})
     @patch("operations.views.operations_service.create_request", return_value={"reliefrqst_id": 70, "tracking_no": "RQ00070"})
@@ -44,12 +49,14 @@ class OperationsApiTests(SimpleTestCase):
         mock_create,
         mock_update,
         mock_submit,
+        mock_reference_data,
         _mock_permission,
         mock_tenant_context,
         _mock_roles,
     ) -> None:
         list_response = self.client.get("/api/v1/operations/requests")
         detail_response = self.client.get("/api/v1/operations/requests/70")
+        references_response = self.client.get("/api/v1/operations/requests/reference-data")
         create_response = self.client.post(
             "/api/v1/operations/requests",
             {"agency_id": 5, "urgency_ind": "H", "items": [{"item_id": 101, "request_qty": "3"}]},
@@ -64,6 +71,7 @@ class OperationsApiTests(SimpleTestCase):
 
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(references_response.status_code, 200)
         self.assertEqual(create_response.status_code, 201)
         self.assertEqual(update_response.status_code, 200)
         self.assertEqual(submit_response.status_code, 200)
@@ -74,6 +82,11 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_get.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_get.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_get.call_args.kwargs["actor_roles"], ["SYSTEM_ADMINISTRATOR"])
+        self.assertEqual(mock_reference_data.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(
+            mock_reference_data.call_args.kwargs["permissions"],
+            [PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT],
+        )
         self.assertEqual(mock_create.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_create.call_args.kwargs["payload"]["agency_id"], 5)
         self.assertEqual(mock_create.call_args.kwargs["tenant_context"].active_tenant_id, 20)
@@ -260,3 +273,75 @@ class OperationsApiTests(SimpleTestCase):
             {"detail": "Authenticated operations requests require a stable actor identifier."},
         )
         mock_list_requests.assert_not_called()
+
+
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=False,
+    DEBUG=True,
+)
+class OperationsPermissionRuntimeTests(SimpleTestCase):
+    databases = {"default"}
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    @patch(
+        "api.authentication.LegacyCompatAuthentication.authenticate",
+        return_value=(
+            Principal(
+                user_id="13",
+                username="relief_ffp_requester_tst",
+                roles=["AGENCY_DISTRIBUTOR"],
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            ),
+            None,
+        ),
+    )
+    @patch("operations.views.operations_service.get_request_reference_data", return_value={"agencies": [], "events": [], "items": []})
+    def test_reference_data_view_honors_function_view_required_permission(
+        self,
+        mock_reference_data,
+        _mock_authenticate,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/requests/reference-data", HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"agencies": [], "events": [], "items": []})
+        mock_reference_data.assert_called_once()
+
+    @patch(
+        "api.authentication.LegacyCompatAuthentication.authenticate",
+        return_value=(
+            Principal(
+                user_id="13",
+                username="relief_ffp_requester_tst",
+                roles=["AGENCY_DISTRIBUTOR"],
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            ),
+            None,
+        ),
+    )
+    @patch("operations.views.operations_service.create_request", return_value={"reliefrqst_id": 70, "tracking_no": "RQ00070"})
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch(
+        "operations.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], [PERM_OPERATIONS_REQUEST_CREATE_SELF]),
+    )
+    def test_request_create_view_honors_method_scoped_required_permission(
+        self,
+        _mock_roles,
+        _mock_tenant_context,
+        mock_create_request,
+        _mock_authenticate,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/requests",
+            {"agency_id": 5, "urgency_ind": "H", "items": [{"item_id": 101, "request_qty": "3"}]},
+            format="json",
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"reliefrqst_id": 70, "tracking_no": "RQ00070"})
+        mock_create_request.assert_called_once()

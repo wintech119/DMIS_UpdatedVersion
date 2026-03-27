@@ -9,6 +9,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
 from api.tenancy import TenantContext, can_access_tenant
+from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
     DISPATCH_ROLE_CODES,
@@ -87,6 +88,44 @@ REQUEST_FILTERS = {
     "completed": {REQUEST_STATUS_FULFILLED},
     "dispatched": {REQUEST_STATUS_PARTIALLY_FULFILLED, REQUEST_STATUS_FULFILLED},
 }
+
+
+def _lookup_reference_options(table_key: str) -> list[dict[str, Any]]:
+    items, _warnings = get_lookup(table_key, active_only=True)
+    options: list[dict[str, Any]] = []
+    for item in items:
+        label = str(item.get("label") or "").strip()
+        try:
+            value = int(item.get("value"))
+        except (TypeError, ValueError):
+            continue
+        if value <= 0 or not label:
+            continue
+        options.append({"value": value, "label": label})
+    return options
+
+
+def get_request_reference_data(*, tenant_context: TenantContext, permissions: Iterable[str]) -> dict[str, Any]:
+    agencies: list[dict[str, Any]] = []
+    for option in _lookup_reference_options("agencies"):
+        try:
+            decision = operations_policy.validate_relief_request_agency_selection(
+                agency_id=int(option["value"]),
+                tenant_context=tenant_context,
+            )
+            operations_policy.enforce_relief_request_origin_mode_permission(
+                decision=decision,
+                permissions=permissions,
+            )
+        except OperationValidationError:
+            continue
+        agencies.append(option)
+
+    return {
+        "agencies": agencies,
+        "events": _lookup_reference_options("events"),
+        "items": _lookup_reference_options("items"),
+    }
 
 
 def _request_status_from_legacy(request: ReliefRqst) -> str:

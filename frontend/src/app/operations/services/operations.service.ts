@@ -7,6 +7,7 @@ import {
   AllocationCommitResponse,
   AllocationOptionsResponse,
   CreateRequestPayload,
+  RequestReferenceDataResponse,
   DispatchDetailResponse,
   DispatchHandoffPayload,
   DispatchHandoffResponse,
@@ -64,6 +65,16 @@ export class OperationsService {
   getRequest(reliefrqstId: number): Observable<RequestDetailResponse> {
     return this.http.get<RequestDetailResponse>(`${this.apiUrl}/requests/${reliefrqstId}`).pipe(
       map(normalizeRequestDetail),
+    );
+  }
+
+  getRequestReferenceData(): Observable<RequestReferenceDataResponse> {
+    return this.http.get<RequestReferenceDataResponse>(`${this.apiUrl}/requests/reference-data`).pipe(
+      map((response) => ({
+        agencies: normalizeReferenceOptions(response.agencies),
+        events: normalizeReferenceOptions(response.events),
+        items: normalizeReferenceOptions(response.items),
+      })),
     );
   }
 
@@ -264,4 +275,21 @@ export class OperationsService {
         return 4;
     }
   }
+}
+
+function normalizeReferenceOptions(value: unknown): RequestReferenceDataResponse['agencies'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const source = (entry ?? {}) as Record<string, unknown>;
+      const parsed = Number(source['value']);
+      const label = String(source['label'] ?? '').trim();
+      return Number.isFinite(parsed) && parsed > 0 && label
+        ? { value: parsed, label }
+        : null;
+    })
+    .filter((entry): entry is RequestReferenceDataResponse['agencies'][number] => entry !== null);
 }

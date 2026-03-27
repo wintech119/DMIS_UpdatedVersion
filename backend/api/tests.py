@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -107,6 +106,41 @@ class AuthWhoAmITests(TestCase):
                 "default_requesting_tenant_id": 20,
             },
         )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=[],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.authentication._resolve_dev_override_principal",
+        return_value=Principal(
+            user_id="13",
+            username="relief_ffp_requester_tst",
+            roles=["AGENCY_DISTRIBUTOR"],
+            permissions=["operations.request.create.self"],
+        ),
+    )
+    def test_whoami_dev_override_includes_db_roles_and_permissions(
+        self,
+        _mock_override_principal,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DEV_USER="relief_ffp_requester_tst",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["user_id"], "13")
+        self.assertEqual(body["username"], "relief_ffp_requester_tst")
+        self.assertIn("AGENCY_DISTRIBUTOR", body["roles"])
+        self.assertIn("operations.request.create.self", body["permissions"])
 
 
 class RbacResolutionTests(TestCase):

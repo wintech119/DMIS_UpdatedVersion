@@ -20,6 +20,7 @@ export interface ReviewFormValue {
 
 export interface ReviewItemValue {
   item_id: number | null;
+  item_name: string | null;
   request_qty: number | null;
   urgency_ind: string | null;
   rqst_reason_desc: string;
@@ -41,7 +42,7 @@ export interface ReviewItemValue {
 export class RequestReviewStepComponent {
   @Input({ required: true }) formValue!: ReviewFormValue;
 
-  readonly itemColumns = ['index', 'item_id', 'request_qty', 'urgency_ind', 'rqst_reason_desc', 'required_by_date'];
+  readonly itemColumns = ['index', 'item_name', 'request_qty', 'urgency_ind', 'rqst_reason_desc', 'required_by_date'];
 
   readonly formatUrgency = formatUrgency;
   readonly getUrgencyCssClass = getUrgencyCssClass;

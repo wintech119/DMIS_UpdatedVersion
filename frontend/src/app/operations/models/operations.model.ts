@@ -8,6 +8,17 @@ export type AllocationSourceType = 'ON_HAND' | 'TRANSFER' | 'DONATION' | 'PROCUR
 export type AllocationMethod = 'FEFO' | 'FIFO' | 'MIXED' | 'MANUAL';
 export type OperationsEntityType = 'RELIEF_REQUEST' | 'REQUEST' | 'PACKAGE' | 'DISPATCH';
 
+export interface RequestReferenceOption {
+  value: number;
+  label: string;
+}
+
+export interface RequestReferenceDataResponse {
+  agencies: RequestReferenceOption[];
+  events: RequestReferenceOption[];
+  items: RequestReferenceOption[];
+}
+
 // Request
 export interface RequestItem {
   item_id: number;

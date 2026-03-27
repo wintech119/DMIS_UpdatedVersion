@@ -5,8 +5,8 @@
         mat-icon-button
         class="request-wizard-header__back"
         (click)="goBack()"
-        matTooltip="Back"
-        aria-label="Go back">
+        [matTooltip]="backNavigationTooltip()"
+        [attr.aria-label]="backNavigationTooltip()">
         <mat-icon>arrow_back</mat-icon>
       </button>
 
@@ -17,8 +17,8 @@
         </p>
         <h1 class="request-wizard-header__title">{{ pageTitle() }}</h1>
         <p class="request-wizard-header__description">
-          Keep the request flow unmistakably DMIS, but bring the Stitch intake cues back where they help most:
-          stronger urgency treatment, clearer hierarchy, and name-first agency and event selection.
+          Create or update a relief request using the active request authority, name-first agency and event selection,
+          and the urgency needed to guide eligibility review, packaging, and dispatch.
         </p>
       </div>
     </div>
@@ -113,6 +113,7 @@
             [onRemoveItem]="removeItemFn"
             [agencyOptions]="agencyOptions()"
             [eventOptions]="eventOptions()"
+            [itemOptions]="itemOptions()"
             [requestDateText]="requestDateText()"
             [requestDateHint]="requestDateHint()"
             [submissionModeLabel]="submissionModeLabel()"

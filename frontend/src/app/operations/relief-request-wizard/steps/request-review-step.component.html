@@ -29,11 +29,11 @@
       <h3>Submission snapshot</h3>
     </header>
 
-    <div class="review-info-grid">
-      <div class="review-info-item">
-        <span class="review-info-label">Requesting agency</span>
+      <div class="review-info-grid">
+        <div class="review-info-item">
+        <span class="review-info-label">Requesting entity</span>
         <span class="review-info-value">{{ formValue.agency_name || (formValue.agency_id ? 'Agency ' + formValue.agency_id : 'Not selected') }}</span>
-      </div>
+        </div>
       <div class="review-info-item">
         <span class="review-info-label">Event</span>
         <span class="review-info-value">{{ formValue.event_name || (formValue.eligible_event_id ? 'Event ' + formValue.eligible_event_id : 'No linked event') }}</span>
@@ -91,9 +91,9 @@
             <td mat-cell *matCellDef="let item; let i = index">{{ i + 1 }}</td>
           </ng-container>
 
-          <ng-container matColumnDef="item_id">
-            <th mat-header-cell *matHeaderCellDef>Item ID</th>
-            <td mat-cell *matCellDef="let item">{{ item.item_id ?? 'Not set' }}</td>
+          <ng-container matColumnDef="item_name">
+            <th mat-header-cell *matHeaderCellDef>Item</th>
+            <td mat-cell *matCellDef="let item">{{ item.item_name || (item.item_id ? 'Item ' + item.item_id : 'Not set') }}</td>
           </ng-container>
 
           <ng-container matColumnDef="request_qty">

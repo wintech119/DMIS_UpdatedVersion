@@ -49,6 +49,28 @@
   line-height: 1.55;
 }
 
+.section-title-with-help,
+.request-context-card__label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.request-context-card__label-row {
+  justify-content: space-between;
+}
+
+.field-help-button {
+  color: var(--color-text-secondary);
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.field-help-button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
 .request-step-alert {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -338,7 +360,7 @@
   min-width: 0;
 
   &--id {
-    flex: 0 0 120px;
+    flex: 1 1 260px;
   }
 
   &--qty {

@@ -15,6 +15,7 @@ from operations.constants import (
     DISPATCH_STATUS_IN_TRANSIT,
     ELIGIBILITY_ROLE_CODES,
     ORIGIN_MODE_FOR_SUBORDINATE,
+    ORIGIN_MODE_SELF,
     PACKAGE_STATUS_COMMITTED,
     PACKAGE_STATUS_DISPATCHED,
     QUEUE_CODE_DISPATCH,
@@ -38,6 +39,7 @@ from operations.models import (
     TenantControlScope,
     TenantRequestPolicy,
 )
+from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF
 from replenishment.legacy_models import ReliefRqst
 
 
@@ -236,6 +238,48 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_name=f"Tenant {tenant_id}",
             tenant_type="EXTERNAL",
         )
+
+    @patch("operations.contract_services.get_lookup")
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_request_reference_data_filters_agencies_to_allowed_scope(
+        self,
+        validate_agency_mock,
+        get_lookup_mock,
+    ) -> None:
+        get_lookup_mock.side_effect = [
+            (
+                [
+                    {"value": 501, "label": "FFP Shelter"},
+                    {"value": 777, "label": "Other Agency"},
+                ],
+                [],
+            ),
+            ([{"value": 12, "label": "Spring Flood 2026"}], []),
+            ([{"value": 101, "label": "Water purification tablet"}], []),
+        ]
+
+        def validate_side_effect(*, agency_id: int, tenant_context: TenantContext):
+            if agency_id == 501:
+                return operations_policy.ReliefRequestWriteDecision(
+                    agency_scope=self.agency_scope,
+                    origin_mode=ORIGIN_MODE_SELF,
+                    requesting_tenant_id=20,
+                    beneficiary_tenant_id=20,
+                    requesting_agency_id=501,
+                    beneficiary_agency_id=501,
+                )
+            raise OperationValidationError({"agency_id": {"code": "agency_out_of_scope"}})
+
+        validate_agency_mock.side_effect = validate_side_effect
+
+        payload = contract_services.get_request_reference_data(
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+        )
+
+        self.assertEqual(payload["agencies"], [{"value": 501, "label": "FFP Shelter"}])
+        self.assertEqual(payload["events"], [{"value": 12, "label": "Spring Flood 2026"}])
+        self.assertEqual(payload["items"], [{"value": 101, "label": "Water purification tablet"}])
 
     def _insert_legacy_agency(self, agency_id: int) -> None:
         with connection.cursor() as cursor:

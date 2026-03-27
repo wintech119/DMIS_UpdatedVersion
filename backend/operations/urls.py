@@ -16,6 +16,7 @@ from operations.views import (
     operations_packages_queue,
     operations_receipt_confirm,
     operations_request_detail,
+    operations_request_reference_data,
     operations_request_submit,
     operations_requests,
     operations_tasks,
@@ -23,6 +24,7 @@ from operations.views import (
 
 urlpatterns = [
     path("requests", operations_requests, name="operations_requests"),
+    path("requests/reference-data", operations_request_reference_data, name="operations_request_reference_data"),
     path("requests/<int:reliefrqst_id>", operations_request_detail, name="operations_request_detail"),
     path("requests/<int:reliefrqst_id>/submit", operations_request_submit, name="operations_request_submit"),
     path("eligibility/queue", operations_eligibility_queue, name="operations_eligibility_queue"),

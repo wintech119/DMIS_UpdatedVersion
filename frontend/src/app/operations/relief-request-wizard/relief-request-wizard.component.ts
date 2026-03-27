@@ -12,11 +12,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { forkJoin } from 'rxjs';
 
 import {
   CreateRequestItemPayload,
   CreateRequestPayload,
+  RequestReferenceOption,
   RequestDetailResponse,
   UpdateRequestPayload,
   UrgencyCode,
@@ -28,16 +28,18 @@ import {
   OperationsCapabilities,
 } from '../../replenishment/services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
-import { RequestItemsStepComponent, RequestReferenceOption } from './steps/request-items-step.component';
+import { RequestItemsStepComponent } from './steps/request-items-step.component';
 import { RequestReviewStepComponent, ReviewFormValue } from './steps/request-review-step.component';
-import { MasterDataService } from '../../master-data/services/master-data.service';
-import { LookupItem } from '../../master-data/models/master-data.models';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
   year: 'numeric',
 });
+
+type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
+  item_name?: string | null;
+};
 
 @Component({
   selector: 'app-relief-request-wizard',
@@ -62,7 +64,6 @@ export class ReliefRequestWizardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly fb = inject(FormBuilder);
   private readonly operationsService = inject(OperationsService);
-  private readonly masterData = inject(MasterDataService);
   private readonly notify = inject(DmisNotificationService);
   private readonly auth = inject(AuthRbacService);
   private readonly destroyRef = inject(DestroyRef);
@@ -82,6 +83,7 @@ export class ReliefRequestWizardComponent implements OnInit {
   readonly initialEventName = signal<string | null>(null);
   readonly agencyOptions = signal<RequestReferenceOption[]>([]);
   readonly eventOptions = signal<RequestReferenceOption[]>([]);
+  readonly itemOptions = signal<RequestReferenceOption[]>([]);
   readonly formVersion = signal(0);
 
   private reliefrqstId: number | null = null;
@@ -94,8 +96,8 @@ export class ReliefRequestWizardComponent implements OnInit {
     items: this.fb.array([] as FormGroup[]),
   });
 
-  get itemsArray(): FormArray {
-    return this.requestForm.get('items') as FormArray;
+  get itemsArray(): FormArray<FormGroup> {
+    return this.requestForm.get('items') as FormArray<FormGroup>;
   }
 
   readonly pageBusy = computed(() =>
@@ -116,14 +118,19 @@ export class ReliefRequestWizardComponent implements OnInit {
     this.isEditMode() ? 'Edit Relief Request' : 'New Relief Request'
   );
 
+  readonly backNavigationTooltip = computed(() =>
+    this.isEditMode() ? 'Back to request details' : 'Back to relief requests'
+  );
+
   readonly selectedAgencyName = computed(() => {
     const agencyId = Number(this.requestForm.get('agency_id')?.value ?? 0);
     const matched = this.agencyOptions().find((option) => option.value === agencyId)?.label;
     if (matched) {
       return matched;
     }
-    if (this.initialAgencyName()) {
-      return this.initialAgencyName();
+    const initialAgencyName = this.initialAgencyName();
+    if (initialAgencyName) {
+      return initialAgencyName;
     }
     return agencyId ? `Agency ${agencyId}` : 'Not selected';
   });
@@ -134,8 +141,9 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (matched) {
       return matched;
     }
-    if (this.initialEventName()) {
-      return this.initialEventName();
+    const initialEventName = this.initialEventName();
+    if (initialEventName) {
+      return initialEventName;
     }
     return eventId ? `Event ${eventId}` : 'None selected';
   });
@@ -209,7 +217,10 @@ export class ReliefRequestWizardComponent implements OnInit {
       request_date_text: this.requestDateText(),
       submission_mode_label: this.submissionModeLabel(),
       rqst_notes_text: raw.rqst_notes_text,
-      items: raw.items,
+      items: raw.items.map((item: Record<string, unknown>) => ({
+        ...item,
+        item_name: this.resolveItemName(item['item_id'], item['item_name']),
+      })),
     } as ReviewFormValue;
   });
 
@@ -273,33 +284,35 @@ export class ReliefRequestWizardComponent implements OnInit {
   private loadReferenceData(): void {
     this.referenceLoading.set(true);
 
-    forkJoin({
-      agencies: this.masterData.lookup('agencies'),
-      events: this.masterData.lookup('events'),
-    })
+    this.operationsService.getRequestReferenceData()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ agencies, events }) => {
-          this.agencyOptions.set(this.normalizeLookupOptions(agencies));
-          this.eventOptions.set(this.normalizeLookupOptions(events));
+        next: (references) => {
+          this.agencyOptions.update((current) => mergeReferenceOptions(current, references.agencies));
+          this.eventOptions.update((current) => mergeReferenceOptions(current, references.events));
+          this.itemOptions.update((current) => mergeReferenceOptions(current, references.items));
+          this.applyDefaultAgencySelection();
           this.referenceLoading.set(false);
         },
         error: () => {
           this.agencyOptions.set([]);
           this.eventOptions.set([]);
+          this.itemOptions.set([]);
           this.referenceLoading.set(false);
-          this.notify.showWarning('Agency and event names could not be loaded. You can retry this page once master-data lookups are available.');
+          this.notify.showWarning('Relief request reference data could not be loaded. Retry this page once Operations lookups are available.');
         },
       });
   }
 
-  private normalizeLookupOptions(items: LookupItem[]): RequestReferenceOption[] {
-    return items
-      .map((item) => ({
-        value: Number(item.value),
-        label: String(item.label ?? '').trim(),
-      }))
-      .filter((item) => Number.isFinite(item.value) && item.value > 0 && item.label);
+  private applyDefaultAgencySelection(): void {
+    if (this.isEditMode()) {
+      return;
+    }
+
+    const agencyControl = this.requestForm.get('agency_id');
+    if (agencyControl && agencyControl.value == null && this.agencyOptions().length === 1) {
+      agencyControl.setValue(this.agencyOptions()[0].value);
+    }
   }
 
   private loadExisting(): void {
@@ -339,11 +352,26 @@ export class ReliefRequestWizardComponent implements OnInit {
       eligible_event_id: data.eligible_event_id,
       rqst_notes_text: data.rqst_notes_text ?? '',
     });
+    const agencyLabel = data.agency_name?.trim() || this.selectedAgencyName();
+    const eventLabel = data.event_name?.trim() || this.selectedEventName();
+    this.agencyOptions.update((current) => mergeReferenceOptions(current, [{
+      value: data.agency_id ?? 0,
+      label: agencyLabel,
+    }].filter((option) => option.value > 0)));
+    this.eventOptions.update((current) => mergeReferenceOptions(current, [{
+      value: data.eligible_event_id ?? 0,
+      label: eventLabel,
+    }].filter((option) => option.value > 0)));
 
     this.itemsArray.clear();
     for (const item of data.items) {
+      this.itemOptions.update((current) => mergeReferenceOptions(current, [{
+        value: item.item_id,
+        label: item.item_name ?? item.item_code ?? `Item ${item.item_id}`,
+      }]));
       this.itemsArray.push(this.createItemGroup({
         item_id: item.item_id,
+        item_name: item.item_name ?? item.item_code ?? `Item ${item.item_id}`,
         request_qty: item.request_qty,
         urgency_ind: item.urgency_ind ?? undefined,
         rqst_reason_desc: item.rqst_reason_desc ?? undefined,
@@ -362,9 +390,10 @@ export class ReliefRequestWizardComponent implements OnInit {
     this.itemsArray.removeAt(index);
   }
 
-  private createItemGroup(defaults?: Partial<CreateRequestItemPayload>): FormGroup {
+  private createItemGroup(defaults?: RequestItemFormDefaults): FormGroup {
     const group = this.fb.nonNullable.group({
-      item_id: [defaults?.item_id ?? null as number | null, [Validators.required]],
+      item_id: [defaults?.item_id ?? null as number | string | null, [Validators.required, selectedReferenceValidator]],
+      item_name: [defaults?.item_name ?? '' as string],
       request_qty: [defaults?.request_qty ? Number(defaults.request_qty) : null as number | null, [Validators.required, Validators.min(1)]],
       urgency_ind: [defaults?.urgency_ind ?? null as UrgencyCode | null],
       rqst_reason_desc: [defaults?.rqst_reason_desc ?? ''],
@@ -384,6 +413,18 @@ export class ReliefRequestWizardComponent implements OnInit {
       });
 
     return group;
+  }
+
+  private resolveItemName(itemId: unknown, fallback: unknown): string {
+    const fallbackText = typeof fallback === 'string' ? fallback.trim() : '';
+    if (typeof itemId === 'number' && Number.isFinite(itemId) && itemId > 0) {
+      const matched = this.itemOptions().find((option) => option.value === itemId)?.label;
+      return matched ?? (fallbackText || `Item ${itemId}`);
+    }
+    if (typeof itemId === 'string' && itemId.trim()) {
+      return itemId.trim();
+    }
+    return fallbackText || 'Not selected';
   }
 
   onSaveAsDraft(): void {
@@ -545,6 +586,30 @@ export class ReliefRequestWizardComponent implements OnInit {
     }
     this.router.navigate(['/operations/relief-requests']);
   }
+}
+
+function selectedReferenceValidator(control: { value: unknown }): Record<string, true> | null {
+  const value = control.value;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? null
+    : { invalidSelection: true };
+}
+
+function mergeReferenceOptions(
+  current: RequestReferenceOption[],
+  incoming: RequestReferenceOption[],
+): RequestReferenceOption[] {
+  const merged = new Map<number, RequestReferenceOption>();
+  for (const option of [...current, ...incoming]) {
+    if (!Number.isFinite(option.value) || option.value <= 0 || !option.label.trim()) {
+      continue;
+    }
+    merged.set(option.value, {
+      value: option.value,
+      label: option.label.trim(),
+    });
+  }
+  return [...merged.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function clearServerError(control: FormGroup['controls'][string] | null | undefined): void {

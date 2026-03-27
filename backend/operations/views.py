@@ -128,6 +128,29 @@ operations_requests.required_permission = {
 }
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_request_reference_data(request):
+    try:
+        return Response(
+            operations_service.get_request_reference_data(
+                tenant_context=_tenant_context(request),
+                permissions=_permissions(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_request_reference_data.required_permission = [
+    PERM_OPERATIONS_REQUEST_CREATE_SELF,
+    PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
+    PERM_OPERATIONS_REQUEST_CREATE_ON_BEHALF_BRIDGE,
+    PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
+]
+
+
 @api_view(["GET", "PATCH"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])

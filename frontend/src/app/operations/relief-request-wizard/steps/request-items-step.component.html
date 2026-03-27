@@ -6,8 +6,8 @@
         <h2 class="request-panel__title">Operational intake context</h2>
       </div>
       <p class="request-panel__copy">
-        Keep the DMIS transaction structure, but use the Stitch intake rhythm: select the requesting agency and event by
-        name, stamp the urgency visually, and keep the intake lane clear under pressure.
+        Capture the requesting entity and event by name, confirm the request authority in force, and set the urgency that
+        should guide review, packaging, and dispatch sequencing.
       </p>
     </div>
 
@@ -23,12 +23,21 @@
 
     <div class="request-context-grid">
       <mat-form-field appearance="outline">
-        <mat-label>Requesting Agency</mat-label>
+        <mat-label>Requesting Entity</mat-label>
         <mat-select formControlName="agency_id" [disabled]="creationBlocked || agencyOptions.length === 0">
           @for (option of agencyOptions; track option.value) {
             <mat-option [value]="option.value">{{ option.label }}</mat-option>
           }
         </mat-select>
+        <button
+          mat-icon-button
+          matSuffix
+          type="button"
+          class="field-help-button"
+          [matTooltip]="requestingAgencyTooltip"
+          aria-label="More information about Requesting entity">
+          <mat-icon>help_outline</mat-icon>
+        </button>
         <mat-hint>{{ submissionModeHint }}</mat-hint>
         @if (getControlError('agency_id'); as message) {
           <mat-error>{{ message }}</mat-error>
@@ -43,6 +52,15 @@
             <mat-option [value]="option.value">{{ option.label }}</mat-option>
           }
         </mat-select>
+        <button
+          mat-icon-button
+          matSuffix
+          type="button"
+          class="field-help-button"
+          [matTooltip]="tooltips.event"
+          aria-label="More information about Event">
+          <mat-icon>help_outline</mat-icon>
+        </button>
         <mat-hint>Optional. Use the active event name when this request is tied to a live incident.</mat-hint>
         @if (getControlError('eligible_event_id'); as message) {
           <mat-error>{{ message }}</mat-error>
@@ -50,13 +68,33 @@
       </mat-form-field>
 
       <article class="request-context-card">
-        <span class="request-context-card__label">Request date</span>
+        <div class="request-context-card__label-row">
+          <span class="request-context-card__label">Request date</span>
+          <button
+            mat-icon-button
+            type="button"
+            class="field-help-button"
+            [matTooltip]="tooltips.requestDate"
+            aria-label="More information about Request date">
+            <mat-icon>help_outline</mat-icon>
+          </button>
+        </div>
         <strong>{{ requestDateText }}</strong>
         <p>{{ requestDateHint }}</p>
       </article>
 
       <article class="request-context-card">
-        <span class="request-context-card__label">Submission mode</span>
+        <div class="request-context-card__label-row">
+          <span class="request-context-card__label">Submission mode</span>
+          <button
+            mat-icon-button
+            type="button"
+            class="field-help-button"
+            [matTooltip]="submissionModeTooltip"
+            aria-label="More information about Submission mode">
+            <mat-icon>help_outline</mat-icon>
+          </button>
+        </div>
         <strong>{{ submissionModeLabel }}</strong>
         <p>{{ submissionModeHint }}</p>
       </article>
@@ -66,7 +104,17 @@
       <div class="urgency-block__header">
         <div>
           <p class="request-panel__eyebrow">Request urgency</p>
-          <h3>Choose the overall request priority</h3>
+          <div class="section-title-with-help">
+            <h3>Choose the overall request priority</h3>
+            <button
+              mat-icon-button
+              type="button"
+              class="field-help-button"
+              [matTooltip]="tooltips.requestUrgency"
+              aria-label="More information about Request urgency">
+              <mat-icon>help_outline</mat-icon>
+            </button>
+          </div>
         </div>
         <p>This sets the intake tone for eligibility review, packaging, and dispatch sequencing.</p>
       </div>
@@ -101,7 +149,17 @@
 
   <section class="request-panel">
     <p class="request-panel__eyebrow">Narrative</p>
-    <h2 class="request-panel__title">Request notes</h2>
+    <div class="section-title-with-help">
+      <h2 class="request-panel__title">Request notes</h2>
+      <button
+        mat-icon-button
+        type="button"
+        class="field-help-button"
+        [matTooltip]="tooltips.notes"
+        aria-label="More information about Request notes">
+        <mat-icon>help_outline</mat-icon>
+      </button>
+    </div>
     <p class="request-panel__copy">
       Capture what ODPEM reviewers, packers, and dispatch staff should keep in view once the request leaves intake.
     </p>
@@ -113,6 +171,15 @@
         formControlName="rqst_notes_text"
         rows="3"
         placeholder="Add operational notes, constraints, or context that should travel with this request"></textarea>
+      <button
+        mat-icon-button
+        matSuffix
+        type="button"
+        class="field-help-button"
+        [matTooltip]="tooltips.notes"
+        aria-label="More information about Notes">
+        <mat-icon>help_outline</mat-icon>
+      </button>
     </mat-form-field>
   </section>
 
@@ -131,6 +198,7 @@
         type="button"
         (click)="onAddItem()"
         [disabled]="creationBlocked"
+        [matTooltip]="tooltips.addItem"
         aria-label="Add another item to this request">
         <mat-icon>add</mat-icon>
         Add Item
@@ -150,15 +218,37 @@
 
             <div class="step-item-fields">
               <mat-form-field appearance="outline" class="step-item-field step-item-field--id">
-                <mat-label>Item ID</mat-label>
+                <mat-label>Item name</mat-label>
                 <input
                   matInput
-                  type="number"
                   formControlName="item_id"
+                  [matAutocomplete]="itemAuto"
                   [disabled]="creationBlocked"
-                  required />
+                  required
+                  (input)="onItemInput(item, $any($event.target).value)"
+                  (blur)="markItemSelectionTouched(item)" />
+                <mat-autocomplete
+                  #itemAuto="matAutocomplete"
+                  [displayWith]="displayItemOption"
+                  (optionSelected)="onItemSelected(item, $event)">
+                  @for (option of filterItemOptions(item); track option.value) {
+                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                  }
+                </mat-autocomplete>
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  class="field-help-button"
+                  [matTooltip]="tooltips.itemName"
+                  aria-label="More information about Item name">
+                  <mat-icon>help_outline</mat-icon>
+                </button>
                 @if (item.get('item_id')?.hasError('required') && item.get('item_id')?.touched) {
-                  <mat-error>Required</mat-error>
+                  <mat-error>Select an item.</mat-error>
+                }
+                @if (item.get('item_id')?.hasError('invalidSelection') && item.get('item_id')?.touched) {
+                  <mat-error>Select a valid item from the list.</mat-error>
                 }
               </mat-form-field>
 
@@ -171,6 +261,15 @@
                   [disabled]="creationBlocked"
                   required
                   min="1" />
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  class="field-help-button"
+                  [matTooltip]="tooltips.quantity"
+                  aria-label="More information about Quantity">
+                  <mat-icon>help_outline</mat-icon>
+                </button>
                 @if (item.get('request_qty')?.hasError('required') && item.get('request_qty')?.touched) {
                   <mat-error>Required</mat-error>
                 }
@@ -187,6 +286,15 @@
                     <mat-option [value]="option.value">{{ option.label }}</mat-option>
                   }
                 </mat-select>
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  class="field-help-button"
+                  [matTooltip]="tooltips.itemUrgency"
+                  aria-label="More information about Item urgency">
+                  <mat-icon>help_outline</mat-icon>
+                </button>
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="step-item-field step-item-field--reason">
@@ -196,6 +304,15 @@
                   formControlName="rqst_reason_desc"
                   [disabled]="creationBlocked"
                   [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required for critical or high urgency' : 'Optional'" />
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  class="field-help-button"
+                  [matTooltip]="tooltips.reason"
+                  aria-label="More information about Reason">
+                  <mat-icon>help_outline</mat-icon>
+                </button>
                 @if (item.get('rqst_reason_desc')?.hasError('required') && item.get('rqst_reason_desc')?.touched) {
                   <mat-error>Reason required for Critical or High urgency</mat-error>
                 }
@@ -209,6 +326,15 @@
                   formControlName="required_by_date"
                   [disabled]="creationBlocked"
                   placeholder="Optional" />
+                <button
+                  mat-icon-button
+                  matSuffix
+                  type="button"
+                  class="field-help-button"
+                  [matTooltip]="tooltips.requiredBy"
+                  aria-label="More information about Required by">
+                  <mat-icon>help_outline</mat-icon>
+                </button>
                 <mat-datepicker-toggle matIconSuffix [for]="picker" />
                 <mat-datepicker #picker />
               </mat-form-field>
