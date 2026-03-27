@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.test import SimpleTestCase, TestCase
 
@@ -86,6 +86,25 @@ class ReliefRequestCapabilityTests(SimpleTestCase):
         self.assertTrue(capabilities["can_create_relief_request_on_behalf"])
         self.assertEqual(capabilities["relief_request_submission_mode"], "for_subordinate")
         self.assertEqual(capabilities["allowed_origin_modes"], ["for_subordinate"])
+
+
+class EventLookupTests(SimpleTestCase):
+    @patch("operations.services._qualified_table", return_value="legacy_schema.event")
+    @patch("operations.services.connection")
+    def test_event_exists_queries_qualified_event_table(self, connection_mock, qualified_table_mock) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (1,)
+        connection_mock.cursor.return_value = cursor
+
+        exists = operations_service._event_exists(77)
+
+        self.assertTrue(exists)
+        qualified_table_mock.assert_called_once_with("event")
+        cursor.execute.assert_called_once_with(
+            "SELECT 1 FROM legacy_schema.event WHERE event_id = %s LIMIT 1",
+            [77],
+        )
 
 
 class ReliefRequestAgencyPolicyTests(SimpleTestCase):

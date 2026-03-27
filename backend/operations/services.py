@@ -137,8 +137,9 @@ def _optional_positive_int(value: Any, field_name: str) -> int | None:
 
 def _event_exists(event_id: int) -> bool:
     try:
+        table_name = _qualified_table("event")
         with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM event WHERE event_id = %s LIMIT 1", [int(event_id)])
+            cursor.execute(f"SELECT 1 FROM {table_name} WHERE event_id = %s LIMIT 1", [int(event_id)])
             return cursor.fetchone() is not None
     except Exception:
         return False
