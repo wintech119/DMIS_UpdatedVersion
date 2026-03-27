@@ -602,3 +602,49 @@ class ReliefRequestServiceTests(TestCase):
         )
 
         self.assertEqual(payload["dispatch_dtime"], operations_service._as_iso(dispatch_time))
+
+
+class DispatchDetailTests(SimpleTestCase):
+    @patch("operations.services.get_waybill")
+    @patch("operations.services._request_summary", return_value={"reliefrqst_id": 70})
+    @patch("operations.services._load_request", return_value=SimpleNamespace(reliefrqst_id=70))
+    @patch("operations.services._package_detail", return_value={"reliefpkg_id": 90})
+    def test_pending_dispatch_detail_skips_waybill_lookup(
+        self,
+        _package_detail_mock,
+        _load_request_mock,
+        _request_summary_mock,
+        get_waybill_mock,
+    ) -> None:
+        result = operations_service._dispatch_detail(
+            SimpleNamespace(
+                reliefpkg_id=90,
+                reliefrqst_id=70,
+                dispatch_dtime=None,
+            )
+        )
+
+        self.assertIsNone(result["waybill"])
+        get_waybill_mock.assert_not_called()
+
+    @patch("operations.services.get_waybill", return_value={"waybill_no": "WB-PK00090"})
+    @patch("operations.services._request_summary", return_value={"reliefrqst_id": 70})
+    @patch("operations.services._load_request", return_value=SimpleNamespace(reliefrqst_id=70))
+    @patch("operations.services._package_detail", return_value={"reliefpkg_id": 90})
+    def test_dispatched_dispatch_detail_includes_waybill(
+        self,
+        _package_detail_mock,
+        _load_request_mock,
+        _request_summary_mock,
+        get_waybill_mock,
+    ) -> None:
+        result = operations_service._dispatch_detail(
+            SimpleNamespace(
+                reliefpkg_id=90,
+                reliefrqst_id=70,
+                dispatch_dtime=datetime(2026, 3, 27, 13, 0, 0),
+            )
+        )
+
+        self.assertEqual(result["waybill"]["waybill_no"], "WB-PK00090")
+        get_waybill_mock.assert_called_once_with(90)

@@ -934,7 +934,7 @@ def list_dispatch_queue(*, actor_id: str | None = None) -> dict[str, Any]:
 def _dispatch_detail(package: ReliefPkg) -> dict[str, Any]:
     payload = _package_detail(package)
     payload["request"] = _request_summary(_load_request(int(package.reliefrqst_id)))
-    payload["waybill"] = get_waybill(int(package.reliefpkg_id))
+    payload["waybill"] = get_waybill(int(package.reliefpkg_id)) if package.dispatch_dtime else None
     return payload
 
 
