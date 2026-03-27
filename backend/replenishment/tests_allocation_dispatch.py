@@ -14,6 +14,7 @@ from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
     _ensure_legacy_request_package,
     _request_header_update_values,
+    _request_completion_status,
     _tracking_no,
     _apply_stock_delta_for_rows,
     _upsert_request_items,
@@ -95,6 +96,29 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertEqual(values["review_dtime"], datetime(2026, 3, 24, 10, 0, 0))
         self.assertEqual(values["action_by_id"], None)
         self.assertEqual(values["action_dtime"], None)
+
+    @patch(
+        "replenishment.services.allocation_dispatch._fetch_rows",
+        return_value=[{"request_qty": Decimal("2"), "issue_qty": Decimal("2")}],
+    )
+    def test_request_completion_status_returns_filled_when_all_rows_are_fully_issued(
+        self,
+        _fetch_rows_mock,
+    ) -> None:
+        self.assertEqual(_request_completion_status(70), 7)
+
+    @patch(
+        "replenishment.services.allocation_dispatch._fetch_rows",
+        return_value=[
+            {"request_qty": Decimal("2"), "issue_qty": Decimal("2")},
+            {"request_qty": Decimal("3"), "issue_qty": Decimal("1")},
+        ],
+    )
+    def test_request_completion_status_returns_part_filled_when_any_row_is_short(
+        self,
+        _fetch_rows_mock,
+    ) -> None:
+        self.assertEqual(_request_completion_status(70), 5)
 
     @patch("replenishment.services.allocation_dispatch._load_package_plan_with_source_info", return_value=[])
     @patch("replenishment.services.allocation_dispatch._ensure_request_package_context")

@@ -30,6 +30,7 @@ from replenishment.services.allocation_dispatch import (
     _package_plan_map,
     _qualified_table,
     _quantize_qty,
+    _request_completion_status,
     _selected_plan_for_package,
     _upsert_package_rows,
     approve_override as compat_approve_override,
@@ -1031,20 +1032,6 @@ def submit_dispatch(reliefpkg_id: int, *, payload: Mapping[str, Any], actor_id: 
         consume_stock=True,
     )
     now = timezone.now()
-    request_update = ReliefRqst.objects.filter(
-        reliefrqst_id=request.reliefrqst_id,
-        version_nbr=request.version_nbr,
-    ).update(
-        status_code=STATUS_PART_FILLED,
-        review_by_id=request.review_by_id or actor_id,
-        review_dtime=request.review_dtime or now,
-        action_by_id=actor_id,
-        action_dtime=now,
-        status_reason_desc=None,
-        version_nbr=F("version_nbr") + 1,
-    )
-    if request_update != 1:
-        raise OptimisticLockError("Relief request changed during dispatch.", code="request_version_mismatch")
     package_update = ReliefPkg.objects.filter(
         reliefpkg_id=package.reliefpkg_id,
         version_nbr=package.version_nbr,
@@ -1077,6 +1064,20 @@ def submit_dispatch(reliefpkg_id: int, *, payload: Mapping[str, Any], actor_id: 
             """,
             [row["quantity"], row["quantity"], actor_id, now, request.reliefrqst_id, row["item_id"]],
         )
+    request_update = ReliefRqst.objects.filter(
+        reliefrqst_id=request.reliefrqst_id,
+        version_nbr=request.version_nbr,
+    ).update(
+        status_code=_request_completion_status(int(request.reliefrqst_id)),
+        review_by_id=request.review_by_id or actor_id,
+        review_dtime=request.review_dtime or now,
+        action_by_id=actor_id,
+        action_dtime=now,
+        status_reason_desc=None,
+        version_nbr=F("version_nbr") + 1,
+    )
+    if request_update != 1:
+        raise OptimisticLockError("Relief request changed during dispatch.", code="request_version_mismatch")
     refreshed_package = _load_package(reliefpkg_id)
     waybill_payload = _operations_waybill_payload(
         request=request,

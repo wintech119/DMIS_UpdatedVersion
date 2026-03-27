@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, TestCase
 
@@ -648,3 +648,102 @@ class DispatchDetailTests(SimpleTestCase):
 
         self.assertEqual(result["waybill"]["waybill_no"], "WB-PK00090")
         get_waybill_mock.assert_called_once_with(90)
+
+
+class DispatchSubmissionStatusTests(TestCase):
+    def _exercise_submit_dispatch(self, *, request_completion_status: int) -> Mock:
+        request = SimpleNamespace(
+            reliefrqst_id=70,
+            version_nbr=4,
+            review_by_id=None,
+            review_dtime=None,
+            tracking_no="RQ00070",
+        )
+        initial_package = SimpleNamespace(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            version_nbr=2,
+            transport_mode=None,
+        )
+        refreshed_package = SimpleNamespace(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            tracking_no="PK00090",
+            transport_mode="TRUCK",
+            dispatch_dtime=datetime(2026, 3, 27, 14, 0, 0),
+        )
+        request_filter = Mock()
+        request_filter.update.return_value = 1
+        package_filter = Mock()
+        package_filter.update.return_value = 1
+        package_rows = [
+            {
+                "item_id": 101,
+                "inventory_id": 4,
+                "batch_id": 1001,
+                "quantity": Decimal("2"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+            }
+        ]
+
+        with patch("operations.services.timezone.now", return_value=datetime(2026, 3, 27, 14, 0, 0)), patch(
+            "operations.services._load_package",
+            side_effect=[initial_package, refreshed_package],
+        ), patch(
+            "operations.services._load_request",
+            return_value=request,
+        ), patch(
+            "operations.services._current_package_status",
+            return_value=operations_service.PKG_STATUS_PENDING,
+        ), patch(
+            "operations.services._selected_plan_for_package",
+            return_value=package_rows,
+        ), patch(
+            "operations.services._apply_stock_delta_for_rows",
+        ), patch(
+            "operations.services.ReliefRqst.objects.filter",
+            return_value=request_filter,
+        ), patch(
+            "operations.services.ReliefPkg.objects.filter",
+            return_value=package_filter,
+        ), patch(
+            "operations.services._advance_transfer_rows",
+        ), patch(
+            "operations.services._execute",
+            return_value=1,
+        ), patch(
+            "operations.services._request_completion_status",
+            return_value=request_completion_status,
+        ), patch(
+            "operations.services._operations_waybill_payload",
+            return_value={"waybill_no": "WB-PK00090"},
+        ):
+            operations_service.submit_dispatch(
+                90,
+                payload={"transport_mode": "TRUCK"},
+                actor_id="dispatch-1",
+            )
+
+        return request_filter
+
+    def test_submit_dispatch_marks_request_filled_when_all_lines_are_complete(self) -> None:
+        request_filter = self._exercise_submit_dispatch(
+            request_completion_status=operations_service.STATUS_FILLED,
+        )
+
+        self.assertEqual(
+            request_filter.update.call_args.kwargs["status_code"],
+            operations_service.STATUS_FILLED,
+        )
+
+    def test_submit_dispatch_marks_request_part_filled_when_any_line_remains_open(self) -> None:
+        request_filter = self._exercise_submit_dispatch(
+            request_completion_status=operations_service.STATUS_PART_FILLED,
+        )
+
+        self.assertEqual(
+            request_filter.update.call_args.kwargs["status_code"],
+            operations_service.STATUS_PART_FILLED,
+        )

@@ -126,6 +126,20 @@ def _quantize_qty(value: Any) -> Decimal:
     return _decimal(value).quantize(Decimal("0.0001"))
 
 
+def _request_completion_status(reliefrqst_id: int) -> int:
+    rows = _fetch_rows(
+        f"""
+        SELECT request_qty, issue_qty
+        FROM {_qualified_table("reliefrqst_item")}
+        WHERE reliefrqst_id = %s
+        """,
+        [reliefrqst_id],
+    )
+    if rows and all(_quantize_qty(row["issue_qty"]) >= _quantize_qty(row["request_qty"]) for row in rows):
+        return 7
+    return 5
+
+
 def _as_iso(value: Any) -> str | None:
     if value is None:
         return None
@@ -1706,23 +1720,6 @@ def dispatch_package(
     )
 
     now = timezone.now()
-    request_update_values = _request_header_update_values(
-        request=request,
-        package_status="D",
-        needs_list=needs_list,
-        actor_user_id=actor_user_id,
-        event_time=now,
-    )
-    request_update = ReliefRqst.objects.filter(
-        reliefrqst_id=request.reliefrqst_id,
-        version_nbr=request.version_nbr,
-    ).update(**request_update_values, version_nbr=F("version_nbr") + 1)
-    if request_update != 1:
-        raise OptimisticLockError(
-            f"Relief request {request.reliefrqst_id} changed during dispatch.",
-            code="request_version_mismatch",
-        )
-
     package_update = ReliefPkg.objects.filter(
         reliefpkg_id=package.reliefpkg_id,
         version_nbr=package.version_nbr,
@@ -1775,6 +1772,24 @@ def dispatch_package(
                 request.reliefrqst_id,
                 row["item_id"],
             ],
+        )
+
+    request_update_values = _request_header_update_values(
+        request=request,
+        package_status="D",
+        needs_list=needs_list,
+        actor_user_id=actor_user_id,
+        event_time=now,
+    )
+    request_update_values["status_code"] = _request_completion_status(int(request.reliefrqst_id))
+    request_update = ReliefRqst.objects.filter(
+        reliefrqst_id=request.reliefrqst_id,
+        version_nbr=request.version_nbr,
+    ).update(**request_update_values, version_nbr=F("version_nbr") + 1)
+    if request_update != 1:
+        raise OptimisticLockError(
+            f"Relief request {request.reliefrqst_id} changed during dispatch.",
+            code="request_version_mismatch",
         )
 
     waybill_payload = build_waybill_payload(
