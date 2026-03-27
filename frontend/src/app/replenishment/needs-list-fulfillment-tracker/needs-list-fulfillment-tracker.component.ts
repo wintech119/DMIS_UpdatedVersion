@@ -404,11 +404,11 @@ export class NeedsListFulfillmentTrackerComponent {
   }
 
   navigateToAllocationWorkspace(): void {
-    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'allocation']);
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
   navigateToDispatchWorkspace(): void {
-    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'dispatch']);
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
   navigateToDonations(): void {

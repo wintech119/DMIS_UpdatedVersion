@@ -13,7 +13,7 @@ By stripping away the "noise" of traditional digital interfaces—heavy shadows,
 The palette is strictly monochromatic, utilizing the full breadth of the Material Design scale to create a "paper-on-glass" aesthetic.
 
 ### The "No-Line" Rule
-To achieve a premium feel, **1px solid borders are prohibited for sectioning.** Boundaries must be defined solely through background color shifts. For example, a sidebar should use `surface_container_low` (#f3f3f4) against a main content area of `surface` (#f9f9f9).
+To achieve a premium feel, **1px solid borders are prohibited for layout sectioning.** Boundaries for sidebars, panels, and major content divisions must be defined solely through background color shifts. Form controls are the explicit exception: inputs, textareas, selects, and buttons may use a 1px ghost or outline border for affordance and accessibility. For example, a sidebar should use `surface_container_low` (#f3f3f4) against a main content area of `surface` (#f9f9f9).
 
 ### Surface Hierarchy & Nesting
 Treat the UI as a series of physical layers. Use the following nesting logic to create depth:
@@ -30,7 +30,7 @@ For floating elements (modals, dropdowns), use **Glassmorphism**. Apply `surface
 ## 3. Typography
 We use **Inter** as our sole typeface. Its geometric precision supports the architectural feel.
 
-*   **Display Scale (`display-lg` to `display-sm`):** Reserved for moments of high impact or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
+*   **Display Scale (`display-lg` to `display-sm`):** Reserved for high-impact moments or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
 *   **Headline & Title:** Use `primary` (#000000) for high contrast against the `surface`. 
 *   **Body & Labels:** Use `on_surface_variant` (#474747) for long-form text. This slight reduction in contrast prevents eye strain and feels more sophisticated than "pure black."
 *   **The Hierarchy Rule:** Never use font weight to solve a problem that can be solved by scale or color shift. High-end design breathes through the use of `label-md` in all-caps for metadata, contrasted against a `title-lg` header.
@@ -43,7 +43,8 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 *   **The Layering Principle:** Depth is achieved by "stacking." A card (`surface_container_lowest`) sitting on a section (`surface_container_low`) creates a soft, natural lift.
 *   **Ambient Shadows:** For high-elevation elements like Modals, use a "Shadow-Glow."
     *   *Spec:* `0px 20px 40px rgba(26, 28, 28, 0.04)`. The shadow must be a tinted version of `on_surface` at a very low opacity.
-*   **The "Ghost Border" Fallback:** If a border is required for accessibility (e.g., in high-contrast modes), use `outline_variant` (#c6c6c6) at **20% opacity**. 100% opaque borders are strictly forbidden as they "trap" the eye.
+*   **The "Ghost Border" Fallback:** For standard mode, use `outline_variant` (#c6c6c6) at **20% opacity**.
+*   **High-Contrast / Forced-Colors Exception:** In high-contrast or forced-colors modes, use a full-opacity system outline (for example CanvasText, Highlight, or FocusRing) for control boundaries and focus indicators, and verify at least 3:1 contrast against the active surface.
 
 ---
 

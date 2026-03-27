@@ -80,6 +80,7 @@ Target Operations routes:
 ## Compatibility and Retirement Rule
 
 - existing `needs_list` execution endpoints remain frozen as transitional compatibility code only
+- legacy redirects for removed replenishment execution routes may remain for bookmarks, but active UI navigation must target `/replenishment/needs-list/:id/review` directly
 - existing Angular allocation and dispatch components may remain as migration reference until the true Operations module exists
 - temporary shell links back to Flask may exist during the build window, but May 15 signoff requires the live user path to stop depending on them
 - no new UI contract may be built on top of `needs_list` execution APIs

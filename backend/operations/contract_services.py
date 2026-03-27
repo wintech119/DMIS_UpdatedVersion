@@ -152,6 +152,12 @@ def _ops_request_from_legacy(request: ReliefRqst, *, actor_id: str) -> Operation
     return record
 
 
+def _assign_if_changed(record: Any, field_name: str, value: Any, changed_fields: list[str]) -> None:
+    if getattr(record, field_name) != value:
+        setattr(record, field_name, value)
+        changed_fields.append(field_name)
+
+
 def _sync_operations_request(
     request: ReliefRqst,
     *,
@@ -163,29 +169,38 @@ def _sync_operations_request(
 ) -> OperationsReliefRequest:
     record = _ops_request_from_legacy(request, actor_id=actor_id)
     original_status = record.status_code
+    changed_fields: list[str] = []
     if decision is not None:
-        record.requesting_tenant_id = int(decision.requesting_tenant_id)
-        record.beneficiary_tenant_id = int(decision.beneficiary_tenant_id)
-        record.origin_mode = decision.origin_mode
-        record.beneficiary_agency_id = int(decision.beneficiary_agency_id or request.agency_id)
+        _assign_if_changed(record, "requesting_tenant_id", int(decision.requesting_tenant_id), changed_fields)
+        _assign_if_changed(record, "beneficiary_tenant_id", int(decision.beneficiary_tenant_id), changed_fields)
+        _assign_if_changed(record, "origin_mode", decision.origin_mode, changed_fields)
+        _assign_if_changed(
+            record,
+            "beneficiary_agency_id",
+            int(decision.beneficiary_agency_id or request.agency_id),
+            changed_fields,
+        )
         if requesting_agency_id is not None:
-            record.requesting_agency_id = int(requesting_agency_id)
+            _assign_if_changed(record, "requesting_agency_id", int(requesting_agency_id), changed_fields)
         elif decision.origin_mode == ORIGIN_MODE_SELF:
-            record.requesting_agency_id = int(request.agency_id)
-    record.request_no = request.tracking_no
-    record.event_id = request.eligible_event_id
-    record.request_date = request.request_date
-    record.urgency_code = request.urgency_ind
-    record.notes_text = request.rqst_notes_text
-    record.source_needs_list_id = source_needs_list_id or record.source_needs_list_id
-    record.reviewed_by_id = request.review_by_id
-    record.reviewed_at = request.review_dtime
+            _assign_if_changed(record, "requesting_agency_id", int(request.agency_id), changed_fields)
+    _assign_if_changed(record, "request_no", request.tracking_no, changed_fields)
+    _assign_if_changed(record, "event_id", request.eligible_event_id, changed_fields)
+    _assign_if_changed(record, "request_date", request.request_date, changed_fields)
+    _assign_if_changed(record, "urgency_code", request.urgency_ind, changed_fields)
+    _assign_if_changed(record, "notes_text", request.rqst_notes_text, changed_fields)
+    if source_needs_list_id is not None:
+        _assign_if_changed(record, "source_needs_list_id", source_needs_list_id, changed_fields)
+    _assign_if_changed(record, "reviewed_by_id", request.review_by_id, changed_fields)
+    _assign_if_changed(record, "reviewed_at", request.review_dtime, changed_fields)
     if status_code:
-        record.status_code = status_code
-    record.update_by_id = actor_id
-    record.update_dtime = timezone.now()
-    record.version_nbr = int(record.version_nbr or 0) + 1
-    record.save()
+        _assign_if_changed(record, "status_code", status_code, changed_fields)
+    if changed_fields:
+        record.update_by_id = actor_id
+        record.update_dtime = timezone.now()
+        record.version_nbr = int(record.version_nbr or 0) + 1
+        changed_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+        record.save(update_fields=changed_fields)
     if status_code and status_code != original_status:
         record_status_transition(
             entity_type=ENTITY_REQUEST,
@@ -220,26 +235,32 @@ def _sync_operations_package(
         },
     )
     original_status = record.status_code
-    record.package_no = package.tracking_no
-    record.relief_request_id = int(package.reliefrqst_id)
-    record.destination_tenant_id = request_record.beneficiary_tenant_id
-    record.destination_agency_id = request_record.beneficiary_agency_id
+    changed_fields: list[str] = []
+    _assign_if_changed(record, "package_no", package.tracking_no, changed_fields)
+    _assign_if_changed(record, "relief_request_id", int(package.reliefrqst_id), changed_fields)
+    _assign_if_changed(record, "destination_tenant_id", request_record.beneficiary_tenant_id, changed_fields)
+    _assign_if_changed(record, "destination_agency_id", request_record.beneficiary_agency_id, changed_fields)
     if source_warehouse_id is not None:
-        record.source_warehouse_id = int(source_warehouse_id)
+        _assign_if_changed(record, "source_warehouse_id", int(source_warehouse_id), changed_fields)
     if status_code:
-        record.status_code = status_code
+        _assign_if_changed(record, "status_code", status_code, changed_fields)
     if override_status_code is not None:
-        record.override_status_code = override_status_code
+        _assign_if_changed(record, "override_status_code", override_status_code, changed_fields)
     if record.status_code == PACKAGE_STATUS_COMMITTED and record.committed_at is None:
         record.committed_at = timezone.now()
+        changed_fields.append("committed_at")
     if record.status_code == PACKAGE_STATUS_DISPATCHED and record.dispatched_at is None:
         record.dispatched_at = timezone.now()
+        changed_fields.append("dispatched_at")
     if record.status_code == PACKAGE_STATUS_RECEIVED and record.received_at is None:
         record.received_at = timezone.now()
-    record.update_by_id = actor_id
-    record.update_dtime = timezone.now()
-    record.version_nbr = int(record.version_nbr or 0) + 1
-    record.save()
+        changed_fields.append("received_at")
+    if changed_fields:
+        record.update_by_id = actor_id
+        record.update_dtime = timezone.now()
+        record.version_nbr = int(record.version_nbr or 0) + 1
+        changed_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+        record.save(update_fields=changed_fields)
     if created:
         record_status_transition(
             entity_type=ENTITY_PACKAGE,
@@ -310,20 +331,46 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
     )
     now = timezone.now()
     expires_at = now + timedelta(minutes=30)
-    existing = OperationsPackageLock.objects.filter(package_id=int(package_id)).first()
-    if existing and existing.lock_status == "ACTIVE" and existing.lock_owner_user_id != actor_id:
-        if existing.lock_expires_at is None or existing.lock_expires_at > now:
+    with transaction.atomic():
+        existing = (
+            OperationsPackageLock.objects.select_for_update()
+            .filter(package_id=int(package_id))
+            .first()
+        )
+        if (
+            existing
+            and existing.lock_status == "ACTIVE"
+            and existing.lock_owner_user_id != actor_id
+            and (existing.lock_expires_at is None or existing.lock_expires_at > now)
+        ):
             raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."})
-    lock, created = OperationsPackageLock.objects.update_or_create(
-        package_id=int(package_id),
-        defaults={
-            "lock_owner_user_id": actor_id,
-            "lock_owner_role_code": owner_role,
-            "lock_started_at": now,
-            "lock_expires_at": expires_at,
-            "lock_status": "ACTIVE",
-        },
-    )
+        if existing is None:
+            lock = OperationsPackageLock.objects.create(
+                package_id=int(package_id),
+                lock_owner_user_id=actor_id,
+                lock_owner_role_code=owner_role,
+                lock_started_at=now,
+                lock_expires_at=expires_at,
+                lock_status="ACTIVE",
+            )
+            created = True
+        else:
+            lock = existing
+            lock.lock_owner_user_id = actor_id
+            lock.lock_owner_role_code = owner_role
+            lock.lock_started_at = now
+            lock.lock_expires_at = expires_at
+            lock.lock_status = "ACTIVE"
+            lock.save(
+                update_fields=[
+                    "lock_owner_user_id",
+                    "lock_owner_role_code",
+                    "lock_started_at",
+                    "lock_expires_at",
+                    "lock_status",
+                ]
+            )
+            created = False
     if created:
         create_role_notifications(
             event_code=EVENT_PACKAGE_LOCKED,
@@ -654,6 +701,16 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
     results: list[dict[str, Any]] = []
     queryset = ReliefRqst.objects.filter(reliefrqst_id__in=entity_ids) if entity_ids else ReliefRqst.objects.filter(status_code=legacy_service.STATUS_AWAITING_APPROVAL)
     for request in queryset.order_by("-request_date", "-reliefrqst_id")[:200]:
+        request_record = _ops_request_from_legacy(request, actor_id=actor_id)
+        try:
+            _ensure_request_access(
+                request_record,
+                actor_id=actor_id,
+                actor_roles=actor_roles or (),
+                tenant_context=tenant_context,
+            )
+        except OperationValidationError:
+            continue
         request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
         results.append(_request_summary_payload(request, request_record))
     return {"results": results}
@@ -859,11 +916,16 @@ def save_package(
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    package = legacy_service._current_package_for_request(reliefrqst_id)
+    package_locked_before_save = package is not None
+    if package_locked_before_save:
+        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is None:
         return result
-    _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
+    if not package_locked_before_save:
+        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     first_inventory_id = None
     allocations = payload.get("allocations")
     if isinstance(allocations, list) and allocations:
@@ -1196,7 +1258,9 @@ def confirm_receipt(
     package.version_nbr = int(package.version_nbr or 0) + 1
     package.save()
     _sync_operations_package(package, request_record=request_record, actor_id=actor_id, status_code=PACKAGE_STATUS_RECEIVED)
-    dispatch = OperationsDispatch.objects.get(package_id=reliefpkg_id)
+    dispatch = OperationsDispatch.objects.filter(package_id=reliefpkg_id).first()
+    if dispatch is None:
+        raise OperationValidationError({"receipt": "Dispatch record is missing for this package."})
     if dispatch.status_code != DISPATCH_STATUS_RECEIVED:
         record_status_transition(
             entity_type=ENTITY_DISPATCH,

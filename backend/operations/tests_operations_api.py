@@ -239,3 +239,24 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "Must be a positive integer."}})
         mock_options.assert_not_called()
+
+    @patch("operations.views.operations_service.list_requests")
+    @patch(
+        "operations.views.LegacyCompatAuthentication.authenticate",
+        return_value=(SimpleNamespace(user_id=None, username=None, is_authenticated=True), None),
+    )
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    def test_requests_reject_authenticated_actor_without_stable_identifier(
+        self,
+        _mock_permission,
+        _mock_authenticate,
+        mock_list_requests,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/requests")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Authenticated operations requests require a stable actor identifier."},
+        )
+        mock_list_requests.assert_not_called()

@@ -135,7 +135,7 @@ export class DispatchWorkspaceComponent {
       this.router.navigate(['/replenishment/my-submissions']);
       return;
     }
-    this.router.navigate(['/replenishment/needs-list', needsListId, 'track']);
+    this.router.navigate(['/replenishment/needs-list', needsListId, 'review']);
   }
 
   openAllocation(): void {
@@ -143,7 +143,7 @@ export class DispatchWorkspaceComponent {
     if (!needsListId) {
       return;
     }
-    this.router.navigate(['/replenishment/needs-list', needsListId, 'allocation']);
+    this.router.navigate(['/replenishment/needs-list', needsListId, 'review']);
   }
 
   goToDispatchReview(): void {

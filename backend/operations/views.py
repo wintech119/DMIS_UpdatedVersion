@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
@@ -39,7 +40,10 @@ from replenishment.services.allocation_dispatch import (
 
 
 def _actor_id(request) -> str:
-    return str(getattr(request.user, "user_id", None) or getattr(request.user, "username", None) or "system")
+    actor_id = getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
+    if actor_id in (None, ""):
+        raise AuthenticationFailed("Authenticated operations requests require a stable actor identifier.")
+    return str(actor_id)
 
 
 def _tenant_context(request):

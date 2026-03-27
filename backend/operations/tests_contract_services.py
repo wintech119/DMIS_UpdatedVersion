@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import TestCase
+from django.utils import timezone
 
 from api.tenancy import TenantContext, TenantMembership
 from operations import contract_services
@@ -36,6 +38,7 @@ from operations.models import (
     TenantControlScope,
     TenantRequestPolicy,
 )
+from replenishment.legacy_models import ReliefRqst
 
 
 def _tenant_context(
@@ -234,6 +237,106 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_type="EXTERNAL",
         )
 
+    def _insert_legacy_agency(self, agency_id: int) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO agency (
+                    agency_id,
+                    agency_name,
+                    address1_text,
+                    parish_code,
+                    contact_name,
+                    phone_no,
+                    create_by_id,
+                    create_dtime,
+                    update_by_id,
+                    update_dtime,
+                    version_nbr,
+                    agency_type,
+                    status_code
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (agency_id) DO NOTHING
+                """,
+                [
+                    agency_id,
+                    f"AGENCY {agency_id}",
+                    f"{agency_id} Test Street",
+                    "01",
+                    "TEST CONTACT",
+                    "555-0100",
+                    "tester",
+                    datetime(2026, 3, 26, 9, 0, 0),
+                    "tester",
+                    datetime(2026, 3, 26, 9, 0, 0),
+                    1,
+                    "SHELTER",
+                    "A",
+                ],
+            )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    def test_request_sync_skips_version_bump_when_record_matches_legacy(self, get_agency_scope_mock) -> None:
+        get_agency_scope_mock.return_value = self.agency_scope
+        original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 30, 0))
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            notes_text="Need shelter kits",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+            update_dtime=original_updated_at,
+            version_nbr=7,
+        )
+
+        record = contract_services._sync_operations_request(self.request, actor_id="sync-1")
+        record.refresh_from_db()
+
+        self.assertEqual(record.version_nbr, 7)
+        self.assertEqual(record.update_by_id, "seed-user")
+        self.assertEqual(record.update_dtime, original_updated_at)
+
+    def test_package_sync_skips_version_bump_when_record_matches_legacy(self) -> None:
+        original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
+        committed_at = timezone.make_aware(datetime(2026, 3, 26, 8, 0, 0))
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            committed_at=committed_at,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+            update_dtime=original_updated_at,
+            version_nbr=9,
+        )
+
+        record = contract_services._sync_operations_package(
+            self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="P"),
+            request_record=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            actor_id="sync-1",
+            status_code=PACKAGE_STATUS_COMMITTED,
+            source_warehouse_id=4,
+        )
+        record.refresh_from_db()
+
+        self.assertEqual(record.version_nbr, 9)
+        self.assertEqual(record.update_by_id, "seed-user")
+        self.assertEqual(record.update_dtime, original_updated_at)
+
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -324,6 +427,40 @@ class OperationsWorkflowContractTests(TestCase):
         lock = OperationsPackageLock.objects.get(package_id=90)
         self.assertEqual(lock.lock_owner_role_code, ROLE_SYSTEM_ADMINISTRATOR)
         self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_package_save_rejects_conflicting_lock_before_legacy_write(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+        OperationsPackageLock.objects.create(
+            package_id=90,
+            lock_owner_user_id="other-actor",
+            lock_owner_role_code="LOGISTICS_MANAGER",
+            lock_started_at=timezone.now(),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.save_package(
+                70,
+                payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        save_package_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._request_item_rows_for_allocation", return_value=[{"request_qty": "2", "issue_qty": "2"}])
@@ -576,6 +713,54 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual([row["reliefpkg_id"] for row in result["results"]], [90])
 
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    def test_eligibility_queue_fallback_excludes_out_of_scope_requests(
+        self,
+        get_agency_scope_mock,
+        _request_summary_mock,
+    ) -> None:
+        self._insert_legacy_agency(501)
+        self._insert_legacy_agency(503)
+        ReliefRqst.objects.create(
+            reliefrqst_id=80,
+            agency_id=501,
+            request_date=date(2026, 3, 26),
+            tracking_no="RQ00080",
+            eligible_event_id=1,
+            urgency_ind="H",
+            rqst_notes_text="Need shelter kits",
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+            create_by_id="requester-1",
+            create_dtime=datetime(2026, 3, 26, 9, 0, 0),
+            version_nbr=1,
+        )
+        ReliefRqst.objects.create(
+            reliefrqst_id=81,
+            agency_id=503,
+            request_date=date(2026, 3, 26),
+            tracking_no="RQ00081",
+            eligible_event_id=1,
+            urgency_ind="H",
+            rqst_notes_text="Need shelter kits",
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+            create_by_id="requester-1",
+            create_dtime=datetime(2026, 3, 26, 9, 15, 0),
+            version_nbr=1,
+        )
+        get_agency_scope_mock.side_effect = lambda agency_id: {
+            501: self._agency_scope_for(501, 20, "FFP"),
+            503: self._agency_scope_for(503, 30, "OUT-30"),
+        }[int(agency_id)]
+
+        result = contract_services.list_eligibility_queue(
+            actor_id="eligibility-1",
+            actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [80])
+
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
@@ -708,3 +893,30 @@ class OperationsWorkflowContractTests(TestCase):
         receipt = OperationsReceipt.objects.get(dispatch_id=dispatch.dispatch_id)
         self.assertEqual(receipt.received_by_name, "Receiver One")
         self.assertEqual(receipt.receipt_status_code, "RECEIVED")
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._load_package")
+    def test_receipt_confirmation_requires_dispatch_record(
+        self,
+        load_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        dispatched_package = SimpleNamespace(
+            **{**self.package.__dict__, "dispatch_dtime": datetime(2026, 3, 26, 12, 0, 0), "status_code": "D"}
+        )
+        load_package_mock.return_value = dispatched_package
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.confirm_receipt(
+                90,
+                payload={"received_by_name": "Receiver One"},
+                actor_id="receiver-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(raised.exception.errors, {"receipt": "Dispatch record is missing for this package."})

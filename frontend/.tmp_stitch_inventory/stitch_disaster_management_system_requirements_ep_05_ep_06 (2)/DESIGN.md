@@ -30,7 +30,7 @@ For floating elements (modals, dropdowns), use **Glassmorphism**. Apply `surface
 ## 3. Typography
 We use **Inter** as our sole typeface. Its geometric precision supports the architectural feel.
 
-*   **Display Scale (`display-lg` to `display-sm`):** Reserved for moments of high impact or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
+*   **Display Scale (`display-lg` to `display-sm`):** Reserved for high-impact moments or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
 *   **Headline & Title:** Use `primary` (#000000) for high contrast against the `surface`. 
 *   **Body & Labels:** Use `on_surface_variant` (#474747) for long-form text. This slight reduction in contrast prevents eye strain and feels more sophisticated than "pure black."
 *   **The Hierarchy Rule:** Never use font weight to solve a problem that can be solved by scale or color shift. High-end design breathes through the use of `label-md` in all-caps for metadata, contrasted against a `title-lg` header.
@@ -78,4 +78,4 @@ In the spirit of OpenAI/ChatGPT, use a centered, floating input bar.
 ### Don't
 *   **Don't** use pure black (#000000) for body text; use `on_surface_variant` (#474747) to maintain a soft, premium "ink-on-paper" look.
 *   **Don't** use icons as primary navigation. Use `label-md` typography to emphasize textual clarity.
-*   **Don't** use "Card-in-Card" layouts. If you need a sub-section, use a background color shift or a change in typography weight, never an additional bordered container.
+*   **Don't** use "Card-in-Card" layouts. If you need a sub-section, use a background color shift or a change in typography scale or color, never an additional bordered container.

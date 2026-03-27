@@ -30,7 +30,7 @@ For floating elements (modals, dropdowns), use **Glassmorphism**. Apply `surface
 ## 3. Typography
 We use **Inter** as our sole typeface. Its geometric precision supports the architectural feel.
 
-*   **Display Scale (`display-lg` to `display-sm`):** Reserved for moments of high impact or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
+*   **Display Scale (`display-lg` to `display-sm`):** Reserved for high-impact moments or editorial headers. Use `primary` (#000000) with a letter-spacing of `-0.02em` to feel "tight" and authoritative.
 *   **Headline & Title:** Use `primary` (#000000) for high contrast against the `surface`. 
 *   **Body & Labels:** Use `on_surface_variant` (#474747) for long-form text. This slight reduction in contrast prevents eye strain and feels more sophisticated than "pure black."
 *   **The Hierarchy Rule:** Never use font weight to solve a problem that can be solved by scale or color shift. High-end design breathes through the use of `label-md` in all-caps for metadata, contrasted against a `title-lg` header.
@@ -72,7 +72,7 @@ In the spirit of OpenAI/ChatGPT, use a centered, floating input bar.
 
 ### Do
 *   **Do** use asymmetrical margins (e.g., a wider left margin for text columns) to create an editorial, non-templated feel.
-*   **Do** use `spacing-16` (5.5rem) or `spacing-20` (7rem) between major sections. Generous whitespace is a luxury signifier.
+*   **Do** use generous section spacing in the `5.5rem` to `7rem` range between major sections. Generous whitespace is a luxury signifier.
 *   **Do** use `ROUND_SIX` (`md`: 0.375rem) consistently. It is the "golden mean" between a harsh square and a playful circle.
 
 ### Don't

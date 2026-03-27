@@ -122,6 +122,18 @@ def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | 
     return parsed
 
 
+def _optional_positive_int(value: Any, field_name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError({field_name: "Must be a positive integer."}) from exc
+    if parsed <= 0:
+        raise OperationValidationError({field_name: "Must be a positive integer."})
+    return parsed
+
+
 def _event_exists(event_id: int) -> bool:
     try:
         with connection.cursor() as cursor:
@@ -358,7 +370,8 @@ def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = Fal
             normalized["eligible_event_id"] = _positive_int(payload.get("eligible_event_id"), "eligible_event_id", errors)
             if normalized["eligible_event_id"] is not None and not _event_exists(int(normalized["eligible_event_id"])):
                 errors["eligible_event_id"] = "Selected event does not exist."
-    normalized["rqst_notes_text"] = str(payload.get("rqst_notes_text") or "").strip() or None
+    if not partial or "rqst_notes_text" in payload:
+        normalized["rqst_notes_text"] = str(payload.get("rqst_notes_text") or "").strip() or None
     raw_items = payload.get("items")
     normalized_items: list[dict[str, Any]] = []
     if raw_items is not None:
@@ -476,21 +489,21 @@ def update_request(
         request.urgency_ind = normalized["urgency_ind"]
     if "eligible_event_id" in normalized:
         request.eligible_event_id = normalized["eligible_event_id"]
-    request.rqst_notes_text = normalized.get("rqst_notes_text")
+    update_fields = [
+        "agency_id",
+        "urgency_ind",
+        "eligible_event_id",
+        "action_by_id",
+        "action_dtime",
+        "version_nbr",
+    ]
+    if "rqst_notes_text" in normalized:
+        request.rqst_notes_text = normalized["rqst_notes_text"]
+        update_fields.append("rqst_notes_text")
     request.action_by_id = actor_id
     request.action_dtime = timezone.now()
     request.version_nbr = int(request.version_nbr or 0) + 1
-    request.save(
-        update_fields=[
-            "agency_id",
-            "urgency_ind",
-            "eligible_event_id",
-            "rqst_notes_text",
-            "action_by_id",
-            "action_dtime",
-            "version_nbr",
-        ]
-    )
+    request.save(update_fields=update_fields)
     if normalized["items"]:
         _upsert_request_items(reliefrqst_id, normalized["items"])
     return get_request(reliefrqst_id, actor_id=actor_id)
@@ -591,10 +604,14 @@ def list_packages(*, actor_id: str | None = None) -> dict[str, Any]:
 
 def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, Any]) -> ReliefPkg:
     package = _current_package_for_request(reliefrqst_id, for_update=True)
+    raw_destination = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
     if package is not None:
         transport_mode = str(payload.get("transport_mode") or "").strip() or None
         comments_text = str(payload.get("comments_text") or "").strip() or None
         updated_fields: list[str] = []
+        if raw_destination is not None and package.to_inventory_id != raw_destination:
+            package.to_inventory_id = raw_destination
+            updated_fields.append("to_inventory_id")
         if transport_mode is not None:
             package.transport_mode = transport_mode
             updated_fields.append("transport_mode")
@@ -617,7 +634,7 @@ def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, 
         agency_id=request.agency_id,
         tracking_no=_tracking_no("PK", reliefpkg_id),
         eligible_event_id=request.eligible_event_id,
-        to_inventory_id=int(payload.get("to_inventory_id") or 0),
+        to_inventory_id=raw_destination if raw_destination is not None else 0,
         reliefrqst_id=request.reliefrqst_id,
         start_date=now.date(),
         transport_mode=str(payload.get("transport_mode") or "").strip() or None,
@@ -765,6 +782,7 @@ def _save_package_allocation(
 
     execution_link = _execution_link_for_request(reliefrqst_id)
     allocations = _normalized_allocations(payload)
+    requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
     if execution_link is not None:
         request = _load_request(reliefrqst_id)
         existing_package = _current_package_for_request(reliefrqst_id)
@@ -779,8 +797,8 @@ def _save_package_allocation(
                 ),
                 agency_id=int(request.agency_id),
                 destination_warehouse_id=(
-                    int(payload.get("to_inventory_id"))
-                    if payload.get("to_inventory_id") not in (None, "")
+                    requested_destination_id
+                    if requested_destination_id is not None
                     else (
                         int(existing_package.to_inventory_id)
                         if existing_package is not None and existing_package.to_inventory_id is not None
@@ -909,7 +927,7 @@ def approve_override(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id
 
 
 def list_dispatch_queue(*, actor_id: str | None = None) -> dict[str, Any]:
-    packages = ReliefPkg.objects.filter(status_code=PKG_STATUS_DISPATCHED).order_by("-dispatch_dtime", "-reliefpkg_id")
+    packages = ReliefPkg.objects.filter(status_code__in=[PKG_STATUS_PENDING, "C", "V"]).order_by("-dispatch_dtime", "-reliefpkg_id")
     return {"results": [_dispatch_detail(package) for package in packages[:200]]}
 
 
@@ -949,7 +967,7 @@ def _operations_waybill_payload(
         if package.to_inventory_id is not None
         else None,
         "actor_user_id": actor_id,
-        "dispatch_dtime": timezone.now().isoformat(),
+        "dispatch_dtime": _as_iso(package.dispatch_dtime),
         "transport_mode": package.transport_mode,
         "line_items": [
             {

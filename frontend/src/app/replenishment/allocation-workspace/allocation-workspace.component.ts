@@ -161,7 +161,7 @@ export class AllocationWorkspaceComponent {
       this.router.navigate(['/replenishment/my-submissions']);
       return;
     }
-    this.router.navigate(['/replenishment/needs-list', needsListId, 'track']);
+    this.router.navigate(['/replenishment/needs-list', needsListId, 'review']);
   }
 
   openDispatch(): void {
@@ -169,7 +169,7 @@ export class AllocationWorkspaceComponent {
     if (!needsListId) {
       return;
     }
-    this.router.navigate(['/replenishment/needs-list', needsListId, 'dispatch']);
+    this.router.navigate(['/replenishment/needs-list', needsListId, 'review']);
   }
 
   formatExecutionStatus(value: unknown): string {

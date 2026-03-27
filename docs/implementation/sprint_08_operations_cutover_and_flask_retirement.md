@@ -11,7 +11,7 @@ This document is the cutover source of truth for removing Flask Operations from 
 
 | Legacy Flask Surface | Target Angular Route | Target Django API Namespace | Notes |
 | --- | --- | --- | --- |
-| `/executive/operations` | `/operations/dashboard` | `/api/v1/operations/dashboard/*` | Angular becomes the live landing point |
+| `/executive/operations` | `/operations/dashboard` | Client-composed from `/api/v1/operations/requests/*`, `/api/v1/operations/eligibility/*`, `/api/v1/operations/packages/*`, `/api/v1/operations/dispatch/*`, and `/api/v1/operations/tasks` | Angular becomes the live landing point |
 | `/relief-requests/*` | `/operations/relief-requests/*` | `/api/v1/operations/requests/*` | Request create, list, detail, edit, tracking |
 | `/eligibility/*` | `/operations/eligibility-review/*` | `/api/v1/operations/eligibility/*` | Review queues and decisions |
 | `/packaging/pending-fulfillment` | `/operations/package-fulfillment` | `/api/v1/operations/packages/*` | Queue and package preparation |

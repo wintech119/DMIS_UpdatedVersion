@@ -457,3 +457,113 @@ class ReliefRequestServiceTests(TestCase):
         upsert_rows_mock.assert_called_once()
         stock_delta_mock.assert_called_once()
         self.assertEqual(header_updates_mock.call_args.kwargs["status_code"], operations_service.PKG_STATUS_PENDING)
+
+    @patch("operations.services.get_request", return_value={"reliefrqst_id": 70, "status_label": "Draft"})
+    @patch("operations.services.operations_policy.validate_relief_request_agency_selection")
+    def test_partial_update_preserves_existing_notes_when_omitted(
+        self,
+        validate_scope_mock,
+        _get_request_mock,
+    ) -> None:
+        tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
+        validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=operations_policy.AgencyScope(
+                agency_id=501,
+                agency_name="Food For The Poor Shelter",
+                agency_type="SHELTER",
+                warehouse_id=11,
+                tenant_id=20,
+                tenant_code="FFP",
+                tenant_name="Food For The Poor",
+                tenant_type="EXTERNAL",
+            ),
+            origin_mode=operations_policy.ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+        saved: dict[str, object] = {}
+        request_record = SimpleNamespace(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=operations_service.STATUS_DRAFT,
+            urgency_ind="M",
+            eligible_event_id=None,
+            rqst_notes_text="Keep this note",
+            version_nbr=4,
+            save=lambda **kwargs: saved.update(kwargs),
+        )
+
+        with patch("operations.services._load_request", return_value=request_record):
+            operations_service.update_request(
+                70,
+                payload={"urgency_ind": "H"},
+                actor_id="user-1",
+                tenant_context=tenant_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(request_record.rqst_notes_text, "Keep this note")
+        self.assertNotIn("rqst_notes_text", list(saved.get("update_fields", [])))
+
+    def test_existing_package_destination_can_be_updated_after_initial_draft_save(self) -> None:
+        saved: dict[str, object] = {}
+        package = SimpleNamespace(
+            reliefpkg_id=90,
+            to_inventory_id=0,
+            transport_mode=None,
+            comments_text=None,
+            version_nbr=1,
+            save=lambda **kwargs: saved.update(kwargs),
+        )
+
+        with patch("operations.services._current_package_for_request", return_value=package):
+            result = operations_service._ensure_package(
+                70,
+                actor_id="planner-1",
+                payload={"to_inventory_id": "9"},
+            )
+
+        self.assertIs(result, package)
+        self.assertEqual(package.to_inventory_id, 9)
+        self.assertIn("to_inventory_id", list(saved.get("update_fields", [])))
+
+    @patch("operations.services.data_access.get_warehouse_name", return_value="Destination Warehouse")
+    @patch("operations.services.data_access.get_event_name", return_value="Flood 2026")
+    @patch("operations.services.data_access.get_warehouse_names", return_value=({4: "Source Warehouse"}, None))
+    def test_waybill_payload_uses_package_dispatch_timestamp(
+        self,
+        _warehouse_names_mock,
+        _event_name_mock,
+        _warehouse_name_mock,
+    ) -> None:
+        dispatch_time = datetime(2026, 3, 26, 12, 30, 0)
+        payload = operations_service._operations_waybill_payload(
+            request=SimpleNamespace(
+                tracking_no="RQ00070",
+                agency_id=501,
+                eligible_event_id=12,
+            ),
+            package=SimpleNamespace(
+                tracking_no="PK00090",
+                to_inventory_id=8,
+                dispatch_dtime=dispatch_time,
+                transport_mode="TRUCK",
+            ),
+            dispatched_rows=[
+                {
+                    "item_id": 101,
+                    "inventory_id": 4,
+                    "batch_id": 1001,
+                    "batch_no": "BATCH-1001",
+                    "quantity": Decimal("2"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                }
+            ],
+            actor_id="dispatch-1",
+        )
+
+        self.assertEqual(payload["dispatch_dtime"], operations_service._as_iso(dispatch_time))
