@@ -46,6 +46,7 @@ from operations.constants import (
     REQUEST_STATUS_SUBMITTED,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
     ROLE_LOGISTICS_MANAGER,
+    ROLE_SYSTEM_ADMINISTRATOR,
     STATUS_LABELS,
     normalize_role_codes,
 )
@@ -289,6 +290,8 @@ def _ensure_dispatch_record(
 
 def _require_roles(actor_roles: Iterable[str] | None, allowed_roles: Iterable[str], *, message: str) -> tuple[str, ...]:
     normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return normalized_roles
     allowed = set(allowed_roles)
     if not any(role in allowed for role in normalized_roles):
         raise OperationValidationError({"roles": message})
@@ -301,7 +304,10 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
         FULFILLMENT_ROLE_CODES,
         message="Only fulfillment roles may acquire package locks.",
     )
-    owner_role = next(role for role in normalized_roles if role in set(FULFILLMENT_ROLE_CODES))
+    owner_role = next(
+        (role for role in normalized_roles if role in set(FULFILLMENT_ROLE_CODES)),
+        ROLE_SYSTEM_ADMINISTRATOR,
+    )
     now = timezone.now()
     expires_at = now + timedelta(minutes=30)
     existing = OperationsPackageLock.objects.filter(package_id=int(package_id)).first()
@@ -729,7 +735,10 @@ def submit_eligibility_decision(
         decision_code=decision_code,
         decision_reason=decision_reason,
         decided_by_user_id=actor_id,
-        decided_by_role_code=next(role for role in normalized_roles if role in set(ELIGIBILITY_ROLE_CODES)),
+        decided_by_role_code=next(
+            (role for role in normalized_roles if role in set(ELIGIBILITY_ROLE_CODES)),
+            ROLE_SYSTEM_ADMINISTRATOR,
+        ),
         decided_at=now,
     )
     request_record = _sync_operations_request(request, actor_id=actor_id, status_code=next_status)

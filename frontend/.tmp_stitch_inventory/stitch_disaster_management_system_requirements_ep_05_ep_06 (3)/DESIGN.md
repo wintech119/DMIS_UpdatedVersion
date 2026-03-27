@@ -60,7 +60,7 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 
 ### Input Fields
 *   **Default:** `surface_container_lowest` (#ffffff) with a 1px "Ghost Border" (`outline_variant` at 20%).
-*   **Focus:** Border becomes `primary` (#000000) at 100%. Transition should be 200ms ease-in-out.
+*   **Focus:** Keep the `surface_container_lowest` field surface and the 1px Ghost Border in `outline_variant` at 20% for structure, then add a 2px outline in `primary` (#000000) at 72% opacity with a 2px offset and a soft outer glow. Transition should be 200ms ease-in-out.
 
 ### Floating Command Bar (Signature Component)
 In the spirit of OpenAI/ChatGPT, use a centered, floating input bar. 

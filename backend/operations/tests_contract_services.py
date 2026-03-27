@@ -18,6 +18,7 @@ from operations.constants import (
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_RECEIPT,
+    ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
 )
@@ -295,6 +296,34 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).exists()
         )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_system_administrator_can_commit_package_and_own_lock(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="system-admin-1",
+            actor_roles=[ROLE_SYSTEM_ADMINISTRATOR],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        lock = OperationsPackageLock.objects.get(package_id=90)
+        self.assertEqual(lock.lock_owner_role_code, ROLE_SYSTEM_ADMINISTRATOR)
+        self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._request_item_rows_for_allocation", return_value=[{"request_qty": "2", "issue_qty": "2"}])
@@ -601,6 +630,43 @@ class OperationsWorkflowContractTests(TestCase):
         result = contract_services.list_packages(
             actor_id="logistics-1",
             actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
+
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_system_administrator_can_view_package_queue_for_accessible_tenant_scope(
+        self,
+        load_request_mock,
+        _current_package_mock,
+        get_agency_scope_mock,
+        _request_summary_mock,
+    ) -> None:
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=70, agency_id=501, status_code=3)
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        result = contract_services.list_packages(
+            actor_id="system-admin-1",
+            actor_roles=[ROLE_SYSTEM_ADMINISTRATOR],
             tenant_context=self.dispatch_ready_context,
         )
 
