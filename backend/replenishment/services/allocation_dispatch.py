@@ -178,7 +178,7 @@ def _next_int_id(table_name: str, column_name: str) -> int:
 
 
 def _tracking_no(prefix: str, numeric_id: int) -> str:
-    return f"{prefix}{int(numeric_id):05d}"[-7:]
+    return f"{prefix}{int(numeric_id):05d}"
 
 
 def _upsert_request_items(

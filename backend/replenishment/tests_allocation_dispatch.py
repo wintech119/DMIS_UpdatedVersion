@@ -14,6 +14,7 @@ from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
     _ensure_legacy_request_package,
     _request_header_update_values,
+    _tracking_no,
     _apply_stock_delta_for_rows,
     _upsert_request_items,
     build_greedy_allocation_plan,
@@ -28,6 +29,12 @@ from replenishment.services.allocation_dispatch import (
 
 
 class AllocationDispatchHelperTests(SimpleTestCase):
+    def test_tracking_number_preserves_prefix_for_large_ids(self) -> None:
+        self.assertEqual(_tracking_no("PK", 100000), "PK100000")
+
+    def test_tracking_number_keeps_zero_padding_for_small_ids(self) -> None:
+        self.assertEqual(_tracking_no("RQ", 7), "RQ00007")
+
     def test_request_header_updates_mark_committed_allocations_as_approved_without_action_fields(self) -> None:
         values = _request_header_update_values(
             request=SimpleNamespace(

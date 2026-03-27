@@ -104,7 +104,11 @@ class OperationsReliefRequest(AuditedModel):
 
 class OperationsEligibilityDecision(models.Model):
     decision_id = models.BigAutoField(primary_key=True)
-    relief_request_id = models.IntegerField(unique=True)
+    relief_request = models.OneToOneField(
+        OperationsReliefRequest,
+        on_delete=models.CASCADE,
+        related_name="eligibility_decision",
+    )
     decision_code = models.CharField(max_length=20)
     decision_reason = models.TextField(blank=True, null=True)
     decided_by_user_id = models.CharField(max_length=50)
@@ -121,7 +125,11 @@ class OperationsEligibilityDecision(models.Model):
 class OperationsPackage(AuditedModel):
     package_id = models.IntegerField(primary_key=True)
     package_no = models.CharField(max_length=30, unique=True)
-    relief_request_id = models.IntegerField(db_index=True)
+    relief_request = models.ForeignKey(
+        OperationsReliefRequest,
+        on_delete=models.CASCADE,
+        related_name="packages",
+    )
     source_warehouse_id = models.IntegerField(blank=True, null=True)
     destination_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
     destination_agency_id = models.IntegerField(blank=True, null=True)
@@ -134,14 +142,18 @@ class OperationsPackage(AuditedModel):
     class Meta:
         db_table = "operations_package"
         indexes = [
-            models.Index(fields=["relief_request_id", "status_code"]),
+            models.Index(fields=["relief_request", "status_code"]),
             models.Index(fields=["destination_tenant_id", "status_code"]),
         ]
 
 
 class OperationsPackageLock(models.Model):
     package_lock_id = models.BigAutoField(primary_key=True)
-    package_id = models.IntegerField(unique=True)
+    package = models.OneToOneField(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="lock_record",
+    )
     lock_owner_user_id = models.CharField(max_length=50)
     lock_owner_role_code = models.CharField(max_length=50)
     lock_started_at = models.DateTimeField(default=timezone.now)
@@ -157,7 +169,11 @@ class OperationsPackageLock(models.Model):
 
 class OperationsDispatch(AuditedModel):
     dispatch_id = models.BigAutoField(primary_key=True)
-    package_id = models.IntegerField(unique=True)
+    package = models.OneToOneField(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="dispatch_record",
+    )
     dispatch_no = models.CharField(max_length=30, unique=True)
     status_code = models.CharField(max_length=30, db_index=True)
     dispatch_at = models.DateTimeField(blank=True, null=True)
@@ -176,7 +192,11 @@ class OperationsDispatch(AuditedModel):
 
 class OperationsDispatchTransport(models.Model):
     dispatch_transport_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.BigIntegerField(unique=True)
+    dispatch = models.OneToOneField(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="transport_record",
+    )
     driver_name = models.CharField(max_length=120)
     driver_license_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_id = models.CharField(max_length=50, blank=True, null=True)
@@ -194,7 +214,11 @@ class OperationsDispatchTransport(models.Model):
 
 class OperationsWaybill(models.Model):
     waybill_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.BigIntegerField(db_index=True)
+    dispatch = models.ForeignKey(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="waybills",
+    )
     waybill_no = models.CharField(max_length=50, unique=True)
     artifact_payload_json = models.JSONField()
     artifact_version = models.PositiveIntegerField(default=1)
@@ -205,14 +229,22 @@ class OperationsWaybill(models.Model):
     class Meta:
         db_table = "operations_waybill"
         indexes = [
-            models.Index(fields=["dispatch_id", "generated_at"]),
+            models.Index(fields=["dispatch", "generated_at"]),
         ]
 
 
 class OperationsReceipt(models.Model):
     receipt_id = models.BigAutoField(primary_key=True)
-    dispatch_id = models.BigIntegerField(unique=True)
-    package_id = models.IntegerField(db_index=True)
+    dispatch = models.OneToOneField(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="receipt_record",
+    )
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="receipts",
+    )
     receipt_status_code = models.CharField(max_length=30, db_index=True)
     received_by_user_id = models.CharField(max_length=50, blank=True, null=True)
     received_by_name = models.CharField(max_length=120, blank=True, null=True)

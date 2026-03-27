@@ -215,6 +215,14 @@ class ReliefRequestAgencyPolicyTests(SimpleTestCase):
         self.assertEqual(raised.exception.errors["agency_id"]["code"], "on_behalf_not_allowed")
 
 
+class TrackingNumberHelperTests(SimpleTestCase):
+    def test_tracking_number_preserves_prefix_for_large_ids(self) -> None:
+        self.assertEqual(operations_service._tracking_no("RQ", 100000), "RQ100000")
+
+    def test_tracking_number_keeps_zero_padding_for_small_ids(self) -> None:
+        self.assertEqual(operations_service._tracking_no("PK", 7), "PK00007")
+
+
 class ReliefRequestServiceTests(TestCase):
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 77, "tracking_no": "RQ00077"})
     @patch("operations.services._upsert_request_items")
@@ -528,6 +536,33 @@ class ReliefRequestServiceTests(TestCase):
         self.assertIs(result, package)
         self.assertEqual(package.to_inventory_id, 9)
         self.assertIn("to_inventory_id", list(saved.get("update_fields", [])))
+
+    @patch("operations.services.timezone.now", return_value=datetime(2026, 3, 27, 9, 0, 0))
+    @patch("operations.services._load_request")
+    @patch("operations.services.ReliefPkg.objects.create")
+    @patch("operations.services._next_int_id", return_value=90)
+    @patch("operations.services._current_package_for_request", return_value=None)
+    def test_new_package_without_destination_persists_null_instead_of_zero(
+        self,
+        _current_package_mock,
+        _next_id_mock,
+        create_package_mock,
+        load_request_mock,
+        _now_mock,
+    ) -> None:
+        load_request_mock.return_value = SimpleNamespace(
+            agency_id=501,
+            eligible_event_id=12,
+            reliefrqst_id=70,
+        )
+
+        operations_service._ensure_package(
+            70,
+            actor_id="planner-1",
+            payload={"comments_text": "Prep"},
+        )
+
+        self.assertIsNone(create_package_mock.call_args.kwargs["to_inventory_id"])
 
     @patch("operations.services.data_access.get_warehouse_name", return_value="Destination Warehouse")
     @patch("operations.services.data_access.get_event_name", return_value="Flood 2026")

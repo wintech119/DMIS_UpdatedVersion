@@ -100,7 +100,7 @@ def _execute(sql: str, params: Sequence[Any] | None = None) -> int:
 
 
 def _tracking_no(prefix: str, numeric_id: int) -> str:
-    return f"{prefix}{int(numeric_id):05d}"[-7:]
+    return f"{prefix}{int(numeric_id):05d}"
 
 
 def _decimal_or_zero(value: Any) -> Decimal:
@@ -634,7 +634,7 @@ def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, 
         agency_id=request.agency_id,
         tracking_no=_tracking_no("PK", reliefpkg_id),
         eligible_event_id=request.eligible_event_id,
-        to_inventory_id=raw_destination if raw_destination is not None else 0,
+        to_inventory_id=raw_destination,
         reliefrqst_id=request.reliefrqst_id,
         start_date=now.date(),
         transport_mode=str(payload.get("transport_mode") or "").strip() or None,

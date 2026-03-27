@@ -919,13 +919,12 @@ def save_package(
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None
     if package_locked_before_save:
+        _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is None:
         return result
-    if not package_locked_before_save:
-        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     first_inventory_id = None
     allocations = payload.get("allocations")
     if isinstance(allocations, list) and allocations:
@@ -945,6 +944,8 @@ def save_package(
         override_status_code=override_status,
         source_warehouse_id=first_inventory_id,
     )
+    if not package_locked_before_save:
+        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_OVERRIDE,

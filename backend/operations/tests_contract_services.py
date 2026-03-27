@@ -276,6 +276,23 @@ class OperationsWorkflowContractTests(TestCase):
                 ],
             )
 
+    def _create_operations_request_record(self, relief_request_id: int = 70, agency_id: int = 501) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=f"RQ{relief_request_id:05d}",
+            requesting_tenant_id=20,
+            requesting_agency_id=agency_id,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=agency_id,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     def test_request_sync_skips_version_bump_when_record_matches_legacy(self, get_agency_scope_mock) -> None:
         get_agency_scope_mock.return_value = self.agency_scope
@@ -309,6 +326,7 @@ class OperationsWorkflowContractTests(TestCase):
     def test_package_sync_skips_version_bump_when_record_matches_legacy(self) -> None:
         original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
         committed_at = timezone.make_aware(datetime(2026, 3, 26, 8, 0, 0))
+        self._create_operations_request_record()
         OperationsPackage.objects.create(
             package_id=90,
             package_no="PK00090",
@@ -442,6 +460,18 @@ class OperationsWorkflowContractTests(TestCase):
         load_request_mock.return_value = self.request
         current_package_mock.return_value = self.package
         get_agency_scope_mock.return_value = self.agency_scope
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
         OperationsPackageLock.objects.create(
             package_id=90,
             lock_owner_user_id="other-actor",
