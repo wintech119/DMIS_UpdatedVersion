@@ -89,9 +89,16 @@ class AllocationSelection:
 
 
 def _schema_name() -> str:
-    configured = str(os.getenv("DMIS_DB_SCHEMA", "")).strip()
-    if configured and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", configured):
-        return configured
+    configured = os.getenv("DMIS_DB_SCHEMA")
+    if configured is not None:
+        configured = configured.strip()
+        if not configured:
+            return "public"
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", configured):
+            return configured
+        raise ValueError(
+            f"Invalid DMIS_DB_SCHEMA value {configured!r}. Expected a SQL identifier such as 'public'."
+        )
     return "public"
 
 
@@ -189,8 +196,22 @@ def _normalize_urgency_ind(value: Any) -> str:
 
 
 def _next_int_id(table_name: str, column_name: str) -> int:
+    qualified_table = _qualified_table(table_name)
+    quoted_column = connection.ops.quote_name(column_name)
+    if connection.vendor == "postgresql":
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                    [table_name, column_name],
+                )
+                cursor.execute(
+                    f"SELECT COALESCE(MAX({quoted_column}), 0) + 1 AS next_id FROM {qualified_table}"
+                )
+                row = cursor.fetchone()
+                return int(row[0]) if row else 1
     row = _fetch_rows(
-        f"SELECT COALESCE(MAX({column_name}), 0) + 1 AS next_id FROM {_qualified_table(table_name)}"
+        f"SELECT COALESCE(MAX({quoted_column}), 0) + 1 AS next_id FROM {qualified_table}"
     )
     return int(row[0]["next_id"]) if row else 1
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -133,6 +134,16 @@ def _optional_positive_int(value: Any, field_name: str) -> int | None:
     if parsed <= 0:
         raise OperationValidationError({field_name: "Must be a positive integer."})
     return parsed
+
+
+def _optional_date(value: Any, field_name: str, errors: dict[str, str]) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        errors[field_name] = "Invalid date"
+        return None
 
 
 def _event_exists(event_id: int) -> bool:
@@ -398,13 +409,14 @@ def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = Fal
                 reason = str(raw.get("rqst_reason_desc") or "").strip() or None
                 if urgency_ind in {"C", "H"} and not reason:
                     errors[f"items[{index}].rqst_reason_desc"] = "Reason is required for high-priority items."
+                required_by_date = _optional_date(raw.get("required_by_date"), f"items[{index}].required_by_date", errors)
                 normalized_items.append(
                     {
                         "item_id": item_id,
                         "request_qty": _quantize_qty(request_qty),
                         "urgency_ind": urgency_ind,
                         "rqst_reason_desc": reason,
-                        "required_by_date": raw.get("required_by_date"),
+                        "required_by_date": required_by_date,
                     }
                 )
     normalized["items"] = normalized_items

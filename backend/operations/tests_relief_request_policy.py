@@ -294,6 +294,47 @@ class ReliefRequestServiceTests(TestCase):
 
     @patch("operations.services.ReliefRqst.objects.create")
     @patch("operations.services.operations_policy.validate_relief_request_agency_selection")
+    def test_request_item_required_by_date_must_be_iso_date(
+        self,
+        validate_scope_mock,
+        create_request_mock,
+    ) -> None:
+        tenant_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
+        validate_scope_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=operations_policy.AgencyScope(
+                agency_id=501,
+                agency_name="Food For The Poor Shelter",
+                agency_type="SHELTER",
+                warehouse_id=11,
+                tenant_id=20,
+                tenant_code="FFP",
+                tenant_name="Food For The Poor",
+                tenant_type="EXTERNAL",
+            ),
+            origin_mode=operations_policy.ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service.create_request(
+                payload={
+                    "agency_id": 501,
+                    "urgency_ind": "M",
+                    "items": [{"item_id": 101, "request_qty": "3", "required_by_date": "2026-02-30"}],
+                },
+                actor_id="user-1",
+                tenant_context=tenant_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(raised.exception.errors["items[0].required_by_date"], "Invalid date")
+        create_request_mock.assert_not_called()
+
+    @patch("operations.services.ReliefRqst.objects.create")
+    @patch("operations.services.operations_policy.validate_relief_request_agency_selection")
     def test_self_only_requester_cannot_create_for_subordinate_requests(
         self,
         validate_scope_mock,

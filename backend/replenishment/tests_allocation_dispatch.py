@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import ProgrammingError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -42,6 +43,35 @@ class AllocationDispatchHelperTests(SimpleTestCase):
 
     def test_tracking_number_keeps_zero_padding_for_small_ids(self) -> None:
         self.assertEqual(_tracking_no("RQ", 7), "RQ00007")
+
+    def test_schema_name_rejects_invalid_configured_schema(self) -> None:
+        with patch.dict("os.environ", {"DMIS_DB_SCHEMA": "bad-schema"}, clear=True):
+            with self.assertRaises(ValueError) as raised:
+                from replenishment.services.allocation_dispatch import _schema_name
+
+                _schema_name()
+
+        self.assertIn("bad-schema", str(raised.exception))
+
+    @patch("replenishment.services.allocation_dispatch.transaction.atomic", return_value=nullcontext())
+    @patch("replenishment.services.allocation_dispatch.connection")
+    def test_next_int_id_serializes_postgres_allocations(self, connection_mock, atomic_mock) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = (501,)
+        connection_mock.vendor = "postgresql"
+        connection_mock.ops.quote_name.side_effect = lambda value: f'"{value}"'
+        connection_mock.cursor.return_value = cursor
+
+        from replenishment.services.allocation_dispatch import _next_int_id
+
+        next_id = _next_int_id("reliefrqst", "reliefrqst_id")
+
+        self.assertEqual(next_id, 501)
+        atomic_mock.assert_called_once()
+        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertIn("pg_advisory_xact_lock", cursor.execute.call_args_list[0].args[0])
+        self.assertIn('SELECT COALESCE(MAX("reliefrqst_id"), 0) + 1 AS next_id FROM "public"."reliefrqst"', cursor.execute.call_args_list[1].args[0])
 
     def test_request_header_updates_mark_committed_allocations_as_approved_without_action_fields(self) -> None:
         values = _request_header_update_values(
