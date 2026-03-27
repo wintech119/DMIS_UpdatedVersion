@@ -63,7 +63,7 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 *   **Focus:** Keep the `surface_container_lowest` field surface and the 1px Ghost Border in `outline_variant` at 20% for structure, then add a 2px outline in `primary` (#000000) at 72% opacity with a 2px offset and a soft outer glow. Transition should be 200ms ease-in-out.
 
 ### Floating Command Bar (Signature Component)
-In the spirit of OpenAI/ChatGPT, use a centered, floating input bar. 
+Following a conversation-first assistant aesthetic, use a centered, floating input bar. 
 *   **Style:** `surface_container_lowest` (90% opacity), backdrop-blur `12px`, `md` corner radius, and an ambient shadow.
 
 ---

@@ -790,6 +790,8 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [80])
+        self.assertTrue(OperationsReliefRequest.objects.filter(relief_request_id=80).exists())
+        self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=81).exists())
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")

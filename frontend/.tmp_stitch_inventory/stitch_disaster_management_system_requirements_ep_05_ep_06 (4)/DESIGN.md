@@ -24,6 +24,7 @@ Treat the UI as a series of physical layers. Use the following nesting logic to 
 
 ### The "Glass & Signature" Rule
 For floating elements (modals, dropdowns), use **Glassmorphism**. Apply `surface_container_lowest` at 80% opacity with a `24px` backdrop blur. This ensures the interface feels "digital-first" and integrated rather than "pasted on."
+*   **Floating Command Bar Exception:** The Floating Command Bar is the intentional signature deviation from the standard floating treatment. Use `surface_container_lowest` at 90% opacity with a `12px` backdrop blur when the command bar must stay more prominent and legible over active content; reserve the standard 80% opacity and `24px` blur treatment for general floating elements.
 
 ---
 
@@ -43,7 +44,7 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 *   **The Layering Principle:** Depth is achieved by "stacking." A card (`surface_container_lowest`) sitting on a section (`surface_container_low`) creates a soft, natural lift.
 *   **Ambient Shadows:** For high-elevation elements like Modals, use a "Shadow-Glow."
     *   *Spec:* `0px 20px 40px rgba(26, 28, 28, 0.04)`. The shadow must be a tinted version of `on_surface` at a very low opacity.
-*   **The "Ghost Border" Fallback:** For standard mode, use `outline_variant` (#c6c6c6) at **20% opacity**.
+*   **The "Ghost Border" Fallback:** The current `outline_variant` (#c6c6c6) at **20% opacity** is only a starting point. Verify contrast against each active surface background and increase opacity until the border reaches at least 3:1 contrast; document the tested value per surface whenever 20% is insufficient.
 *   **High-Contrast / Forced-Colors Exception:** In high-contrast or forced-colors modes, use a full-opacity system outline (for example CanvasText, Highlight, or FocusRing) for control boundaries and focus indicators, and verify at least 3:1 contrast against the active surface.
 
 ---

@@ -13,7 +13,7 @@ By stripping away the "noise" of traditional digital interfaces—heavy shadows,
 The palette is strictly monochromatic, utilizing the full breadth of the Material Design scale to create a "paper-on-glass" aesthetic.
 
 ### The "No-Line" Rule
-To achieve a premium feel, **1px solid borders are prohibited for sectioning.** Boundaries must be defined solely through background color shifts. For example, a sidebar should use `surface_container_low` (#f3f3f4) against a main content area of `surface` (#f9f9f9).
+To achieve a premium feel, **1px solid borders are prohibited for layout sectioning.** Boundaries for sidebars, panels, and major content divisions must be defined solely through background color shifts. Form controls are the approved exception: inputs, textareas, selects, and buttons may retain the 1px Ghost Border for affordance and accessibility. For example, a sidebar should use `surface_container_low` (#f3f3f4) against a main content area of `surface` (#f9f9f9).
 
 ### Surface Hierarchy & Nesting
 Treat the UI as a series of physical layers. Use the following nesting logic to create depth:
@@ -44,7 +44,7 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 *   **Ambient Shadows:** For high-elevation elements like Modals, use a "Shadow-Glow."
     *   *Spec:* `0px 20px 40px rgba(26, 28, 28, 0.04)`. The shadow must be a tinted version of `on_surface` at a very low opacity.
 *   **The "Ghost Border" Fallback:** For standard mode, use `outline_variant` (#c6c6c6) at **20% opacity**.
-*   **High-Contrast / Forced-Colors Exception:** In high-contrast or forced-colors modes, use a full-opacity system outline (for example CanvasText, Highlight, or FocusRing) for control boundaries and focus indicators, and verify at least 3:1 contrast against the active surface.
+*   **Forced-Colors CSS Rule:** In `@media (forced-colors: active)`, map the Ghost Border and all focus outlines to full-opacity system colors such as `CanvasText`, `Highlight`, or `FocusRing`, and keep the outline at least 2px thick with no opacity reduction.
 
 ---
 
@@ -64,7 +64,7 @@ In this system, elevation is a property of light and material, not "dropshadow.c
 *   **Focus:** Keep the `surface_container_lowest` field surface and the 1px Ghost Border in `outline_variant` at 20% for structure, then add a 2px outline in `primary` (#000000) at 72% opacity with a 2px offset and a soft outer glow. Transition should be 200ms ease-in-out.
 
 ### Floating Command Bar (Signature Component)
-In the spirit of OpenAI/ChatGPT, use a centered, floating input bar. 
+Following a conversation-first assistant interface pattern, use a centered, floating input bar. 
 *   **Style:** `surface_container_lowest` (90% opacity), backdrop-blur `12px`, `md` corner radius, and an ambient shadow.
 
 ---

@@ -152,6 +152,16 @@ def _ops_request_from_legacy(request: ReliefRqst, *, actor_id: str) -> Operation
     return record
 
 
+def _request_access_probe_from_legacy(request: ReliefRqst) -> OperationsReliefRequest:
+    agency_scope = operations_policy.get_agency_scope(int(request.agency_id))
+    beneficiary_tenant_id = agency_scope.tenant_id if agency_scope is not None else None
+    return OperationsReliefRequest(
+        relief_request_id=int(request.reliefrqst_id),
+        requesting_tenant_id=int(beneficiary_tenant_id or 0),
+        beneficiary_tenant_id=beneficiary_tenant_id,
+    )
+
+
 def _assign_if_changed(record: Any, field_name: str, value: Any, changed_fields: list[str]) -> None:
     if getattr(record, field_name) != value:
         setattr(record, field_name, value)
@@ -701,10 +711,9 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
     results: list[dict[str, Any]] = []
     queryset = ReliefRqst.objects.filter(reliefrqst_id__in=entity_ids) if entity_ids else ReliefRqst.objects.filter(status_code=legacy_service.STATUS_AWAITING_APPROVAL)
     for request in queryset.order_by("-request_date", "-reliefrqst_id")[:200]:
-        request_record = _ops_request_from_legacy(request, actor_id=actor_id)
         try:
             _ensure_request_access(
-                request_record,
+                _request_access_probe_from_legacy(request),
                 actor_id=actor_id,
                 actor_roles=actor_roles or (),
                 tenant_context=tenant_context,
