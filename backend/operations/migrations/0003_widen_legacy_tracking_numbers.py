@@ -49,6 +49,24 @@ def _is_postgres(schema_editor) -> bool:
     return schema_editor.connection.vendor == "postgresql"
 
 
+def _search_path_schema_name(schema_editor) -> str:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SHOW search_path")
+        row = cursor.fetchone()
+
+    search_path = str((row or [None])[0] or "").strip()
+    if not search_path:
+        return "public"
+
+    first_schema = search_path.split(",", 1)[0].strip()
+    if first_schema.startswith('"') and first_schema.endswith('"') and len(first_schema) >= 2:
+        first_schema = first_schema[1:-1].replace('""', '"')
+
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", first_schema):
+        return "public"
+    return first_schema
+
+
 def _schema_name(schema_editor) -> str:
     configured = os.getenv("DMIS_DB_SCHEMA")
     if configured is not None:
@@ -56,10 +74,7 @@ def _schema_name(schema_editor) -> str:
             raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
         return configured
 
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute("SELECT current_schema()")
-        row = cursor.fetchone()
-    return row[0] or "public"
+    return _search_path_schema_name(schema_editor)
 
 
 def _legacy_tracking_tables_exist(schema_editor) -> bool:

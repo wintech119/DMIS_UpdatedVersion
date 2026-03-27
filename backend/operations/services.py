@@ -823,6 +823,8 @@ def _save_package_allocation(
     request = _load_request(reliefrqst_id, for_update=True)
     package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
     current_status = _current_package_status(package)
+    if current_status == PKG_STATUS_DISPATCHED:
+        raise DispatchError("Package has already been dispatched.", code="duplicate_dispatch")
     old_rows = _selected_plan_for_package(int(package.reliefpkg_id)) if current_status in {"P", "C", "V"} else []
     if old_rows:
         _apply_stock_delta_for_rows(old_rows, actor_user_id=actor_id, delta_sign=-1, update_needs_list=False)
@@ -832,6 +834,10 @@ def _save_package_allocation(
     override_required = False
     override_markers: list[str] = []
     for item_id, rows in _package_plan_map(plan_rows).items():
+        if item_id not in item_lookup:
+            override_required = True
+            override_markers.append("item_not_in_request")
+            continue
         candidates: list[dict[str, Any]] = []
         for warehouse_id in warehouse_ids:
             candidates.extend(_fetch_batch_candidates(warehouse_id, item_id))

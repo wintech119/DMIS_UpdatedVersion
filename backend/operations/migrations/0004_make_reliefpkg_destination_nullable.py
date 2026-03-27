@@ -39,10 +39,7 @@ def _schema_name(schema_editor) -> str:
             raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
         return configured
 
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute("SELECT current_schema()")
-        row = cursor.fetchone()
-    return row[0] or "public"
+    return "public"
 
 
 def _legacy_reliefpkg_exists(schema_editor) -> bool:

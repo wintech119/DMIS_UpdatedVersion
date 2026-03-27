@@ -12,7 +12,11 @@ from rest_framework.test import APIClient
 from replenishment import views
 from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
+    AllocationDispatchError,
+    STATUS_APPROVED,
     _ensure_legacy_request_package,
+    _fetch_batch_candidates,
+    commit_allocation,
     _request_header_update_values,
     _request_completion_status,
     _tracking_no,
@@ -23,6 +27,7 @@ from replenishment.services.allocation_dispatch import (
     detect_override_requirement,
     get_current_allocation,
     OverrideApprovalError,
+    release_allocation,
     sort_batch_candidates,
     sort_needs_list_items_for_allocation,
     validate_override_approval,
@@ -30,6 +35,8 @@ from replenishment.services.allocation_dispatch import (
 
 
 class AllocationDispatchHelperTests(SimpleTestCase):
+    databases = {"default"}
+
     def test_tracking_number_preserves_prefix_for_large_ids(self) -> None:
         self.assertEqual(_tracking_no("PK", 100000), "PK100000")
 
@@ -391,7 +398,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
 
     @patch(
         "replenishment.services.allocation_dispatch.data_access.get_warehouse_names",
-        return_value=({10: "Warehouse 10"}, []),
+        return_value=({10: "Warehouse 10", 20: "Warehouse 20"}, []),
     )
     @patch("replenishment.services.allocation_dispatch.data_access.get_warehouse_name", return_value="Warehouse 2")
     @patch("replenishment.services.allocation_dispatch.data_access.get_event_name", return_value="Storm 7")
@@ -418,7 +425,17 @@ class AllocationDispatchHelperTests(SimpleTestCase):
                     "uom_code": "EA",
                     "source_type": "DONATION",
                     "source_record_id": 77,
-                }
+                },
+                {
+                    "item_id": 2,
+                    "inventory_id": 20,
+                    "batch_id": 101,
+                    "batch_no": "B101",
+                    "quantity": "4",
+                    "uom_code": "EA",
+                    "source_type": "TRANSFER",
+                    "source_record_id": 88,
+                },
             ],
             actor_user_id="dispatcher",
             dispatch_dtime=None,
@@ -430,6 +447,53 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertEqual(payload["package_tracking_no"], "PK456")
         self.assertEqual(payload["line_items"][0]["batch_id"], 100)
         self.assertEqual(payload["line_items"][0]["source_type"], "DONATION")
+        self.assertEqual(payload["source_warehouse_names"], ["Warehouse 10", "Warehouse 20"])
+
+    @patch("replenishment.services.allocation_dispatch._fetch_rows", return_value=[])
+    def test_fetch_batch_candidates_uses_datetime_cutoff_for_as_of_date(
+        self,
+        mock_fetch_rows,
+    ) -> None:
+        as_of_date = date(2026, 3, 27)
+
+        result = _fetch_batch_candidates(warehouse_id=1, item_id=2, as_of_date=as_of_date)
+
+        self.assertEqual(result, [])
+        cutoff = mock_fetch_rows.call_args.args[1][4]
+        self.assertIsInstance(cutoff, datetime)
+        self.assertEqual(cutoff.date(), as_of_date)
+        self.assertEqual((cutoff.hour, cutoff.minute, cutoff.second), (23, 59, 59))
+
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_rejects_selection_items_not_present_in_needs_list(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_fetch_batch_candidates,
+        mock_item_filter,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1)
+        mock_load_needs_items.return_value = [SimpleNamespace(item_id=1)]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="P"),
+        )
+
+        with self.assertRaises(AllocationDispatchError) as exc:
+            commit_allocation(
+                LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+                [{"item_id": 2, "quantity": "1"}],
+                actor_user_id="tester",
+            )
+
+        self.assertEqual(exc.exception.code, "allocation_item_not_in_needs")
+        mock_fetch_batch_candidates.assert_not_called()
+        mock_item_filter.assert_not_called()
 
     @patch("replenishment.services.allocation_dispatch._upsert_request_items")
     @patch("replenishment.services.allocation_dispatch._next_int_id", side_effect=[501, 601])
@@ -470,6 +534,39 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertNotIn("action_by_id", mock_request_create.call_args.kwargs)
         self.assertNotIn("action_dtime", mock_request_create.call_args.kwargs)
         self.assertEqual(mock_package_create.call_args.kwargs["status_code"], "A")
+
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.legacy_models.ReliefPkg.objects.filter")
+    @patch("replenishment.legacy_models.ReliefRqst.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._selected_plan_for_package", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._ensure_request_package_context")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_release_allocation_restores_request_to_approved_state(
+        self,
+        mock_load_needs_list,
+        mock_ensure_context,
+        _mock_selected_plan,
+        _mock_apply_stock_delta,
+        mock_request_filter,
+        mock_package_filter,
+        _mock_log_audit,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11)
+        mock_ensure_context.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=3),
+            SimpleNamespace(reliefpkg_id=90, version_nbr=4, status_code="P"),
+        )
+        mock_request_filter.return_value.update.return_value = 1
+        mock_package_filter.return_value.update.return_value = 1
+
+        release_allocation(
+            LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+            actor_user_id="tester",
+            reason_code="allocation_release",
+        )
+
+        self.assertEqual(mock_request_filter.return_value.update.call_args.kwargs["status_code"], STATUS_APPROVED)
 
     @patch("replenishment.services.allocation_dispatch._execute", side_effect=[0, 1])
     def test_upsert_request_items_inserts_requested_status_without_action_fields_for_high_urgency(

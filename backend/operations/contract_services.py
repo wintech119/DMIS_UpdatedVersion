@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
 from django.db import transaction
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
 from api.tenancy import TenantContext, can_access_tenant
@@ -168,6 +169,26 @@ def _assign_if_changed(record: Any, field_name: str, value: Any, changed_fields:
         changed_fields.append(field_name)
 
 
+def _mask_sensitive_value(value: str | None) -> str | None:
+    if not value:
+        return value
+    trimmed = str(value).strip()
+    if len(trimmed) <= 4:
+        return trimmed
+    return f"{'*' * (len(trimmed) - 4)}{trimmed[-4:]}"
+
+
+def _parse_transport_datetime(value: Any, field_name: str) -> datetime | None:
+    if value in (None, ""):
+        return None
+    parsed = parse_datetime(str(value))
+    if parsed is None:
+        raise OperationValidationError({field_name: f"{field_name} must be a valid ISO 8601 datetime."})
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
 def _sync_operations_request(
     request: ReliefRqst,
     *,
@@ -316,6 +337,17 @@ def _ensure_dispatch_record(
             to_status=dispatch.status_code,
             actor_id=actor_id,
         )
+    else:
+        changed_fields: list[str] = []
+        _assign_if_changed(dispatch, "source_warehouse_id", package_record.source_warehouse_id, changed_fields)
+        _assign_if_changed(dispatch, "destination_tenant_id", package_record.destination_tenant_id, changed_fields)
+        _assign_if_changed(dispatch, "destination_agency_id", package_record.destination_agency_id, changed_fields)
+        if changed_fields:
+            dispatch.update_by_id = actor_id
+            dispatch.update_dtime = timezone.now()
+            dispatch.version_nbr = int(dispatch.version_nbr or 0) + 1
+            changed_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+            dispatch.save(update_fields=changed_fields)
     return dispatch
 
 
@@ -489,7 +521,7 @@ def _dispatch_payload(package: ReliefPkg, dispatch: OperationsDispatch) -> dict[
     if transport is not None:
         payload["transport"] = {
             "driver_name": transport.driver_name,
-            "driver_license_no": transport.driver_license_no,
+            "driver_license_no": _mask_sensitive_value(transport.driver_license_no),
             "vehicle_id": transport.vehicle_id,
             "vehicle_registration": transport.vehicle_registration,
             "vehicle_type": transport.vehicle_type,
@@ -1110,16 +1142,21 @@ def _validated_transport_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     vehicle_id = str(payload.get("vehicle_id") or "").strip() or None
     vehicle_registration = str(payload.get("vehicle_registration") or "").strip() or None
     vehicle_type = str(payload.get("vehicle_type") or "").strip() or None
-    departure_dtime = payload.get("departure_dtime")
-    estimated_arrival_dtime = payload.get("estimated_arrival_dtime")
+    errors: dict[str, str] = {}
+    departure_dtime = _parse_transport_datetime(payload.get("departure_dtime"), "departure_dtime")
+    estimated_arrival_dtime = _parse_transport_datetime(payload.get("estimated_arrival_dtime"), "estimated_arrival_dtime")
     if not driver_name:
-        raise OperationValidationError({"driver_name": "driver_name is required for dispatch."})
+        errors["driver_name"] = "driver_name is required for dispatch."
     if not any([vehicle_id, vehicle_registration, vehicle_type]):
-        raise OperationValidationError({"vehicle": "vehicle_id, vehicle_registration, or vehicle_type is required for dispatch."})
-    if departure_dtime in (None, ""):
-        raise OperationValidationError({"departure_dtime": "departure_dtime is required for dispatch."})
-    if estimated_arrival_dtime in (None, ""):
-        raise OperationValidationError({"estimated_arrival_dtime": "estimated_arrival_dtime is required for dispatch."})
+        errors["vehicle"] = "vehicle_id, vehicle_registration, or vehicle_type is required for dispatch."
+    if departure_dtime is None:
+        errors["departure_dtime"] = "departure_dtime is required for dispatch."
+    if estimated_arrival_dtime is None:
+        errors["estimated_arrival_dtime"] = "estimated_arrival_dtime is required for dispatch."
+    if departure_dtime is not None and estimated_arrival_dtime is not None and estimated_arrival_dtime < departure_dtime:
+        errors["estimated_arrival_dtime"] = "estimated_arrival_dtime cannot be earlier than departure_dtime."
+    if errors:
+        raise OperationValidationError(errors)
     return {
         "driver_name": driver_name,
         "driver_license_no": str(payload.get("driver_license_no") or "").strip() or None,

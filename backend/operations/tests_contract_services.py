@@ -355,6 +355,49 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
 
+    def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:
+        self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
+        dispatch = OperationsDispatch.objects.create(
+            package_id=90,
+            dispatch_no="DP00090",
+            status_code="READY",
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
+
+        updated_dispatch = contract_services._ensure_dispatch_record(
+            package=self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="P"),
+            package_record=SimpleNamespace(
+                package_id=package_record.package_id,
+                source_warehouse_id=9,
+                destination_tenant_id=30,
+                destination_agency_id=777,
+            ),
+            actor_id="sync-1",
+        )
+        dispatch.refresh_from_db()
+
+        self.assertEqual(updated_dispatch.dispatch_id, dispatch.dispatch_id)
+        self.assertEqual(dispatch.source_warehouse_id, 9)
+        self.assertEqual(dispatch.destination_tenant_id, 30)
+        self.assertEqual(dispatch.destination_agency_id, 777)
+        self.assertEqual(dispatch.update_by_id, "sync-1")
+        self.assertEqual(dispatch.version_nbr, 2)
+
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -445,6 +488,57 @@ class OperationsWorkflowContractTests(TestCase):
         lock = OperationsPackageLock.objects.get(package_id=90)
         self.assertEqual(lock.lock_owner_role_code, ROLE_SYSTEM_ADMINISTRATOR)
         self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_package_commit_updates_existing_dispatch_route_fields_after_edit(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsDispatch.objects.create(
+            package_id=90,
+            dispatch_no="DP00090",
+            status_code="READY",
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 9, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        dispatch = OperationsDispatch.objects.get(package_id=90)
+        self.assertEqual(dispatch.source_warehouse_id, 9)
+        self.assertEqual(dispatch.destination_tenant_id, 20)
+        self.assertEqual(dispatch.destination_agency_id, 501)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -567,6 +661,75 @@ class OperationsWorkflowContractTests(TestCase):
         submit_dispatch_mock.assert_not_called()
         self.assertFalse(OperationsWaybill.objects.exists())
         self.assertFalse(OperationsDispatchTransport.objects.exists())
+
+    def test_validated_transport_payload_rejects_unparseable_datetimes(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services._validated_transport_payload(
+                {
+                    "driver_name": "Jane Driver",
+                    "vehicle_registration": "1234AB",
+                    "departure_dtime": "not-a-datetime",
+                    "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+                }
+            )
+
+        self.assertEqual(
+            raised.exception.errors["departure_dtime"],
+            "departure_dtime must be a valid ISO 8601 datetime.",
+        )
+
+    def test_validated_transport_payload_rejects_eta_before_departure(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services._validated_transport_payload(
+                {
+                    "driver_name": "Jane Driver",
+                    "vehicle_registration": "1234AB",
+                    "departure_dtime": "2026-03-26T14:00:00Z",
+                    "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+                }
+            )
+
+        self.assertEqual(
+            raised.exception.errors["estimated_arrival_dtime"],
+            "estimated_arrival_dtime cannot be earlier than departure_dtime.",
+        )
+
+    def test_dispatch_payload_masks_driver_license_number(self) -> None:
+        self._create_operations_request_record()
+        package = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_DISPATCHED,
+            dispatched_at=datetime(2026, 3, 26, 12, 0, 0),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        dispatch = OperationsDispatch.objects.create(
+            package_id=90,
+            dispatch_no="DP00090",
+            status_code=DISPATCH_STATUS_IN_TRANSIT,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsDispatchTransport.objects.create(
+            dispatch_id=dispatch.dispatch_id,
+            driver_name="Jane Driver",
+            driver_license_no="DL123456789",
+            vehicle_registration="1234AB",
+            transport_mode="TRUCK",
+        )
+
+        payload = contract_services._dispatch_payload(package, dispatch)
+
+        self.assertEqual(payload["transport"]["driver_license_no"], "*******6789")
+        self.assertNotEqual(payload["transport"]["driver_license_no"], "DL123456789")
 
     @patch("operations.contract_services._dispatch_payload", side_effect=lambda package, dispatch: {"dispatch_id": int(dispatch.dispatch_id), "status_code": dispatch.status_code})
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})

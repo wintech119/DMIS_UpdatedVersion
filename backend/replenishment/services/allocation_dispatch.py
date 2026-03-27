@@ -27,6 +27,10 @@ _ALLOCATION_OVERRIDE_SUPERVISOR_ROLES = (
     | set(approval_service.DIRECTOR_PEOD_APPROVER_ROLES)
 )
 
+STATUS_APPROVED = 2
+STATUS_PART_FILLED = 5
+STATUS_FILLED = 7
+
 
 class AllocationDispatchError(Exception):
     code = "allocation_dispatch_error"
@@ -136,8 +140,8 @@ def _request_completion_status(reliefrqst_id: int) -> int:
         [reliefrqst_id],
     )
     if rows and all(_quantize_qty(row["issue_qty"]) >= _quantize_qty(row["request_qty"]) for row in rows):
-        return 7
-    return 5
+        return STATUS_FILLED
+    return STATUS_PART_FILLED
 
 
 def _as_iso(value: Any) -> str | None:
@@ -482,7 +486,12 @@ def _fetch_batch_candidates(
     *,
     as_of_date: date | None = None,
 ) -> list[dict[str, Any]]:
-    as_of = as_of_date or timezone.localdate()
+    if as_of_date is None:
+        as_of = timezone.now()
+    else:
+        as_of = datetime.combine(as_of_date, datetime.max.time())
+        if timezone.is_naive(as_of):
+            as_of = timezone.make_aware(as_of, timezone.get_current_timezone())
     active_status = str(getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")).upper()
     rows = _fetch_rows(
         f"""
@@ -1421,6 +1430,13 @@ def commit_allocation(
         )
 
     needs_items = {item.item_id: item for item in needs_items_list}
+    selected_item_ids = {int(row["item_id"]) for row in selected_rows}
+    missing_item_ids = sorted(selected_item_ids - set(needs_items))
+    if missing_item_ids:
+        raise AllocationDispatchError(
+            f"Allocation contains item(s) not present in the needs list: {', '.join(str(item_id) for item_id in missing_item_ids)}.",
+            code="allocation_item_not_in_needs",
+        )
     candidate_by_item: dict[int, list[dict[str, Any]]] = {}
     for item_id in needs_items:
         item = Item.objects.filter(item_id=item_id).first() or {"issuance_order": "FIFO"}
@@ -1590,7 +1606,12 @@ def build_waybill_payload(
             if row.get("inventory_id") not in (None, "")
         }
     )
-    source_warehouse_names, _ = data_access.get_warehouse_names(source_warehouse_ids)
+    source_warehouse_name_map, _ = data_access.get_warehouse_names(source_warehouse_ids)
+    source_warehouse_names = [
+        source_warehouse_name_map[warehouse_id]
+        for warehouse_id in source_warehouse_ids
+        if warehouse_id in source_warehouse_name_map
+    ]
     destination_name = (
         data_access.get_warehouse_name(int(package.to_inventory_id))
         if package.to_inventory_id is not None
@@ -1877,7 +1898,7 @@ def release_allocation(
         reliefrqst_id=request.reliefrqst_id,
         version_nbr=request.version_nbr,
     ).update(
-        status_code=4,
+        status_code=STATUS_APPROVED,
         status_reason_desc=str(reason_code or "allocation_release")[:255],
         action_by_id=actor_user_id,
         action_dtime=now,
