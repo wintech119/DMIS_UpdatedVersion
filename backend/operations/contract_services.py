@@ -204,11 +204,19 @@ def _ops_request_from_legacy(request: ReliefRqst, *, actor_id: str) -> Operation
 
 
 def _request_access_probe_from_legacy(request: ReliefRqst) -> OperationsReliefRequest:
-    agency_scope = operations_policy.get_agency_scope(int(request.agency_id))
-    beneficiary_tenant_id = agency_scope.tenant_id if agency_scope is not None else None
+    existing = OperationsReliefRequest.objects.filter(
+        relief_request_id=int(request.reliefrqst_id)
+    ).only("requesting_tenant_id", "beneficiary_tenant_id").first()
+    if existing is not None:
+        requesting_tenant_id = existing.requesting_tenant_id
+        beneficiary_tenant_id = existing.beneficiary_tenant_id
+    else:
+        agency_scope = operations_policy.get_agency_scope(int(request.agency_id))
+        beneficiary_tenant_id = agency_scope.tenant_id if agency_scope is not None else None
+        requesting_tenant_id = beneficiary_tenant_id
     return OperationsReliefRequest(
         relief_request_id=int(request.reliefrqst_id),
-        requesting_tenant_id=int(beneficiary_tenant_id or 0),
+        requesting_tenant_id=int(requesting_tenant_id or beneficiary_tenant_id or 0),
         beneficiary_tenant_id=beneficiary_tenant_id,
     )
 
@@ -254,7 +262,7 @@ def _sync_operations_request(
     actor_id: str,
     decision: operations_policy.ReliefRequestWriteDecision | None = None,
     status_code: str | None = None,
-    source_needs_list_id: int | None = None,
+    source_needs_list_id: int | None | object = _UNSET,
     requesting_agency_id: int | None = None,
 ) -> OperationsReliefRequest:
     record = _ops_request_from_legacy(request, actor_id=actor_id)
@@ -284,7 +292,7 @@ def _sync_operations_request(
     _assign_if_changed(record, "request_date", request.request_date, changed_fields)
     _assign_if_changed(record, "urgency_code", request.urgency_ind, changed_fields)
     _assign_if_changed(record, "notes_text", request.rqst_notes_text, changed_fields)
-    if source_needs_list_id is not None:
+    if source_needs_list_id is not _UNSET:
         _assign_if_changed(record, "source_needs_list_id", source_needs_list_id, changed_fields)
     _assign_if_changed(record, "reviewed_by_id", request.review_by_id, changed_fields)
     _assign_if_changed(record, "reviewed_at", request.review_dtime, changed_fields)
@@ -319,14 +327,14 @@ def _sync_operations_package(
     actor_id: str,
     status_code: str | None = None,
     override_status_code: str | None | object = _UNSET,
-    source_warehouse_id: int | None = None,
+    source_warehouse_id: int | None | object = _UNSET,
 ) -> OperationsPackage:
     record, created = OperationsPackage.objects.get_or_create(
         package_id=int(package.reliefpkg_id),
         defaults={
             "package_no": package.tracking_no,
             "relief_request_id": int(package.reliefrqst_id),
-            "source_warehouse_id": source_warehouse_id,
+            "source_warehouse_id": None if source_warehouse_id is _UNSET else source_warehouse_id,
             "destination_tenant_id": request_record.beneficiary_tenant_id,
             "destination_agency_id": request_record.beneficiary_agency_id,
             "status_code": status_code or _package_status_from_legacy(package),
@@ -340,8 +348,13 @@ def _sync_operations_package(
     _assign_if_changed(record, "relief_request_id", int(package.reliefrqst_id), changed_fields)
     _assign_if_changed(record, "destination_tenant_id", request_record.beneficiary_tenant_id, changed_fields)
     _assign_if_changed(record, "destination_agency_id", request_record.beneficiary_agency_id, changed_fields)
-    if source_warehouse_id is not None:
-        _assign_if_changed(record, "source_warehouse_id", int(source_warehouse_id), changed_fields)
+    if source_warehouse_id is not _UNSET:
+        _assign_if_changed(
+            record,
+            "source_warehouse_id",
+            None if source_warehouse_id is None else int(source_warehouse_id),
+            changed_fields,
+        )
     if status_code:
         _assign_if_changed(record, "status_code", status_code, changed_fields)
     else:
@@ -811,7 +824,12 @@ def create_request(
     agency_id = _parse_int_or_raise(mutable_payload.get("agency_id"), "agency_id")
     if agency_id is None:
         raise OperationValidationError({"agency_id": "agency_id or beneficiary_agency_id is required."})
-    source_needs_list_id = _parse_int_or_raise(mutable_payload.get("source_needs_list_id"), "source_needs_list_id")
+    raw_source_needs_list_id = mutable_payload.get("source_needs_list_id", _UNSET)
+    source_needs_list_id = (
+        _parse_int_or_raise(raw_source_needs_list_id, "source_needs_list_id")
+        if raw_source_needs_list_id is not _UNSET
+        else _UNSET
+    )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     decision = operations_policy.validate_relief_request_agency_selection(
         agency_id=agency_id,
@@ -847,7 +865,12 @@ def update_request(
     mutable_payload = dict(payload)
     if mutable_payload.get("beneficiary_agency_id") not in (None, "") and mutable_payload.get("agency_id") in (None, ""):
         mutable_payload["agency_id"] = mutable_payload.get("beneficiary_agency_id")
-    source_needs_list_id = _parse_int_or_raise(mutable_payload.get("source_needs_list_id"), "source_needs_list_id")
+    raw_source_needs_list_id = mutable_payload.get("source_needs_list_id", _UNSET)
+    source_needs_list_id = (
+        _parse_int_or_raise(raw_source_needs_list_id, "source_needs_list_id")
+        if raw_source_needs_list_id is not _UNSET
+        else _UNSET
+    )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     result = legacy_service.update_request(
         reliefrqst_id,
@@ -938,12 +961,10 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
 def get_eligibility_request(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may review requests.")
-    request = legacy_service._load_request(reliefrqst_id)
-    request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
     payload = get_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context, actor_roles=actor_roles)
     decision = OperationsEligibilityDecision.objects.filter(relief_request_id=reliefrqst_id).first()
     payload["decision_made"] = decision is not None
-    payload["can_edit"] = request_record.status_code == REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW and decision is None
+    payload["can_edit"] = payload.get("status_code") == REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW and decision is None
     if decision is not None:
         payload["eligibility_decision"] = {
             "decision_code": decision.decision_code,
@@ -977,6 +998,15 @@ def submit_eligibility_decision(
     decision_reason = str(payload.get("reason") or payload.get("decision_reason") or "").strip() or None
     if decision_code in {"INELIGIBLE", "REJECTED"} and not decision_reason:
         raise OperationValidationError({"reason": "Reason is required for non-approval decisions."})
+    on_behalf_agency_id = None
+    raw_requesting_agency = payload.get("requesting_agency_id")
+    if raw_requesting_agency not in (None, ""):
+        try:
+            on_behalf_agency_id = int(raw_requesting_agency)
+        except (TypeError, ValueError):
+            raise OperationValidationError(
+                {"requesting_agency_id": f"invalid requesting_agency_id: {raw_requesting_agency!r}"}
+            ) from None
     now = timezone.now()
     request.review_by_id = actor_id
     request.review_dtime = now
@@ -1017,15 +1047,6 @@ def submit_eligibility_decision(
         ),
         decided_at=now,
     )
-    # Issue #13: For on-behalf/subordinate flows, use the requesting_agency_id from
-    # the payload if provided, rather than leaving it at request.agency_id.
-    on_behalf_agency_id = None
-    raw_requesting_agency = payload.get("requesting_agency_id")
-    if raw_requesting_agency not in (None, ""):
-        try:
-            on_behalf_agency_id = int(raw_requesting_agency)
-        except (TypeError, ValueError):
-            pass
     request_record = _sync_operations_request(
         request,
         actor_id=actor_id,
@@ -1162,15 +1183,19 @@ def save_package(
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
         return result
-    first_inventory_id = None
+    first_inventory_id: int | None | object = _UNSET
     allocations = payload.get("allocations")
     if isinstance(allocations, list) and allocations:
-        raw_inventory_id = allocations[0].get("inventory_id")
-        if raw_inventory_id is not None:
-            try:
-                first_inventory_id = int(raw_inventory_id)
-            except (TypeError, ValueError):
+        first_allocation = allocations[0]
+        if isinstance(first_allocation, Mapping) and "inventory_id" in first_allocation:
+            raw_inventory_id = first_allocation.get("inventory_id")
+            if raw_inventory_id in (None, ""):
                 first_inventory_id = None
+            else:
+                try:
+                    first_inventory_id = int(raw_inventory_id)
+                except (TypeError, ValueError):
+                    first_inventory_id = None
     status_code = PACKAGE_STATUS_DRAFT
     override_status = None
     if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
