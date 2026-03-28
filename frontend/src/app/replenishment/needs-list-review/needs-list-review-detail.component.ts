@@ -399,7 +399,7 @@ export class NeedsListReviewDetailComponent implements OnInit {
       next: () => {
         this.actionLoading.set(null);
         this.router.navigate(
-          ['/replenishment/needs-list', this.needsListId, 'track'],
+          ['/replenishment/needs-list', this.needsListId, 'review'],
           { queryParams: { approved: 'true' } }
         );
       },

@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -73,6 +72,75 @@ class AuthWhoAmITests(TestCase):
         body = response.json()
         self.assertEqual(body["user_id"], "dev-user")
         self.assertIn("replenishment.needs_list.preview", body["permissions"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.views.operations_policy.get_relief_request_capabilities",
+        return_value={
+            "can_create_relief_request": True,
+            "can_create_relief_request_on_behalf": False,
+            "relief_request_submission_mode": "self",
+            "default_requesting_tenant_id": 20,
+        },
+    )
+    def test_whoami_includes_operations_capabilities(self, _mock_capabilities) -> None:
+        response = self.client.get("/api/v1/auth/whoami/")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body["operations_capabilities"],
+            {
+                "can_create_relief_request": True,
+                "can_create_relief_request_on_behalf": False,
+                "relief_request_submission_mode": "self",
+                "default_requesting_tenant_id": 20,
+            },
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=[],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.authentication._resolve_dev_override_principal",
+        return_value=Principal(
+            user_id="13",
+            username="relief_ffp_requester_tst",
+            roles=["AGENCY_DISTRIBUTOR"],
+            permissions=["operations.request.create.self"],
+        ),
+    )
+    def test_whoami_dev_override_includes_db_roles_and_permissions(
+        self,
+        _mock_override_principal,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DEV_USER="relief_ffp_requester_tst",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["user_id"], "13")
+        self.assertEqual(body["username"], "relief_ffp_requester_tst")
+        self.assertIn("AGENCY_DISTRIBUTOR", body["roles"])
+        self.assertIn("operations.request.create.self", body["permissions"])
 
 
 class RbacResolutionTests(TestCase):
@@ -174,6 +242,13 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("masterdata.view", permissions)
+
+    def test_governed_catalog_access_is_limited_to_global_governance_roles(self) -> None:
+        self.assertFalse(rbac.has_governed_catalog_access(["AGENCY_DISTRIBUTOR"]))
+        self.assertFalse(rbac.has_governed_catalog_access(["ODPEM_LOGISTICS_MANAGER"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["SYSTEM_ADMINISTRATOR"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["ODPEM_DG"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["TST_READONLY"]))
 
     @override_settings(
         AUTH_ENABLED=False,

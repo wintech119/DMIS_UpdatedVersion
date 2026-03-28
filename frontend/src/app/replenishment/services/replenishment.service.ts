@@ -21,6 +21,12 @@ import {
   Supplier,
   UpdateProcurementPayload,
 } from '../models/procurement.model';
+import {
+  AllocationCommitPayload,
+  AllocationOptionsResponse,
+  AllocationOverrideApprovalPayload,
+  WaybillResponse,
+} from '../models/allocation-dispatch.model';
 
 export interface ActiveEvent {
   event_id: number;
@@ -402,10 +408,13 @@ export class ReplenishmentService {
     );
   }
 
-  markDispatched(needsListId: string): Observable<NeedsListResponse> {
+  markDispatched(
+    needsListId: string,
+    payload: { transport_mode?: string } = {}
+  ): Observable<NeedsListResponse> {
     return this.http.post<NeedsListResponse>(
       `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/mark-dispatched`,
-      {}
+      payload
     );
   }
 
@@ -437,6 +446,50 @@ export class ReplenishmentService {
   ): Observable<StorageAssignmentOptionsResponse> {
     return this.http.get<StorageAssignmentOptionsResponse>(
       `${this.apiUrl}/inventory/location-assignment/options?item_id=${encodeURIComponent(String(itemId))}`
+    );
+  }
+
+  getAllocationOptions(
+    needsListId: string
+  ): Observable<AllocationOptionsResponse> {
+    return this.http.get<AllocationOptionsResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/options`
+    );
+  }
+
+  getAllocationCurrent(
+    needsListId: string
+  ): Observable<NeedsListResponse> {
+    return this.http.get<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/current`
+    );
+  }
+
+  commitAllocation(
+    needsListId: string,
+    payload: AllocationCommitPayload
+  ): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/commit`,
+      payload
+    );
+  }
+
+  approveAllocationOverride(
+    needsListId: string,
+    payload: AllocationOverrideApprovalPayload
+  ): Observable<NeedsListResponse> {
+    return this.http.post<NeedsListResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/allocations/override-approve`,
+      payload
+    );
+  }
+
+  getWaybill(
+    needsListId: string
+  ): Observable<WaybillResponse> {
+    return this.http.get<WaybillResponse>(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/waybill`
     );
   }
 

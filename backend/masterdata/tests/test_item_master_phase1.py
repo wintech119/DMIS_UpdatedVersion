@@ -1609,7 +1609,7 @@ class ItemMasterLookupViewTests(SimpleTestCase):
         self.user = SimpleNamespace(
             is_authenticated=True,
             user_id="tester",
-            roles=[],
+            roles=["ODPEM_DG"],
             permissions=[views.PERM_MASTERDATA_VIEW],
         )
 
@@ -1746,6 +1746,33 @@ class ItemMasterLookupViewTests(SimpleTestCase):
             limit=views.DEFAULT_PAGE_LIMIT,
         )
 
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.view"]),
+    )
+    @patch("masterdata.views.list_ifrc_family_lookup")
+    def test_family_lookup_rejects_agency_distributor_roles(
+        self,
+        mock_lookup,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.get(
+            "/api/v1/masterdata/items/ifrc-families/lookup",
+            {"category_id": "102", "active_only": "true"},
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.item_ifrc_family_lookup(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_lookup.assert_not_called()
+
 
 class CatalogMaintenanceViewTests(SimpleTestCase):
     def setUp(self):
@@ -1753,7 +1780,7 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
         self.user = SimpleNamespace(
             is_authenticated=True,
             user_id="catalog-admin",
-            roles=[],
+            roles=["ODPEM_DG"],
             permissions=[
                 views.PERM_MASTERDATA_VIEW,
                 views.PERM_MASTERDATA_CREATE,
@@ -1790,6 +1817,74 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
             limit=views.DEFAULT_PAGE_LIMIT,
             offset=0,
         )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["SYSTEM_ADMINISTRATOR"], ["masterdata.view"]),
+    )
+    @patch("masterdata.views.list_item_records", return_value=([], 0, []))
+    def test_item_list_allows_system_administrator_roles(
+        self,
+        mock_list_item_records,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/items/")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "items")
+
+        self.assertEqual(response.status_code, 200)
+        mock_list_item_records.assert_called_once()
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.view"]),
+    )
+    @patch("masterdata.views.list_records")
+    def test_ifrc_family_list_rejects_agency_distributor_roles(
+        self,
+        mock_list_records,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/ifrc_families/")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "ifrc_families")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_list_records.assert_not_called()
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.view"]),
+    )
+    @patch("masterdata.views.list_records")
+    def test_event_list_rejects_agency_distributor_roles(
+        self,
+        mock_list_records,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/events/")
+        force_authenticate(request, user=self.user)
+
+        response = views.master_list_create(request, "events")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_list_records.assert_not_called()
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch(
@@ -1965,6 +2060,34 @@ class CatalogMaintenanceViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["source"], "deterministic")
         self.assertEqual(response.data["normalized"]["family_code"], "WTR")
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.view"]),
+    )
+    @patch("masterdata.views.suggest_ifrc_family_authoring")
+    def test_family_suggest_rejects_agency_distributor_roles(
+        self,
+        mock_suggest,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.post(
+            "/api/v1/masterdata/ifrc-families/suggest",
+            {"family_label": "Water Treatment"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = views.ifrc_family_suggest(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_suggest.assert_not_called()
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
     @patch(

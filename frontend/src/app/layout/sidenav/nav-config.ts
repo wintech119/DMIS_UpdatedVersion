@@ -2,15 +2,20 @@ export interface NavItem {
   label: string;
   icon: string;
   route?: string;
+  href?: string;
+  accessKey?: string;
   queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
   sysadminOnly?: boolean;
+  masterDomain?: 'catalogs' | 'operational' | 'policies' | 'tenant-access' | 'advanced';
 }
 
 export interface NavGroup {
   label: string;
   icon: string;
   route?: string;
+  href?: string;
+  accessKey?: string;
   queryParams?: Record<string, string | number | boolean>;
   disabled?: boolean;
   sysadminOnly?: boolean;
@@ -42,11 +47,10 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: 'local_shipping',
         expanded: true,
         children: [
-          { label: 'Stock Status Dashboard', icon: 'monitoring', route: '/replenishment/dashboard' },
-          { label: 'My Drafts & Submissions', icon: 'assignment', route: '/replenishment/my-submissions' },
-          { label: 'Needs List Wizard', icon: 'playlist_add', route: '/replenishment/needs-list-wizard' },
-          { label: 'Review Queue', icon: 'fact_check', route: '/replenishment/needs-list-review' },
-          { label: 'Procurement Orders', icon: 'shopping_cart', route: '/replenishment/procurement/new' },
+          { label: 'Stock Status Dashboard', icon: 'monitoring', route: '/replenishment/dashboard', accessKey: 'replenishment.dashboard' },
+          { label: 'My Drafts & Submissions', icon: 'assignment', route: '/replenishment/my-submissions', accessKey: 'replenishment.submissions' },
+          { label: 'Needs List Wizard', icon: 'playlist_add', route: '/replenishment/needs-list-wizard', accessKey: 'replenishment.wizard' },
+          { label: 'Review Queue', icon: 'fact_check', route: '/replenishment/needs-list-review', accessKey: 'replenishment.review' },
         ],
       },
     ],
@@ -62,10 +66,19 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     sectionLabel: 'OPERATIONS',
     groups: [
-      { label: 'Relief Requests', icon: 'request_page', disabled: true },
-      { label: 'Eligibility Review', icon: 'verified_user', disabled: true },
-      { label: 'Package Fulfillment', icon: 'package_2', disabled: true },
-      { label: 'Dispatch', icon: 'local_shipping', disabled: true },
+      {
+        label: 'Operations',
+        icon: 'assignment',
+        expanded: true,
+        children: [
+          { label: 'Dashboard', icon: 'dashboard', route: '/operations/dashboard', accessKey: 'operations.dashboard' },
+          { label: 'Relief Requests', icon: 'request_page', route: '/operations/relief-requests', accessKey: 'operations.relief-requests' },
+          { label: 'Eligibility Review', icon: 'verified_user', route: '/operations/eligibility-review', accessKey: 'operations.eligibility' },
+          { label: 'Package Fulfillment', icon: 'package_2', route: '/operations/package-fulfillment', accessKey: 'operations.fulfillment' },
+          { label: 'Dispatch', icon: 'local_shipping', route: '/operations/dispatch', accessKey: 'operations.dispatch' },
+          { label: 'Task Center', icon: 'task_alt', route: '/operations/tasks', accessKey: 'operations.tasks' },
+        ],
+      },
     ],
   },
   {
@@ -81,24 +94,16 @@ export const NAV_SECTIONS: NavSection[] = [
             icon: 'menu_book',
             route: '/master-data',
             queryParams: { domain: 'catalogs' },
+            masterDomain: 'catalogs',
+            accessKey: 'master.catalogs',
           },
           {
             label: 'Operational Masters',
             icon: 'domain',
             route: '/master-data',
             queryParams: { domain: 'operational' },
-          },
-          {
-            label: 'Policies',
-            icon: 'policy',
-            route: '/master-data',
-            queryParams: { domain: 'policies' },
-          },
-          {
-            label: 'Tenant & Access',
-            icon: 'admin_panel_settings',
-            route: '/master-data',
-            queryParams: { domain: 'tenant-access' },
+            masterDomain: 'operational',
+            accessKey: 'master.operational',
           },
           {
             label: 'Advanced/System',
@@ -106,6 +111,8 @@ export const NAV_SECTIONS: NavSection[] = [
             route: '/master-data',
             queryParams: { domain: 'advanced' },
             sysadminOnly: true,
+            masterDomain: 'advanced',
+            accessKey: 'master.advanced',
           },
         ],
       },

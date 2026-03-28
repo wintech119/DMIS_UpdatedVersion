@@ -1,0 +1,99 @@
+<div class="ops-queue-shell">
+  <section class="ops-hero" aria-labelledby="package-queue-title">
+    <div class="ops-hero__copy">
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">inventory_2</mat-icon>
+        Operations / Package Fulfillment
+      </p>
+      <h1 id="package-queue-title" class="ops-hero__title">Package Fulfillment Queue</h1>
+      <p class="ops-hero__description">
+        Prioritized worklist for stock reservation, packing, and dispatch preparation.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-stroked-button type="button" (click)="refreshQueue()">
+        <mat-icon>refresh</mat-icon>
+        Refresh Queue
+      </button>
+    </div>
+  </section>
+
+  <app-ops-metric-strip [items]="queueMetrics()" />
+
+  @if (loading()) {
+    <mat-card class="ops-surface">
+      <dmis-skeleton-loader variant="table-row" [count]="5" />
+    </mat-card>
+  } @else if (items().length === 0) {
+    <dmis-empty-state
+      icon="inventory_2"
+      title="No packages to fulfill"
+      message="There are no requests awaiting package fulfillment right now."
+    />
+  } @else {
+    <div class="ops-table-shell">
+      <div class="ops-table-shell__header">
+        <div>
+          <p class="ops-table-shell__eyebrow">Queue</p>
+          <h2>Pending Fulfillment Work</h2>
+        </div>
+        <span class="ops-table-shell__meta">{{ items().length }} requests</span>
+      </div>
+
+      <div class="ops-queue-list" role="list" aria-label="Package fulfillment queue">
+        @for (row of items(); track row.reliefrqst_id) {
+          <article
+            class="ops-queue-row"
+            role="listitem"
+            tabindex="0"
+            (click)="fulfillRequest(row)"
+            (keydown.enter)="fulfillRequest(row)"
+            (keydown.space)="fulfillRequest(row); $event.preventDefault()">
+            <div class="ops-queue-row__main">
+              <div class="ops-queue-row__identity">
+                <p class="ops-queue-row__tracking">{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</p>
+                <h3 class="ops-queue-row__title">{{ row.agency_name ?? 'Agency ' + row.agency_id }}</h3>
+                <p class="ops-queue-row__meta">
+                  {{ row.event_name ?? 'No event' }}
+                  <span aria-hidden="true">&middot;</span>
+                  {{ row.item_count }} line{{ row.item_count === 1 ? '' : 's' }}
+                </p>
+              </div>
+
+              <div class="ops-queue-row__chips">
+                <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="urgencyTone(row.urgency_ind)" />
+                <app-ops-status-chip [label]="row.status_label" [tone]="statusTone(row.status_code)" />
+                @if (row.package_status) {
+                  <app-ops-status-chip [label]="row.package_status" [tone]="packageTone(row.package_status)" />
+                }
+              </div>
+            </div>
+
+            <div class="ops-queue-row__details">
+              <div>
+                <span class="ops-queue-row__label">Package</span>
+                <strong>{{ row.current_package?.tracking_no ?? 'Pending build' }}</strong>
+              </div>
+              <div>
+                <span class="ops-queue-row__label">Notes</span>
+                <strong>{{ row.rqst_notes_text ?? 'No notes' }}</strong>
+              </div>
+            </div>
+
+            <button
+              mat-stroked-button
+              type="button"
+              color="primary"
+              class="ops-queue-row__action"
+              (click)="fulfillRequest(row); $event.stopPropagation()"
+              [attr.aria-label]="'Open fulfillment workspace for ' + (row.tracking_no ?? ('request ' + row.reliefrqst_id))">
+              Fulfill
+              <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </article>
+        }
+      </div>
+    </div>
+  }
+</div>

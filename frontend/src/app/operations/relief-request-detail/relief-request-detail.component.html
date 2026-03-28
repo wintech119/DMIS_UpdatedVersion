@@ -1,0 +1,280 @@
+@if (loading()) {
+  <div class="ops-page-shell">
+    <dmis-skeleton-loader variant="summary-card" [count]="2" />
+    <dmis-skeleton-loader variant="table-row" [count]="4" />
+  </div>
+} @else if (error(); as message) {
+  <div class="ops-page-shell">
+    <div class="ops-empty" role="alert">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      <p class="ops-empty__title">{{ message }}</p>
+      <p class="ops-empty__copy">Return to the request queue and try again.</p>
+      <button mat-flat-button color="primary" type="button" (click)="goBack()">Back to Queue</button>
+    </div>
+  </div>
+} @else if (request(); as rq) {
+  <div class="ops-page-shell">
+    <header class="ops-hero">
+      <div>
+        <p class="ops-hero__eyebrow">
+          <mat-icon aria-hidden="true">assignment</mat-icon>
+          Operations / Relief Requests
+        </p>
+        <h1 class="ops-hero__title">{{ rq.tracking_no ?? 'Request #' + rq.reliefrqst_id }}</h1>
+        <p class="ops-hero__copy">
+          {{ rq.agency_name ?? ('Agency ' + rq.agency_id) }} | {{ rq.event_name ?? 'No event linked' }}
+        </p>
+      </div>
+
+      <div class="ops-hero__actions">
+        <app-ops-status-chip [label]="formatOperationsRequestStatus(rq.status_code)" [tone]="chipTone(statusTone())"></app-ops-status-chip>
+        @if (rq.urgency_ind) {
+          <app-ops-status-chip [label]="formatOperationsUrgency(rq.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(rq.urgency_ind))"></app-ops-status-chip>
+        }
+        @if (rq.status_code === 0) {
+          <button mat-flat-button color="primary" type="button" (click)="openEdit()">
+            <mat-icon>edit</mat-icon>
+            Edit Draft
+          </button>
+        }
+        @if (rq.status_code === 0) {
+          <button mat-stroked-button type="button" (click)="submitForReview()" [disabled]="submitting()">
+            <mat-icon>send</mat-icon>
+            @if (submitting()) { Submitting... } @else { Submit for Review }
+          </button>
+        }
+        @if (rq.status_code !== 0) {
+          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="!(rq.reliefrqst_id)">
+            <mat-icon>inventory_2</mat-icon>
+            Open Fulfillment
+          </button>
+        }
+      </div>
+    </header>
+
+    <div class="ops-detail-grid">
+      <div class="ops-detail-stack">
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Request at a glance</p>
+              <h2 class="ops-section__title">Operational summary</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-detail-meta">
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Request date</span>
+                <p class="ops-detail-meta__value">{{ formatOperationsDateTime(rq.request_date ?? rq.create_dtime) }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Reviewed</span>
+                <p class="ops-detail-meta__value">{{ rq.review_dtime ? formatOperationsDateTime(rq.review_dtime) : 'Pending' }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Requested qty</span>
+                <p class="ops-detail-meta__value">{{ rq.total_requested_qty }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Issued qty</span>
+                <p class="ops-detail-meta__value">{{ rq.total_issued_qty }}</p>
+              </div>
+            </div>
+
+            @if (rq.rqst_notes_text || rq.review_notes_text || rq.status_reason_desc) {
+              <div class="ops-timeline" style="margin-top: 1rem;">
+                @if (rq.rqst_notes_text) {
+                  <div class="ops-timeline__step">
+                    <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+                    <div class="ops-timeline__content">
+                      <p class="ops-timeline__title">Request notes</p>
+                      <div class="ops-timeline__meta">
+                        <span>{{ rq.rqst_notes_text }}</span>
+                      </div>
+                    </div>
+                  </div>
+                }
+                @if (rq.review_notes_text) {
+                  <div class="ops-timeline__step">
+                    <span class="ops-timeline__dot" style="background: #92400e;"></span>
+                    <div class="ops-timeline__content">
+                      <p class="ops-timeline__title">Review notes</p>
+                      <div class="ops-timeline__meta">
+                        <span>{{ rq.review_notes_text }}</span>
+                      </div>
+                    </div>
+                  </div>
+                }
+                @if (rq.status_reason_desc) {
+                  <div class="ops-timeline__step">
+                    <span class="ops-timeline__dot" style="background: #991b1b;"></span>
+                    <div class="ops-timeline__content">
+                      <p class="ops-timeline__title">Status reason</p>
+                      <div class="ops-timeline__meta">
+                        <span>{{ rq.status_reason_desc }}</span>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Items</p>
+              <h2 class="ops-section__title">Requested lines</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            @if (rq.items.length === 0) {
+              <dmis-empty-state
+                icon="inventory_2"
+                title="No request lines"
+                message="This request currently has no items." />
+            } @else {
+              <table class="ops-table" aria-label="Request items">
+                <thead>
+                  <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">Qty</th>
+                    <th scope="col">Urgency</th>
+                    <th scope="col">Reason</th>
+                    <th scope="col">Required by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of rq.items; track trackItem($index, item)) {
+                    <tr>
+                      <td>
+                        <div class="ops-figure">
+                          <p class="ops-figure__label">{{ item.item_code ?? 'Item ' + item.item_id }}</p>
+                          <p class="ops-figure__value">{{ item.item_name ?? 'Unnamed item' }}</p>
+                        </div>
+                      </td>
+                      <td>{{ item.request_qty }}</td>
+                      <td>
+                        @if (item.urgency_ind) {
+                          <app-ops-status-chip [label]="formatOperationsUrgency(item.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(item.urgency_ind))"></app-ops-status-chip>
+                        } @else {
+                          <app-ops-status-chip label="Standard" tone="neutral"></app-ops-status-chip>
+                        }
+                      </td>
+                      <td>{{ item.rqst_reason_desc ?? 'None' }}</td>
+                      <td>{{ item.required_by_date ? formatOperationsDateTime(item.required_by_date) : 'Pending' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </div>
+        </section>
+
+        @if (rq.packages.length > 0) {
+          <section class="ops-card">
+            <div class="ops-card__header">
+              <div>
+                <p class="ops-section__eyebrow">Packages</p>
+                <h2 class="ops-section__title">Fulfillment output</h2>
+              </div>
+              <button mat-stroked-button type="button" (click)="openFulfillment()">
+                <mat-icon>inventory_2</mat-icon>
+                Open Fulfillment Workspace
+              </button>
+            </div>
+            <div class="ops-card__body">
+              <table class="ops-table" aria-label="Request packages">
+                <thead>
+                  <tr>
+                    <th scope="col">Package</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Dispatch</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (pkg of rq.packages; track trackPackage($index, pkg)) {
+                    <tr>
+                      <td>
+                        <div class="ops-figure">
+                          <p class="ops-figure__label">PKG-{{ pkg.reliefpkg_id }}</p>
+                          <p class="ops-figure__value">{{ pkg.tracking_no ?? 'Tracking assigned on commit' }}</p>
+                        </div>
+                      </td>
+                      <td>
+                        <app-ops-status-chip [label]="formatOperationsPackageStatus(pkg.status_code)" [tone]="chipTone(getOperationsPackageTone(pkg.status_code))"></app-ops-status-chip>
+                      </td>
+                      <td>{{ pkg.dispatch_dtime ? formatOperationsDateTime(pkg.dispatch_dtime) : 'Pending' }}</td>
+                      <td>
+                        <button mat-icon-button type="button" aria-label="Open dispatch workspace" (click)="openDispatch(pkg)">
+                          <mat-icon>open_in_new</mat-icon>
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
+        }
+      </div>
+
+      <aside class="ops-grid">
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Workflow</p>
+              <h2 class="ops-section__title">Lifecycle track</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-timeline">
+              @for (step of workflow(); track step.label) {
+                <div class="ops-timeline__step">
+                  <span class="ops-timeline__dot" [class]="'ops-status-chip--' + step.tone"></span>
+                  <div class="ops-timeline__content">
+                    <p class="ops-timeline__title">{{ step.label }}</p>
+                    <div class="ops-timeline__meta">
+                      <span>{{ step.detail }}</span>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Context</p>
+              <h2 class="ops-section__title">Audit details</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-summary-grid">
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Tracking</span>
+                <p class="ops-summary-card__value">{{ rq.tracking_no ?? 'Draft only' }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Request ID</span>
+                <p class="ops-summary-card__value">{{ rq.reliefrqst_id }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Package</span>
+                <p class="ops-summary-card__value">{{ rq.reliefpkg_id ?? 'Pending' }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Version</span>
+                <p class="ops-summary-card__value">{{ rq.version_nbr }}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+}

@@ -76,7 +76,8 @@ class TenancyAccessTests(SimpleTestCase):
         self.assertFalse(can_access_tenant(context, 99, write=False))
         self.assertFalse(can_access_tenant(context, 99, write=True))
 
-    def test_neoc_can_read_all_tenants_with_permission(self) -> None:
+    @patch("api.tenancy._tenant_by_id")
+    def test_neoc_can_read_all_tenants_with_permission(self, tenant_by_id_mock) -> None:
         context = TenantContext(
             requested_tenant_id=1,
             active_tenant_id=1,
@@ -87,8 +88,30 @@ class TenancyAccessTests(SimpleTestCase):
             can_act_cross_tenant=False,
         )
 
+        tenant_by_id_mock.return_value = TenantMembership(
+            tenant_id=42,
+            tenant_code="PAR42",
+            tenant_name="Parish 42",
+            tenant_type="PARISH",
+            is_primary=False,
+            access_level=None,
+        )
         self.assertTrue(can_access_tenant(context, 42, write=False))
         self.assertFalse(can_access_tenant(context, 42, write=True))
+
+    @patch("api.tenancy._tenant_by_id", return_value=None)
+    def test_neoc_cannot_read_inactive_target_tenant(self, _tenant_by_id_mock) -> None:
+        context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=False,
+        )
+
+        self.assertFalse(can_access_tenant(context, 42, write=False))
 
     def test_non_neoc_national_tenant_cannot_read_all(self) -> None:
         context = TenantContext(
@@ -103,8 +126,9 @@ class TenancyAccessTests(SimpleTestCase):
 
         self.assertFalse(can_access_tenant(context, 42, write=False))
 
+    @patch("api.tenancy._tenant_by_id")
     @patch("api.tenancy._target_tenant_allows_neoc_actions")
-    def test_neoc_write_requires_target_opt_in(self, target_opt_in) -> None:
+    def test_neoc_write_requires_target_opt_in(self, target_opt_in, tenant_by_id_mock) -> None:
         context = TenantContext(
             requested_tenant_id=1,
             active_tenant_id=1,
@@ -115,11 +139,35 @@ class TenancyAccessTests(SimpleTestCase):
             can_act_cross_tenant=True,
         )
 
+        tenant_by_id_mock.return_value = TenantMembership(
+            tenant_id=42,
+            tenant_code="PAR42",
+            tenant_name="Parish 42",
+            tenant_type="PARISH",
+            is_primary=False,
+            access_level=None,
+        )
         target_opt_in.return_value = False
         self.assertFalse(can_access_tenant(context, 42, write=True))
 
         target_opt_in.return_value = True
         self.assertTrue(can_access_tenant(context, 42, write=True))
+
+    @patch("api.tenancy._tenant_by_id", return_value=None)
+    @patch("api.tenancy._target_tenant_allows_neoc_actions")
+    def test_neoc_write_rejects_inactive_target_tenant(self, target_opt_in, _tenant_by_id_mock) -> None:
+        context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NEOC",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=True,
+        )
+
+        target_opt_in.return_value = True
+        self.assertFalse(can_access_tenant(context, 42, write=True))
 
     @override_settings(NATIONAL_PHASE_WINDOW_ADMIN_CODES=["OFFICE-OF-DISASTER-P", "ODPEM-NEOC"])
     def test_phase_window_config_allowed_for_odpem_and_neoc(self) -> None:

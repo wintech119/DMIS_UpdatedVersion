@@ -1,6 +1,6 @@
 # Sprint 07 Product Handoff | Release Train Foundation Sprint
 
-Last updated: 2026-03-20  
+Last updated: 2026-03-24  
 Status: Not ready - follow-on action required  
 Sprint: `2026-S07 | DMIS | Release Train Foundation Sprint`
 
@@ -72,7 +72,7 @@ Current assessed status from QA review and rerun:
 - Pass / fail summary: `Rerun cleared the frontend blocker but Sprint 07 still has blockers`
 - Defects opened: missing alternate-UOM runtime fixture for live repackaging create path
 - Blockers: live browser completion of Use Case 5 is blocked by missing alternate-UOM runtime fixture data; cross-module alignment artifact still needs to be linked
-- Non-blocking follow-on items: missing location-policy support command
+- Non-blocking follow-on items: none currently recorded from the prior missing location-policy support command path
 - Untested or blocked areas: final live create-only repackaging submission in browser until fixture data exists
 
 ## Review Disposition Summary
@@ -82,7 +82,7 @@ Capture the disposition discipline carried forward from Sprint 06:
 | Finding Source | Finding | Disposition | Notes |
 | --- | --- | --- | --- |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Frontend master-data remediation | cleared | Revised master-data form flow and targeted frontend rerun are now in place |
-| `qa/release-checklists/sprint_07_validation_report_2026-03-20.md` | Missing `enforce_location_storage_policy` command | defer | Non-blocking for user flow; defer to backlog sequencing and PM disposition |
+| `qa/release-checklists/sprint_07_validation_report_2026-03-20.md` | Missing `enforce_location_storage_policy` command | resolved later | Restored in follow-on backend work on 2026-03-24; no longer an open deferred command-gap note |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Governed warning-text drift | cleared | Targeted Angular rerun passed |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | IFRC helper cue text drift | cleared | Targeted Angular rerun passed |
 | `qa/release-checklists/sprint_07_validation_rerun_report_2026-03-20.md` | Missing runtime alternate-UOM fixture | fix now | QA cannot complete live browser repackaging transaction until one valid fixture exists |
@@ -98,7 +98,7 @@ Record any remaining work that should move to the next sprint or backlog refinem
 - Browser-level repackaging validation remains blocked because the runtime dataset does not yet contain one valid alternate-UOM repackaging fixture.
 - One valid alternate-UOM runtime fixture must be seeded so QA can complete the live browser repackaging transaction.
 - Cross-module alignment artifact still needs to be linked before Sprint 07 can be treated as closed.
-- Location-policy management command remains deferred follow-on work.
+- Prior location-policy management-command gap was resolved in follow-on backend work on 2026-03-24 and is no longer an open deferred item.
 
 ## Durable Repo Closeout Note
 

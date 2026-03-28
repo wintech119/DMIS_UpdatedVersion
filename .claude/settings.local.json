@@ -1,13 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=\"$PGPASSWORD\" \"C:/Program Files/PostgreSQL/18/bin/psql.exe\":*)",
+      "Bash(npx ng:*)",
+      "Bash(python manage.py check)",
+      "Bash(python manage.py test --verbosity=2)"
+    ]
+  },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "angular",
     "snyk",
     "django-ai-boost"
-  ],
-  "permissions": {
-    "allow": [
-      "Bash(PGPASSWORD=\"$PGPASSWORD\" \"C:/Program Files/PostgreSQL/18/bin/psql.exe\":*)"
-    ]
-  }
+  ]
 }

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
+﻿import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { Router, NavigationEnd, RouterLink } from '@angular/router';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatListModule } from '@angular/material/list';
@@ -8,6 +8,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { Subscription, filter } from 'rxjs';
 import { NAV_SECTIONS, NavSection, NavGroup, NavItem } from './nav-config';
 import { DevUser } from '../../app.component';
+import { AppAccessService } from '../../core/app-access.service';
+import { MasterDataAccessService } from '../../master-data/services/master-data-access.service';
 
 const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
 
@@ -28,6 +30,8 @@ const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
 })
 export class SidenavComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
+  private readonly appAccess = inject(AppAccessService);
+  private readonly masterDataAccess = inject(MasterDataAccessService);
   private routerSub!: Subscription;
 
   readonly navSections: NavSection[] = NAV_SECTIONS;
@@ -65,13 +69,20 @@ export class SidenavComponent implements OnInit, OnDestroy {
     if (group.route && this.isRouteActive(group.route, group.queryParams)) {
       return true;
     }
+    if (group.href && this.isHrefActive(group.href)) {
+      return true;
+    }
     return this.visibleChildren(group).some(
-      (child) => child.route && this.isRouteActive(child.route, child.queryParams)
+      (child) => (child.route && this.isRouteActive(child.route, child.queryParams))
+        || (child.href && this.isHrefActive(child.href))
     );
   }
 
   visibleGroups(section: NavSection): NavGroup[] {
     return section.groups.filter((group) => {
+      if (!this.canViewAccessKey(group.accessKey)) {
+        return false;
+      }
       if (!this.canViewSysadminOnly(group.sysadminOnly)) {
         return false;
       }
@@ -83,11 +94,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   visibleChildren(group: NavGroup) {
-    return (group.children ?? []).filter((child) => this.canViewSysadminOnly(child.sysadminOnly));
+    return (group.children ?? []).filter((child) => this.canViewNavItem(child));
   }
 
   firstVisibleChild(group: NavGroup) {
-    return this.visibleChildren(group).find((child) => !child.disabled && !!child.route) ?? null;
+    return this.visibleChildren(group).find((child) => !child.disabled && (!!child.route || !!child.href)) ?? null;
   }
 
   isRouteActive(route: string, queryParams?: Record<string, string | number | boolean>): boolean {
@@ -102,6 +113,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
       return true;
     }
     return path === route || path.startsWith(route + '/');
+  }
+
+  isHrefActive(href: string): boolean {
+    const { path } = this.parseUrlParts(this.currentUrl());
+    return path === href || path.startsWith(href + '/');
   }
 
   onItemClick(): void {
@@ -126,8 +142,27 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   private canViewSysadminOnly(sysadminOnly?: boolean): boolean {
     if (!sysadminOnly) return true;
-    const roles = this.userRoles().map((role) => String(role).trim().toUpperCase());
-    return roles.includes('SYSTEM_ADMINISTRATOR');
+    return this.masterDataAccess.isSystemAdmin();
+  }
+
+  private canViewNavItem(item: NavItem): boolean {
+    if (!this.canViewAccessKey(item.accessKey)) {
+      return false;
+    }
+    if (!this.canViewSysadminOnly(item.sysadminOnly)) {
+      return false;
+    }
+    if (item.masterDomain) {
+      return this.masterDataAccess.canAccessDomain(item.masterDomain);
+    }
+    return true;
+  }
+
+  private canViewAccessKey(accessKey?: string): boolean {
+    if (!accessKey) {
+      return true;
+    }
+    return this.appAccess.canAccessNavKey(accessKey);
   }
 
   private normalizeUrl(url: string): string {

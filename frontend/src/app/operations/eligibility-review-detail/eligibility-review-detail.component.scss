@@ -1,0 +1,14 @@
+.ops-card__header {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  padding-bottom: 0.95rem;
+}
+
+.ops-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 768px) {
+  .ops-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

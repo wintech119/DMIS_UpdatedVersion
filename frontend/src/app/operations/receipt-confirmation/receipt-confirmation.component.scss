@@ -1,0 +1,233 @@
+.ops-doc-shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.ops-doc-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.ops-doc-hero__eyebrow,
+.ops-doc-card__eyebrow {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-doc-hero__title {
+  margin: 8px 0 10px;
+  font-size: clamp(2.1rem, 4vw, 3.7rem);
+  line-height: 0.98;
+}
+
+.ops-doc-hero__description {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.ops-doc-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ops-doc-hero__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ops-doc-surface,
+.ops-doc-card {
+  background: var(--color-surface-container-lowest);
+  border-radius: 22px;
+  box-shadow: 0 20px 40px rgba(26, 28, 28, 0.04);
+}
+
+.ops-doc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 18px;
+}
+
+.ops-doc-main,
+.ops-doc-rail {
+  display: grid;
+  gap: 18px;
+}
+
+.ops-doc-card {
+  padding: 22px;
+}
+
+.ops-doc-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.ops-doc-card__header h2 {
+  margin: 4px 0 0;
+  font-size: 1.3rem;
+}
+
+.ops-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-doc-metric,
+.ops-doc-line,
+.ops-signature-box {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--color-surface-container-low);
+}
+
+.ops-doc-metric span,
+.ops-doc-dl dt,
+.ops-signature-box span {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-doc-metric strong,
+.ops-doc-dl dd {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-primary);
+}
+
+.ops-doc-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-accent) 8%, white);
+  color: var(--color-accent);
+}
+
+.ops-doc-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-doc-empty,
+.ops-doc-dl dd,
+.ops-doc-line p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.ops-signature-box {
+  min-height: 160px;
+  display: flex;
+  align-items: end;
+  border: 1px dashed rgba(39, 39, 42, 0.18);
+}
+
+@media (max-width: 1120px) {
+  .ops-doc-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-doc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ops-receipt-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.ops-receipt-form__field--full {
+  grid-column: 1 / -1;
+}
+
+.ops-receipt-form__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.ops-receipt-checklist {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.ops-receipt-check {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.92rem;
+  color: var(--color-text-secondary);
+}
+
+.ops-receipt-check mat-icon {
+  font-size: 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-text-tertiary);
+}
+
+.ops-receipt-check--done mat-icon {
+  color: #065f46;
+}
+
+.ops-receipt-check--done {
+  color: var(--color-text-primary);
+}
+
+.ops-doc-banner--success {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.ops-doc-banner--danger {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+@media (max-width: 768px) {
+  .ops-doc-shell {
+    padding: 12px;
+  }
+
+  .ops-doc-hero {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .ops-doc-dl,
+  .ops-doc-grid,
+  .ops-receipt-form {
+    grid-template-columns: 1fr;
+  }
+}

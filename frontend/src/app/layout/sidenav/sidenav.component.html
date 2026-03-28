@@ -1,4 +1,4 @@
-<aside class="sidenav" [class.collapsed]="collapsed()">
+﻿<aside class="sidenav" [class.collapsed]="collapsed()">
   <!-- Header: brand + collapse toggle -->
   <div class="sidenav-header">
     @if (!collapsed()) {
@@ -46,6 +46,17 @@
                     <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
                     <span class="nav-label">{{ child.label }}</span>
                   </a>
+                } @else if (child.href) {
+                  <a class="nav-child"
+                     [attr.href]="child.href"
+                     [class.active]="isHrefActive(child.href)"
+                     [matTooltip]="getChildTooltip(child)"
+                     matTooltipPosition="right"
+                     matTooltipShowDelay="300"
+                     (click)="onItemClick()">
+                    <mat-icon class="nav-icon-sm">{{ child.icon }}</mat-icon>
+                    <span class="nav-label">{{ child.label }}</span>
+                  </a>
                 } @else {
                   <a class="nav-child"
                      [routerLink]="child.route"
@@ -63,20 +74,36 @@
             </mat-expansion-panel>
           } @else if (group.children?.length && collapsed()) {
             @if (firstVisibleChild(group); as firstChild) {
-              <a class="nav-item"
-                 [class.active]="isGroupActive(group)"
-                 [class.disabled]="group.disabled"
-                 [routerLink]="firstChild.route"
-                 [queryParams]="firstChild.queryParams"
-                 [matTooltip]="getGroupTooltip(group)"
-                 matTooltipPosition="right"
-                 matTooltipShowDelay="300"
-                 tabindex="0"
-                 (click)="group.disabled ? null : onItemClick()"
-                 (keydown.enter)="group.disabled ? null : onItemClick()"
-                 (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
-                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
-              </a>
+              @if (firstChild.href) {
+                <a class="nav-item"
+                   [class.active]="isGroupActive(group)"
+                   [class.disabled]="group.disabled"
+                   [attr.href]="firstChild.href"
+                   [matTooltip]="getGroupTooltip(group)"
+                   matTooltipPosition="right"
+                   matTooltipShowDelay="300"
+                   tabindex="0"
+                   (click)="group.disabled ? null : onItemClick()"
+                   (keydown.enter)="group.disabled ? null : onItemClick()"
+                   (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
+                  <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                </a>
+              } @else {
+                <a class="nav-item"
+                   [class.active]="isGroupActive(group)"
+                   [class.disabled]="group.disabled"
+                   [routerLink]="firstChild.route"
+                   [queryParams]="firstChild.queryParams"
+                   [matTooltip]="getGroupTooltip(group)"
+                   matTooltipPosition="right"
+                   matTooltipShowDelay="300"
+                   tabindex="0"
+                   (click)="group.disabled ? null : onItemClick()"
+                   (keydown.enter)="group.disabled ? null : onItemClick()"
+                   (keydown.space)="group.disabled ? null : onItemClick(); $event.preventDefault()">
+                  <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                </a>
+              }
             } @else {
               <a class="nav-item disabled"
                  [matTooltip]="getGroupTooltip(group)"
@@ -91,6 +118,19 @@
                  [matTooltip]="getGroupTooltip(group)"
                  matTooltipPosition="right"
                  matTooltipShowDelay="300">
+                <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
+                @if (!collapsed()) {
+                  <span class="nav-label">{{ group.label }}</span>
+                }
+              </a>
+            } @else if (group.href) {
+              <a class="nav-item"
+                 [attr.href]="group.href"
+                 [class.active]="isHrefActive(group.href)"
+                 [matTooltip]="getGroupTooltip(group)"
+                 matTooltipPosition="right"
+                 matTooltipShowDelay="300"
+                 (click)="onItemClick()">
                 <mat-icon class="nav-icon">{{ group.icon }}</mat-icon>
                 @if (!collapsed()) {
                   <span class="nav-label">{{ group.label }}</span>

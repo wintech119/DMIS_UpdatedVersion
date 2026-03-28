@@ -19,7 +19,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
-from api.rbac import resolve_roles_and_permissions
+from api.rbac import has_governed_catalog_access, resolve_roles_and_permissions
 from api.tenancy import (
     can_access_tenant,
     can_access_warehouse,
@@ -216,6 +216,16 @@ def _tenant_context(request):
 
 def _should_enforce_tenant_scope() -> bool:
     return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
+
+
+def _require_governed_catalog_access(request) -> Response | None:
+    roles, _ = resolve_roles_and_permissions(request, request.user)
+    if has_governed_catalog_access(roles):
+        return None
+    return Response(
+        {"detail": "You do not have access to governed catalog master data."},
+        status=403,
+    )
 
 
 def _tenant_scope_denied_response(request, *, warehouse_id: int | None, write: bool) -> Response:
@@ -1071,6 +1081,10 @@ def master_list_create(request, table_key: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
 
     if request.method == "GET":
         return _handle_list(request, cfg)
@@ -1146,6 +1160,10 @@ def _handle_warehouse_list(request):
 def _handle_create(request, cfg):
     if cfg.key == "items":
         return _handle_item_create(request, cfg)
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
 
     data = dict(request.data or {})
     if cfg.key == "warehouses":
@@ -1337,6 +1355,10 @@ def master_detail_update(request, table_key: str, pk: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
 
     pk_value = _coerce_pk(cfg, pk)
 
@@ -1442,6 +1464,10 @@ def _handle_detail(cfg, pk_value):
 def _handle_update(request, cfg, pk_value):
     if cfg.key == "items":
         return _handle_item_update(request, cfg, pk_value)
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
 
     data = dict(request.data or {})
     expected_version = data.pop("version_nbr", None)
@@ -1812,6 +1838,10 @@ def master_summary(request, table_key: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
     counts, warnings = get_summary_counts(cfg.key)
     return Response({"counts": counts, "warnings": warnings})
 
@@ -1830,6 +1860,10 @@ def master_lookup(request, table_key: str):
     cfg, err = _validate_table_key(table_key)
     if err:
         return err
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
     items, warnings = get_lookup(cfg.key, active_only=active_only)
     return Response({"items": items, "warnings": warnings})
@@ -1842,6 +1876,9 @@ master_lookup.required_permission = PERM_MASTERDATA_VIEW
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def item_level1_category_lookup(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
     items, warnings = list_item_category_lookup(
         active_only=active_only,
@@ -1860,6 +1897,9 @@ item_level1_category_lookup.required_permission = PERM_MASTERDATA_VIEW
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def item_ifrc_family_lookup(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
     items, warnings = list_ifrc_family_lookup(
         category_id=request.query_params.get("category_id"),
@@ -1881,6 +1921,9 @@ item_ifrc_family_lookup.required_permission = PERM_MASTERDATA_VIEW
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def item_ifrc_reference_lookup(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     active_only = request.query_params.get("active_only", "true").lower() != "false"
     try:
         limit = int(request.query_params.get("limit", DEFAULT_PAGE_LIMIT))
@@ -1912,6 +1955,9 @@ item_ifrc_reference_lookup.required_permission = PERM_MASTERDATA_VIEW
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_family_suggest(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     payload, errors, warnings = suggest_ifrc_family_authoring(request.data or {})
     if errors:
         return Response({"errors": errors, "warnings": warnings}, status=400)
@@ -1925,6 +1971,9 @@ ifrc_family_suggest.required_permission = [PERM_MASTERDATA_CREATE, PERM_MASTERDA
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_item_reference_suggest(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     payload, errors, warnings = suggest_ifrc_reference_authoring(request.data or {})
     if errors:
         return Response({"errors": errors, "warnings": warnings}, status=400)
@@ -1938,6 +1987,9 @@ ifrc_item_reference_suggest.required_permission = [PERM_MASTERDATA_CREATE, PERM_
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_family_replacement(request, pk: str):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     cfg = TABLE_REGISTRY["ifrc_families"]
     pk_value = _coerce_pk(cfg, pk)
     retire_original = str((request.data or {}).get("retire_original") or "").lower() in {"1", "true", "yes"}
@@ -1965,6 +2017,9 @@ ifrc_family_replacement.required_permission = [PERM_MASTERDATA_CREATE, PERM_MAST
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_item_reference_replacement(request, pk: str):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     cfg = TABLE_REGISTRY["ifrc_item_references"]
     pk_value = _coerce_pk(cfg, pk)
     retire_original = str((request.data or {}).get("retire_original") or "").lower() in {"1", "true", "yes"}
@@ -1997,6 +2052,9 @@ ifrc_item_reference_replacement.required_permission = [PERM_MASTERDATA_CREATE, P
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_suggest(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     cfg = _ifrc_cfg()
     if not cfg["IFRC_ENABLED"]:
         return Response({"detail": "IFRC suggestion service is disabled."}, status=503)
@@ -2084,6 +2142,9 @@ ifrc_suggest.required_permission = PERM_MASTERDATA_VIEW
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([MasterDataPermission])
 def ifrc_health(request):
+    access_error = _require_governed_catalog_access(request)
+    if access_error is not None:
+        return access_error
     cfg = _ifrc_cfg()
     breaker_open = cb_is_open()
     status = "healthy" if cfg["IFRC_ENABLED"] and not breaker_open else "degraded"
@@ -2138,6 +2199,10 @@ def master_inactivate(request, table_key: str, pk: str):
         return err
     if not cfg.has_status:
         return Response({"detail": "This table does not support status changes."}, status=400)
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
     pk_value = _coerce_pk(cfg, pk)
 
     # Check dependencies first
@@ -2220,6 +2285,10 @@ def master_activate(request, table_key: str, pk: str):
         return err
     if not cfg.has_status:
         return Response({"detail": "This table does not support status changes."}, status=400)
+    if is_governed_catalog_table(cfg.key):
+        access_error = _require_governed_catalog_access(request)
+        if access_error is not None:
+            return access_error
     pk_value = _coerce_pk(cfg, pk)
 
     expected_version = (request.data or {}).get("version_nbr")

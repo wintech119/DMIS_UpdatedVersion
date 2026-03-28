@@ -226,7 +226,9 @@ export class NeedsListWizardComponent implements OnInit {
           if (replacementId) {
             this.router.navigate(['/replenishment/needs-list', replacementId, 'review']);
           } else {
-            this.router.navigate(['/replenishment/needs-list', needsListId, 'superseded']);
+            this.router.navigate(['/replenishment/needs-list', needsListId, 'review'], {
+              queryParams: { superseded: 'true' }
+            });
           }
           return;
         }

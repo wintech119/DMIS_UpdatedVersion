@@ -14,11 +14,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
 import { ALL_TABLE_CONFIGS } from '../../models/table-configs';
 import {
-  MASTER_DOMAIN_DEFINITIONS,
   MasterDomainDefinition,
   MasterDomainId,
   isMasterDomainId,
 } from '../../models/master-domain-map';
+import { MasterDataAccessService } from '../../services/master-data-access.service';
 import { MasterDataCardComponent } from '../master-data-card/master-data-card.component';
 
 interface ImplementedCard {
@@ -27,6 +27,8 @@ interface ImplementedCard {
   label: string;
   icon: string;
   readOnly: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
   note?: string;
 }
 
@@ -56,9 +58,10 @@ export class MasterHomeComponent {
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
   private authRbac = inject(AuthRbacService);
+  private masterDataAccess = inject(MasterDataAccessService);
 
-  requestedDomain = signal<MasterDomainId>('catalogs');
-  selectedDomain = signal<MasterDomainId>('catalogs');
+  requestedDomain = signal<MasterDomainId | null>(null);
+  authLoaded = computed(() => this.authRbac.loaded());
 
   private readonly tableNotes: Record<string, string> = {
     'item-categories': 'Govern the Level 1 DMIS business categories used by item classification and reporting.',
@@ -66,31 +69,49 @@ export class MasterHomeComponent {
     'ifrc-item-references': 'Maintain Level 3 IFRC references, including spec attributes used during match review.',
     inventory: 'Read-only for now. Manage source transactions and policies via operational workflows.',
     locations: 'No locations found yet. Create locations before running item-location assignment tests.',
+    custodians: 'Legacy/deprecated master retained for compatibility with older operational workflows.',
   };
 
-  isSystemAdmin = computed(() =>
-    this.authRbac.roles().some((role) => String(role).trim().toUpperCase() === 'SYSTEM_ADMINISTRATOR'),
-  );
-
   domains = computed(() =>
-    MASTER_DOMAIN_DEFINITIONS.filter(
-      (domain) => !domain.sysadminOnly || this.isSystemAdmin(),
-    ),
+    this.masterDataAccess.getAccessibleDomains(),
   );
 
   activeDomain = computed<MasterDomainDefinition | null>(() => {
     const available = this.domains();
     if (!available.length) return null;
-    return available.find((domain) => domain.id === this.selectedDomain()) ?? available[0];
+    const requested = this.requestedDomain();
+    if (requested) {
+      const matched = available.find((domain) => domain.id === requested);
+      if (matched) {
+        return matched;
+      }
+    }
+    return available[0];
   });
 
-  showRestrictedDomainNotice = computed(() => {
-    if (!this.authRbac.loaded()) {
-      return false;
+  accessNotice = computed(() => {
+    if (!this.authLoaded()) {
+      return null;
     }
     const requested = this.requestedDomain();
-    const requestedDomain = MASTER_DOMAIN_DEFINITIONS.find((domain) => domain.id === requested);
-    return Boolean(requestedDomain?.sysadminOnly && !this.isSystemAdmin());
+    if (!requested) {
+      return null;
+    }
+
+    if (this.masterDataAccess.canAccessDomain(requested)) {
+      return null;
+    }
+
+    switch (requested) {
+      case 'advanced':
+        return 'Advanced/System masters are restricted to System Administrator access. Showing the first accessible domain instead.';
+      case 'catalogs':
+      case 'policies':
+      case 'tenant-access':
+        return 'This governance domain is restricted to ODPEM/global governance access. Showing the first accessible domain instead.';
+      default:
+        return 'The requested master data domain is not available in your current tenant context. Showing the first accessible domain instead.';
+    }
   });
 
   activeCards = computed<DomainCard[]>(() => {
@@ -107,6 +128,8 @@ export class MasterHomeComponent {
           label: config.displayName,
           icon: config.icon,
           readOnly: Boolean(config.readOnly),
+          canCreate: this.masterDataAccess.canCreateRoutePath(routePath, Boolean(config.readOnly)),
+          canEdit: this.masterDataAccess.canEditRoutePath(routePath, Boolean(config.readOnly)),
           note: this.tableNotes[routePath],
         };
         return card;
@@ -130,10 +153,8 @@ export class MasterHomeComponent {
       const requested = query.get('domain');
       if (isMasterDomainId(requested)) {
         this.requestedDomain.set(requested);
-        this.selectedDomain.set(requested);
       } else {
-        this.requestedDomain.set('catalogs');
-        this.selectedDomain.set('catalogs');
+        this.requestedDomain.set(null);
       }
     });
   }
@@ -147,11 +168,17 @@ export class MasterHomeComponent {
   }
 
   navigate(routePath: string): void {
+    if (!this.masterDataAccess.canAccessRoutePath(routePath)) {
+      return;
+    }
     this.router.navigate(['/master-data', routePath]);
   }
 
   create(routePath: string): void {
     const config = ALL_TABLE_CONFIGS[routePath];
+    if (!this.masterDataAccess.canCreateRoutePath(routePath, Boolean(config?.readOnly))) {
+      return;
+    }
     if (config?.formMode === 'dialog') {
       this.router.navigate(['/master-data', routePath], {
         queryParams: { open: 'new' },

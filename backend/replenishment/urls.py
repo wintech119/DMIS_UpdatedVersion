@@ -1,4 +1,4 @@
-from django.urls import path
+﻿from django.urls import path
 
 from replenishment.views import (
     assign_storage_location,
@@ -14,6 +14,10 @@ from replenishment.views import (
     criticality_hazard_default_approve,
     criticality_hazard_default_reject,
     needs_list_approve,
+    needs_list_allocation_options,
+    needs_list_allocations_commit,
+    needs_list_allocations_current,
+    needs_list_allocations_override_approve,
     needs_list_bulk_delete,
     needs_list_bulk_submit,
     needs_list_cancel,
@@ -40,6 +44,7 @@ from replenishment.views import (
     needs_list_transfer_confirm,
     needs_list_transfer_update,
     needs_list_transfers,
+    needs_list_waybill,
     storage_assignment_options,
     needs_list_donations,
     needs_list_donations_allocate,
@@ -195,10 +200,33 @@ urlpatterns = [
         needs_list_review_reminder,
         name="needs_list_review_reminder",
     ),
+    # Transitional compatibility endpoints frozen pending retirement during the Operations cutover.
+    # They remain callable for regression safety, but they are not the
+    # approved long-term replenishment contract.
     path(
         "needs-list/<str:needs_list_id>/start-preparation",
         needs_list_start_preparation,
         name="needs_list_start_preparation",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocation-options",
+        needs_list_allocation_options,
+        name="needs_list_allocation_options",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/current",
+        needs_list_allocations_current,
+        name="needs_list_allocations_current",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/commit",
+        needs_list_allocations_commit,
+        name="needs_list_allocations_commit",
+    ),
+    path(
+        "needs-list/<str:needs_list_id>/allocations/override-approve",
+        needs_list_allocations_override_approve,
+        name="needs_list_allocations_override_approve",
     ),
     path(
         "needs-list/<str:needs_list_id>/mark-dispatched",
@@ -256,11 +284,16 @@ urlpatterns = [
         name="needs_list_donations_export",
     ),
     path(
+        "needs-list/<str:needs_list_id>/waybill",
+        needs_list_waybill,
+        name="needs_list_waybill",
+    ),
+    path(
         "needs-list/<str:needs_list_id>/procurement/export",
         needs_list_procurement_export,
         name="needs_list_procurement_export",
     ),
-    # ── Procurement (Horizon C) ──────────────────────────────────────────
+    # Procurement (Horizon C)
     path("procurement/", procurement_list_create, name="procurement_list_create"),
     path("procurement/<int:procurement_id>", procurement_detail, name="procurement_detail"),
     path("procurement/<int:procurement_id>/submit", procurement_submit, name="procurement_submit"),
@@ -270,7 +303,7 @@ urlpatterns = [
     path("procurement/<int:procurement_id>/ship", procurement_mark_shipped, name="procurement_mark_shipped"),
     path("procurement/<int:procurement_id>/receive", procurement_receive, name="procurement_receive"),
     path("procurement/<int:procurement_id>/cancel", procurement_cancel, name="procurement_cancel"),
-    # ── Suppliers ────────────────────────────────────────────────────────
+    # Suppliers
     path("suppliers/", supplier_list_create, name="supplier_list_create"),
     path("suppliers/<int:supplier_id>", supplier_detail, name="supplier_detail"),
     path(
@@ -294,3 +327,4 @@ urlpatterns = [
         name="tenant_feature_detail",
     ),
 ]
+

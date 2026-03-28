@@ -108,10 +108,69 @@
       </div>
     </div>
 
+    @if (operationalWorkspacesVisible()) {
+      <div class="execution-actions">
+        <span class="section-label">Allocation & Dispatch</span>
+        <div class="actions-grid">
+          <div class="action-card action-card-execution">
+            <div class="action-card-header">
+              <mat-icon aria-hidden="true">inventory</mat-icon>
+              <div>
+                <span class="action-card-title">Allocation Workspace</span>
+                <span class="action-card-count">{{ executionStatusLabel() }}</span>
+              </div>
+            </div>
+            <p class="action-card-desc">{{ allocationActionDescription() }}</p>
+            <div class="action-card-meta">
+              <span>Request: {{ list.request_tracking_no || 'Pending' }}</span>
+              <span>Package: {{ list.package_tracking_no || 'Pending' }}</span>
+            </div>
+            <button mat-flat-button color="primary" type="button" (click)="navigateToAllocationWorkspace()">
+              <mat-icon>inventory</mat-icon>
+              Open Allocation
+            </button>
+          </div>
+
+          <div class="action-card action-card-execution">
+            <div class="action-card-header">
+              <mat-icon aria-hidden="true">local_shipping</mat-icon>
+              <div>
+                <span class="action-card-title">Dispatch Workspace</span>
+                <span class="action-card-count">{{ list.waybill_no || 'Waybill pending' }}</span>
+              </div>
+            </div>
+            <p class="action-card-desc">{{ dispatchActionDescription() }}</p>
+            <div class="action-card-meta">
+              <span>Dispatch ref: {{ list.waybill_no || 'Pending' }}</span>
+              <span>Status: {{ executionStatusLabel() }}</span>
+            </div>
+            <button
+              mat-flat-button
+              color="primary"
+              type="button"
+              [disabled]="dispatchBlocked()"
+              (click)="navigateToDispatchWorkspace()">
+              <mat-icon>local_shipping</mat-icon>
+              Open Dispatch
+            </button>
+            @if (dispatchBlocked()) {
+              <p class="action-card-hint">
+                {{
+                  (list.execution_status || '').toUpperCase() === 'PENDING_OVERRIDE_APPROVAL'
+                    ? 'Override approval must finish before dispatch.'
+                    : 'Commit a reservation first in the allocation workspace.'
+                }}
+              </p>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
     <!-- Execution Actions Panel -->
     @if (showExecutionActions()) {
       <div class="execution-actions">
-        <span class="section-label">Execution Actions</span>
+        <span class="section-label">Related Sourcing Paths</span>
         <div class="actions-grid">
           @if (hasHorizonA()) {
             <div class="action-card action-card-a">

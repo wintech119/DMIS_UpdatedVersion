@@ -328,6 +328,27 @@
   .action-card-header > mat-icon { color: var(--color-horizon-c); }
 }
 
+.action-card-meta {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.action-card-hint {
+  margin: 0;
+  color: var(--color-watch);
+  font-size: var(--text-sm);
+}
+
+.action-card-execution {
+  border-left: 3px solid var(--color-accent);
+
+  .action-card-header > mat-icon {
+    color: var(--color-accent);
+  }
+}
+
 // ── Lines Section ────────────────────────────────────────────────────────────
 // ── Compact Lines Table (Desktop) ───────────────────────────────────────────
 .lines-table-wrap {

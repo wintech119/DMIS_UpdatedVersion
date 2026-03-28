@@ -64,7 +64,7 @@ export class DonationAllocationComponent {
   }
 
   backToTracker(): void {
-    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'track']);
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
   exportNeeds(format: 'csv' | 'pdf'): void {

@@ -9,6 +9,16 @@ describe('MASTER_DATA_ROUTES', () => {
     expect(masterDataRoute?.loadChildren).toBeDefined();
   });
 
+  it('applies the master data access guard to deep-linkable maintenance routes', () => {
+    const itemCategoryRoute = MASTER_DATA_ROUTES.find((route) => route.path === 'item-categories');
+    const uomRoute = MASTER_DATA_ROUTES.find((route) => route.path === 'uom');
+    const homeRoute = MASTER_DATA_ROUTES.find((route) => route.path === '');
+
+    expect(itemCategoryRoute?.canMatch?.length).toBe(1);
+    expect(uomRoute?.canMatch?.length).toBe(1);
+    expect(homeRoute?.canMatch).toBeUndefined();
+  });
+
   it('keeps item master compatibility for /master-data/items and its page flow', () => {
     const routePaths = MASTER_DATA_ROUTES.map((route) => route.path);
 

@@ -8,6 +8,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 from django.utils import timezone
 
+from api.tenant_membership_locks import lock_primary_tenant_membership
+
 
 @dataclass
 class MembershipRow:
@@ -221,26 +223,27 @@ class Command(BaseCommand):
     def _set_primary_tenant_for_users(self, *, user_ids: list[int], target_tenant_id: int) -> None:
         if not user_ids:
             return
-        placeholders = ", ".join(["%s"] * len(user_ids))
         with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                UPDATE tenant_user
-                SET is_primary_tenant = FALSE
-                WHERE user_id IN ({placeholders}) AND COALESCE(status_code, 'A') = 'A'
-                """,
-                user_ids,
-            )
-            cursor.execute(
-                f"""
-                UPDATE tenant_user
-                SET is_primary_tenant = TRUE
-                WHERE user_id IN ({placeholders})
-                  AND tenant_id = %s
-                  AND COALESCE(status_code, 'A') = 'A'
-                """,
-                [*user_ids, target_tenant_id],
-            )
+            for user_id in user_ids:
+                lock_primary_tenant_membership(cursor, user_id=user_id)
+                cursor.execute(
+                    """
+                    UPDATE tenant_user
+                    SET is_primary_tenant = FALSE
+                    WHERE user_id = %s AND COALESCE(status_code, 'A') = 'A'
+                    """,
+                    [user_id],
+                )
+                cursor.execute(
+                    """
+                    UPDATE tenant_user
+                    SET is_primary_tenant = TRUE
+                    WHERE user_id = %s
+                      AND tenant_id = %s
+                      AND COALESCE(status_code, 'A') = 'A'
+                    """,
+                    [user_id, target_tenant_id],
+                )
 
     def _missing_tenant_warehouse_rows(self, tenant_ids: list[int]) -> list[tuple[int, int]]:
         if not tenant_ids:

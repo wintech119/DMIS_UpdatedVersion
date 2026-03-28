@@ -66,7 +66,7 @@ export class ProcurementExportComponent {
   }
 
   backToTracker(): void {
-    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'track']);
+    this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
   exportAs(format: 'csv' | 'pdf'): void {

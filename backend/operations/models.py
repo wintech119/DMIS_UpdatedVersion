@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+
+class AuditedModel(models.Model):
+    create_by_id = models.CharField(max_length=50)
+    create_dtime = models.DateTimeField(default=timezone.now)
+    update_by_id = models.CharField(max_length=50)
+    update_dtime = models.DateTimeField(default=timezone.now)
+    version_nbr = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        abstract = True
+
+
+class TenantHierarchy(AuditedModel):
+    hierarchy_id = models.BigAutoField(primary_key=True)
+    parent_tenant_id = models.IntegerField(db_index=True)
+    child_tenant_id = models.IntegerField(db_index=True)
+    relationship_type = models.CharField(max_length=50)
+    can_parent_request_on_behalf_flag = models.BooleanField(default=False)
+    effective_date = models.DateField()
+    expiry_date = models.DateField(blank=True, null=True)
+    status_code = models.CharField(max_length=20, default="ACTIVE")
+
+    class Meta:
+        db_table = "tenant_hierarchy"
+        indexes = [
+            models.Index(fields=["parent_tenant_id", "child_tenant_id"]),
+            models.Index(fields=["child_tenant_id", "status_code"]),
+        ]
+
+
+class TenantRequestPolicy(AuditedModel):
+    policy_id = models.BigAutoField(primary_key=True)
+    tenant_id = models.IntegerField(db_index=True)
+    can_self_request_flag = models.BooleanField(default=True)
+    request_authority_tenant_id = models.IntegerField(blank=True, null=True)
+    can_create_needs_list_flag = models.BooleanField(default=True)
+    can_apply_needs_list_to_relief_request_flag = models.BooleanField(default=True)
+    can_export_needs_list_for_donation_flag = models.BooleanField(default=True)
+    can_broadcast_needs_list_for_donation_flag = models.BooleanField(default=True)
+    allow_odpem_bridge_flag = models.BooleanField(default=False)
+    effective_date = models.DateField()
+    expiry_date = models.DateField(blank=True, null=True)
+    status_code = models.CharField(max_length=20, default="ACTIVE")
+
+    class Meta:
+        db_table = "tenant_request_policy"
+        indexes = [
+            models.Index(fields=["tenant_id", "status_code"]),
+            models.Index(fields=["request_authority_tenant_id", "status_code"]),
+        ]
+
+
+class TenantControlScope(AuditedModel):
+    control_scope_id = models.BigAutoField(primary_key=True)
+    controller_tenant_id = models.IntegerField(db_index=True)
+    controlled_tenant_id = models.IntegerField(db_index=True)
+    control_type = models.CharField(max_length=50)
+    effective_date = models.DateField()
+    expiry_date = models.DateField(blank=True, null=True)
+    status_code = models.CharField(max_length=20, default="ACTIVE")
+
+    class Meta:
+        db_table = "tenant_control_scope"
+        indexes = [
+            models.Index(fields=["controller_tenant_id", "controlled_tenant_id"]),
+            models.Index(fields=["controlled_tenant_id", "status_code"]),
+        ]
+
+
+class OperationsReliefRequest(AuditedModel):
+    relief_request_id = models.IntegerField(primary_key=True)
+    request_no = models.CharField(max_length=30, unique=True)
+    requesting_tenant_id = models.IntegerField(db_index=True)
+    requesting_agency_id = models.IntegerField(blank=True, null=True)
+    beneficiary_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    beneficiary_agency_id = models.IntegerField(blank=True, null=True)
+    origin_mode = models.CharField(max_length=30)
+    source_needs_list_id = models.IntegerField(blank=True, null=True)
+    event_id = models.IntegerField(blank=True, null=True)
+    request_date = models.DateField()
+    urgency_code = models.CharField(max_length=10)
+    notes_text = models.TextField(blank=True, null=True)
+    status_code = models.CharField(max_length=40, db_index=True)
+    submitted_by_id = models.CharField(max_length=50, blank=True, null=True)
+    submitted_at = models.DateTimeField(blank=True, null=True)
+    reviewed_by_id = models.CharField(max_length=50, blank=True, null=True)
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    fulfilled_at = models.DateTimeField(blank=True, null=True)
+    cancelled_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_relief_request"
+        indexes = [
+            models.Index(fields=["status_code", "request_date"]),
+            models.Index(fields=["requesting_tenant_id", "status_code"]),
+            models.Index(fields=["beneficiary_tenant_id", "status_code"]),
+        ]
+
+
+class OperationsEligibilityDecision(models.Model):
+    decision_id = models.BigAutoField(primary_key=True)
+    relief_request = models.OneToOneField(
+        OperationsReliefRequest,
+        on_delete=models.CASCADE,
+        related_name="eligibility_decision",
+    )
+    decision_code = models.CharField(max_length=20)
+    decision_reason = models.TextField(blank=True, null=True)
+    decided_by_user_id = models.CharField(max_length=50)
+    decided_by_role_code = models.CharField(max_length=50)
+    decided_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "operations_eligibility_decision"
+        indexes = [
+            models.Index(fields=["decision_code", "decided_at"]),
+        ]
+
+
+class OperationsPackage(AuditedModel):
+    package_id = models.IntegerField(primary_key=True)
+    package_no = models.CharField(max_length=30, unique=True)
+    relief_request = models.ForeignKey(
+        OperationsReliefRequest,
+        on_delete=models.CASCADE,
+        related_name="packages",
+    )
+    source_warehouse_id = models.IntegerField(blank=True, null=True)
+    destination_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    destination_agency_id = models.IntegerField(blank=True, null=True)
+    status_code = models.CharField(max_length=40, db_index=True)
+    override_status_code = models.CharField(max_length=40, blank=True, null=True)
+    committed_at = models.DateTimeField(blank=True, null=True)
+    dispatched_at = models.DateTimeField(blank=True, null=True)
+    received_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_package"
+        indexes = [
+            models.Index(fields=["relief_request", "status_code"]),
+            models.Index(fields=["destination_tenant_id", "status_code"]),
+        ]
+
+
+class OperationsPackageLock(models.Model):
+    package_lock_id = models.BigAutoField(primary_key=True)
+    package = models.OneToOneField(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="lock_record",
+    )
+    lock_owner_user_id = models.CharField(max_length=50)
+    lock_owner_role_code = models.CharField(max_length=50)
+    lock_started_at = models.DateTimeField(default=timezone.now)
+    lock_expires_at = models.DateTimeField(blank=True, null=True)
+    lock_status = models.CharField(max_length=20, default="ACTIVE")
+
+    class Meta:
+        db_table = "operations_package_lock"
+        indexes = [
+            models.Index(fields=["lock_status", "lock_expires_at"]),
+        ]
+
+
+class OperationsDispatch(AuditedModel):
+    dispatch_id = models.BigAutoField(primary_key=True)
+    package = models.OneToOneField(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="dispatch_record",
+    )
+    dispatch_no = models.CharField(max_length=30, unique=True)
+    status_code = models.CharField(max_length=30, db_index=True)
+    dispatch_at = models.DateTimeField(blank=True, null=True)
+    dispatched_by_id = models.CharField(max_length=50, blank=True, null=True)
+    source_warehouse_id = models.IntegerField(blank=True, null=True)
+    destination_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    destination_agency_id = models.IntegerField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_dispatch"
+        indexes = [
+            models.Index(fields=["status_code", "dispatch_at"]),
+            models.Index(fields=["destination_tenant_id", "status_code"]),
+        ]
+
+
+class OperationsDispatchTransport(models.Model):
+    dispatch_transport_id = models.BigAutoField(primary_key=True)
+    dispatch = models.OneToOneField(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="transport_record",
+    )
+    driver_name = models.CharField(max_length=120)
+    driver_license_no = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_id = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_type = models.CharField(max_length=50, blank=True, null=True)
+    transport_mode = models.CharField(max_length=50, blank=True, null=True)
+    departure_dtime = models.DateTimeField(blank=True, null=True)
+    estimated_arrival_dtime = models.DateTimeField(blank=True, null=True)
+    transport_notes = models.TextField(blank=True, null=True)
+    route_override_reason = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_dispatch_transport"
+
+
+class OperationsWaybill(models.Model):
+    waybill_id = models.BigAutoField(primary_key=True)
+    dispatch = models.ForeignKey(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="waybills",
+    )
+    waybill_no = models.CharField(max_length=50, unique=True)
+    artifact_payload_json = models.JSONField()
+    artifact_version = models.PositiveIntegerField(default=1)
+    generated_by_id = models.CharField(max_length=50)
+    generated_at = models.DateTimeField(default=timezone.now)
+    is_final_flag = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "operations_waybill"
+        indexes = [
+            models.Index(fields=["dispatch", "generated_at"]),
+        ]
+
+
+class OperationsReceipt(models.Model):
+    receipt_id = models.BigAutoField(primary_key=True)
+    dispatch = models.OneToOneField(
+        OperationsDispatch,
+        on_delete=models.CASCADE,
+        related_name="receipt_record",
+    )
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="receipts",
+    )
+    receipt_status_code = models.CharField(max_length=30, db_index=True)
+    received_by_user_id = models.CharField(max_length=50, blank=True, null=True)
+    received_by_name = models.CharField(max_length=120, blank=True, null=True)
+    received_at = models.DateTimeField(blank=True, null=True)
+    receipt_notes = models.TextField(blank=True, null=True)
+    receipt_artifact_json = models.JSONField(blank=True, null=True)
+    beneficiary_delivery_ref = models.CharField(max_length=50, blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_receipt"
+        constraints = [
+            models.UniqueConstraint(fields=["package"], name="operations_receipt_unique_package"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.dispatch_id is None or self.package_id is None:
+            return
+        dispatch_package_id = (
+            OperationsDispatch.objects.filter(dispatch_id=self.dispatch_id)
+            .values_list("package_id", flat=True)
+            .first()
+        )
+        if dispatch_package_id is not None and self.package_id != dispatch_package_id:
+            raise ValidationError({"package": "Receipt package must match the dispatch package."})
+
+    def save(self, *args, **kwargs):
+        if not kwargs.get("raw", False):
+            self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class OperationsNotification(models.Model):
+    notification_id = models.BigAutoField(primary_key=True)
+    event_code = models.CharField(max_length=50, db_index=True)
+    entity_type = models.CharField(max_length=50)
+    entity_id = models.IntegerField()
+    recipient_user_id = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    recipient_role_code = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    recipient_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    message_text = models.TextField()
+    queue_code = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    read_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = "operations_notification"
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id", "created_at"]),
+        ]
+
+
+class OperationsQueueAssignment(models.Model):
+    queue_assignment_id = models.BigAutoField(primary_key=True)
+    queue_code = models.CharField(max_length=50, db_index=True)
+    entity_type = models.CharField(max_length=50)
+    entity_id = models.IntegerField()
+    assigned_role_code = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    assigned_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
+    assigned_user_id = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    assignment_status = models.CharField(max_length=20, default="OPEN", db_index=True)
+    assigned_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_queue_assignment"
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id", "assignment_status"]),
+        ]
+
+
+class OperationsStatusHistory(models.Model):
+    status_history_id = models.BigAutoField(primary_key=True)
+    entity_type = models.CharField(max_length=50, db_index=True)
+    entity_id = models.IntegerField(db_index=True)
+    from_status_code = models.CharField(max_length=40, blank=True, null=True)
+    to_status_code = models.CharField(max_length=40)
+    changed_by_id = models.CharField(max_length=50)
+    changed_at = models.DateTimeField(default=timezone.now)
+    reason_text = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_status_history"
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id", "changed_at"]),
+        ]

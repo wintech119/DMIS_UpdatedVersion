@@ -85,7 +85,12 @@ class ReplenishmentSqlTemplateRenderingTests(SimpleTestCase):
         for template_name in SUPPORTED_SQL_TEMPLATE_NAMES:
             with self.subTest(template_name=template_name):
                 rendered_sql = render_sql_template(template_name, "tenant_a")
-                self.assertIn("tenant_a.", rendered_sql)
+                has_qualified = "tenant_a." in rendered_sql
+                has_search_path = "search_path TO tenant_a" in rendered_sql
+                self.assertTrue(
+                    has_qualified or has_search_path,
+                    f"{template_name}: expected schema-qualified names or SET search_path",
+                )
                 self.assertNotIn("public.", rendered_sql)
 
 
