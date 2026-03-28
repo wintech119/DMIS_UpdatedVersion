@@ -913,7 +913,7 @@ export class StockStatusDashboardComponent implements OnInit {
     if (!row.needs_list_id) {
       return;
     }
-    this.router.navigate(['/replenishment/needs-list-review', row.needs_list_id]);
+    this.router.navigate(['/replenishment/needs-list', row.needs_list_id, 'review']);
   }
 
   openMyNeedsList(row: NeedsListResponse, event?: Event): void {

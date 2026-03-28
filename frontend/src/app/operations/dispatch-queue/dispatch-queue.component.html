@@ -1,0 +1,96 @@
+<div class="ops-queue-shell">
+  <section class="ops-hero" aria-labelledby="dispatch-queue-title">
+    <div class="ops-hero__copy">
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">local_shipping</mat-icon>
+        Operations / Dispatch
+      </p>
+      <h1 id="dispatch-queue-title" class="ops-hero__title">Dispatch Queue</h1>
+      <p class="ops-hero__description">
+        Post-reservation packages that are ready for operational handoff, waybill review, and dispatch tracking.
+      </p>
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-stroked-button type="button" (click)="refreshQueue()">
+        <mat-icon>refresh</mat-icon>
+        Refresh Queue
+      </button>
+    </div>
+  </section>
+
+  <app-ops-metric-strip [items]="queueMetrics()" />
+
+  @if (loading()) {
+    <mat-card class="ops-surface">
+      <dmis-skeleton-loader variant="table-row" [count]="5" />
+    </mat-card>
+  } @else if (items().length === 0) {
+    <dmis-empty-state
+      icon="local_shipping"
+      title="No pending dispatches"
+      message="No packages are waiting for dispatch handoff right now."
+    />
+  } @else {
+    <div class="ops-table-shell">
+      <div class="ops-table-shell__header">
+        <div>
+          <p class="ops-table-shell__eyebrow">Queue</p>
+          <h2>Dispatch worklist</h2>
+        </div>
+        <span class="ops-table-shell__meta">{{ items().length }} packages</span>
+      </div>
+
+      <div class="ops-queue-list" role="list" aria-label="Dispatch queue">
+        @for (row of items(); track row.reliefpkg_id) {
+          <article
+            class="ops-queue-row"
+            role="listitem"
+            tabindex="0"
+            (click)="viewDispatch(row)"
+            (keydown.enter)="viewDispatch(row)"
+            (keydown.space)="viewDispatch(row); $event.preventDefault()">
+            <div class="ops-queue-row__main">
+              <div class="ops-queue-row__identity">
+                <p class="ops-queue-row__tracking">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
+                <h3 class="ops-queue-row__title">{{ row.request_tracking_no ?? 'Request ' + row.reliefrqst_id }}</h3>
+                <p class="ops-queue-row__meta">
+                  {{ row.agency_name ?? 'Agency ' + row.agency_id }}
+                  <span aria-hidden="true">&middot;</span>
+                  {{ row.event_name ?? 'No event' }}
+                </p>
+              </div>
+
+              <div class="ops-queue-row__chips">
+                <app-ops-status-chip [label]="formatPackageStatus(row.status_code)" [tone]="statusTone(row.status_code)" />
+                <app-ops-status-chip [label]="row.transport_mode ?? 'Transport pending'" [tone]="transportTone(row.transport_mode)" />
+              </div>
+            </div>
+
+            <div class="ops-queue-row__details">
+              <div>
+                <span class="ops-queue-row__label">Dispatch</span>
+                <strong>{{ row.dispatch_dtime ? (row.dispatch_dtime | date:'medium') : 'Pending handoff' }}</strong>
+              </div>
+              <div>
+                <span class="ops-queue-row__label">Waybill</span>
+                <strong>{{ row.tracking_no ? 'Rebuild available' : 'Assigned on dispatch' }}</strong>
+              </div>
+            </div>
+
+            <button
+              mat-stroked-button
+              type="button"
+              color="primary"
+              class="ops-queue-row__action"
+              (click)="viewDispatch(row); $event.stopPropagation()"
+              [attr.aria-label]="'Open dispatch workspace for ' + (row.tracking_no ?? ('package ' + row.reliefpkg_id))">
+              Open
+              <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </article>
+        }
+      </div>
+    </div>
+  }
+</div>

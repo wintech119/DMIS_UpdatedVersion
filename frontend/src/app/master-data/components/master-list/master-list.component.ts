@@ -32,6 +32,7 @@ import { DmisSkeletonLoaderComponent } from '../../../replenishment/shared/dmis-
 import { DmisEmptyStateComponent } from '../../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
+import { MasterDataAccessService } from '../../services/master-data-access.service';
 
 import { Subject, combineLatest, debounceTime, distinctUntilChanged, tap } from 'rxjs';
 
@@ -55,6 +56,7 @@ export class MasterListComponent implements OnInit {
   private service = inject(MasterDataService);
   private dialog = inject(MatDialog);
   private notify = inject(DmisNotificationService);
+  private access = inject(MasterDataAccessService);
   private destroyRef = inject(DestroyRef);
   private breakpointObserver = inject(BreakpointObserver);
   private latestLoadRequestId = 0;
@@ -90,13 +92,36 @@ export class MasterListComponent implements OnInit {
 
   private searchSubject = new Subject<string>();
   readonly isItemList = computed(() => this.config()?.tableKey === 'items');
+  readonly canCreate = computed(() => {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    return this.access.canCreateRoutePath(cfg.routePath, Boolean(cfg.readOnly));
+  });
+  readonly canEdit = computed(() => {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    return this.access.canEditRoutePath(cfg.routePath, Boolean(cfg.readOnly));
+  });
+  readonly hasRowActions = computed(() => {
+    const cfg = this.config();
+    if (!cfg || cfg.readOnly) {
+      return false;
+    }
+    return this.canEdit()
+      || this.access.canToggleStatusRoutePath(cfg.routePath, true)
+      || this.access.canToggleStatusRoutePath(cfg.routePath, false);
+  });
 
   displayedColumns = computed(() => {
     const cfg = this.config();
     if (!cfg) return [];
     const cols = cfg.columns;
     const colNames = cols.map(c => c.field);
-    if (!cfg.readOnly) colNames.push('_actions');
+    if (this.hasRowActions()) colNames.push('_actions');
     return colNames;
   });
 
@@ -357,7 +382,7 @@ export class MasterListComponent implements OnInit {
 
   onAdd(): void {
     const cfg = this.config();
-    if (!cfg) return;
+    if (!cfg || !this.canCreate()) return;
 
     if (cfg.formMode === 'dialog') {
       this.openFormDialog(null);
@@ -382,7 +407,7 @@ export class MasterListComponent implements OnInit {
 
   onEdit(row: MasterRecord): void {
     const cfg = this.config();
-    if (!cfg) return;
+    if (!cfg || !this.canEdit()) return;
     const pk = this.coercePrimaryKey(row[cfg.pkField]);
     if (pk == null) {
       this.notify.showError('Cannot edit record: invalid primary key.');
@@ -406,6 +431,9 @@ export class MasterListComponent implements OnInit {
     }
     const versionNbr = this.coerceVersionNumber(row['version_nbr']);
     const isActive = row[cfg.statusField || 'status_code'] === 'A';
+    if (!this.canToggleStatus(row)) {
+      return;
+    }
 
     if (isActive) {
       const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {
@@ -495,7 +523,9 @@ export class MasterListComponent implements OnInit {
     }
 
     this.pendingDialogQueryAction = null;
-    this.openFormDialog(null);
+    if (this.canCreate()) {
+      this.openFormDialog(null);
+    }
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { open: null },
@@ -507,6 +537,8 @@ export class MasterListComponent implements OnInit {
   private openFormDialog(pk: string | number | null): void {
     const cfg = this.config();
     if (!cfg) return;
+    if (pk == null && !this.canCreate()) return;
+    if (pk != null && !this.canEdit()) return;
 
     const dialogRef = this.dialog.open(MasterFormDialogComponent, {
       data: { config: cfg, pk },
@@ -571,6 +603,15 @@ export class MasterListComponent implements OnInit {
       const nameDiff = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
       return direction === 'desc' ? -nameDiff : nameDiff;
     });
+  }
+
+  canToggleStatus(row: MasterRecord): boolean {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    const isActive = row[cfg.statusField || 'status_code'] === 'A';
+    return this.access.canToggleStatusRoutePath(cfg.routePath, isActive, Boolean(cfg.readOnly));
   }
 
   private getCriticalityRank(value: unknown): number | null {

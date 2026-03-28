@@ -39,6 +39,12 @@ GOVERNED_CATALOG_TABLE_KEYS = frozenset({
     "item_categories",
     "ifrc_families",
     "ifrc_item_references",
+    "items",
+    "uom",
+    "countries",
+    "currencies",
+    "parishes",
+    "events",
 })
 
 CATALOG_LOCKED_FIELDS: dict[str, tuple[str, ...]] = {

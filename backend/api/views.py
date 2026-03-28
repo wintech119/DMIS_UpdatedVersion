@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from api.authentication import LegacyCompatAuthentication
 from api.rbac import resolve_roles_and_permissions
 from api.tenancy import resolve_tenant_context, tenant_context_to_dict
+from operations import policy as operations_policy
 
 
 @api_view(["GET"])
@@ -27,6 +28,10 @@ def whoami(request):
             "roles": roles,
             "permissions": sorted(permissions),
             "tenant_context": tenant_context_to_dict(tenant_context),
+            "operations_capabilities": operations_policy.get_relief_request_capabilities(
+                tenant_context=tenant_context,
+                permissions=permissions,
+            ),
         }
     )
 

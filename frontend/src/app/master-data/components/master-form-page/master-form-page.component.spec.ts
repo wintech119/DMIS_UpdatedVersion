@@ -753,7 +753,8 @@ describe('MasterFormPageComponent', () => {
     expect(component.isOnReviewStep()).toBeTrue();
     expect(assignmentSection).not.toBeNull();
     expect(assignmentSection?.textContent).toContain('Storage Location Assignment');
-    expect(assignmentSection?.textContent).toContain('Kingston Central Depot');
+    expect(assignmentSection?.textContent).toContain('Warehouse');
+    expect(assignmentSection?.textContent).toContain('Storage Location');
     expect(assignmentSection?.textContent).not.toContain('Inventory ID');
   });
 

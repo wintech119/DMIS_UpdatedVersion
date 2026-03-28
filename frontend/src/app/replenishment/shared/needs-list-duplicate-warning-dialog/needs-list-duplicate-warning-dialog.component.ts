@@ -201,7 +201,7 @@ export class NeedsListDuplicateWarningDialogComponent {
         normalized === 'DISPATCHED' ||
         normalized === 'RECEIVED'
       ) {
-        return 'Track Fulfillment';
+        return 'View Details';
       }
     }
 

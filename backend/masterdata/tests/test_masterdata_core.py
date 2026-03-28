@@ -902,12 +902,17 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         )
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], ["masterdata.inactivate"]),
+    )
     @patch("masterdata.views.update_item_record", return_value=(False, ["not_found"]))
     @patch("masterdata.views.check_dependencies", return_value=([], []))
     def test_master_inactivate_returns_404_when_item_status_change_reports_not_found(
         self,
         _mock_check_dependencies,
         _mock_update_item_record,
+        _mock_roles,
         _mock_permission,
     ):
         request = self.factory.post("/api/v1/masterdata/items/15/inactivate", {})
@@ -920,12 +925,17 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.assertEqual(response.data["warnings"], ["not_found"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
-    @patch("masterdata.views.inactivate_record", return_value=(False, ["not_found"]))
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], ["masterdata.inactivate"]),
+    )
+    @patch("masterdata.views.inactivate_catalog_record", return_value=(False, ["not_found"]))
     @patch("masterdata.views.check_dependencies", return_value=([], []))
     def test_master_inactivate_returns_404_when_generic_status_change_reports_not_found(
         self,
         _mock_check_dependencies,
         _mock_inactivate_record,
+        _mock_roles,
         _mock_permission,
     ):
         request = self.factory.post("/api/v1/masterdata/uom/EA/inactivate", {})
@@ -938,10 +948,42 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.assertEqual(response.data["warnings"], ["not_found"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.inactivate"]),
+    )
+    @patch("masterdata.views.check_dependencies")
+    @patch("masterdata.views.inactivate_catalog_record")
+    def test_master_inactivate_rejects_non_governance_roles_for_governed_catalogs(
+        self,
+        mock_inactivate_record,
+        mock_check_dependencies,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/uom/EA/inactivate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_inactivate(request, "uom", "EA")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_check_dependencies.assert_not_called()
+        mock_inactivate_record.assert_not_called()
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], ["masterdata.edit"]),
+    )
     @patch("masterdata.views.update_item_record", return_value=(False, ["not_found"]))
     def test_master_activate_returns_404_when_item_status_change_reports_not_found(
         self,
         _mock_update_item_record,
+        _mock_roles,
         _mock_permission,
     ):
         request = self.factory.post("/api/v1/masterdata/items/15/activate", {})
@@ -954,10 +996,15 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.assertEqual(response.data["warnings"], ["not_found"])
 
     @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
-    @patch("masterdata.views.activate_record", return_value=(False, ["not_found"]))
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["ODPEM_DG"], ["masterdata.edit"]),
+    )
+    @patch("masterdata.views.activate_catalog_record", return_value=(False, ["not_found"]))
     def test_master_activate_returns_404_when_generic_status_change_reports_not_found(
         self,
         _mock_activate_record,
+        _mock_roles,
         _mock_permission,
     ):
         request = self.factory.post("/api/v1/masterdata/uom/EA/activate", {})
@@ -968,6 +1015,30 @@ class StatusChangeNotFoundViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["detail"], "Record not found.")
         self.assertEqual(response.data["warnings"], ["not_found"])
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.edit"]),
+    )
+    @patch("masterdata.views.activate_catalog_record")
+    def test_master_activate_rejects_non_governance_roles_for_governed_catalogs(
+        self,
+        mock_activate_record,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.post("/api/v1/masterdata/uom/EA/activate", {})
+        force_authenticate(request, user=self.user)
+
+        response = views.master_activate(request, "uom", "EA")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
+        )
+        mock_activate_record.assert_not_called()
 
 
 class StatusChangeReadbackFailureViewTests(SimpleTestCase):
@@ -1012,7 +1083,7 @@ class StatusChangeReadbackFailureViewTests(SimpleTestCase):
             ["db_error"],
         ),
     )
-    @patch("masterdata.views.activate_record", return_value=(True, []))
+    @patch("masterdata.views.activate_catalog_record", return_value=(True, []))
     def test_master_activate_returns_500_when_generic_readback_fails(
         self,
         _mock_activate_record,
@@ -1282,6 +1353,52 @@ class ItemInactivationDependencyMatrixTests(SimpleTestCase):
         self.assertEqual(mock_connection.rollback.call_count, 9)
 
 
+class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_generic_dependency_check_filters_to_active_status_when_supported(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+
+        blocking, warnings = check_dependencies("ifrc_item_references", 797)
+
+        self.assertEqual(blocking, ["Items (1 records)"])
+        self.assertEqual(warnings, [])
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("FROM tenant_a.item", sql)
+        self.assertIn("ifrc_item_ref_id = %s", sql)
+        self.assertIn("status_code = %s", sql)
+        self.assertEqual(params, [797, "A"])
+
+    @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
+    @patch("masterdata.services.data_access._is_sqlite", return_value=False)
+    @patch("masterdata.services.data_access.connection")
+    def test_generic_dependency_check_does_not_add_status_filter_when_unsupported(
+        self,
+        mock_connection,
+        _mock_sqlite,
+    ):
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (2,)
+
+        blocking, warnings = check_dependencies("countries", 1)
+
+        self.assertEqual(blocking, ["Donors (2 records)"])
+        self.assertEqual(warnings, [])
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("FROM tenant_a.donor", sql)
+        self.assertIn("country_id = %s", sql)
+        self.assertNotIn("status_code = %s", sql)
+        self.assertEqual(params, [1])
+
+
 class InactiveItemLookupFailureTests(SimpleTestCase):
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")
@@ -1426,7 +1543,7 @@ class IFRCSuggestViewTests(SimpleTestCase):
         self.user = SimpleNamespace(
             is_authenticated=True,
             user_id="test-user",
-            roles=[],
+            roles=["ODPEM_DG"],
             permissions=[views.PERM_MASTERDATA_VIEW],
         )
 
@@ -1443,6 +1560,27 @@ class IFRCSuggestViewTests(SimpleTestCase):
             cat="TABL",
             spec_seg="TB00",
             seq=None,
+        )
+
+    @patch("masterdata.permissions.MasterDataPermission.has_permission", return_value=True)
+    @patch(
+        "masterdata.views.resolve_roles_and_permissions",
+        return_value=(["AGENCY_DISTRIBUTOR"], ["masterdata.view"]),
+    )
+    def test_ifrc_health_rejects_non_governance_roles(
+        self,
+        _mock_roles,
+        _mock_permission,
+    ):
+        request = self.factory.get("/api/v1/masterdata/items/ifrc-health")
+        force_authenticate(request, user=self.user)
+
+        response = views.ifrc_health(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data["detail"],
+            "You do not have access to governed catalog master data.",
         )
 
     def _official_corned_beef_candidates(self):

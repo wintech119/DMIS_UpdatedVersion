@@ -1,0 +1,173 @@
+<div class="request-wizard-page">
+  <section class="request-wizard-header">
+    <div class="request-wizard-header__lead">
+      <button
+        mat-icon-button
+        class="request-wizard-header__back"
+        (click)="goBack()"
+        [matTooltip]="backNavigationTooltip()"
+        [attr.aria-label]="backNavigationTooltip()">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+
+      <div class="request-wizard-header__copy">
+        <p class="request-wizard-header__eyebrow">
+          <mat-icon aria-hidden="true">assignment</mat-icon>
+          Operations / Relief Requests
+        </p>
+        <h1 class="request-wizard-header__title">{{ pageTitle() }}</h1>
+        <p class="request-wizard-header__description">
+          Create or update a relief request using the active request authority, name-first agency and event selection,
+          and the urgency needed to guide eligibility review, packaging, and dispatch.
+        </p>
+      </div>
+    </div>
+
+    <div class="request-wizard-header__meta">
+      <article class="request-wizard-meta-card">
+        <span class="request-wizard-meta-card__label">Workflow</span>
+        <strong>{{ workflowLabel() }}</strong>
+        <p>{{ isEditMode() ? 'Only draft requests remain editable.' : 'Capture the request, then route it into eligibility review.' }}</p>
+      </article>
+      <article class="request-wizard-meta-card">
+        <span class="request-wizard-meta-card__label">Stage</span>
+        <strong>{{ currentStageLabel() }}</strong>
+        <p>{{ completed() ? 'Request saved successfully.' : ('Step ' + (currentStepIndex() + 1) + ' of 2') }}</p>
+      </article>
+      <article class="request-wizard-meta-card">
+        <span class="request-wizard-meta-card__label">Submission Mode</span>
+        <strong>{{ submissionModeLabel() }}</strong>
+        <p>{{ submissionModeHint() }}</p>
+      </article>
+    </div>
+  </section>
+
+  @if (pageBusy()) {
+    <dmis-skeleton-loader variant="form-field" [count]="4" />
+    <dmis-skeleton-loader variant="table-row" [count]="3" />
+  } @else if (error(); as errorMessage) {
+    <div class="request-wizard-error" role="alert">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      <p>{{ errorMessage }}</p>
+      <button mat-flat-button (click)="goBack()">
+        <mat-icon>arrow_back</mat-icon>
+        Go Back
+      </button>
+    </div>
+  } @else if (creationBlocked()) {
+    <section class="request-wizard-blocked" aria-live="polite">
+      <div class="request-wizard-blocked__icon">
+        <mat-icon aria-hidden="true">lock</mat-icon>
+      </div>
+      <h2 class="request-wizard-blocked__title">Relief request entry is not available</h2>
+      <p class="request-wizard-blocked__message">
+        {{ submissionModeHint() }}
+      </p>
+      <div class="request-wizard-blocked__actions">
+        <button mat-stroked-button (click)="navigateToList()">Back to Requests</button>
+      </div>
+    </section>
+  } @else if (completed()) {
+    <section class="request-wizard-success">
+      <div class="request-wizard-success__icon">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+      </div>
+      <h2 class="request-wizard-success__title">Request Saved Successfully</h2>
+      @if (savedRequest(); as saved) {
+        <p class="request-wizard-success__message">
+          {{ saved.tracking_no ?? 'Request #' + saved.reliefrqst_id }} has been saved
+          @if (saved.status_code === 0) {
+            as a draft.
+          } @else {
+            and submitted for review.
+          }
+        </p>
+      }
+      <div class="request-wizard-success__actions">
+        <button mat-flat-button color="primary" (click)="navigateToDetail()">
+          <mat-icon>visibility</mat-icon>
+          View Request
+        </button>
+        <button mat-stroked-button (click)="navigateToList()">
+          <mat-icon>list</mat-icon>
+          Back to Requests
+        </button>
+      </div>
+    </section>
+  } @else {
+    <section class="request-wizard-shell">
+      @if (saving()) {
+        <mat-progress-bar mode="indeterminate" class="request-wizard-progress" />
+      }
+
+      <mat-stepper
+        #stepper
+        linear
+        class="request-wizard-stepper"
+        (selectionChange)="currentStepIndex.set($event.selectedIndex)">
+        <mat-step label="Request Setup" [completed]="isStep1Valid()">
+          <app-request-items-step
+            [form]="requestForm"
+            [itemsArray]="itemsArray"
+            [onAddItem]="addItemFn"
+            [onRemoveItem]="removeItemFn"
+            [agencyOptions]="agencyOptions()"
+            [eventOptions]="eventOptions()"
+            [itemOptions]="itemOptions()"
+            [requestDateText]="requestDateText()"
+            [requestDateHint]="requestDateHint()"
+            [submissionModeLabel]="submissionModeLabel()"
+            [submissionModeHint]="submissionModeHint()"
+            [creationBlocked]="creationBlocked()" />
+
+          <div class="request-wizard-actions">
+            <button mat-stroked-button type="button" (click)="goBack()">Cancel</button>
+            <button
+              mat-flat-button
+                color="primary"
+                type="button"
+                matStepperNext
+                [disabled]="!isStep1Valid()">
+              Next: Review & Route
+              <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+            </button>
+          </div>
+        </mat-step>
+
+        <mat-step label="Review & Route">
+          <app-request-review-step [formValue]="reviewFormValue()" />
+
+          <div class="request-wizard-actions">
+            <button mat-stroked-button type="button" matStepperPrevious>
+              <mat-icon>arrow_back</mat-icon>
+              Back
+            </button>
+            <div class="request-wizard-actions__group">
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="onSaveAsDraft()"
+                [disabled]="saving() || creationBlocked()">
+                <mat-icon>save</mat-icon>
+                Save as Draft
+              </button>
+              <button
+                mat-flat-button
+                color="primary"
+                type="button"
+                (click)="onSaveAndSubmit()"
+                [disabled]="saving() || creationBlocked()">
+                @if (saving()) {
+                  Saving...
+                } @else {
+                  <mat-icon>send</mat-icon>
+                  Save & Submit for Review
+                }
+              </button>
+            </div>
+          </div>
+        </mat-step>
+      </mat-stepper>
+    </section>
+  }
+</div>

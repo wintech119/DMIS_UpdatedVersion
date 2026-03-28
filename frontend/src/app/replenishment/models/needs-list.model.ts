@@ -1,4 +1,12 @@
 import { EventPhase, SeverityLevel } from '../models/stock-status.model';
+import type {
+  AllocationCommittedLine,
+  ExecutionSelectedMethod,
+  ExecutionStatus,
+  LinkedSourceReference,
+  ReservedStockSummary,
+  WaybillPayload,
+} from './allocation-dispatch.model';
 
 export type EffectiveCriticalityLevel = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
 export type EffectiveCriticalitySource = 'EVENT_OVERRIDE' | 'HAZARD_TYPE_DEFAULT' | 'ITEM_DEFAULT';
@@ -246,7 +254,7 @@ export interface NeedsListResponse {
   return_reason?: string | null;
   reject_reason?: string | null;
   review_reminder?: ReviewReminderInfo;
-  selected_method?: 'A' | 'B' | 'C';
+  selected_method?: 'A' | 'B' | 'C' | ExecutionSelectedMethod;
   selected_item_keys?: string[];
   superseded_by?: string | null;
   superseded_at?: string | null;
@@ -254,6 +262,20 @@ export interface NeedsListResponse {
   superseded_by_needs_list_id?: string | null;
   supersedes_needs_list_ids?: string[];
   supersede_reason?: string | null;
+  execution_status?: ExecutionStatus | null;
+  reliefrqst_id?: number | null;
+  reliefpkg_id?: number | null;
+  request_tracking_no?: string | null;
+  package_tracking_no?: string | null;
+  package_status?: string | null;
+  dispatch_dtime?: string | null;
+  waybill_no?: string | null;
+  waybill_payload?: WaybillPayload | null;
+  allocation_lines?: AllocationCommittedLine[];
+  linked_sources?: LinkedSourceReference[];
+  reserved_stock_summary?: ReservedStockSummary | null;
+  override_required?: boolean;
+  override_markers?: string[];
 }
 
 export type NeedsListStatus =

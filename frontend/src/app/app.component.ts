@@ -1,8 +1,9 @@
-import { Component, OnInit, computed, inject, signal, OnDestroy } from '@angular/core';
+﻿import { Component, OnInit, computed, inject, signal, OnDestroy } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router, NavigationEnd, RouterOutlet, RouterLink } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { DmisDataFreshnessBannerComponent } from './replenishment/shared/dmis-data-freshness-banner/dmis-data-freshness-banner.component';
+import { AuthRbacService } from './replenishment/services/auth-rbac.service';
 import { SidenavComponent } from './layout/sidenav/sidenav.component';
 import { getMasterDomainLabel } from './master-data/models/master-domain-map';
 
@@ -27,30 +28,39 @@ const ROUTE_BREADCRUMBS: { pattern: RegExp; crumbs: (match: RegExpMatchArray) =>
   { pattern: /^\/replenishment\/my-submissions$/,         crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'My Drafts & Submissions' }] },
   { pattern: /^\/replenishment\/needs-list-wizard$/,      crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Needs List Wizard' }] },
   { pattern: /^\/replenishment\/needs-list-review$/,      crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Review Queue' }] },
-  { pattern: /^\/replenishment\/needs-list-review\/(.+)$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Review Queue', route: '/replenishment/needs-list-review' }, { label: `Review #${m[1]}` }] },
   { pattern: /^\/replenishment\/needs-list\/(.+)\/wizard$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Needs List Wizard' }, { label: `List #${m[1]}` }] },
   { pattern: /^\/replenishment\/needs-list\/(.+)\/review$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Review Queue', route: '/replenishment/needs-list-review' }, { label: `Review #${m[1]}` }] },
-  { pattern: /^\/replenishment\/needs-list\/(.+)\/track$/, crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Fulfillment Tracker' }, { label: `List #${m[1]}` }] },
-  { pattern: /^\/replenishment\/needs-list\/(.+)\/history$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'History' }, { label: `List #${m[1]}` }] },
   { pattern: /^\/replenishment\/needs-list\/(.+)\/transfers$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Transfer Drafts' }, { label: `List #${m[1]}` }] },
   { pattern: /^\/replenishment\/needs-list\/(.+)\/donations$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Donation Allocation' }, { label: `List #${m[1]}` }] },
   { pattern: /^\/replenishment\/needs-list\/(.+)\/procurement$/,crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement' }, { label: `List #${m[1]}` }] },
-  { pattern: /^\/replenishment\/procurement\/new$/,       crumbs: () => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement Orders' }, { label: 'New Order' }] },
   { pattern: /^\/replenishment\/procurement\/(.+)\/edit$/, crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement Orders' }, { label: `Edit #${m[1]}` }] },
   { pattern: /^\/replenishment\/procurement\/(.+)\/receive$/, crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement Orders' }, { label: `Receive #${m[1]}` }] },
   { pattern: /^\/replenishment\/procurement\/(.+)$/,      crumbs: (m) => [{ label: 'Supply Replenishment', route: '/replenishment/dashboard' }, { label: 'Procurement Orders' }, { label: `Order #${m[1]}` }] },
   // Catch-all for replenishment
   { pattern: /^\/replenishment/,                          crumbs: () => [{ label: 'Supply Replenishment' }] },
+  // Operations sub-pages
+  { pattern: /^\/operations\/dashboard$/,                 crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Dashboard' }] },
+  { pattern: /^\/operations\/tasks$/,                     crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Task Center' }] },
+  { pattern: /^\/operations\/relief-requests\/new$/,      crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Relief Requests', route: '/operations/relief-requests' }, { label: 'New' }] },
+  { pattern: /^\/operations\/relief-requests\/(.+)\/edit$/,crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Relief Requests', route: '/operations/relief-requests' }, { label: `Request #${m[1]}`, route: `/operations/relief-requests/${m[1]}` }, { label: 'Edit' }] },
+  { pattern: /^\/operations\/relief-requests\/(.+)$/,     crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Relief Requests', route: '/operations/relief-requests' }, { label: `Request #${m[1]}` }] },
+  { pattern: /^\/operations\/relief-requests$/,           crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Relief Requests' }] },
+  { pattern: /^\/operations\/eligibility-review\/(.+)$/,  crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Eligibility Review', route: '/operations/eligibility-review' }, { label: `Review #${m[1]}` }] },
+  { pattern: /^\/operations\/eligibility-review$/,        crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Eligibility Review' }] },
+  { pattern: /^\/operations\/package-fulfillment\/(.+)$/, crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Package Fulfillment', route: '/operations/package-fulfillment' }, { label: `Package #${m[1]}` }] },
+  { pattern: /^\/operations\/package-fulfillment$/,       crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Package Fulfillment' }] },
+  { pattern: /^\/operations\/dispatch\/(.+)\/waybill$/,   crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Dispatch', route: '/operations/dispatch' }, { label: `Package #${m[1]}`, route: `/operations/dispatch/${m[1]}` }, { label: 'Waybill' }] },
+  { pattern: /^\/operations\/dispatch\/(.+)$/,            crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Dispatch', route: '/operations/dispatch' }, { label: `Package #${m[1]}` }] },
+  { pattern: /^\/operations\/dispatch$/,                  crumbs: () => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Dispatch' }] },
+  { pattern: /^\/operations\/receipt-confirmation\/(.+)$/,crumbs: (m) => [{ label: 'Operations', route: '/operations/dashboard' }, { label: 'Receipt Confirmation', route: '/operations/dispatch' }, { label: `Package #${m[1]}` }] },
+  // Catch-all for operations
+  { pattern: /^\/operations/,                             crumbs: () => [{ label: 'Operations' }] },
   // Master Data
   { pattern: /^\/master-data\/([^/]+)\/new$/,             crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: 'New' }] },
   { pattern: /^\/master-data\/([^/]+)\/([^/]+)\/edit$/,   crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: `#${m[2]}`, route: `/master-data/${m[1]}/${m[2]}` }, { label: 'Edit' }] },
   { pattern: /^\/master-data\/([^/]+)\/([^/]+)$/,         crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]), route: `/master-data/${m[1]}` }, { label: `#${m[2]}` }] },
   { pattern: /^\/master-data\/([^/]+)$/,                   crumbs: (m) => [{ label: 'Master Data', route: '/master-data' }, { label: formatRoutePath(m[1]) }] },
   { pattern: /^\/master-data/,                             crumbs: () => [{ label: 'Master Data' }] },
-  // Future sections
-  { pattern: /^\/inventory/,                              crumbs: () => [{ label: 'Inventory' }] },
-  { pattern: /^\/operations/,                             crumbs: () => [{ label: 'Operations' }] },
-  { pattern: /^\/management/,                             crumbs: () => [{ label: 'Management' }] },
 ];
 
 /** Convert route path like 'item-categories' to 'Item Categories' */
@@ -101,6 +111,7 @@ function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
 export class AppComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly authRbac = inject(AuthRbacService);
   private routerSub!: Subscription;
 
   title = 'dmis-frontend';
@@ -119,6 +130,7 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.authRbac.load();
     this.loadWhoAmI();
     this.loadDevUsers();
 
@@ -208,3 +220,5 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 }
+
+

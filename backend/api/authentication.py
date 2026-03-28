@@ -96,12 +96,52 @@ def _resolve_dev_override_principal(request) -> Principal | None:
         logger.warning("DEV auth override user not found: %s", requested)
         return None
 
+    user_id = int(row[0])
+    roles, permissions = _fetch_dev_override_roles_and_permissions(user_id)
+
     return Principal(
-        user_id=str(row[0]),
+        user_id=str(user_id),
         username=str(row[1]),
-        roles=[],
-        permissions=[],
+        roles=roles,
+        permissions=permissions,
     )
+
+
+def _fetch_dev_override_roles_and_permissions(user_id: int) -> tuple[list[str], list[str]]:
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT r.code
+                FROM user_role ur
+                JOIN role r ON r.id = ur.role_id
+                WHERE ur.user_id = %s
+                ORDER BY r.code
+                """,
+                [int(user_id)],
+            )
+            roles = [str(row[0]).strip() for row in cursor.fetchall() if str(row[0]).strip()]
+            cursor.execute(
+                """
+                SELECT DISTINCT p.resource, p.action
+                FROM user_role ur
+                JOIN role_permission rp ON rp.role_id = ur.role_id
+                JOIN permission p ON p.perm_id = rp.perm_id
+                WHERE ur.user_id = %s
+                ORDER BY p.resource, p.action
+                """,
+                [int(user_id)],
+            )
+            permissions = [
+                f"{row[0]}.{row[1]}"
+                for row in cursor.fetchall()
+                if str(row[0]).strip() and str(row[1]).strip()
+            ]
+    except DatabaseError as exc:
+        logger.warning("DEV auth override role lookup failed: %s", exc)
+        return [], []
+
+    return roles, permissions
 
 
 class LegacyCompatAuthentication(BaseAuthentication):

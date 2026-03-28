@@ -1,0 +1,215 @@
+<div class="ops-doc-shell">
+  <section class="ops-doc-hero">
+    <div>
+      <p class="ops-doc-hero__eyebrow">
+        <mat-icon aria-hidden="true">fact_check</mat-icon>
+        Operations / Receipt Confirmation
+      </p>
+      <h1 class="ops-doc-hero__title">Receipt Confirmation</h1>
+      <p class="ops-doc-hero__description">
+        Confirm receipt of a dispatched relief package and close the live receipt queue item.
+      </p>
+      <div class="ops-doc-chip-row">
+        @if (submitted() || isAlreadyConfirmed()) {
+          <app-ops-status-chip label="Confirmed" tone="success" />
+        } @else {
+          <app-ops-status-chip
+            [label]="isReady() ? 'Ready for confirmation' : 'Pending dispatch'"
+            [tone]="isReady() ? 'success' : 'warning'" />
+        }
+      </div>
+    </div>
+
+    <div class="ops-doc-hero__actions">
+      <button mat-stroked-button type="button" (click)="backToDispatch()">
+        <mat-icon>arrow_back</mat-icon>
+        Back to Dispatch
+      </button>
+    </div>
+  </section>
+
+  @if (loading()) {
+    <mat-card class="ops-doc-surface">
+      <dmis-skeleton-loader variant="summary-card" [count]="3" />
+    </mat-card>
+  } @else if (error(); as errorMessage) {
+    <dmis-empty-state
+      icon="fact_check"
+      title="Receipt confirmation unavailable"
+      [message]="errorMessage"
+      actionLabel="Back to Dispatch"
+      actionIcon="arrow_back"
+      (action)="backToDispatch()"
+    />
+  } @else if (detail(); as dispatch) {
+    <div class="ops-doc-layout">
+      <section class="ops-doc-main">
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Receipt context</p>
+              <h2>{{ dispatch.tracking_no || ('Package #' + dispatch.reliefpkg_id) }}</h2>
+            </div>
+          </div>
+          <app-ops-metric-strip [items]="summary()" />
+        </article>
+
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Dispatch record</p>
+              <h2>Source data</h2>
+            </div>
+          </div>
+
+          <dl class="ops-doc-dl">
+            <div>
+              <dt>Request Tracking Number</dt>
+              <dd>{{ dispatch.request.tracking_no || 'Pending' }}</dd>
+            </div>
+            <div>
+              <dt>Waybill</dt>
+              <dd>{{ dispatch.waybill?.waybill_no || 'Pending' }}</dd>
+            </div>
+            <div>
+              <dt>Dispatch Time</dt>
+              <dd>{{ dispatch.dispatch_dtime ? (dispatch.dispatch_dtime | date:'medium') : 'Pending dispatch' }}</dd>
+            </div>
+            <div>
+              <dt>Received Time</dt>
+              <dd>{{ dispatch.received_dtime ? (dispatch.received_dtime | date:'medium') : 'Not yet captured' }}</dd>
+            </div>
+          </dl>
+        </article>
+
+        @if (submitted() || isAlreadyConfirmed()) {
+          <article class="ops-doc-card">
+            <div class="ops-doc-card__header">
+              <div>
+                <p class="ops-doc-card__eyebrow">Confirmation</p>
+                <h2>Receipt recorded</h2>
+              </div>
+            </div>
+            <div class="ops-doc-banner ops-doc-banner--success" role="status">
+              <mat-icon aria-hidden="true">check_circle</mat-icon>
+              <span>This package has been confirmed as received. The receipt artifact is now part of the operations record.</span>
+            </div>
+          </article>
+        } @else if (isReady()) {
+          <article class="ops-doc-card">
+            <div class="ops-doc-card__header">
+              <div>
+                <p class="ops-doc-card__eyebrow">Confirm receipt</p>
+                <h2>Record package receipt</h2>
+              </div>
+            </div>
+
+            <p class="ops-doc-empty">
+              The current backend records this step as <strong>Received</strong>. Exception flows such as partial,
+              damaged, or rejected receipt are not live in this cutover pass and are not shown here.
+            </p>
+
+            @if (submitError(); as errMsg) {
+              <div class="ops-doc-banner ops-doc-banner--danger" role="alert">
+                <mat-icon aria-hidden="true">error_outline</mat-icon>
+                <span>{{ errMsg }}</span>
+              </div>
+            }
+
+            <div class="ops-receipt-form">
+              <mat-form-field appearance="outline" class="ops-receipt-form__field">
+                <mat-label>Received By</mat-label>
+                <input
+                  matInput
+                  [value]="receivedBy()"
+                  (input)="receivedBy.set($any($event.target).value)"
+                  placeholder="Full name of person confirming receipt"
+                  required />
+                <mat-hint>Required. Capture the receiver name exactly as confirmed at handoff.</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="ops-receipt-form__field">
+                <mat-label>Beneficiary Delivery Ref</mat-label>
+                <input
+                  matInput
+                  [value]="beneficiaryDeliveryRef()"
+                  (input)="beneficiaryDeliveryRef.set($any($event.target).value)"
+                  placeholder="Delivery note, acknowledgment number, or local reference" />
+                <mat-hint>Optional. Use when the receiving team provides a beneficiary-side delivery reference.</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="ops-receipt-form__field ops-receipt-form__field--full">
+                <mat-label>Receipt Notes</mat-label>
+                <textarea
+                  matInput
+                  [value]="receiptNotes()"
+                  (input)="receiptNotes.set($any($event.target).value)"
+                  placeholder="Delivery context, confirmation notes, or follow-up detail"
+                  rows="3"></textarea>
+                <mat-hint>Optional. Add concise context that should travel with the receipt artifact.</mat-hint>
+              </mat-form-field>
+
+              <div class="ops-receipt-form__actions">
+                <button
+                  mat-flat-button
+                  color="primary"
+                  type="button"
+                  [disabled]="!canSubmit()"
+                  (click)="submitReceipt()">
+                  @if (submitting()) {
+                    <mat-icon>hourglass_top</mat-icon> Confirming...
+                  } @else {
+                    <mat-icon>check_circle</mat-icon> Confirm Receipt
+                  }
+                </button>
+              </div>
+            </div>
+          </article>
+        }
+      </section>
+
+      <aside class="ops-doc-rail">
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Checklist</p>
+              <h2>Receipt readiness</h2>
+            </div>
+          </div>
+
+          <div class="ops-receipt-checklist">
+            <div class="ops-receipt-check" [class.ops-receipt-check--done]="true">
+              <mat-icon>{{ dispatch ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <span>Package matched</span>
+            </div>
+            <div class="ops-receipt-check" [class.ops-receipt-check--done]="!!dispatch.dispatch_dtime">
+              <mat-icon>{{ dispatch.dispatch_dtime ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <span>Dispatch recorded</span>
+            </div>
+            <div class="ops-receipt-check" [class.ops-receipt-check--done]="!!dispatch.waybill">
+              <mat-icon>{{ dispatch.waybill ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <span>Waybill available</span>
+            </div>
+            <div class="ops-receipt-check" [class.ops-receipt-check--done]="receivedBy().trim().length > 0">
+              <mat-icon>{{ receivedBy().trim().length > 0 ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <span>Receiver identified</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="ops-doc-card">
+          <div class="ops-doc-card__header">
+            <div>
+              <p class="ops-doc-card__eyebrow">Audit note</p>
+              <h2>Stock accounting</h2>
+            </div>
+          </div>
+          <p class="ops-doc-empty">
+            Stock was deducted at dispatch time. Receipt confirmation does not trigger a second deduction and currently
+            records the package as received.
+          </p>
+        </article>
+      </aside>
+    </div>
+  }
+</div>

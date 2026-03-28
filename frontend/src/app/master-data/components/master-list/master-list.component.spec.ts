@@ -6,11 +6,20 @@ import { MatDialog } from '@angular/material/dialog';
 import { BreakpointObserver } from '@angular/cdk/layout';
 
 import { MasterListComponent } from './master-list.component';
+import { MasterDataAccessService } from '../../services/master-data-access.service';
 import { MasterDataService } from '../../services/master-data.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 
 describe('MasterListComponent', () => {
-  function setup(routePath = 'items', queryParams: Record<string, string> = {}) {
+  function setup(
+    routePath = 'items',
+    queryParams: Record<string, string> = {},
+    accessOverrides: {
+      canCreate?: boolean;
+      canEdit?: boolean;
+      canToggleStatus?: boolean;
+    } = {},
+  ) {
     const masterDataService = jasmine.createSpyObj<MasterDataService>('MasterDataService', [
       'list',
       'lookupItemCategories',
@@ -22,6 +31,11 @@ describe('MasterListComponent', () => {
     ]);
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
+    const access = jasmine.createSpyObj<MasterDataAccessService>('MasterDataAccessService', [
+      'canCreateRoutePath',
+      'canEditRoutePath',
+      'canToggleStatusRoutePath',
+    ]);
     const notificationService = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
       'showSuccess',
       'showError',
@@ -50,6 +64,9 @@ describe('MasterListComponent', () => {
       breakpoints: {},
     }));
     dialog.open.and.returnValue({ afterClosed: () => of(false) } as never);
+    access.canCreateRoutePath.and.returnValue(accessOverrides.canCreate ?? true);
+    access.canEditRoutePath.and.returnValue(accessOverrides.canEdit ?? true);
+    access.canToggleStatusRoutePath.and.returnValue(accessOverrides.canToggleStatus ?? true);
 
     TestBed.configureTestingModule({
       imports: [MasterListComponent, NoopAnimationsModule],
@@ -64,6 +81,7 @@ describe('MasterListComponent', () => {
         { provide: Router, useValue: router },
         { provide: MatDialog, useValue: dialog },
         { provide: BreakpointObserver, useValue: breakpointObserver },
+        { provide: MasterDataAccessService, useValue: access },
         { provide: MasterDataService, useValue: masterDataService },
         { provide: DmisNotificationService, useValue: notificationService },
       ],
@@ -78,6 +96,7 @@ describe('MasterListComponent', () => {
       masterDataService,
       dialog,
       router,
+      access,
     };
   }
 
@@ -118,7 +137,7 @@ describe('MasterListComponent', () => {
   }));
 
   it('routes page-mode catalog create actions to /new routes', () => {
-    const { component, router } = setup('item-categories');
+    const { component, router, access } = setup('item-categories');
 
     component.onAdd();
 
@@ -127,11 +146,12 @@ describe('MasterListComponent', () => {
       tableKey: 'item_categories',
       formMode: 'page',
     }));
+    expect(access.canCreateRoutePath).toHaveBeenCalledWith('item-categories', false);
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'item-categories', 'new']);
   });
 
   it('still opens the create dialog when a dialog-mode catalog list handles a pending create request', () => {
-    const { component } = setup('uom');
+    const { component, access, router } = setup('uom');
     const listHarness = component as never as {
       pendingDialogQueryAction: 'new' | null;
       handleDialogQueryAction: () => void;
@@ -148,7 +168,33 @@ describe('MasterListComponent', () => {
     listHarness.pendingDialogQueryAction = 'new';
     listHarness.handleDialogQueryAction();
 
+    expect(access.canCreateRoutePath).toHaveBeenCalledWith('uom', false);
     expect(openFormDialogSpy).toHaveBeenCalledWith(null);
+    expect(router.navigate).toHaveBeenCalledWith([], {
+      relativeTo: jasmine.anything(),
+      queryParams: { open: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  });
+
+  it('drops pending dialog-mode create requests when create access is denied', () => {
+    const { component, access, dialog, router } = setup('uom', {}, { canCreate: false });
+    const listHarness = component as never as {
+      pendingDialogQueryAction: 'new' | null;
+      handleDialogQueryAction: () => void;
+    };
+    listHarness.pendingDialogQueryAction = 'new';
+    listHarness.handleDialogQueryAction();
+
+    expect(access.canCreateRoutePath).toHaveBeenCalledWith('uom', false);
+    expect(dialog.open).not.toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith([], {
+      relativeTo: jasmine.anything(),
+      queryParams: { open: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   });
 
   it('ignores stale IFRC family lookup responses', () => {

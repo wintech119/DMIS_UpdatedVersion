@@ -1,0 +1,208 @@
+@if (loading()) {
+  <div class="ops-page-shell">
+    <dmis-skeleton-loader variant="summary-card" [count]="2" />
+    <dmis-skeleton-loader variant="table-row" [count]="4" />
+  </div>
+} @else if (error(); as message) {
+  <div class="ops-page-shell">
+    <div class="ops-empty" role="alert">
+      <mat-icon aria-hidden="true">error_outline</mat-icon>
+      <p class="ops-empty__title">{{ message }}</p>
+      <p class="ops-empty__copy">Return to the eligibility queue and try again.</p>
+      <button mat-flat-button color="primary" type="button" (click)="goBack()">Back to Queue</button>
+    </div>
+  </div>
+} @else if (detail(); as rq) {
+  <div class="ops-page-shell">
+    <header class="ops-hero">
+      <div>
+        <p class="ops-hero__eyebrow">
+          <mat-icon aria-hidden="true">verified_user</mat-icon>
+          Operations / Eligibility Review
+        </p>
+        <h1 class="ops-hero__title">{{ rq.tracking_no ?? 'Request #' + rq.reliefrqst_id }}</h1>
+        <p class="ops-hero__copy">
+          {{ rq.agency_name ?? ('Agency ' + rq.agency_id) }} | {{ rq.event_name ?? 'No event linked' }}
+        </p>
+      </div>
+
+      <div class="ops-hero__actions">
+        <app-ops-status-chip [label]="formatOperationsRequestStatus(rq.status_code)" [tone]="chipTone(statusTone())"></app-ops-status-chip>
+        @if (rq.urgency_ind) {
+          <app-ops-status-chip [label]="formatOperationsUrgency(rq.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(rq.urgency_ind))"></app-ops-status-chip>
+        }
+        @if (canDecide()) {
+          <button mat-flat-button color="primary" type="button" (click)="approve()" [disabled]="submitting()">
+            <mat-icon>check_circle</mat-icon>
+            @if (submitting()) { Saving... } @else { Approve }
+          </button>
+          <button mat-stroked-button type="button" (click)="deny()" [disabled]="submitting()">
+            <mat-icon>cancel</mat-icon>
+            Reject
+          </button>
+        } @else if (rq.decision_made) {
+          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="rq.status_code !== 7 && rq.status_code !== 5">
+            <mat-icon>inventory_2</mat-icon>
+            Open Fulfillment
+          </button>
+        }
+      </div>
+    </header>
+
+    <div class="ops-detail-grid">
+      <div class="ops-detail-stack">
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Decision workspace</p>
+              <h2 class="ops-section__title">Review state</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            @if (rq.decision_made) {
+              <div class="ops-callout" [class.ops-callout--success]="rq.status_code === 7 || rq.status_code === 5" [class.ops-callout--danger]="rq.status_code === 4 || rq.status_code === 8">
+                <mat-icon aria-hidden="true">{{ rq.status_code === 4 || rq.status_code === 8 ? 'cancel' : 'check_circle' }}</mat-icon>
+                <div>
+                  <p class="ops-section__copy">
+                    Decision recorded: {{ decisionLabel() }}.
+                  </p>
+                </div>
+              </div>
+            } @else {
+              <div class="ops-callout ops-callout--warning">
+                <mat-icon aria-hidden="true">pending_actions</mat-icon>
+                <div>
+                  <p class="ops-section__copy">
+                    This request is waiting for an eligibility decision.
+                  </p>
+                </div>
+              </div>
+            }
+
+            <div class="ops-detail-meta" style="margin-top: 1rem;">
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Submitted</span>
+                <p class="ops-detail-meta__value">{{ rq.create_dtime ? formatOperationsDateTime(rq.create_dtime) : 'Pending' }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Reviewed</span>
+                <p class="ops-detail-meta__value">{{ rq.review_dtime ? formatOperationsDateTime(rq.review_dtime) : 'Pending' }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Requested qty</span>
+                <p class="ops-detail-meta__value">{{ rq.total_requested_qty }}</p>
+              </div>
+              <div class="ops-detail-meta__item">
+                <span class="ops-detail-meta__label">Issued qty</span>
+                <p class="ops-detail-meta__value">{{ rq.total_issued_qty }}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Items</p>
+              <h2 class="ops-section__title">Request lines</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            @if (rq.items.length === 0) {
+              <dmis-empty-state icon="inventory_2" title="No request lines" message="There are no items on this request." />
+            } @else {
+              <table class="ops-table" aria-label="Eligibility review items">
+                <thead>
+                  <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">Qty</th>
+                    <th scope="col">Urgency</th>
+                    <th scope="col">Reason</th>
+                    <th scope="col">Required by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of rq.items; track trackItem($index, item)) {
+                    <tr>
+                      <td>
+                        <div class="ops-figure">
+                          <p class="ops-figure__label">{{ item.item_code ?? 'Item ' + item.item_id }}</p>
+                          <p class="ops-figure__value">{{ item.item_name ?? 'Unnamed item' }}</p>
+                        </div>
+                      </td>
+                      <td>{{ item.request_qty }}</td>
+                      <td>
+                        @if (item.urgency_ind) {
+                          <app-ops-status-chip [label]="formatOperationsUrgency(item.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(item.urgency_ind))"></app-ops-status-chip>
+                        } @else {
+                          <app-ops-status-chip label="Standard" tone="neutral"></app-ops-status-chip>
+                        }
+                      </td>
+                      <td>{{ item.rqst_reason_desc ?? 'None' }}</td>
+                      <td>{{ item.required_by_date ? formatOperationsDateTime(item.required_by_date) : 'Pending' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </div>
+        </section>
+      </div>
+
+      <aside class="ops-grid">
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Lifecycle</p>
+              <h2 class="ops-section__title">Decision track</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-timeline">
+              @for (step of workflow(); track step.label) {
+                <div class="ops-timeline__step">
+                  <span class="ops-timeline__dot" [class]="'ops-status-chip--' + step.tone"></span>
+                  <div class="ops-timeline__content">
+                    <p class="ops-timeline__title">{{ step.label }}</p>
+                    <div class="ops-timeline__meta">
+                      <span>{{ step.detail }}</span>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card__header">
+            <div>
+              <p class="ops-section__eyebrow">Context</p>
+              <h2 class="ops-section__title">Decision context</h2>
+            </div>
+          </div>
+          <div class="ops-card__body">
+            <div class="ops-summary-grid">
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Decision</span>
+                <p class="ops-summary-card__value">{{ decisionLabel() }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Editable</span>
+                <p class="ops-summary-card__value">{{ rq.can_edit ? 'Yes' : 'No' }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Tracking</span>
+                <p class="ops-summary-card__value">{{ rq.tracking_no ?? 'Draft only' }}</p>
+              </div>
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">Items</span>
+                <p class="ops-summary-card__value">{{ formatOperationsLineCount(rq.item_count) }}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+}

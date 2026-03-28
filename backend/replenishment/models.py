@@ -5,7 +5,8 @@ These models map to the database schema defined in EP02_SUPPLY_REPLENISHMENT_SCH
 They provide ORM access to the replenishment workflow tables.
 
 Note: Legacy tables (inventory, transfer, reliefpkg, etc.) are still accessed via raw SQL
-in data_access.py. This file only models the NEW tables created for EP-02.
+in data_access.py. This file models the replenishment tables created for EP-02 and the
+Sprint 08 execution persistence layer.
 """
 
 from django.db import models
@@ -309,6 +310,11 @@ class NeedsListAudit(models.Model):
         ('SUPERSEDED', 'Superseded'),
         ('CANCELLED', 'Cancelled'),
         ('FULFILLED', 'Fulfilled'),
+        ('ALLOCATION_COMMITTED', 'Allocation Committed'),
+        ('ALLOCATION_OVERRIDE_SUBMITTED', 'Allocation Override Submitted'),
+        ('ALLOCATION_OVERRIDE_APPROVED', 'Allocation Override Approved'),
+        ('ALLOCATION_RELEASED', 'Allocation Released'),
+        ('DISPATCHED', 'Dispatched'),
         ('COMMENT_ADDED', 'Comment Added'),
     ]
 
@@ -344,6 +350,145 @@ class NeedsListAudit(models.Model):
 
     def __str__(self):
         return f"{self.action_type} by {self.actor_user_id} at {self.action_dtime}"
+
+
+# =============================================================================
+# Sprint 08 Allocation / Dispatch Persistence
+# =============================================================================
+
+class NeedsListExecutionLink(AuditedModel):
+    """
+    One-to-one execution header for a needs list.
+
+    Stores the formal request and package identifiers used by the legacy
+    replenishment chain, plus the immutable waybill snapshot generated on dispatch.
+    """
+
+    class SelectedMethod(models.TextChoices):
+        FEFO = 'FEFO', 'FEFO'
+        FIFO = 'FIFO', 'FIFO'
+        MIXED = 'MIXED', 'Mixed'
+        MANUAL = 'MANUAL', 'Manual'
+
+    class ExecutionStatus(models.TextChoices):
+        PREPARING = 'PREPARING', 'Preparing'
+        PENDING_OVERRIDE_APPROVAL = 'PENDING_OVERRIDE_APPROVAL', 'Pending Override Approval'
+        COMMITTED = 'COMMITTED', 'Committed'
+        DISPATCHED = 'DISPATCHED', 'Dispatched'
+        RECEIVED = 'RECEIVED', 'Received'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+
+    needs_list = models.OneToOneField(
+        NeedsList,
+        on_delete=models.CASCADE,
+        related_name='execution_link',
+        primary_key=True,
+    )
+    reliefrqst_id = models.IntegerField(null=True, blank=True, unique=True)
+    reliefpkg_id = models.IntegerField(null=True, blank=True, unique=True)
+    selected_method = models.CharField(
+        max_length=20,
+        choices=SelectedMethod.choices,
+        null=True,
+        blank=True,
+    )
+    execution_status = models.CharField(
+        max_length=35,
+        choices=ExecutionStatus.choices,
+        default=ExecutionStatus.PREPARING,
+    )
+    prepared_at = models.DateTimeField(null=True, blank=True)
+    prepared_by = models.CharField(max_length=20, null=True, blank=True)
+    committed_at = models.DateTimeField(null=True, blank=True)
+    committed_by = models.CharField(max_length=20, null=True, blank=True)
+    override_requested_at = models.DateTimeField(null=True, blank=True)
+    override_requested_by = models.CharField(max_length=20, null=True, blank=True)
+    override_approved_at = models.DateTimeField(null=True, blank=True)
+    override_approved_by = models.CharField(max_length=20, null=True, blank=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    dispatched_by = models.CharField(max_length=20, null=True, blank=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+    received_by = models.CharField(max_length=20, null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.CharField(max_length=20, null=True, blank=True)
+    waybill_no = models.CharField(max_length=50, null=True, blank=True, unique=True)
+    waybill_payload_json = models.JSONField(null=True, blank=True, editable=False)
+
+    class Meta:
+        db_table = 'needs_list_execution_link'
+        ordering = ['-update_dtime']
+        indexes = [
+            models.Index(fields=['execution_status']),
+        ]
+
+    def __str__(self):
+        return f"{self.needs_list.needs_list_no} ({self.execution_status})"
+
+
+class NeedsListAllocationLine(AuditedModel):
+    """
+    Immutable allocation line snapshot for a needs list execution.
+
+    Captures the batch, inventory, source, and override metadata used to form
+    a formal package allocation under Sprint 08.
+    """
+
+    class SourceType(models.TextChoices):
+        ON_HAND = 'ON_HAND', 'On Hand'
+        TRANSFER = 'TRANSFER', 'Transfer'
+        DONATION = 'DONATION', 'Donation'
+        PROCUREMENT = 'PROCUREMENT', 'Procurement'
+
+    allocation_line_id = models.AutoField(primary_key=True)
+    needs_list = models.ForeignKey(
+        NeedsList,
+        on_delete=models.CASCADE,
+        related_name='allocation_lines',
+    )
+    needs_list_item = models.ForeignKey(
+        NeedsListItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='allocation_lines',
+    )
+    item_id = models.IntegerField()
+    inventory_id = models.IntegerField()
+    batch_id = models.IntegerField()
+    uom_code = models.CharField(max_length=25)
+    source_type = models.CharField(max_length=20, choices=SourceType.choices)
+    source_record_id = models.IntegerField(null=True, blank=True, db_index=True)
+    allocated_qty = models.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        default=Decimal('0.0000'),
+        validators=[MinValueValidator(Decimal('0.0000'))],
+    )
+    allocation_rank = models.PositiveIntegerField(default=1)
+    rule_bypass_flag = models.BooleanField(default=False)
+    override_reason_code = models.CharField(max_length=50, null=True, blank=True)
+    override_note = models.CharField(max_length=500, null=True, blank=True)
+    supervisor_approved_by = models.CharField(max_length=20, null=True, blank=True)
+    supervisor_approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'needs_list_allocation_line'
+        ordering = ['needs_list', 'allocation_rank', 'item_id', 'batch_id']
+        unique_together = [['needs_list', 'item_id', 'inventory_id', 'batch_id']]
+        indexes = [
+            models.Index(fields=['needs_list', 'item_id']),
+            models.Index(fields=['needs_list_item']),
+            models.Index(fields=['needs_list', 'allocation_rank']),
+            models.Index(fields=['inventory_id', 'batch_id']),
+            models.Index(fields=['source_type', 'source_record_id']),
+            models.Index(fields=['rule_bypass_flag']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.needs_list.needs_list_no} - Item {self.item_id} "
+            f"(Inv {self.inventory_id}, Batch {self.batch_id})"
+        )
 
 
 # =============================================================================

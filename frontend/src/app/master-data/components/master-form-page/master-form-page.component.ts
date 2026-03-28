@@ -1,6 +1,6 @@
 import {
   Component, OnInit, DestroyRef, ChangeDetectionStrategy,
-  inject, signal, computed,
+  inject, signal, computed, effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
@@ -289,6 +289,24 @@ export class MasterFormPageComponent implements OnInit {
     batch_id: new FormControl<number | null>(null, [Validators.min(1)]),
   });
 
+  private readonly locationFormDisableEffect = effect(() => {
+    const loading = this.storageAssignmentLoading();
+    const noInventory = this.selectedAssignmentInventoryId() === null;
+    const opts = { emitEvent: false } as const;
+
+    loading
+      ? this.locationForm.controls.inventory_id.disable(opts)
+      : this.locationForm.controls.inventory_id.enable(opts);
+
+    const dependentBlocked = loading || noInventory;
+    dependentBlocked
+      ? this.locationForm.controls.location_id.disable(opts)
+      : this.locationForm.controls.location_id.enable(opts);
+    dependentBlocked
+      ? this.locationForm.controls.batch_id.disable(opts)
+      : this.locationForm.controls.batch_id.enable(opts);
+  });
+
   /** Group form fields by their group property */
   fieldGroups = computed<FormFieldGroup[]>(() => {
     const cfg = this.config();
@@ -450,7 +468,7 @@ export class MasterFormPageComponent implements OnInit {
       this.form.setValidators([
         validateFefoRequiresExpiry,
         (control) => this.validateItemClassification(control),
-        (control) => this.validateItemUomConversions(control),
+        () => this.validateItemUomConversions(),
       ]);
       this.updateLocalDraftFieldValidators();
       this.form.updateValueAndValidity({ emitEvent: false });
@@ -1773,7 +1791,7 @@ export class MasterFormPageComponent implements OnInit {
 
           // Load UOM conversions (non-default rows only)
           const uomOptions = record['uom_options'] as
-            Array<{ uom_code: string; conversion_factor: number; is_default?: boolean }> | undefined;
+            { uom_code: string; conversion_factor: number; is_default?: boolean }[] | undefined;
           if (Array.isArray(uomOptions)) {
             this.itemUomConversions.set(
               uomOptions
@@ -3739,7 +3757,7 @@ export class MasterFormPageComponent implements OnInit {
     return false;
   }
 
-  private validateItemUomConversions(_: AbstractControl): ValidationErrors | null {
+  private validateItemUomConversions(): ValidationErrors | null {
     if (this.config()?.tableKey !== 'items') {
       return null;
     }

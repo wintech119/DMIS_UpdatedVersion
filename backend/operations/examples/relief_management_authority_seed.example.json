@@ -1,0 +1,46 @@
+{
+  "policies": [
+    {
+      "tenant_code": "PARISH_001",
+      "can_self_request_flag": true,
+      "can_create_needs_list_flag": true,
+      "can_apply_needs_list_to_relief_request_flag": true,
+      "can_export_needs_list_for_donation_flag": true,
+      "can_broadcast_needs_list_for_donation_flag": true,
+      "allow_odpem_bridge_flag": false,
+      "effective_date": "2026-03-26",
+      "status_code": "ACTIVE"
+    },
+    {
+      "tenant_code": "COMMUNITY_001",
+      "can_self_request_flag": false,
+      "request_authority_tenant_code": "PARISH_001",
+      "can_create_needs_list_flag": true,
+      "can_apply_needs_list_to_relief_request_flag": true,
+      "can_export_needs_list_for_donation_flag": true,
+      "can_broadcast_needs_list_for_donation_flag": true,
+      "allow_odpem_bridge_flag": false,
+      "effective_date": "2026-03-26",
+      "status_code": "ACTIVE"
+    }
+  ],
+  "control_scopes": [
+    {
+      "controller_tenant_code": "PARISH_001",
+      "controlled_tenant_code": "COMMUNITY_001",
+      "control_type": "REQUEST_AUTHORITY",
+      "effective_date": "2026-03-26",
+      "status_code": "ACTIVE"
+    }
+  ],
+  "hierarchies": [
+    {
+      "parent_tenant_code": "PARISH_001",
+      "child_tenant_code": "COMMUNITY_001",
+      "relationship_type": "REQUEST_AUTHORITY",
+      "can_parent_request_on_behalf_flag": true,
+      "effective_date": "2026-03-26",
+      "status_code": "ACTIVE"
+    }
+  ]
+}

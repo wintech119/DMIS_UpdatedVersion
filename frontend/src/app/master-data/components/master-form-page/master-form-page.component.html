@@ -167,8 +167,7 @@
               <div class="assignment-grid">
                 <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
                   <mat-label>Warehouse</mat-label>
-                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-assignment"
-                    [disabled]="storageAssignmentLoading()">
+                  <mat-select formControlName="inventory_id" aria-describedby="inventory-id-help-assignment">
                     @for (item of inventoryAssignmentOptions(); track item.value) {
                       <mat-option [value]="item.value">
                         {{ item.label }}
@@ -191,8 +190,7 @@
                 </mat-form-field>
                 <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
                   <mat-label>Storage Location</mat-label>
-                  <mat-select formControlName="location_id"
-                    [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null">
+                  <mat-select formControlName="location_id">
                     @for (item of locationAssignmentOptions(); track item.value) {
                       <mat-option [value]="item.value">
                         {{ item.label }}
@@ -214,8 +212,7 @@
                 @if (assignmentIsBatched()) {
                   <mat-form-field appearance="outline" class="assignment-field" subscriptSizing="dynamic">
                     <mat-label>Batch / Lot</mat-label>
-                    <mat-select formControlName="batch_id"
-                      [disabled]="storageAssignmentLoading() || selectedAssignmentInventoryId() === null">
+                    <mat-select formControlName="batch_id">
                       @for (item of batchAssignmentOptions(); track item.value) {
                         <mat-option [value]="item.value">
                           {{ item.label }}

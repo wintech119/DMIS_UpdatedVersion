@@ -53,16 +53,11 @@ export function getNeedsListActionTarget(
     case 'DISPATCHED':
     case 'IN_TRANSIT':
     case 'RECEIVED':
-      return {
-        label: 'Track Fulfillment',
-        commands: ['/replenishment/needs-list', id, 'track'],
-        readOnly: true
-      };
     case 'FULFILLED':
     case 'COMPLETED':
       return {
-        label: 'View History',
-        commands: ['/replenishment/needs-list', id, 'history'],
+        label: 'View Details',
+        commands: ['/replenishment/needs-list', id, 'review'],
         readOnly: true
       };
     case 'REJECTED':
@@ -81,14 +76,16 @@ export function getNeedsListActionTarget(
       };
     case 'SUPERSEDED':
       return {
-        label: 'View Superseded',
-        commands: ['/replenishment/needs-list', id, 'superseded'],
+        label: 'View Details',
+        commands: ['/replenishment/needs-list', id, 'review'],
+        queryParams: { superseded: 'true' },
         readOnly: true
       };
     case 'CANCELLED':
       return {
-        label: 'View Cancelled',
-        commands: ['/replenishment/needs-list', id, 'history'],
+        label: 'View Details',
+        commands: ['/replenishment/needs-list', id, 'review'],
+        queryParams: { cancelled: 'true' },
         readOnly: true
       };
     default:

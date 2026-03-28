@@ -1,0 +1,98 @@
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { FormArray, FormControl, FormGroup, Validators } from '@angular/forms';
+import { By } from '@angular/platform-browser';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { MatTooltip } from '@angular/material/tooltip';
+
+import { RequestItemsStepComponent } from './request-items-step.component';
+
+describe('RequestItemsStepComponent', () => {
+  let fixture: ComponentFixture<RequestItemsStepComponent>;
+  let component: RequestItemsStepComponent;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [NoopAnimationsModule, RequestItemsStepComponent],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(RequestItemsStepComponent);
+    component = fixture.componentInstance;
+
+    component.form = new FormGroup({
+      agency_id: new FormControl<number | null>(null, Validators.required),
+      eligible_event_id: new FormControl<number | null>(null),
+      urgency_ind: new FormControl<string | null>(null, Validators.required),
+      rqst_notes_text: new FormControl(''),
+      items: new FormArray([
+        new FormGroup({
+          item_id: new FormControl<number | string | null>(null, Validators.required),
+          item_name: new FormControl(''),
+          request_qty: new FormControl<number | null>(1, [Validators.required, Validators.min(1)]),
+          urgency_ind: new FormControl<string | null>(null),
+          rqst_reason_desc: new FormControl(''),
+          required_by_date: new FormControl<string | null>(null),
+        }),
+      ]),
+    });
+    component.itemsArray = component.form.get('items') as FormArray;
+    component.onAddItem = jasmine.createSpy('onAddItem');
+    component.onRemoveItem = jasmine.createSpy('onRemoveItem');
+    component.agencyOptions = [{ value: 12, label: 'St. Mary Parish Council' }];
+    component.eventOptions = [{ value: 44, label: 'Flood Response 2026' }];
+    component.itemOptions = [{ value: 23, label: 'Blankets' }];
+    component.requestDateText = 'March 27, 2026';
+    component.requestDateHint = 'Recorded at intake.';
+    component.submissionModeLabel = 'For subordinate entity';
+    component.submissionModeHint = 'Parish request-authority tenants can raise requests for subordinate entities.';
+    component.creationBlocked = false;
+
+    fixture.detectChanges();
+  });
+
+  it('replaces stale design-system copy and exposes field help tooltips', () => {
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Capture the requesting entity and event by name');
+    expect(text).not.toContain('Stitch');
+
+    const agencyHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Requesting entity"]'));
+    const agencyTooltip = agencyHelpButton.injector.get(MatTooltip);
+    expect(agencyTooltip.message).toContain('subordinate agency or entity');
+
+    const requestDateHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Request date"]'));
+    const requestDateTooltip = requestDateHelpButton.injector.get(MatTooltip);
+    expect(requestDateTooltip.message).toContain('queue sequencing');
+
+    expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('filters item-name autocomplete options and writes the selected item id', () => {
+    const itemGroup = component.itemsArray.at(0) as FormGroup;
+    component.itemOptions = [
+      { value: 21, label: 'Tarpaulins' },
+      { value: 22, label: 'Water Purification Tablets' },
+      { value: 23, label: 'Blankets' },
+    ];
+
+    itemGroup.get('item_name')?.setValue('water');
+
+    expect(component.filterItemOptions(itemGroup)).toEqual([
+      { value: 22, label: 'Water Purification Tablets' },
+    ]);
+
+    itemGroup.get('item_name')?.setValue('Water Purification Tablets');
+    component.onItemBlur(itemGroup);
+    expect(itemGroup.get('item_id')?.value).toBe(22);
+    expect(component.hasItemMatch(itemGroup)).toBeTrue();
+
+    itemGroup.get('item_name')?.setValue('');
+    component.onItemBlur(itemGroup);
+    expect(itemGroup.get('item_id')?.value).toBeNull();
+
+    component.onItemSelected(itemGroup, { option: { value: '23' } } as never);
+    expect(itemGroup.get('item_id')?.value).toBe(23);
+    expect(itemGroup.get('item_name')?.value).toBe('Blankets');
+    expect(itemGroup.get('item_id')?.touched).toBeTrue();
+    expect(itemGroup.get('item_id')?.dirty).toBeTrue();
+  });
+});
