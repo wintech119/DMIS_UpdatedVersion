@@ -373,6 +373,9 @@ def can_access_tenant(
     if not context.is_neoc:
         return False
 
+    if _tenant_by_id(target_tenant_id) is None:
+        return False
+
     if write:
         if not context.can_act_cross_tenant:
             return False

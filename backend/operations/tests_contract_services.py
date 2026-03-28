@@ -481,6 +481,71 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
     @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.update_request")
+    def test_update_request_validates_current_request_agency_before_legacy_write(
+        self,
+        update_request_mock,
+        load_request_mock,
+        validate_selection_mock,
+        _get_request_mock,
+    ) -> None:
+        validate_selection_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=self.agency_scope,
+            origin_mode=ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+        load_request_mock.side_effect = [self.request, self.request]
+
+        def _update_side_effect(*args, **kwargs):
+            self.assertTrue(validate_selection_mock.called)
+            return {"reliefrqst_id": 70}
+
+        update_request_mock.side_effect = _update_side_effect
+
+        contract_services.update_request(
+            70,
+            payload={"rqst_notes_text": "Updated note"},
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+        )
+
+        validate_selection_mock.assert_called_once_with(
+            agency_id=501,
+            tenant_context=self.dispatch_ready_context,
+        )
+        update_request_mock.assert_called_once()
+
+    @patch("operations.contract_services.legacy_service.update_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_update_request_rejects_invalid_beneficiary_agency_before_legacy_write(
+        self,
+        load_request_mock,
+        update_request_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.update_request(
+                70,
+                payload={"beneficiary_agency_id": "bad-id"},
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"agency_id": "agency_id must be a valid integer value."},
+        )
+        update_request_mock.assert_not_called()
+
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.update_request", return_value={"reliefrqst_id": 70})
     def test_update_request_allows_clearing_source_needs_list_id(
         self,
@@ -783,6 +848,7 @@ class OperationsWorkflowContractTests(TestCase):
 
     def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:
         self._create_operations_request_record()
+        dispatched_at = timezone.make_aware(datetime(2026, 3, 26, 12, 0, 0))
         package_record = OperationsPackage.objects.create(
             package_id=90,
             package_no="PK00090",
@@ -790,7 +856,8 @@ class OperationsWorkflowContractTests(TestCase):
             source_warehouse_id=4,
             destination_tenant_id=20,
             destination_agency_id=501,
-            status_code=PACKAGE_STATUS_COMMITTED,
+            status_code=PACKAGE_STATUS_DISPATCHED,
+            dispatched_at=dispatched_at,
             create_by_id="seed-user",
             update_by_id="seed-user",
         )
@@ -798,6 +865,7 @@ class OperationsWorkflowContractTests(TestCase):
             package_id=90,
             dispatch_no="DP00090",
             status_code="READY",
+            dispatch_at=None,
             source_warehouse_id=4,
             destination_tenant_id=20,
             destination_agency_id=501,
@@ -809,6 +877,8 @@ class OperationsWorkflowContractTests(TestCase):
             package=self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="P"),
             package_record=SimpleNamespace(
                 package_id=package_record.package_id,
+                status_code=PACKAGE_STATUS_DISPATCHED,
+                dispatched_at=dispatched_at,
                 source_warehouse_id=9,
                 destination_tenant_id=30,
                 destination_agency_id=777,
@@ -818,6 +888,8 @@ class OperationsWorkflowContractTests(TestCase):
         dispatch.refresh_from_db()
 
         self.assertEqual(updated_dispatch.dispatch_id, dispatch.dispatch_id)
+        self.assertEqual(dispatch.status_code, DISPATCH_STATUS_IN_TRANSIT)
+        self.assertEqual(dispatch.dispatch_at, dispatched_at)
         self.assertEqual(dispatch.source_warehouse_id, 9)
         self.assertEqual(dispatch.destination_tenant_id, 30)
         self.assertEqual(dispatch.destination_agency_id, 777)

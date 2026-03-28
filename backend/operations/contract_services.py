@@ -166,6 +166,14 @@ def _package_status_from_legacy(package: ReliefPkg) -> str:
     return mapping.get(legacy_status, PACKAGE_STATUS_DRAFT)
 
 
+def _dispatch_status_from_package_status(package_status: str | None) -> str:
+    if package_status == PACKAGE_STATUS_DISPATCHED:
+        return DISPATCH_STATUS_IN_TRANSIT
+    if package_status == PACKAGE_STATUS_RECEIVED:
+        return DISPATCH_STATUS_RECEIVED
+    return DISPATCH_STATUS_READY
+
+
 def _ops_request_from_legacy(request: ReliefRqst, *, actor_id: str) -> OperationsReliefRequest:
     agency_scope = operations_policy.get_agency_scope(int(request.agency_id))
     beneficiary_tenant_id = agency_scope.tenant_id if agency_scope is not None else None
@@ -408,11 +416,14 @@ def _ensure_dispatch_record(
     package_record: OperationsPackage,
     actor_id: str,
 ) -> OperationsDispatch:
+    dispatch_status = _dispatch_status_from_package_status(package_record.status_code)
+    dispatch_at = package_record.dispatched_at
     dispatch, created = OperationsDispatch.objects.get_or_create(
         package_id=int(package.reliefpkg_id),
         defaults={
             "dispatch_no": legacy_service._tracking_no("DP", int(package.reliefpkg_id)),
-            "status_code": DISPATCH_STATUS_READY,
+            "status_code": dispatch_status,
+            "dispatch_at": dispatch_at,
             "source_warehouse_id": package_record.source_warehouse_id,
             "destination_tenant_id": package_record.destination_tenant_id,
             "destination_agency_id": package_record.destination_agency_id,
@@ -430,6 +441,8 @@ def _ensure_dispatch_record(
         )
     else:
         changed_fields: list[str] = []
+        _assign_if_changed(dispatch, "status_code", dispatch_status, changed_fields)
+        _assign_if_changed(dispatch, "dispatch_at", dispatch_at, changed_fields)
         _assign_if_changed(dispatch, "source_warehouse_id", package_record.source_warehouse_id, changed_fields)
         _assign_if_changed(dispatch, "destination_tenant_id", package_record.destination_tenant_id, changed_fields)
         _assign_if_changed(dispatch, "destination_agency_id", package_record.destination_agency_id, changed_fields)
@@ -872,6 +885,15 @@ def update_request(
         else _UNSET
     )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
+    current_request = legacy_service._load_request(reliefrqst_id)
+    effective_agency_raw = mutable_payload.get("agency_id", current_request.agency_id)
+    agency_id = _parse_int_or_raise(effective_agency_raw, "agency_id")
+    if agency_id is None:
+        raise OperationValidationError({"agency_id": "agency_id is required."})
+    decision = operations_policy.validate_relief_request_agency_selection(
+        agency_id=agency_id,
+        tenant_context=tenant_context,
+    )
     result = legacy_service.update_request(
         reliefrqst_id,
         payload=mutable_payload,
@@ -880,13 +902,6 @@ def update_request(
         permissions=permissions,
     )
     request = legacy_service._load_request(reliefrqst_id)
-    agency_id = _parse_int_or_raise(request.agency_id, "agency_id")
-    if agency_id is None:
-        raise OperationValidationError({"agency_id": "agency_id is required."})
-    decision = operations_policy.validate_relief_request_agency_selection(
-        agency_id=agency_id,
-        tenant_context=tenant_context,
-    )
     _sync_operations_request(
         request,
         actor_id=actor_id,
