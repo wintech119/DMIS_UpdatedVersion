@@ -790,8 +790,14 @@ def _save_package_allocation(
     allow_pending_override: bool,
     supervisor_user_id: str | None = None,
     supervisor_role_codes: Iterable[str] | None = None,
+    override_submitter_user_id: str | None = None,
 ) -> dict[str, Any]:
     if not payload.get("allocations"):
+        if not allow_pending_override:
+            # Approval flow requires allocations to commit the package
+            raise OperationValidationError(
+                {"allocations": "Allocations are required for override approval."}
+            )
         return _package_detail(_ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload))
 
     execution_link = _execution_link_for_request(reliefrqst_id)
@@ -837,13 +843,18 @@ def _save_package_allocation(
     package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
     current_status = _current_package_status(package)
     if current_status == PKG_STATUS_DISPATCHED:
-        raise DispatchError("Package has already been dispatched.", code="duplicate_dispatch")
+        raise DispatchError(
+            f"Package cannot be modified in status '{PKG_STATUS_LABELS.get(current_status, current_status)}'.",
+            code="package_already_finalized",
+        )
     old_rows = _selected_plan_for_package(int(package.reliefpkg_id)) if current_status in {"P", "C", "V"} else []
     if old_rows:
         _apply_stock_delta_for_rows(old_rows, actor_user_id=actor_id, delta_sign=-1, update_needs_list=False)
     plan_rows = _group_plan_rows(allocations)
+
+    request_item_rows = _request_item_rows_for_allocation(reliefrqst_id)
     warehouse_ids = _resolve_candidate_warehouse_ids(reliefrqst_id, payload=payload, selected_rows=plan_rows)
-    item_lookup = {item.item_id: item for item in Item.objects.filter(item_id__in=[row["item_id"] for row in _request_item_rows_for_allocation(reliefrqst_id)])}
+    item_lookup = {item.item_id: item for item in Item.objects.filter(item_id__in=[row["item_id"] for row in request_item_rows])}
     override_required = False
     override_markers: list[str] = []
     for item_id, rows in _package_plan_map(plan_rows).items():
@@ -873,11 +884,12 @@ def _save_package_allocation(
                 code="override_details_missing",
             )
         if not allow_pending_override:
+            actual_submitter = override_submitter_user_id or request.create_by_id
             validate_override_approval(
                 approver_user_id=supervisor_user_id,
                 approver_role_codes=supervisor_role_codes,
-                submitter_user_id=request.create_by_id,
-                needs_list_submitted_by=request.create_by_id,
+                submitter_user_id=actual_submitter,
+                needs_list_submitted_by=actual_submitter,
             )
     _upsert_package_rows(
         package_id=int(package.reliefpkg_id),
@@ -936,6 +948,14 @@ def approve_override(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id
             override_note=str(payload.get("override_note") or "").strip(),
             submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
         )
+    package = _current_package_for_request(reliefrqst_id)
+    # The submitter for self-approval checks is the person who originally
+    # allocated the package (triggered the override), not the current approver.
+    allocator_user_id = (
+        str(package.update_by_id or package.create_by_id)
+        if package is not None
+        else actor_id
+    )
     return _save_package_allocation(
         reliefrqst_id,
         payload=payload,
@@ -943,6 +963,7 @@ def approve_override(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id
         allow_pending_override=False,
         supervisor_user_id=actor_id,
         supervisor_role_codes=actor_roles,
+        override_submitter_user_id=allocator_user_id,
     )
 
 

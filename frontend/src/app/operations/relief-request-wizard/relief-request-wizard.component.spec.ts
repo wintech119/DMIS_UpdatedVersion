@@ -102,4 +102,13 @@ describe('ReliefRequestWizardComponent', () => {
     ]);
     expect(fixture.componentInstance.requestForm.get('agency_id')?.value).toBe(12);
   });
+
+  it('updates the review snapshot with the selected event label', () => {
+    const component = fixture.componentInstance;
+
+    component.requestForm.get('eligible_event_id')?.setValue(44);
+    fixture.detectChanges();
+
+    expect(component.reviewFormValue().event_name).toBe('Flood Response 2026');
+  });
 });

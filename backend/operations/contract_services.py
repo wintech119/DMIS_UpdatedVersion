@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
@@ -79,6 +79,14 @@ from replenishment.legacy_models import ReliefPkg, ReliefRqst
 ENTITY_REQUEST = "RELIEF_REQUEST"
 ENTITY_PACKAGE = "PACKAGE"
 ENTITY_DISPATCH = "DISPATCH"
+
+
+def _require_actor_id(actor_id: str | None) -> str:
+    """Reject calls with no traceable actor identifier."""
+    if not actor_id:
+        raise OperationValidationError({"actor": "A traceable actor identifier is required."})
+    return actor_id
+
 
 REQUEST_FILTERS = {
     "draft": {REQUEST_STATUS_DRAFT},
@@ -265,6 +273,11 @@ def _sync_operations_request(
     _assign_if_changed(record, "reviewed_at", request.review_dtime, changed_fields)
     if status_code:
         _assign_if_changed(record, "status_code", status_code, changed_fields)
+    else:
+        # Issue #14: Sync status from legacy record on read paths when no explicit
+        # status override is provided.
+        legacy_derived_status = _request_status_from_legacy(request)
+        _assign_if_changed(record, "status_code", legacy_derived_status, changed_fields)
     if changed_fields:
         record.update_by_id = actor_id
         record.update_dtime = timezone.now()
@@ -314,6 +327,15 @@ def _sync_operations_package(
         _assign_if_changed(record, "source_warehouse_id", int(source_warehouse_id), changed_fields)
     if status_code:
         _assign_if_changed(record, "status_code", status_code, changed_fields)
+    else:
+        # Issue #14: Sync status from legacy record on read paths.
+        legacy_derived_status = _package_status_from_legacy(package)
+        if (
+            record.status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
+            and legacy_derived_status == PACKAGE_STATUS_DRAFT
+        ):
+            legacy_derived_status = record.status_code
+        _assign_if_changed(record, "status_code", legacy_derived_status, changed_fields)
     if override_status_code is not None:
         _assign_if_changed(record, "override_status_code", override_status_code, changed_fields)
     if record.status_code == PACKAGE_STATUS_COMMITTED and record.committed_at is None:
@@ -426,15 +448,49 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
         ):
             raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."})
         if existing is None:
-            lock = OperationsPackageLock.objects.create(
-                package_id=int(package_id),
-                lock_owner_user_id=actor_id,
-                lock_owner_role_code=owner_role,
-                lock_started_at=now,
-                lock_expires_at=expires_at,
-                lock_status="ACTIVE",
-            )
-            created = True
+            try:
+                with transaction.atomic():
+                    lock = OperationsPackageLock.objects.create(
+                        package_id=int(package_id),
+                        lock_owner_user_id=actor_id,
+                        lock_owner_role_code=owner_role,
+                        lock_started_at=now,
+                        lock_expires_at=expires_at,
+                        lock_status="ACTIVE",
+                    )
+                created = True
+            except IntegrityError:
+                # Another actor won the race; re-fetch and check ownership.
+                existing = (
+                    OperationsPackageLock.objects.select_for_update()
+                    .filter(package_id=int(package_id))
+                    .first()
+                )
+                if (
+                    existing
+                    and existing.lock_status == "ACTIVE"
+                    and existing.lock_owner_user_id != actor_id
+                    and (existing.lock_expires_at is None or existing.lock_expires_at > now)
+                ):
+                    raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."})
+                if existing is None:
+                    raise  # Unexpected state; propagate original error.
+                lock = existing
+                lock.lock_owner_user_id = actor_id
+                lock.lock_owner_role_code = owner_role
+                lock.lock_started_at = now
+                lock.lock_expires_at = expires_at
+                lock.lock_status = "ACTIVE"
+                lock.save(
+                    update_fields=[
+                        "lock_owner_user_id",
+                        "lock_owner_role_code",
+                        "lock_started_at",
+                        "lock_expires_at",
+                        "lock_status",
+                    ]
+                )
+                created = False
         else:
             lock = existing
             lock.lock_owner_user_id = actor_id
@@ -470,10 +526,11 @@ def _ensure_request_access(
     actor_id: str,
     actor_roles: Iterable[str],
     tenant_context: TenantContext,
+    write: bool = False,
 ) -> None:
     relevant_tenants = [request_record.requesting_tenant_id, request_record.beneficiary_tenant_id]
     for tenant_id in relevant_tenants:
-        if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=False):
+        if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=write):
             return
     if actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context).filter(
         entity_type=ENTITY_REQUEST,
@@ -489,9 +546,13 @@ def _ensure_package_access(
     actor_id: str,
     actor_roles: Iterable[str],
     tenant_context: TenantContext,
+    write: bool = False,
 ) -> None:
-    request_record = OperationsReliefRequest.objects.get(relief_request_id=int(package_record.relief_request_id))
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
+    try:
+        request_record = OperationsReliefRequest.objects.get(relief_request_id=int(package_record.relief_request_id))
+    except OperationsReliefRequest.DoesNotExist:
+        raise OperationValidationError({"scope": "Associated relief request record not found for this package."})
+    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context, write=write)
 
 
 def _package_lock_payload(package_id: int) -> dict[str, Any] | None:
@@ -637,7 +698,7 @@ def list_requests(
     tenant_context: TenantContext,
     actor_roles: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     requested_statuses = REQUEST_FILTERS.get(str(filter_key or "").lower())
     results: list[dict[str, Any]] = []
     for request in ReliefRqst.objects.order_by("-create_dtime", "-reliefrqst_id")[:200]:
@@ -653,7 +714,7 @@ def list_requests(
 
 
 def get_request(reliefrqst_id: int, *, actor_id: str | None = None, tenant_context: TenantContext, actor_roles: Iterable[str] | None = None) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
@@ -772,7 +833,7 @@ def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantC
 
 
 def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may view this queue.")
     entity_ids = list(
         actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
@@ -797,7 +858,7 @@ def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable
 
 
 def get_eligibility_request(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may review requests.")
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
@@ -828,7 +889,7 @@ def submit_eligibility_decision(
     normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may decide requests.")
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     if OperationsEligibilityDecision.objects.filter(relief_request_id=reliefrqst_id).exists():
         raise OperationValidationError({"status": "Eligibility decision already recorded."})
     decision = str(payload.get("decision") or "").strip().upper()
@@ -878,7 +939,21 @@ def submit_eligibility_decision(
         ),
         decided_at=now,
     )
-    request_record = _sync_operations_request(request, actor_id=actor_id, status_code=next_status)
+    # Issue #13: For on-behalf/subordinate flows, use the requesting_agency_id from
+    # the payload if provided, rather than leaving it at request.agency_id.
+    on_behalf_agency_id = None
+    raw_requesting_agency = payload.get("requesting_agency_id")
+    if raw_requesting_agency not in (None, ""):
+        try:
+            on_behalf_agency_id = int(raw_requesting_agency)
+        except (TypeError, ValueError):
+            pass
+    request_record = _sync_operations_request(
+        request,
+        actor_id=actor_id,
+        status_code=next_status,
+        requesting_agency_id=on_behalf_agency_id,
+    )
     request_record.reviewed_by_id = actor_id
     request_record.reviewed_at = now
     request_record.save(update_fields=["reviewed_by_id", "reviewed_at"])
@@ -913,7 +988,7 @@ def submit_eligibility_decision(
 
 
 def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may view this queue.")
     entity_ids = list(
         actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
@@ -957,7 +1032,7 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
 
 
 def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
@@ -975,11 +1050,10 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
 
 
 def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    del actor_roles
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=(), tenant_context=tenant_context)
+    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     return legacy_service.get_package_allocation_options(reliefrqst_id, source_warehouse_id=source_warehouse_id)
 
 
@@ -995,14 +1069,19 @@ def save_package(
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None
     if package_locked_before_save:
         _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
+    else:
+        # No package yet - acquire lock immediately after save creates one.
+        pass
     result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
     package = legacy_service._current_package_for_request(reliefrqst_id)
+    if not package_locked_before_save and package is not None:
+        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
         return result
     first_inventory_id = None
@@ -1029,8 +1108,6 @@ def save_package(
         override_status_code=override_status,
         source_warehouse_id=first_inventory_id,
     )
-    if not package_locked_before_save:
-        _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_OVERRIDE,
@@ -1098,7 +1175,7 @@ def approve_override(
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context)
+    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
     result = legacy_service.approve_override(reliefrqst_id, payload=payload, actor_id=actor_id, actor_roles=normalized_roles)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is not None:
@@ -1125,7 +1202,7 @@ def approve_override(
 
 
 def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may view this queue.")
     package_ids = list(
         actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
@@ -1167,7 +1244,7 @@ def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[st
 
 
 def get_dispatch_package(reliefpkg_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     package = legacy_service._load_package(reliefpkg_id)
     request = legacy_service._load_request(int(package.reliefrqst_id))
     request_record = _sync_operations_request(request, actor_id=actor_id)
@@ -1235,6 +1312,7 @@ def submit_dispatch(
         actor_id=actor_id,
         actor_roles=actor_roles or (),
         tenant_context=tenant_context,
+        write=True,
     )
     legacy_result = legacy_service.submit_dispatch(
         reliefpkg_id,
@@ -1303,7 +1381,7 @@ def submit_dispatch(
 
 
 def get_waybill(reliefpkg_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = actor_id or "system"
+    actor_id = _require_actor_id(actor_id)
     package = legacy_service._load_package(reliefpkg_id)
     request = legacy_service._load_request(int(package.reliefrqst_id))
     request_record = _sync_operations_request(request, actor_id=actor_id)
@@ -1335,11 +1413,14 @@ def confirm_receipt(
     request = legacy_service._load_request(int(package.reliefrqst_id), for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
-    _ensure_package_access(package_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    _ensure_package_access(package_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     if package.dispatch_dtime is None:
         raise OperationValidationError({"receipt": "Package has not been dispatched."})
     if package.received_dtime is not None:
         raise OperationValidationError({"receipt": "Receipt has already been confirmed."})
+    dispatch = OperationsDispatch.objects.filter(package_id=reliefpkg_id).first()
+    if dispatch is None:
+        raise OperationValidationError({"receipt": "Dispatch record is missing for this package."})
     now = timezone.now()
     package.received_by_id = actor_id
     package.received_dtime = now
@@ -1349,9 +1430,6 @@ def confirm_receipt(
     package.version_nbr = int(package.version_nbr or 0) + 1
     package.save()
     _sync_operations_package(package, request_record=request_record, actor_id=actor_id, status_code=PACKAGE_STATUS_RECEIVED)
-    dispatch = OperationsDispatch.objects.filter(package_id=reliefpkg_id).first()
-    if dispatch is None:
-        raise OperationValidationError({"receipt": "Dispatch record is missing for this package."})
     if dispatch.status_code != DISPATCH_STATUS_RECEIVED:
         record_status_transition(
             entity_type=ENTITY_DISPATCH,
@@ -1376,7 +1454,6 @@ def confirm_receipt(
     OperationsReceipt.objects.update_or_create(
         dispatch_id=int(dispatch.dispatch_id),
         defaults={
-            "package_id": int(dispatch.package_id),
             "receipt_status_code": DISPATCH_STATUS_RECEIVED,
             "received_by_user_id": actor_id,
             "received_by_name": receipt_artifact["received_by_name"],

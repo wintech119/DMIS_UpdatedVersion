@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TestCase
 from django.utils import timezone
 
@@ -18,6 +18,7 @@ from operations.constants import (
     ORIGIN_MODE_SELF,
     PACKAGE_STATUS_COMMITTED,
     PACKAGE_STATUS_DISPATCHED,
+    PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_RECEIPT,
@@ -399,6 +400,36 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
 
+    def test_package_sync_preserves_pending_override_status_when_legacy_package_is_still_draft(self) -> None:
+        original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+            update_dtime=original_updated_at,
+            version_nbr=5,
+        )
+
+        record = contract_services._sync_operations_package(
+            self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="A"),
+            request_record=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            actor_id="sync-1",
+        )
+        record.refresh_from_db()
+
+        self.assertEqual(record.status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
+        self.assertEqual(record.override_status_code, PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL)
+        self.assertEqual(record.version_nbr, 5)
+        self.assertEqual(record.update_by_id, "seed-user")
+        self.assertEqual(record.update_dtime, original_updated_at)
+
     def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:
         self._create_operations_request_record()
         package_record = OperationsPackage.objects.create(
@@ -561,6 +592,46 @@ class OperationsWorkflowContractTests(TestCase):
         lock = OperationsPackageLock.objects.get(package_id=90)
         self.assertEqual(lock.lock_owner_role_code, ROLE_SYSTEM_ADMINISTRATOR)
         self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
+
+    def test_acquire_package_lock_recovers_from_concurrent_insert_race(self) -> None:
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        existing_lock = OperationsPackageLock.objects.create(
+            package_id=90,
+            lock_owner_user_id="logistics-manager-1",
+            lock_owner_role_code="LOGISTICS_MANAGER",
+            lock_started_at=timezone.now(),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+        select_for_update_mock = patch(
+            "operations.contract_services.OperationsPackageLock.objects.select_for_update"
+        )
+
+        with patch(
+            "operations.contract_services.OperationsPackageLock.objects.create",
+            side_effect=IntegrityError("duplicate package lock"),
+        ), select_for_update_mock as select_for_update:
+            select_for_update.return_value.filter.return_value.first.side_effect = [None, existing_lock]
+            lock = contract_services._acquire_package_lock(
+                90,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+            )
+
+        self.assertEqual(lock.package_id, 90)
+        self.assertEqual(lock.lock_owner_user_id, "logistics-manager-1")
+        self.assertEqual(lock.lock_status, "ACTIVE")
+        self.assertEqual(OperationsPackageLock.objects.filter(package_id=90).count(), 1)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -1138,6 +1209,26 @@ class OperationsWorkflowContractTests(TestCase):
         load_package_mock.return_value = dispatched_package
         load_request_mock.return_value = self.request
         get_agency_scope_mock.return_value = self.agency_scope
+        ops_request = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+        )
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=ops_request,
+            status_code="DISPATCHED",
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
         dispatch = OperationsDispatch.objects.create(
             package_id=90,
             dispatch_no="DP00090",
@@ -1148,11 +1239,84 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="dispatch-1",
             update_by_id="dispatch-1",
         )
+        OperationsQueueAssignment.objects.create(
+            queue_code="RECEIPT_CONFIRMATION",
+            entity_type="PACKAGE",
+            entity_id=90,
+            assigned_user_id="receiver-1",
+            assigned_role_code="LOGISTICS_MANAGER",
+            assignment_status="OPEN",
+        )
 
         result = contract_services.confirm_receipt(
             90,
             payload={"received_by_name": "Receiver One", "receipt_notes": "Received intact"},
             actor_id="receiver-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual(result["status"], "RECEIVED")
+        receipt = OperationsReceipt.objects.get(dispatch_id=dispatch.dispatch_id)
+        self.assertEqual(receipt.received_by_name, "Receiver One")
+        self.assertEqual(receipt.receipt_status_code, "RECEIVED")
+        self.assertEqual(receipt.package_id, dispatch.package_id)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._load_package")
+    def test_receipt_confirmation_allows_controller_flow_without_receipt_queue_assignment(
+        self,
+        load_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        dispatched_package = SimpleNamespace(
+            **{**self.package.__dict__, "dispatch_dtime": datetime(2026, 3, 26, 12, 0, 0), "status_code": "D"}
+        )
+        load_package_mock.return_value = dispatched_package
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        ops_request = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=30,
+            beneficiary_agency_id=777,
+            origin_mode=ORIGIN_MODE_FOR_SUBORDINATE,
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+        )
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=ops_request,
+            destination_tenant_id=30,
+            destination_agency_id=777,
+            status_code="DISPATCHED",
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
+        dispatch = OperationsDispatch.objects.create(
+            package_id=90,
+            dispatch_no="DP00090",
+            status_code=DISPATCH_STATUS_IN_TRANSIT,
+            source_warehouse_id=4,
+            destination_tenant_id=30,
+            destination_agency_id=777,
+            create_by_id="dispatch-1",
+            update_by_id="dispatch-1",
+        )
+
+        result = contract_services.confirm_receipt(
+            90,
+            payload={"received_by_name": "Receiver One", "receipt_notes": "Received intact"},
+            actor_id="controller-1",
             actor_roles=["LOGISTICS_MANAGER"],
             tenant_context=self.dispatch_ready_context,
         )

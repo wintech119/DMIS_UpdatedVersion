@@ -123,6 +123,7 @@ export class ReliefRequestWizardComponent implements OnInit {
   );
 
   readonly selectedAgencyName = computed(() => {
+    this.formVersion();
     const agencyId = Number(this.requestForm.get('agency_id')?.value ?? 0);
     const matched = this.agencyOptions().find((option) => option.value === agencyId)?.label;
     if (matched) {
@@ -136,6 +137,7 @@ export class ReliefRequestWizardComponent implements OnInit {
   });
 
   readonly selectedEventName = computed(() => {
+    this.formVersion();
     const eventId = Number(this.requestForm.get('eligible_event_id')?.value ?? 0);
     const matched = this.eventOptions().find((option) => option.value === eventId)?.label;
     if (matched) {
