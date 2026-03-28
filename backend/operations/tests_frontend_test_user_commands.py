@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from datetime import datetime
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -17,6 +18,82 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
             Command._ensure_user.__annotations__["profile"],
             "TemporaryFrontendUserSpec",
         )
+
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.timezone.now",
+        return_value=datetime(2026, 3, 28, 9, 30, 0),
+    )
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_ensure_user_prefers_username_match_before_email_match(
+        self,
+        mock_connection,
+        _now_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [(95101,), (95202,)]
+
+        user_id, created = Command()._ensure_user(
+            profile=SimpleNamespace(
+                username="relief_jrc_requester_tst",
+                email="requester@agency.example.org",
+                user_name="Requester",
+                first_name="Alicia",
+                last_name="Bennett",
+                full_name="Alicia Bennett",
+                job_title="Distribution Coordinator",
+            ),
+            tenant_name="JAMAICA RED CROSS",
+            agency_id=3,
+            warehouse_id=14,
+        )
+
+        self.assertEqual(user_id, 95101)
+        self.assertFalse(created)
+        self.assertEqual(len(cursor.execute.call_args_list), 2)
+        username_sql, username_params = cursor.execute.call_args_list[0].args
+        self.assertIn("WHERE username = %s", username_sql)
+        self.assertEqual(username_params, ["relief_jrc_requester_tst"])
+        update_sql, update_params = cursor.execute.call_args_list[1].args
+        self.assertIn('UPDATE "user"', update_sql)
+        self.assertEqual(update_params[-1], 95101)
+
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.timezone.now",
+        return_value=datetime(2026, 3, 28, 9, 30, 0),
+    )
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_ensure_user_falls_back_to_email_match_when_username_missing(
+        self,
+        mock_connection,
+        _now_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [None, (95202,)]
+
+        user_id, created = Command()._ensure_user(
+            profile=SimpleNamespace(
+                username="relief_jrc_requester_tst",
+                email="requester@agency.example.org",
+                user_name="Requester",
+                first_name="Alicia",
+                last_name="Bennett",
+                full_name="Alicia Bennett",
+                job_title="Distribution Coordinator",
+            ),
+            tenant_name="JAMAICA RED CROSS",
+            agency_id=3,
+            warehouse_id=14,
+        )
+
+        self.assertEqual(user_id, 95202)
+        self.assertFalse(created)
+        self.assertEqual(len(cursor.execute.call_args_list), 3)
+        username_sql, username_params = cursor.execute.call_args_list[0].args
+        email_sql, email_params = cursor.execute.call_args_list[1].args
+        self.assertIn("WHERE username = %s", username_sql)
+        self.assertEqual(username_params, ["relief_jrc_requester_tst"])
+        self.assertIn("WHERE email = %s", email_sql)
+        self.assertEqual(email_params, ["requester@agency.example.org"])
 
     def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
         profiles = Command()._build_profiles("FFP", "Food For The Poor")

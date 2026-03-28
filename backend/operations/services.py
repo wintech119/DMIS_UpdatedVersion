@@ -149,12 +149,14 @@ def _optional_date(value: Any, field_name: str, errors: dict[str, str]) -> date 
 
 def _event_exists(event_id: int) -> bool:
     try:
-        table_name = _qualified_table("event")
-        with connection.cursor() as cursor:
-            cursor.execute(f"SELECT 1 FROM {table_name} WHERE event_id = %s LIMIT 1", [int(event_id)])
-            return cursor.fetchone() is not None
-    except Exception:
+        normalized_event_id = int(event_id)
+    except (TypeError, ValueError):
         return False
+
+    table_name = _qualified_table("event")
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT 1 FROM {table_name} WHERE event_id = %s LIMIT 1", [normalized_event_id])
+        return cursor.fetchone() is not None
 
 
 def _load_request(reliefrqst_id: int, *, for_update: bool = False) -> ReliefRqst:
@@ -1001,13 +1003,12 @@ def approve_override(reliefrqst_id: int, *, payload: Mapping[str, Any], actor_id
             override_note=str(payload.get("override_note") or "").strip(),
             submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
         )
+    request = _load_request(reliefrqst_id)
     package = _current_package_for_request(reliefrqst_id)
     # The submitter for self-approval checks is the person who originally
     # allocated the package (triggered the override), not the current approver.
     allocator_user_id = (
-        str(package.update_by_id or package.create_by_id)
-        if package is not None
-        else actor_id
+        str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
     )
     return _save_package_allocation(
         reliefrqst_id,

@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase
 
 from api.rbac import (
@@ -105,6 +106,24 @@ class EventLookupTests(SimpleTestCase):
             "SELECT 1 FROM legacy_schema.event WHERE event_id = %s LIMIT 1",
             [77],
         )
+
+    @patch("operations.services.connection")
+    def test_event_exists_returns_false_for_invalid_event_id(self, connection_mock) -> None:
+        exists = operations_service._event_exists("not-an-int")
+
+        self.assertFalse(exists)
+        connection_mock.cursor.assert_not_called()
+
+    @patch("operations.services._qualified_table", return_value="legacy_schema.event")
+    @patch("operations.services.connection")
+    def test_event_exists_propagates_database_errors(self, connection_mock, _qualified_table_mock) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.execute.side_effect = DatabaseError("event lookup failed")
+        connection_mock.cursor.return_value = cursor
+
+        with self.assertRaises(DatabaseError):
+            operations_service._event_exists(77)
 
 
 class ReliefRequestAgencyPolicyTests(SimpleTestCase):
@@ -901,6 +920,37 @@ class DispatchSubmissionStatusTests(TestCase):
 
 
 class PackageAllocationGuardTests(TestCase):
+    @patch("operations.services._save_package_allocation")
+    @patch(
+        "operations.services._current_package_for_request",
+        return_value=SimpleNamespace(create_by_id="allocator-1", update_by_id="editor-9"),
+    )
+    @patch("operations.services._load_request", return_value=SimpleNamespace(create_by_id="requester-1"))
+    @patch("operations.services._execution_link_for_request", return_value=None)
+    def test_approve_override_uses_request_creator_as_stable_submitter(
+        self,
+        _execution_link_mock,
+        load_request_mock,
+        current_package_mock,
+        save_package_allocation_mock,
+    ) -> None:
+        save_package_allocation_mock.return_value = {"status": "COMMITTED"}
+
+        result = operations_service.approve_override(
+            88,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="manager-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+        )
+
+        self.assertEqual(result, {"status": "COMMITTED"})
+        load_request_mock.assert_called_once_with(88)
+        current_package_mock.assert_called_once_with(88)
+        self.assertEqual(
+            save_package_allocation_mock.call_args.kwargs["override_submitter_user_id"],
+            "requester-1",
+        )
+
     @patch("operations.services._ensure_package")
     @patch("operations.services._load_request", return_value=SimpleNamespace(status_code=operations_service.STATUS_DRAFT))
     @patch("operations.services._execution_link_for_request", return_value=None)

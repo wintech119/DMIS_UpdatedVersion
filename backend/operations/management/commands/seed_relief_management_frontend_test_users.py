@@ -263,12 +263,23 @@ class Command(BaseCommand):
                     """
                     SELECT user_id
                     FROM "user"
-                    WHERE username = %s OR email = %s
+                    WHERE username = %s
                     LIMIT 1
                     """,
-                    [profile.username, profile.email],
+                    [profile.username],
                 )
                 row = cursor.fetchone()
+                if row is None:
+                    cursor.execute(
+                        """
+                        SELECT user_id
+                        FROM "user"
+                        WHERE email = %s
+                        LIMIT 1
+                        """,
+                        [profile.email],
+                    )
+                    row = cursor.fetchone()
                 if row:
                     user_id = int(row[0])
                     cursor.execute(
