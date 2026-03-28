@@ -74,21 +74,20 @@ describe('RequestItemsStepComponent', () => {
       { value: 23, label: 'Blankets' },
     ];
 
-    itemGroup.get('item_id')?.setValue('water');
+    itemGroup.get('item_name')?.setValue('water');
 
-    expect(component.displayItemOption(22)).toBe('Water Purification Tablets');
-    expect(component.displayItemOption('Custom entry')).toBe('Custom entry');
     expect(component.filterItemOptions(itemGroup)).toEqual([
       { value: 22, label: 'Water Purification Tablets' },
     ]);
 
-    itemGroup.get('item_id')?.setValue(22);
-    component.onItemInput(itemGroup, 'Water');
-    expect(itemGroup.get('item_id')?.value).toBe('Water');
+    itemGroup.get('item_name')?.setValue('Water Purification Tablets');
+    component.onItemBlur(itemGroup);
+    expect(itemGroup.get('item_id')?.value).toBe(22);
+    expect(component.hasItemMatch(itemGroup)).toBeTrue();
 
-    component.onItemInput(itemGroup, '');
+    itemGroup.get('item_name')?.setValue('');
+    component.onItemBlur(itemGroup);
     expect(itemGroup.get('item_id')?.value).toBeNull();
-    expect(itemGroup.get('item_name')?.value).toBe('');
 
     component.onItemSelected(itemGroup, { option: { value: '23' } } as never);
     expect(itemGroup.get('item_id')?.value).toBe(23);
