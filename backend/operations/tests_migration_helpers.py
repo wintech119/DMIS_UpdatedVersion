@@ -34,32 +34,41 @@ class MigrationSchemaNameTests(SimpleTestCase):
         self.assertEqual(schema, "tenant_b")
         cursor.execute.assert_not_called()
 
-    def test_0003_schema_name_uses_first_search_path_entry(self) -> None:
-        schema_editor, cursor = _schema_editor('"tenant_a", public')
-
-        with patch.dict("os.environ", {}, clear=True):
-            schema = migration_0003._schema_name(schema_editor)
-
-        self.assertEqual(schema, "tenant_a")
-        cursor.execute.assert_called_once_with("SHOW search_path")
-
-    def test_0003_schema_name_falls_back_to_public_for_blank_search_path(self) -> None:
-        schema_editor, cursor = _schema_editor("")
+    def test_0003_schema_name_falls_back_to_public_when_env_missing(self) -> None:
+        schema_editor, cursor = _schema_editor("tenant_a, public")
 
         with patch.dict("os.environ", {}, clear=True):
             schema = migration_0003._schema_name(schema_editor)
 
         self.assertEqual(schema, "public")
+        cursor.execute.assert_not_called()
+
+    def test_0004_schema_name_uses_first_search_path_entry(self) -> None:
+        schema_editor, cursor = _schema_editor('"tenant_a", public')
+
+        with patch.dict("os.environ", {}, clear=True):
+            schema = migration_0004._schema_name(schema_editor)
+
+        self.assertEqual(schema, "tenant_a")
         cursor.execute.assert_called_once_with("SHOW search_path")
 
-    def test_0004_schema_name_falls_back_to_public_when_env_missing(self) -> None:
-        schema_editor, cursor = _schema_editor("tenant_a, public")
+    def test_0004_schema_name_skips_special_search_path_entries(self) -> None:
+        schema_editor, cursor = _schema_editor('current_schema(), "$user", tenant_a, public')
+
+        with patch.dict("os.environ", {}, clear=True):
+            schema = migration_0004._schema_name(schema_editor)
+
+        self.assertEqual(schema, "tenant_a")
+        cursor.execute.assert_called_once_with("SHOW search_path")
+
+    def test_0004_schema_name_falls_back_to_public_for_blank_search_path(self) -> None:
+        schema_editor, cursor = _schema_editor("")
 
         with patch.dict("os.environ", {}, clear=True):
             schema = migration_0004._schema_name(schema_editor)
 
         self.assertEqual(schema, "public")
-        cursor.execute.assert_not_called()
+        cursor.execute.assert_called_once_with("SHOW search_path")
 
     def test_0004_schema_name_honors_env_override(self) -> None:
         schema_editor, cursor = _schema_editor("tenant_a, public")

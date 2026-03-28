@@ -32,6 +32,28 @@ def _is_postgres(schema_editor) -> bool:
     return schema_editor.connection.vendor == "postgresql"
 
 
+def _search_path_schema_name(schema_editor) -> str:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SHOW search_path")
+        row = cursor.fetchone()
+
+    search_path = str((row or [None])[0] or "").strip()
+    if not search_path:
+        return "public"
+
+    for token in search_path.split(","):
+        schema = token.strip()
+        if schema.startswith('"') and schema.endswith('"') and len(schema) >= 2:
+            schema = schema[1:-1].replace('""', '"')
+
+        if schema in {"current_schema()", "$user"}:
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
+            return schema
+
+    return "public"
+
+
 def _schema_name(schema_editor) -> str:
     configured = os.getenv("DMIS_DB_SCHEMA")
     if configured is not None:
@@ -39,7 +61,7 @@ def _schema_name(schema_editor) -> str:
             raise RuntimeError(f"Invalid DMIS_DB_SCHEMA: {configured!r}")
         return configured
 
-    return "public"
+    return _search_path_schema_name(schema_editor)
 
 
 def _legacy_reliefpkg_exists(schema_editor) -> bool:
