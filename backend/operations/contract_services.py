@@ -480,7 +480,7 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
                     and existing.lock_owner_user_id != actor_id
                     and (existing.lock_expires_at is None or existing.lock_expires_at > now)
                 ):
-                    raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."})
+                    raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."}) from None
                 if existing is None:
                     raise  # Unexpected state; propagate original error.
                 lock = existing
@@ -559,7 +559,7 @@ def _ensure_package_access(
     try:
         request_record = OperationsReliefRequest.objects.get(relief_request_id=int(package_record.relief_request_id))
     except OperationsReliefRequest.DoesNotExist:
-        raise OperationValidationError({"scope": "Associated relief request record not found for this package."})
+        raise OperationValidationError({"scope": "Associated relief request record not found for this package."}) from None
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context, write=write)
 
 

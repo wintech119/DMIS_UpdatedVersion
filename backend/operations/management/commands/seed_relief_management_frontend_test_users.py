@@ -178,6 +178,7 @@ class Command(BaseCommand):
                         SELECT agency_id, agency_name, warehouse_id, agency_type, status_code
                         FROM agency
                         WHERE UPPER(COALESCE(agency_name, '')) = %s
+                          AND UPPER(COALESCE(status_code, '')) = 'A'
                         LIMIT 1
                         """,
                         [agency_name.upper()],
@@ -216,6 +217,7 @@ class Command(BaseCommand):
                         SELECT warehouse_id, warehouse_name, tenant_id, status_code
                         FROM warehouse
                         WHERE UPPER(COALESCE(warehouse_name, '')) = %s
+                          AND UPPER(COALESCE(status_code, '')) = 'A'
                         LIMIT 1
                         """,
                         [warehouse_name.upper()],

@@ -26,6 +26,7 @@ def _tenant_context(
     tenant_code: str,
     tenant_type: str,
     access_level: str = "ADMIN",
+    can_read_all_tenants: bool = False,
     can_act_cross_tenant: bool = False,
 ) -> TenantContext:
     membership = TenantMembership(
@@ -42,7 +43,7 @@ def _tenant_context(
         active_tenant_code=tenant_code,
         active_tenant_type=tenant_type,
         memberships=(membership,),
-        can_read_all_tenants=can_act_cross_tenant,
+        can_read_all_tenants=can_read_all_tenants,
         can_act_cross_tenant=can_act_cross_tenant,
     )
 

@@ -95,6 +95,32 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertIn("WHERE email = %s", email_sql)
         self.assertEqual(email_params, ["requester@agency.example.org"])
 
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_agency_name_lookup_filters_to_active_rows(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (3, "S07 TEST DISTRIBUTOR AGENCY - JRC", 14, "DISTRIBUTOR", "A")
+
+        agency = Command()._resolve_agency(None, agency_name="S07 TEST DISTRIBUTOR AGENCY - JRC")
+
+        self.assertEqual(agency["agency_id"], 3)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("UPPER(COALESCE(agency_name, '')) = %s", sql)
+        self.assertIn("UPPER(COALESCE(status_code, '')) = 'A'", sql)
+        self.assertEqual(params, ["S07 TEST DISTRIBUTOR AGENCY - JRC"])
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_warehouse_name_lookup_filters_to_active_rows(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (14, "S07 TEST MAIN HUB - JRC", 19, "A")
+
+        warehouse = Command()._resolve_warehouse(None, warehouse_name="S07 TEST MAIN HUB - JRC")
+
+        self.assertEqual(warehouse["warehouse_id"], 14)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("UPPER(COALESCE(warehouse_name, '')) = %s", sql)
+        self.assertIn("UPPER(COALESCE(status_code, '')) = 'A'", sql)
+        self.assertEqual(params, ["S07 TEST MAIN HUB - JRC"])
+
     def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
         profiles = Command()._build_profiles("FFP", "Food For The Poor")
 
