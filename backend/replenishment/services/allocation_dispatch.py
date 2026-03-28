@@ -9,7 +9,7 @@ import os
 import re
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -30,6 +30,7 @@ _ALLOCATION_OVERRIDE_SUPERVISOR_ROLES = (
 STATUS_APPROVED = 2
 STATUS_PART_FILLED = 5
 STATUS_FILLED = 7
+_INT_ID_SEQUENCE_TABLE = "legacy_int_id_sequence"
 
 
 class AllocationDispatchError(Exception):
@@ -210,10 +211,74 @@ def _next_int_id(table_name: str, column_name: str) -> int:
                 )
                 row = cursor.fetchone()
                 return int(row[0]) if row else 1
-    row = _fetch_rows(
-        f"SELECT COALESCE(MAX({quoted_column}), 0) + 1 AS next_id FROM {qualified_table}"
-    )
-    return int(row[0]["next_id"]) if row else 1
+
+    sequence_table = _qualified_table(_INT_ID_SEQUENCE_TABLE)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {sequence_table} (
+                    table_name VARCHAR(128) NOT NULL,
+                    column_name VARCHAR(128) NOT NULL,
+                    last_value BIGINT NOT NULL,
+                    PRIMARY KEY (table_name, column_name)
+                )
+                """
+            )
+            cursor.execute(
+                f"SELECT COALESCE(MAX({quoted_column}), 0) AS current_max FROM {qualified_table}"
+            )
+            row = cursor.fetchone()
+            current_max = int(row[0]) if row and row[0] is not None else 0
+
+            cursor.execute(
+                f"""
+                UPDATE {sequence_table}
+                SET last_value = CASE
+                    WHEN last_value <= %s THEN %s
+                    ELSE last_value + 1
+                END
+                WHERE table_name = %s
+                  AND column_name = %s
+                """,
+                [current_max, current_max + 1, table_name, column_name],
+            )
+            if cursor.rowcount != 1:
+                try:
+                    with transaction.atomic():
+                        cursor.execute(
+                            f"""
+                            INSERT INTO {sequence_table} (table_name, column_name, last_value)
+                            VALUES (%s, %s, %s)
+                            """,
+                            [table_name, column_name, current_max + 1],
+                        )
+                    return current_max + 1
+                except IntegrityError:
+                    cursor.execute(
+                        f"""
+                        UPDATE {sequence_table}
+                        SET last_value = CASE
+                            WHEN last_value <= %s THEN %s
+                            ELSE last_value + 1
+                        END
+                        WHERE table_name = %s
+                          AND column_name = %s
+                        """,
+                        [current_max, current_max + 1, table_name, column_name],
+                    )
+
+            cursor.execute(
+                f"""
+                SELECT last_value
+                FROM {sequence_table}
+                WHERE table_name = %s
+                  AND column_name = %s
+                """,
+                [table_name, column_name],
+            )
+            row = cursor.fetchone()
+            return int(row[0]) if row and row[0] is not None else current_max + 1
 
 
 def _tracking_no(prefix: str, numeric_id: int) -> str:

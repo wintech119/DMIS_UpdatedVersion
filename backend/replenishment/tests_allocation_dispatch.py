@@ -6,7 +6,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from django.db import ProgrammingError
+from django.db import IntegrityError, ProgrammingError
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -72,6 +72,88 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertEqual(cursor.execute.call_count, 2)
         self.assertIn("pg_advisory_xact_lock", cursor.execute.call_args_list[0].args[0])
         self.assertIn('SELECT COALESCE(MAX("reliefrqst_id"), 0) + 1 AS next_id FROM "public"."reliefrqst"', cursor.execute.call_args_list[1].args[0])
+
+    @patch("replenishment.services.allocation_dispatch.transaction.atomic", return_value=nullcontext())
+    @patch("replenishment.services.allocation_dispatch.connection")
+    def test_next_int_id_uses_serialized_sequence_table_for_non_postgres(
+        self,
+        connection_mock,
+        atomic_mock,
+    ) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [(9,), (10,)]
+        connection_mock.vendor = "sqlite"
+        connection_mock.ops.quote_name.side_effect = lambda value: f'"{value}"'
+        connection_mock.cursor.return_value = cursor
+
+        def execute_side_effect(sql, params=None):
+            if "UPDATE" in sql and "legacy_int_id_sequence" in sql:
+                cursor.rowcount = 1
+            else:
+                cursor.rowcount = 0
+
+        cursor.execute.side_effect = execute_side_effect
+
+        from replenishment.services.allocation_dispatch import _next_int_id
+
+        next_id = _next_int_id("reliefrqst", "reliefrqst_id")
+
+        self.assertEqual(next_id, 10)
+        atomic_mock.assert_called_once()
+        self.assertIn("CREATE TABLE IF NOT EXISTS", cursor.execute.call_args_list[0].args[0])
+        self.assertIn(
+            'SELECT COALESCE(MAX("reliefrqst_id"), 0) AS current_max FROM "reliefrqst"',
+            cursor.execute.call_args_list[1].args[0],
+        )
+        self.assertIn("UPDATE \"legacy_int_id_sequence\"", cursor.execute.call_args_list[2].args[0])
+        self.assertEqual(
+            cursor.execute.call_args_list[2].args[1],
+            [9, 10, "reliefrqst", "reliefrqst_id"],
+        )
+        self.assertIn("SELECT last_value", cursor.execute.call_args_list[3].args[0])
+
+    @patch("replenishment.services.allocation_dispatch.transaction.atomic", return_value=nullcontext())
+    @patch("replenishment.services.allocation_dispatch.connection")
+    def test_next_int_id_retries_non_postgres_sequence_insert_race(
+        self,
+        connection_mock,
+        atomic_mock,
+    ) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [(5,), (7,)]
+        connection_mock.vendor = "sqlite"
+        connection_mock.ops.quote_name.side_effect = lambda value: f'"{value}"'
+        connection_mock.cursor.return_value = cursor
+
+        update_calls = 0
+        insert_calls = 0
+
+        def execute_side_effect(sql, params=None):
+            nonlocal update_calls, insert_calls
+            if "UPDATE" in sql and "legacy_int_id_sequence" in sql:
+                update_calls += 1
+                cursor.rowcount = 0 if update_calls == 1 else 1
+                return
+            if "INSERT INTO" in sql and "legacy_int_id_sequence" in sql:
+                insert_calls += 1
+                cursor.rowcount = 0
+                raise IntegrityError("duplicate key value violates unique constraint")
+            cursor.rowcount = 0
+
+        cursor.execute.side_effect = execute_side_effect
+
+        from replenishment.services.allocation_dispatch import _next_int_id
+
+        next_id = _next_int_id("reliefrqst", "reliefrqst_id")
+
+        self.assertEqual(next_id, 7)
+        self.assertEqual(insert_calls, 1)
+        self.assertEqual(update_calls, 2)
+        self.assertEqual(atomic_mock.call_count, 2)
+        self.assertIn("INSERT INTO \"legacy_int_id_sequence\"", cursor.execute.call_args_list[3].args[0])
+        self.assertIn("UPDATE \"legacy_int_id_sequence\"", cursor.execute.call_args_list[4].args[0])
 
     def test_request_header_updates_mark_committed_allocations_as_approved_without_action_fields(self) -> None:
         values = _request_header_update_values(
