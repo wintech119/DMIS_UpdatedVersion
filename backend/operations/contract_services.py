@@ -261,10 +261,15 @@ def _sync_operations_request(
             int(decision.beneficiary_agency_id or request.agency_id),
             changed_fields,
         )
+        resolved_requesting_agency_id = None
         if requesting_agency_id is not None:
-            _assign_if_changed(record, "requesting_agency_id", int(requesting_agency_id), changed_fields)
+            resolved_requesting_agency_id = int(requesting_agency_id)
+        elif decision.requesting_agency_id is not None:
+            resolved_requesting_agency_id = int(decision.requesting_agency_id)
         elif decision.origin_mode == ORIGIN_MODE_SELF:
-            _assign_if_changed(record, "requesting_agency_id", int(request.agency_id), changed_fields)
+            resolved_requesting_agency_id = int(request.agency_id)
+        if resolved_requesting_agency_id is not None:
+            _assign_if_changed(record, "requesting_agency_id", resolved_requesting_agency_id, changed_fields)
     _assign_if_changed(record, "request_no", request.tracking_no, changed_fields)
     _assign_if_changed(record, "event_id", request.eligible_event_id, changed_fields)
     _assign_if_changed(record, "request_date", request.request_date, changed_fields)
@@ -1107,7 +1112,7 @@ def save_package(
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
-    request = legacy_service._load_request(reliefrqst_id)
+    request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)

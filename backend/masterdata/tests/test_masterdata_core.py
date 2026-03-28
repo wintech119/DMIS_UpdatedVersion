@@ -13,8 +13,10 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from masterdata import views
 
 from masterdata.services.data_access import (
+    FieldDef,
     INACTIVE_ITEM_FORWARD_WRITE_CODE,
     TABLE_REGISTRY,
+    TableConfig,
     _db_error_warnings,
     _guard_inactive_item_forward_write,
     _is_forward_write_guarded_state,
@@ -127,6 +129,21 @@ class DataAccessErrorWarningTests(SimpleTestCase):
         self.assertEqual(warnings, [])
         self.assertIn("tenant_id", mock_execute_insert.call_args.args[2])
         self.assertIn(99, mock_execute_insert.call_args.args[4])
+
+
+class TableConfigValidationTests(SimpleTestCase):
+    def test_lookup_label_must_reference_a_defined_field(self):
+        with self.assertRaisesMessage(
+            ValueError,
+            "lookup_label 'missing_field' is not defined on table 'example'",
+        ):
+            TableConfig(
+                key="example",
+                db_table="example_table",
+                pk_field="example_id",
+                fields=[FieldDef("example_id", pk=True, auto_pk=True)],
+                lookup_label="missing_field",
+            )
 
 
 class IFRCMeasureNormalizationTests(SimpleTestCase):
@@ -1357,7 +1374,7 @@ class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
     @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")
-    def test_generic_dependency_check_counts_inactive_dependents_when_status_supported(
+    def test_generic_dependency_check_does_not_include_status_predicate_when_status_supported(
         self,
         mock_connection,
         _mock_sqlite,
@@ -1371,8 +1388,8 @@ class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
         self.assertEqual(warnings, [])
 
         sql, params = cursor.execute.call_args.args
-        self.assertIn("FROM tenant_a.item", sql)
-        self.assertIn("ifrc_item_ref_id = %s", sql)
+        self.assertIn('FROM "tenant_a"."item"', sql)
+        self.assertIn('"ifrc_item_ref_id" = %s', sql)
         self.assertNotIn("status_code = %s", sql)
         self.assertEqual(params, [797])
 
@@ -1393,8 +1410,8 @@ class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
         self.assertEqual(warnings, [])
 
         sql, params = cursor.execute.call_args.args
-        self.assertIn("FROM tenant_a.donor", sql)
-        self.assertIn("country_id = %s", sql)
+        self.assertIn('FROM "tenant_a"."donor"', sql)
+        self.assertIn('"country_id" = %s', sql)
         self.assertNotIn("status_code = %s", sql)
         self.assertEqual(params, [1])
 

@@ -121,8 +121,7 @@ class Command(BaseCommand):
         self.stdout.write(f"- tenant memberships inserted/updated: {membership_changes}")
         self.stdout.write(f"- role assignments inserted: {role_changes}")
 
-    def _build_profiles(self, tenant_code: str, tenant_name: str) -> list[TemporaryFrontendUserSpec]:
-        del tenant_name
+    def _build_profiles(self, tenant_code: str, _tenant_name: str) -> list[TemporaryFrontendUserSpec]:
         return list(temporary_frontend_user_specs(tenant_code))
 
     def _resolve_tenant(self, tenant_id: Any, tenant_code: Any) -> dict[str, Any]:

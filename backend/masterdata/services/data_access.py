@@ -21,6 +21,7 @@ _ORDER_BY_PATTERN = re.compile(
     r"^\s*(?P<column>[A-Za-z_][A-Za-z0-9_]*)\s*(?:(?P<direction>ASC|DESC))?\s*$",
     re.IGNORECASE,
 )
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 INACTIVE_ITEM_FORWARD_WRITE_CODE = "inactive_item_forward_write_blocked"
 
 _FORWARD_WRITE_BLOCK_ALWAYS_TABLES = {"inventory", "itembatch", "item_location"}
@@ -100,8 +101,10 @@ def _auto_pk_config(table_key: str) -> tuple["TableConfig", "FieldDef"] | tuple[
     return cfg, pk_def
 
 
-def _table_config_by_db_table(db_table: str) -> "TableConfig" | None:
-    return next((cfg for cfg in TABLE_REGISTRY.values() if cfg.db_table == db_table), None)
+def _quote_identifier(identifier: str) -> str:
+    if not _IDENTIFIER_PATTERN.fullmatch(str(identifier or "")):
+        raise ValueError(f"Invalid SQL identifier: {identifier!r}")
+    return f'"{identifier}"'
 
 
 def inspect_auto_pk_sequence(table_key: str) -> tuple[dict[str, Any] | None, list[str]]:
@@ -334,6 +337,10 @@ class TableConfig:
         self.lookup_label = lookup_label
 
         self._field_map: dict[str, FieldDef] = {f.name: f for f in fields}
+        if self.lookup_label and self.lookup_label not in self._field_map:
+            raise ValueError(
+                f"lookup_label {self.lookup_label!r} is not defined on table {self.key!r}"
+            )
         self._pk_def: FieldDef | None = next((f for f in fields if f.pk), None)
 
     def field(self, name: str) -> FieldDef | None:
@@ -1768,14 +1775,15 @@ def check_dependencies(
     warnings: List[str] = []
 
     for dep in cfg.dependencies:
-        where_clauses = [f"{dep.fk_column} = %s"]
+        qualified_table = f"{_quote_identifier(schema)}.{_quote_identifier(dep.table)}"
+        where_clauses = [f"{_quote_identifier(dep.fk_column)} = %s"]
         params: list[Any] = [pk_value]
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
                     SELECT COUNT(*)
-                    FROM {schema}.{dep.table}
+                    FROM {qualified_table}
                     WHERE {" AND ".join(where_clauses)}
                     """,
                     params,

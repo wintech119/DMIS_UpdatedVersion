@@ -368,6 +368,27 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
 
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    def test_request_sync_uses_decision_requesting_agency_when_payload_omitted(self, get_agency_scope_mock) -> None:
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        record = contract_services._sync_operations_request(
+            self.request,
+            actor_id="sync-1",
+            decision=operations_policy.ReliefRequestWriteDecision(
+                agency_scope=self.agency_scope,
+                origin_mode=ORIGIN_MODE_FOR_SUBORDINATE,
+                requesting_tenant_id=30,
+                beneficiary_tenant_id=20,
+                requesting_agency_id=777,
+                beneficiary_agency_id=501,
+            ),
+        )
+
+        self.assertEqual(record.requesting_tenant_id, 30)
+        self.assertEqual(record.requesting_agency_id, 777)
+        self.assertEqual(record.beneficiary_agency_id, 501)
+
     def test_package_sync_skips_version_bump_when_record_matches_legacy(self) -> None:
         original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
         committed_at = timezone.make_aware(datetime(2026, 3, 26, 8, 0, 0))
@@ -595,6 +616,7 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).exists()
         )
+        load_request_mock.assert_called_once_with(70, for_update=True)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
