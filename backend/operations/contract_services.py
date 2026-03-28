@@ -239,6 +239,15 @@ def _parse_transport_datetime(value: Any, field_name: str) -> datetime | None:
     return parsed
 
 
+def _parse_int_or_raise(value: Any, field_name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError({field_name: f"{field_name} must be a valid integer value."}) from exc
+
+
 def _sync_operations_request(
     request: ReliefRqst,
     *,
@@ -799,10 +808,13 @@ def create_request(
     mutable_payload = dict(payload)
     if mutable_payload.get("beneficiary_agency_id") not in (None, "") and mutable_payload.get("agency_id") in (None, ""):
         mutable_payload["agency_id"] = mutable_payload.get("beneficiary_agency_id")
-    if mutable_payload.get("agency_id") in (None, ""):
+    agency_id = _parse_int_or_raise(mutable_payload.get("agency_id"), "agency_id")
+    if agency_id is None:
         raise OperationValidationError({"agency_id": "agency_id or beneficiary_agency_id is required."})
+    source_needs_list_id = _parse_int_or_raise(mutable_payload.get("source_needs_list_id"), "source_needs_list_id")
+    requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     decision = operations_policy.validate_relief_request_agency_selection(
-        agency_id=int(mutable_payload.get("agency_id")),
+        agency_id=agency_id,
         tenant_context=tenant_context,
     )
     result = legacy_service.create_request(
@@ -817,8 +829,8 @@ def create_request(
         actor_id=actor_id,
         decision=decision,
         status_code=REQUEST_STATUS_DRAFT,
-        source_needs_list_id=int(mutable_payload["source_needs_list_id"]) if mutable_payload.get("source_needs_list_id") not in (None, "") else None,
-        requesting_agency_id=int(mutable_payload["requesting_agency_id"]) if mutable_payload.get("requesting_agency_id") not in (None, "") else None,
+        source_needs_list_id=source_needs_list_id,
+        requesting_agency_id=requesting_agency_id,
     )
     return get_request(int(result["reliefrqst_id"]), actor_id=actor_id, tenant_context=tenant_context, actor_roles=())
 
@@ -835,6 +847,8 @@ def update_request(
     mutable_payload = dict(payload)
     if mutable_payload.get("beneficiary_agency_id") not in (None, "") and mutable_payload.get("agency_id") in (None, ""):
         mutable_payload["agency_id"] = mutable_payload.get("beneficiary_agency_id")
+    source_needs_list_id = _parse_int_or_raise(mutable_payload.get("source_needs_list_id"), "source_needs_list_id")
+    requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
     result = legacy_service.update_request(
         reliefrqst_id,
         payload=mutable_payload,
@@ -843,16 +857,19 @@ def update_request(
         permissions=permissions,
     )
     request = legacy_service._load_request(reliefrqst_id)
+    agency_id = _parse_int_or_raise(request.agency_id, "agency_id")
+    if agency_id is None:
+        raise OperationValidationError({"agency_id": "agency_id is required."})
     decision = operations_policy.validate_relief_request_agency_selection(
-        agency_id=int(request.agency_id),
+        agency_id=agency_id,
         tenant_context=tenant_context,
     )
     _sync_operations_request(
         request,
         actor_id=actor_id,
         decision=decision,
-        source_needs_list_id=int(mutable_payload["source_needs_list_id"]) if mutable_payload.get("source_needs_list_id") not in (None, "") else None,
-        requesting_agency_id=int(mutable_payload["requesting_agency_id"]) if mutable_payload.get("requesting_agency_id") not in (None, "") else None,
+        source_needs_list_id=source_needs_list_id,
+        requesting_agency_id=requesting_agency_id,
     )
     return get_request(int(result["reliefrqst_id"]), actor_id=actor_id, tenant_context=tenant_context, actor_roles=())
 

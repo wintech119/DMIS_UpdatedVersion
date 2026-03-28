@@ -390,6 +390,93 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.requesting_agency_id, 777)
         self.assertEqual(record.beneficiary_agency_id, 501)
 
+    @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services._sync_operations_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.create_request", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_coerces_integer_payload_fields_before_sync(
+        self,
+        validate_selection_mock,
+        _create_request_mock,
+        load_request_mock,
+        sync_request_mock,
+        get_request_mock,
+    ) -> None:
+        validate_selection_mock.return_value = operations_policy.ReliefRequestWriteDecision(
+            agency_scope=self.agency_scope,
+            origin_mode=ORIGIN_MODE_SELF,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_agency_id=501,
+        )
+        load_request_mock.return_value = self.request
+
+        result = contract_services.create_request(
+            payload={
+                "agency_id": "501",
+                "source_needs_list_id": "17",
+                "requesting_agency_id": "777",
+            },
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+        )
+
+        self.assertEqual(result, {"reliefrqst_id": 70})
+        validate_selection_mock.assert_called_once_with(
+            agency_id=501,
+            tenant_context=self.dispatch_ready_context,
+        )
+        self.assertEqual(sync_request_mock.call_args.kwargs["source_needs_list_id"], 17)
+        self.assertEqual(sync_request_mock.call_args.kwargs["requesting_agency_id"], 777)
+        get_request_mock.assert_called_once_with(
+            70,
+            actor_id="requester-1",
+            tenant_context=self.dispatch_ready_context,
+            actor_roles=(),
+        )
+
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_rejects_invalid_agency_id_before_policy_validation(
+        self,
+        validate_selection_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.create_request(
+                payload={"agency_id": "bad-id"},
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"agency_id": "agency_id must be a valid integer value."},
+        )
+        validate_selection_mock.assert_not_called()
+
+    @patch("operations.contract_services.legacy_service.update_request")
+    def test_update_request_rejects_invalid_requesting_agency_id_before_legacy_write(
+        self,
+        update_request_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.update_request(
+                70,
+                payload={"requesting_agency_id": "bad-id"},
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"requesting_agency_id": "requesting_agency_id must be a valid integer value."},
+        )
+        update_request_mock.assert_not_called()
+
     def test_package_sync_skips_version_bump_when_record_matches_legacy(self) -> None:
         original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
         committed_at = timezone.make_aware(datetime(2026, 3, 26, 8, 0, 0))
