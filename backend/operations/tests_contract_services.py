@@ -19,6 +19,7 @@ from operations.constants import (
     PACKAGE_STATUS_COMMITTED,
     PACKAGE_STATUS_DISPATCHED,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_RECEIVED,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_RECEIPT,
@@ -477,6 +478,108 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual(record.status_code, PACKAGE_STATUS_COMMITTED)
         self.assertIsNone(record.override_status_code)
+
+    def test_package_sync_uses_legacy_package_timestamps_when_present(self) -> None:
+        self._create_operations_request_record()
+        cases = [
+            (
+                90,
+                SimpleNamespace(
+                    reliefpkg_id=90,
+                    tracking_no="PK00090",
+                    reliefrqst_id=70,
+                    agency_id=501,
+                    eligible_event_id=12,
+                    to_inventory_id=8,
+                    transport_mode=None,
+                    comments_text=None,
+                    status_code="P",
+                    committed_dtime=datetime(2026, 3, 26, 11, 0, 0),
+                    dispatch_dtime=None,
+                    received_dtime=None,
+                    received_by_id=None,
+                    update_by_id="locker-1",
+                    update_dtime=datetime(2026, 3, 26, 10, 0, 0),
+                    version_nbr=1,
+                    save=lambda **kwargs: None,
+                ),
+                PACKAGE_STATUS_COMMITTED,
+                "committed_at",
+                timezone.make_aware(datetime(2026, 3, 26, 11, 0, 0)),
+            ),
+            (
+                91,
+                SimpleNamespace(
+                    reliefpkg_id=91,
+                    tracking_no="PK00091",
+                    reliefrqst_id=70,
+                    agency_id=501,
+                    eligible_event_id=12,
+                    to_inventory_id=8,
+                    transport_mode=None,
+                    comments_text=None,
+                    status_code="D",
+                    committed_dtime=None,
+                    dispatch_dtime=datetime(2026, 3, 26, 12, 0, 0),
+                    received_dtime=None,
+                    received_by_id=None,
+                    update_by_id="locker-1",
+                    update_dtime=datetime(2026, 3, 26, 10, 0, 0),
+                    version_nbr=1,
+                    save=lambda **kwargs: None,
+                ),
+                PACKAGE_STATUS_DISPATCHED,
+                "dispatched_at",
+                timezone.make_aware(datetime(2026, 3, 26, 12, 0, 0)),
+            ),
+            (
+                92,
+                SimpleNamespace(
+                    reliefpkg_id=92,
+                    tracking_no="PK00092",
+                    reliefrqst_id=70,
+                    agency_id=501,
+                    eligible_event_id=12,
+                    to_inventory_id=8,
+                    transport_mode=None,
+                    comments_text=None,
+                    status_code="C",
+                    committed_dtime=None,
+                    dispatch_dtime=None,
+                    received_dtime=datetime(2026, 3, 26, 13, 0, 0),
+                    received_by_id="receiver-1",
+                    update_by_id="locker-1",
+                    update_dtime=datetime(2026, 3, 26, 10, 0, 0),
+                    version_nbr=1,
+                    save=lambda **kwargs: None,
+                ),
+                PACKAGE_STATUS_RECEIVED,
+                "received_at",
+                timezone.make_aware(datetime(2026, 3, 26, 13, 0, 0)),
+            ),
+        ]
+
+        for package_id, package, status_code, timestamp_field, expected in cases:
+            OperationsPackage.objects.create(
+                package_id=package_id,
+                package_no=f"PK{package_id:05d}",
+                relief_request_id=70,
+                destination_tenant_id=20,
+                destination_agency_id=501,
+                status_code=status_code,
+                create_by_id="seed-user",
+                update_by_id="seed-user",
+            )
+
+            record = contract_services._sync_operations_package(
+                package,
+                request_record=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+                actor_id="sync-1",
+                status_code=status_code,
+            )
+            record.refresh_from_db()
+
+            self.assertEqual(getattr(record, timestamp_field), expected)
 
     def test_approve_override_requires_package_pending_override_status(self) -> None:
         with (
@@ -1181,6 +1284,56 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [80])
         self.assertTrue(OperationsReliefRequest.objects.filter(relief_request_id=80).exists())
         self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=81).exists())
+
+    @patch("operations.contract_services.ReliefRqst.objects.order_by")
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    def test_request_list_skips_out_of_scope_rows_without_syncing(
+        self,
+        get_agency_scope_mock,
+        _request_summary_mock,
+        order_by_mock,
+    ) -> None:
+        request_in_scope = self._request_stub(reliefrqst_id=82, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        request_out_of_scope = self._request_stub(reliefrqst_id=83, agency_id=503, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        order_by_mock.return_value.iterator.return_value = [request_in_scope, request_out_of_scope]
+        get_agency_scope_mock.side_effect = lambda agency_id: {
+            501: self._agency_scope_for(501, 20, "FFP"),
+            503: self._agency_scope_for(503, 30, "OUT-30"),
+        }[int(agency_id)]
+
+        result = contract_services.list_requests(
+            actor_id="requester-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [82])
+        self.assertTrue(OperationsReliefRequest.objects.filter(relief_request_id=82).exists())
+        self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=83).exists())
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_request_rejects_out_of_scope_without_syncing(
+        self,
+        load_request_mock,
+        get_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=84, agency_id=503, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        get_agency_scope_mock.return_value = self._agency_scope_for(503, 30, "OUT-30")
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.get_request(
+                84,
+                actor_id="requester-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        get_request_mock.assert_not_called()
+        self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=84).exists())
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")

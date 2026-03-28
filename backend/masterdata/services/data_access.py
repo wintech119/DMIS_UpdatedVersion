@@ -1775,6 +1775,10 @@ def check_dependencies(
     warnings: List[str] = []
 
     for dep in cfg.dependencies:
+        # Dynamic identifiers are safe here: _schema_name() validates schema against
+        # _IDENTIFIER_PATTERN, DependencyDef supplies developer-controlled table/column
+        # names, _quote_identifier() re-validates each identifier, and pk_value stays
+        # parameterized via params rather than interpolated into the SQL string.
         qualified_table = f"{_quote_identifier(schema)}.{_quote_identifier(dep.table)}"
         where_clauses = [f"{_quote_identifier(dep.fk_column)} = %s"]
         params: list[Any] = [pk_value]

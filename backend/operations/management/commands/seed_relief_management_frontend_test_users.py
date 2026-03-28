@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
+from api.tenant_membership_locks import lock_primary_tenant_membership
 from operations.relief_test_data import (
     TemporaryFrontendUserSpec,
     default_frontend_test_agency_name,
@@ -387,6 +388,7 @@ class Command(BaseCommand):
         now = timezone.now()
         try:
             with connection.cursor() as cursor:
+                lock_primary_tenant_membership(cursor, user_id=user_id)
                 cursor.execute(
                     """
                     UPDATE tenant_user

@@ -278,10 +278,14 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         "operations.management.commands.seed_relief_management_frontend_test_users.timezone.now",
         return_value=datetime(2026, 3, 28, 9, 30, 0),
     )
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.lock_primary_tenant_membership",
+    )
     @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
     def test_existing_tenant_membership_update_preserves_creation_audit(
         self,
         mock_connection,
+        lock_primary_tenant_membership_mock,
         now_mock,
     ) -> None:
         cursor = mock_connection.cursor.return_value.__enter__.return_value
@@ -296,6 +300,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         )
 
         self.assertTrue(result)
+        lock_primary_tenant_membership_mock.assert_called_once_with(cursor, user_id=95101)
         update_sql, update_params = cursor.execute.call_args_list[2].args
         self.assertNotIn("create_by_id", update_sql)
         self.assertNotIn("create_dtime", update_sql)

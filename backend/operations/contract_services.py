@@ -347,13 +347,13 @@ def _sync_operations_package(
     if override_status_code is not _UNSET:
         _assign_if_changed(record, "override_status_code", override_status_code, changed_fields)
     if record.status_code == PACKAGE_STATUS_COMMITTED and record.committed_at is None:
-        record.committed_at = timezone.now()
+        record.committed_at = getattr(package, "committed_dtime", None) or timezone.now()
         changed_fields.append("committed_at")
     if record.status_code == PACKAGE_STATUS_DISPATCHED and record.dispatched_at is None:
-        record.dispatched_at = timezone.now()
+        record.dispatched_at = getattr(package, "dispatch_dtime", None) or timezone.now()
         changed_fields.append("dispatched_at")
     if record.status_code == PACKAGE_STATUS_RECEIVED and record.received_at is None:
-        record.received_at = timezone.now()
+        record.received_at = getattr(package, "received_dtime", None) or timezone.now()
         changed_fields.append("received_at")
     if changed_fields:
         record.update_by_id = actor_id
@@ -746,21 +746,37 @@ def list_requests(
     actor_id = _require_actor_id(actor_id)
     requested_statuses = REQUEST_FILTERS.get(str(filter_key or "").lower())
     results: list[dict[str, Any]] = []
-    for request in ReliefRqst.objects.order_by("-create_dtime", "-reliefrqst_id")[:200]:
-        request_record = _sync_operations_request(request, actor_id=actor_id)
-        if requested_statuses and request_record.status_code not in requested_statuses:
-            continue
+    for request in ReliefRqst.objects.order_by("-create_dtime", "-reliefrqst_id").iterator():
+        request_probe = _request_access_probe_from_legacy(request)
+        request_probe.status_code = _request_status_from_legacy(request)
         try:
-            _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+            _ensure_request_access(
+                request_probe,
+                actor_id=actor_id,
+                actor_roles=actor_roles or (),
+                tenant_context=tenant_context,
+            )
         except OperationValidationError:
             continue
+        if requested_statuses and request_probe.status_code not in requested_statuses:
+            continue
+        request_record = _sync_operations_request(request, actor_id=actor_id)
+        _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
         results.append(_request_summary_payload(request, request_record))
+        if len(results) >= 200:
+            break
     return {"results": results}
 
 
 def get_request(reliefrqst_id: int, *, actor_id: str | None = None, tenant_context: TenantContext, actor_roles: Iterable[str] | None = None) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
+    _ensure_request_access(
+        _request_access_probe_from_legacy(request),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+    )
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
