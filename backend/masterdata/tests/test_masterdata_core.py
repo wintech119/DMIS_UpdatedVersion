@@ -1357,7 +1357,7 @@ class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
     @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)
     @patch("masterdata.services.data_access.connection")
-    def test_generic_dependency_check_filters_to_active_status_when_supported(
+    def test_generic_dependency_check_counts_inactive_dependents_when_status_supported(
         self,
         mock_connection,
         _mock_sqlite,
@@ -1373,8 +1373,8 @@ class GenericDependencyCheckStatusScopeTests(SimpleTestCase):
         sql, params = cursor.execute.call_args.args
         self.assertIn("FROM tenant_a.item", sql)
         self.assertIn("ifrc_item_ref_id = %s", sql)
-        self.assertIn("status_code = %s", sql)
-        self.assertEqual(params, [797, "A"])
+        self.assertNotIn("status_code = %s", sql)
+        self.assertEqual(params, [797])
 
     @patch.dict("os.environ", {"DMIS_DB_SCHEMA": "tenant_a"})
     @patch("masterdata.services.data_access._is_sqlite", return_value=False)

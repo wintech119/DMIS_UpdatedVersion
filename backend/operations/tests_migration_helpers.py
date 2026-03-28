@@ -34,14 +34,14 @@ class MigrationSchemaNameTests(SimpleTestCase):
         self.assertEqual(schema, "tenant_b")
         cursor.execute.assert_not_called()
 
-    def test_0003_schema_name_falls_back_to_public_when_env_missing(self) -> None:
+    def test_0003_schema_name_uses_first_search_path_entry_when_env_missing(self) -> None:
         schema_editor, cursor = _schema_editor("tenant_a, public")
 
         with patch.dict("os.environ", {}, clear=True):
             schema = migration_0003._schema_name(schema_editor)
 
-        self.assertEqual(schema, "public")
-        cursor.execute.assert_not_called()
+        self.assertEqual(schema, "tenant_a")
+        cursor.execute.assert_called_once_with("SHOW search_path")
 
     def test_0004_schema_name_uses_first_search_path_entry(self) -> None:
         schema_editor, cursor = _schema_editor('"tenant_a", public')

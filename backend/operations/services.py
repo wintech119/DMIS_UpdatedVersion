@@ -86,6 +86,7 @@ REQUEST_LIST_FILTERS = {
     "completed": {STATUS_FILLED},
     "dispatched": {STATUS_CLOSED},
 }
+FULFILLMENT_REQUEST_STATUSES = frozenset({STATUS_SUBMITTED, STATUS_PART_FILLED})
 
 
 def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
@@ -205,6 +206,19 @@ def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _ensure_request_in_fulfillment_state(request: ReliefRqst) -> None:
+    current_status = int(request.status_code or STATUS_DRAFT)
+    if current_status not in FULFILLMENT_REQUEST_STATUSES:
+        raise OperationValidationError(
+            {
+                "request": (
+                    "Packages can only be managed for requests that are submitted "
+                    "for fulfillment or already part filled."
+                )
+            }
+        )
 
 
 def _request_item_rows_for_allocation(reliefrqst_id: int) -> list[dict[str, Any]]:
@@ -616,31 +630,41 @@ def list_packages(*, actor_id: str | None = None) -> dict[str, Any]:
     return {"results": results}
 
 
-def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, Any]) -> ReliefPkg:
-    package = _current_package_for_request(reliefrqst_id, for_update=True)
-    raw_destination = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
-    if package is not None:
-        transport_mode = str(payload.get("transport_mode") or "").strip() or None
-        comments_text = str(payload.get("comments_text") or "").strip() or None
-        updated_fields: list[str] = []
-        if raw_destination is not None and package.to_inventory_id != raw_destination:
-            package.to_inventory_id = raw_destination
-            updated_fields.append("to_inventory_id")
-        if transport_mode is not None:
-            package.transport_mode = transport_mode
-            updated_fields.append("transport_mode")
-        if comments_text is not None:
-            package.comments_text = comments_text
-            updated_fields.append("comments_text")
-        if updated_fields:
-            package.update_by_id = actor_id
-            package.update_dtime = timezone.now()
-            package.version_nbr = int(package.version_nbr or 0) + 1
-            updated_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
-            package.save(update_fields=updated_fields)
-        return package
+def _update_existing_package(
+    package: ReliefPkg,
+    *,
+    actor_id: str,
+    raw_destination: int | None,
+    payload: Mapping[str, Any],
+) -> ReliefPkg:
+    transport_mode = str(payload.get("transport_mode") or "").strip() or None
+    comments_text = str(payload.get("comments_text") or "").strip() or None
+    updated_fields: list[str] = []
+    if raw_destination is not None and package.to_inventory_id != raw_destination:
+        package.to_inventory_id = raw_destination
+        updated_fields.append("to_inventory_id")
+    if transport_mode is not None:
+        package.transport_mode = transport_mode
+        updated_fields.append("transport_mode")
+    if comments_text is not None:
+        package.comments_text = comments_text
+        updated_fields.append("comments_text")
+    if updated_fields:
+        package.update_by_id = actor_id
+        package.update_dtime = timezone.now()
+        package.version_nbr = int(package.version_nbr or 0) + 1
+        updated_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+        package.save(update_fields=updated_fields)
+    return package
 
-    request = _load_request(reliefrqst_id, for_update=True)
+
+def _create_package_for_request(
+    request: ReliefRqst,
+    *,
+    actor_id: str,
+    raw_destination: int | None,
+    payload: Mapping[str, Any],
+) -> ReliefPkg:
     reliefpkg_id = _next_int_id("reliefpkg", "reliefpkg_id")
     now = timezone.now()
     return ReliefPkg.objects.create(
@@ -659,6 +683,35 @@ def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, 
         update_by_id=actor_id,
         update_dtime=now,
         version_nbr=1,
+    )
+
+
+def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, Any]) -> ReliefPkg:
+    raw_destination = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
+    request = _load_request(reliefrqst_id, for_update=True)
+    package = _current_package_for_request(reliefrqst_id, for_update=True)
+    if package is not None:
+        if (
+            int(request.status_code or STATUS_DRAFT) == STATUS_PART_FILLED
+            and _current_package_status(package) == PKG_STATUS_DISPATCHED
+        ):
+            return _create_package_for_request(
+                request,
+                actor_id=actor_id,
+                raw_destination=raw_destination,
+                payload=payload,
+            )
+        return _update_existing_package(
+            package,
+            actor_id=actor_id,
+            raw_destination=raw_destination,
+            payload=payload,
+        )
+    return _create_package_for_request(
+        request,
+        actor_id=actor_id,
+        raw_destination=raw_destination,
+        payload=payload,
     )
 
 
@@ -792,6 +845,9 @@ def _save_package_allocation(
     supervisor_role_codes: Iterable[str] | None = None,
     override_submitter_user_id: str | None = None,
 ) -> dict[str, Any]:
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    request = _load_request(reliefrqst_id, for_update=execution_link is None)
+    _ensure_request_in_fulfillment_state(request)
     if not payload.get("allocations"):
         if not allow_pending_override:
             # Approval flow requires allocations to commit the package
@@ -800,11 +856,9 @@ def _save_package_allocation(
             )
         return _package_detail(_ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload))
 
-    execution_link = _execution_link_for_request(reliefrqst_id)
     allocations = _normalized_allocations(payload)
     requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
     if execution_link is not None:
-        request = _load_request(reliefrqst_id)
         existing_package = _current_package_for_request(reliefrqst_id)
         return compat_commit_allocation(
             LegacyWorkflowContext(
@@ -839,7 +893,6 @@ def _save_package_allocation(
             allow_pending_override=True,
         )
 
-    request = _load_request(reliefrqst_id, for_update=True)
     package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
     current_status = _current_package_status(package)
     if current_status == PKG_STATUS_DISPATCHED:

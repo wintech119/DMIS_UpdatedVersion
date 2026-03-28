@@ -77,6 +77,8 @@ from operations.workflow import (
 from operations import services as legacy_service
 from replenishment.legacy_models import ReliefPkg, ReliefRqst
 
+_UNSET = object()
+
 ENTITY_REQUEST = "RELIEF_REQUEST"
 ENTITY_PACKAGE = "PACKAGE"
 ENTITY_DISPATCH = "DISPATCH"
@@ -302,7 +304,7 @@ def _sync_operations_package(
     request_record: OperationsReliefRequest,
     actor_id: str,
     status_code: str | None = None,
-    override_status_code: str | None = None,
+    override_status_code: str | None | object = _UNSET,
     source_warehouse_id: int | None = None,
 ) -> OperationsPackage:
     record, created = OperationsPackage.objects.get_or_create(
@@ -337,7 +339,7 @@ def _sync_operations_package(
         ):
             legacy_derived_status = record.status_code
         _assign_if_changed(record, "status_code", legacy_derived_status, changed_fields)
-    if override_status_code is not None:
+    if override_status_code is not _UNSET:
         _assign_if_changed(record, "override_status_code", override_status_code, changed_fields)
     if record.status_code == PACKAGE_STATUS_COMMITTED and record.committed_at is None:
         record.committed_at = timezone.now()
@@ -1214,6 +1216,12 @@ def approve_override(
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
+    package = legacy_service._current_package_for_request(reliefrqst_id)
+    if package is None:
+        raise OperationValidationError({"override": "No package exists for this request."})
+    package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+    if package_record.status_code != PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
+        raise OperationValidationError({"override": "Package is not awaiting override approval."})
     result = legacy_service.approve_override(reliefrqst_id, payload=payload, actor_id=actor_id, actor_roles=normalized_roles)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is not None:

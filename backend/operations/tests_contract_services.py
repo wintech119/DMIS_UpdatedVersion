@@ -430,6 +430,66 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
 
+    def test_package_sync_clears_override_status_when_override_is_approved(self) -> None:
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            override_status_code=PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+            version_nbr=5,
+        )
+
+        record = contract_services._sync_operations_package(
+            self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="P"),
+            request_record=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            actor_id="sync-1",
+            status_code=PACKAGE_STATUS_COMMITTED,
+            override_status_code=None,
+        )
+        record.refresh_from_db()
+
+        self.assertEqual(record.status_code, PACKAGE_STATUS_COMMITTED)
+        self.assertIsNone(record.override_status_code)
+
+    def test_approve_override_requires_package_pending_override_status(self) -> None:
+        with (
+            patch("operations.contract_services.legacy_service._load_request", return_value=self.request),
+            patch(
+                "operations.contract_services._sync_operations_request",
+                return_value=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            ),
+            patch("operations.contract_services._ensure_request_access"),
+            patch(
+                "operations.contract_services.legacy_service._current_package_for_request",
+                return_value=self.package,
+            ),
+            patch(
+                "operations.contract_services._sync_operations_package",
+                return_value=SimpleNamespace(status_code=PACKAGE_STATUS_COMMITTED),
+            ),
+            patch("operations.contract_services.legacy_service.approve_override") as approve_override_mock,
+        ):
+            with self.assertRaises(OperationValidationError) as raised:
+                contract_services.approve_override(
+                    70,
+                    payload={"allocations": [{"item_id": 101, "quantity": "1"}]},
+                    actor_id="manager-1",
+                    actor_roles=["LOGISTICS_MANAGER"],
+                    tenant_context=self.dispatch_ready_context,
+                )
+
+        self.assertEqual(
+            raised.exception.errors["override"],
+            "Package is not awaiting override approval.",
+        )
+        approve_override_mock.assert_not_called()
+
     def test_ensure_dispatch_record_updates_existing_route_fields(self) -> None:
         self._create_operations_request_record()
         package_record = OperationsPackage.objects.create(

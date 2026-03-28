@@ -251,7 +251,7 @@ class Command(BaseCommand):
     def _ensure_user(
         self,
         *,
-        profile: UserSeedProfile,
+        profile: TemporaryFrontendUserSpec,
         tenant_name: str,
         agency_id: int,
         warehouse_id: int,
@@ -402,12 +402,10 @@ class Command(BaseCommand):
                             access_level = %s,
                             assigned_at = %s,
                             assigned_by = %s,
-                            status_code = 'A',
-                            create_by_id = %s,
-                            create_dtime = %s
+                            status_code = 'A'
                         WHERE tenant_id = %s AND user_id = %s
                         """,
-                        [access_level, now, actor_user_id, actor_id, now, tenant_id, user_id],
+                        [access_level, now, actor_user_id, tenant_id, user_id],
                     )
                     return True
                 cursor.execute(

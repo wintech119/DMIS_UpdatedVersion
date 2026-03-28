@@ -491,7 +491,11 @@ class ReliefRequestServiceTests(TestCase):
         header_updates_mock,
         validate_override_mock,
     ) -> None:
-        load_request_mock.return_value = SimpleNamespace(create_by_id="planner-1", tracking_no="RQ00088")
+        load_request_mock.return_value = SimpleNamespace(
+            create_by_id="planner-1",
+            tracking_no="RQ00088",
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
         item_filter_mock.return_value = [SimpleNamespace(item_id=101)]
 
@@ -586,7 +590,13 @@ class ReliefRequestServiceTests(TestCase):
             save=lambda **kwargs: saved.update(kwargs),
         )
 
-        with patch("operations.services._current_package_for_request", return_value=package):
+        with (
+            patch(
+                "operations.services._load_request",
+                return_value=SimpleNamespace(reliefrqst_id=70, agency_id=501, eligible_event_id=12, status_code=operations_service.STATUS_SUBMITTED),
+            ),
+            patch("operations.services._current_package_for_request", return_value=package),
+        ):
             result = operations_service._ensure_package(
                 70,
                 actor_id="planner-1",
@@ -623,6 +633,87 @@ class ReliefRequestServiceTests(TestCase):
         )
 
         self.assertIsNone(create_package_mock.call_args.kwargs["to_inventory_id"])
+
+    @patch("operations.services.ReliefPkg.objects.create")
+    @patch("operations.services._next_int_id", return_value=91)
+    @patch("operations.services.timezone.now", return_value=datetime(2026, 3, 27, 9, 0, 0))
+    @patch("operations.services._current_package_for_request")
+    @patch("operations.services._load_request")
+    def test_ensure_package_rechecks_after_request_lock_before_creating(
+        self,
+        load_request_mock,
+        current_package_mock,
+        _now_mock,
+        _next_id_mock,
+        create_package_mock,
+    ) -> None:
+        existing_package = SimpleNamespace(
+            reliefpkg_id=90,
+            to_inventory_id=8,
+            transport_mode=None,
+            comments_text=None,
+            version_nbr=1,
+            save=Mock(),
+        )
+        load_request_mock.return_value = SimpleNamespace(
+            reliefrqst_id=70,
+            agency_id=501,
+            eligible_event_id=12,
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
+        current_package_mock.side_effect = [existing_package]
+
+        result = operations_service._ensure_package(
+            70,
+            actor_id="planner-1",
+            payload={"comments_text": "Prep"},
+        )
+
+        self.assertIs(result, existing_package)
+        create_package_mock.assert_not_called()
+
+    @patch("operations.services.ReliefPkg.objects.create")
+    @patch("operations.services._next_int_id", return_value=91)
+    @patch("operations.services.timezone.now", return_value=datetime(2026, 3, 27, 9, 0, 0))
+    @patch("operations.services._current_package_status", return_value=operations_service.PKG_STATUS_DISPATCHED)
+    @patch("operations.services._current_package_for_request")
+    @patch("operations.services._load_request")
+    def test_ensure_package_creates_follow_up_package_for_part_filled_request(
+        self,
+        load_request_mock,
+        current_package_mock,
+        _current_status_mock,
+        _now_mock,
+        _next_id_mock,
+        create_package_mock,
+    ) -> None:
+        load_request_mock.return_value = SimpleNamespace(
+            reliefrqst_id=70,
+            agency_id=501,
+            eligible_event_id=12,
+            status_code=operations_service.STATUS_PART_FILLED,
+        )
+        current_package_mock.return_value = SimpleNamespace(
+            reliefpkg_id=90,
+            status_code=operations_service.PKG_STATUS_DISPATCHED,
+            dispatch_dtime=datetime(2026, 3, 27, 8, 0, 0),
+            to_inventory_id=8,
+            transport_mode=None,
+            comments_text=None,
+            version_nbr=1,
+            save=Mock(),
+        )
+        create_package_mock.return_value = SimpleNamespace(reliefpkg_id=91, tracking_no="PK00091")
+
+        result = operations_service._ensure_package(
+            70,
+            actor_id="planner-1",
+            payload={"to_inventory_id": "9", "comments_text": "Follow-up"},
+        )
+
+        self.assertEqual(result.reliefpkg_id, 91)
+        self.assertEqual(create_package_mock.call_args.kwargs["reliefrqst_id"], 70)
+        self.assertEqual(create_package_mock.call_args.kwargs["to_inventory_id"], 9)
 
     @patch("operations.services.data_access.get_warehouse_name", return_value="Destination Warehouse")
     @patch("operations.services.data_access.get_event_name", return_value="Flood 2026")
@@ -810,6 +901,70 @@ class DispatchSubmissionStatusTests(TestCase):
 
 
 class PackageAllocationGuardTests(TestCase):
+    @patch("operations.services._ensure_package")
+    @patch("operations.services._load_request", return_value=SimpleNamespace(status_code=operations_service.STATUS_DRAFT))
+    @patch("operations.services._execution_link_for_request", return_value=None)
+    def test_save_package_rejects_non_fulfillment_request_before_package_detail(
+        self,
+        _execution_link_mock,
+        _load_request_mock,
+        ensure_package_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service._save_package_allocation(
+                88,
+                payload={},
+                actor_id="manager-1",
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["request"],
+            "Packages can only be managed for requests that are submitted for fulfillment or already part filled.",
+        )
+        ensure_package_mock.assert_not_called()
+
+    @patch("operations.services.compat_commit_allocation")
+    @patch("operations.services._load_request", return_value=SimpleNamespace(status_code=operations_service.STATUS_DRAFT))
+    @patch(
+        "operations.services._execution_link_for_request",
+        return_value=SimpleNamespace(
+            needs_list_id=7,
+            reliefrqst_id=88,
+            reliefpkg_id=None,
+            override_requested_by=None,
+            needs_list=SimpleNamespace(warehouse_id=11, event_id=12, submitted_by="planner-1"),
+        ),
+    )
+    def test_save_package_rejects_non_fulfillment_request_before_compat_commit(
+        self,
+        _execution_link_mock,
+        _load_request_mock,
+        compat_commit_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            operations_service._save_package_allocation(
+                88,
+                payload={
+                    "allocations": [
+                        {
+                            "item_id": 101,
+                            "inventory_id": 1,
+                            "batch_id": 1001,
+                            "quantity": "2",
+                        }
+                    ]
+                },
+                actor_id="manager-1",
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["request"],
+            "Packages can only be managed for requests that are submitted for fulfillment or already part filled.",
+        )
+        compat_commit_mock.assert_not_called()
+
     @patch("operations.services._apply_package_header_updates")
     @patch("operations.services._apply_stock_delta_for_rows")
     @patch("operations.services._upsert_package_rows")
@@ -847,7 +1002,11 @@ class PackageAllocationGuardTests(TestCase):
         stock_delta_mock,
         header_updates_mock,
     ) -> None:
-        _load_request_mock.return_value = SimpleNamespace(create_by_id="planner-1", tracking_no="RQ00088")
+        _load_request_mock.return_value = SimpleNamespace(
+            create_by_id="planner-1",
+            tracking_no="RQ00088",
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
         _ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
 
         with self.assertRaises(operations_service.DispatchError):
@@ -912,7 +1071,11 @@ class PackageAllocationGuardTests(TestCase):
         stock_delta_mock,
         header_updates_mock,
     ) -> None:
-        _load_request_mock.return_value = SimpleNamespace(create_by_id="planner-1", tracking_no="RQ00088")
+        _load_request_mock.return_value = SimpleNamespace(
+            create_by_id="planner-1",
+            tracking_no="RQ00088",
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
         _ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
 
         result = operations_service._save_package_allocation(
@@ -979,7 +1142,11 @@ class PackageAllocationGuardTests(TestCase):
         stock_delta_mock,
         header_updates_mock,
     ) -> None:
-        _load_request_mock.return_value = SimpleNamespace(create_by_id="planner-1", tracking_no="RQ00088")
+        _load_request_mock.return_value = SimpleNamespace(
+            create_by_id="planner-1",
+            tracking_no="RQ00088",
+            status_code=operations_service.STATUS_SUBMITTED,
+        )
         _ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
 
         result = operations_service._save_package_allocation(

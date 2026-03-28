@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from datetime import datetime
 from io import StringIO
 from unittest.mock import patch
 
@@ -11,6 +12,12 @@ from operations.management.commands.seed_relief_management_frontend_test_users i
 
 
 class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
+    def test_ensure_user_annotation_uses_frontend_user_spec(self) -> None:
+        self.assertEqual(
+            Command._ensure_user.__annotations__["profile"],
+            "TemporaryFrontendUserSpec",
+        )
+
     def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
         profiles = Command()._build_profiles("FFP", "Food For The Poor")
 
@@ -163,6 +170,36 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         resolve_agency.assert_called_once_with(None, agency_name="S07 TEST DISTRIBUTOR AGENCY - PARISH_KN")
         resolve_warehouse.assert_called_once_with(None, warehouse_name="S07 TEST MAIN HUB - PARISH_KN")
         self.assertIn("relief_parish_kn_requester_tst", output.getvalue())
+
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.timezone.now",
+        return_value=datetime(2026, 3, 28, 9, 30, 0),
+    )
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_existing_tenant_membership_update_preserves_creation_audit(
+        self,
+        mock_connection,
+        now_mock,
+    ) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+
+        result = Command()._ensure_tenant_membership(
+            user_id=95101,
+            tenant_id=19,
+            access_level="WRITE",
+            actor_id="SYSTEM",
+            actor_user_id=95200,
+        )
+
+        self.assertTrue(result)
+        update_sql, update_params = cursor.execute.call_args_list[2].args
+        self.assertNotIn("create_by_id", update_sql)
+        self.assertNotIn("create_dtime", update_sql)
+        self.assertEqual(
+            update_params,
+            ["WRITE", now_mock.return_value, 95200, 19, 95101],
+        )
 
 
 class CleanupReliefManagementFrontendTestDataCommandTests(SimpleTestCase):

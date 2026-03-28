@@ -1754,7 +1754,7 @@ def check_dependencies(
     """
     Check referential integrity before inactivation.
     Returns (blocking_labels, warnings).
-    blocking_labels is a list of human-readable names of tables with active references.
+    blocking_labels is a list of human-readable names of tables with references.
     """
     cfg = TABLE_REGISTRY[table_key]
     if _is_sqlite():
@@ -1768,12 +1768,8 @@ def check_dependencies(
     warnings: List[str] = []
 
     for dep in cfg.dependencies:
-        dep_cfg = _table_config_by_db_table(dep.table)
         where_clauses = [f"{dep.fk_column} = %s"]
         params: list[Any] = [pk_value]
-        if dep_cfg is not None and dep_cfg.has_status:
-            where_clauses.append(f"{dep_cfg.status_field} = %s")
-            params.append(dep_cfg.active_status)
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
