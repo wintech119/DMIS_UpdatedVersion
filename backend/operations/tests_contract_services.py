@@ -1265,7 +1265,7 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service._load_package")
-    def test_receipt_confirmation_allows_controller_flow_without_receipt_queue_assignment(
+    def test_receipt_confirmation_allows_controller_flow_with_direct_receipt_assignment(
         self,
         load_package_mock,
         load_request_mock,
@@ -1312,6 +1312,14 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="dispatch-1",
             update_by_id="dispatch-1",
         )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_RECEIPT,
+            entity_type="PACKAGE",
+            entity_id=90,
+            assigned_user_id="controller-1",
+            assigned_tenant_id=30,
+            assignment_status="OPEN",
+        )
 
         result = contract_services.confirm_receipt(
             90,
@@ -1326,6 +1334,66 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(receipt.received_by_name, "Receiver One")
         self.assertEqual(receipt.receipt_status_code, "RECEIVED")
         self.assertEqual(receipt.package_id, dispatch.package_id)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._load_package")
+    def test_receipt_confirmation_requires_receipt_queue_assignment(
+        self,
+        load_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        dispatched_package = SimpleNamespace(
+            **{**self.package.__dict__, "dispatch_dtime": datetime(2026, 3, 26, 12, 0, 0), "status_code": "D"}
+        )
+        load_package_mock.return_value = dispatched_package
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        ops_request = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+        )
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=ops_request,
+            status_code="DISPATCHED",
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
+        OperationsDispatch.objects.create(
+            package_id=90,
+            dispatch_no="DP00090",
+            status_code=DISPATCH_STATUS_IN_TRANSIT,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="dispatch-1",
+            update_by_id="dispatch-1",
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.confirm_receipt(
+                90,
+                payload={"received_by_name": "Receiver One"},
+                actor_id="receiver-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"authorization": "You are not assigned to the receipt queue for this package."},
+        )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")

@@ -59,6 +59,7 @@ from operations.models import (
     OperationsEligibilityDecision,
     OperationsPackage,
     OperationsPackageLock,
+    OperationsQueueAssignment,
     OperationsReceipt,
     OperationsReliefRequest,
     OperationsWaybill,
@@ -553,6 +554,43 @@ def _ensure_package_access(
     except OperationsReliefRequest.DoesNotExist:
         raise OperationValidationError({"scope": "Associated relief request record not found for this package."})
     _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context, write=write)
+
+
+def _ensure_actor_assigned_to_queue(
+    *,
+    queue_code: str,
+    entity_type: str,
+    entity_id: int,
+    actor_id: str,
+    actor_roles: Iterable[str],
+    tenant_context: TenantContext,
+    error_message: str,
+) -> None:
+    if actor_queue_queryset(
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+    ).filter(
+        queue_code=queue_code,
+        entity_type=entity_type,
+        entity_id=int(entity_id),
+    ).exists():
+        return
+
+    # Receipt confirmation is assigned to the original submitter but scoped to
+    # the beneficiary tenant. In subordinate/on-behalf flows the assigned user
+    # may not be operating in that tenant, so allow the exact direct
+    # user-assignment even when it falls outside the active-tenant queue view.
+    if OperationsQueueAssignment.objects.filter(
+        queue_code=queue_code,
+        entity_type=entity_type,
+        entity_id=int(entity_id),
+        assignment_status="OPEN",
+        assigned_user_id=actor_id,
+    ).exists():
+        return
+
+    raise OperationValidationError({"authorization": error_message})
 
 
 def _package_lock_payload(package_id: int) -> dict[str, Any] | None:
@@ -1421,6 +1459,15 @@ def confirm_receipt(
     dispatch = OperationsDispatch.objects.filter(package_id=reliefpkg_id).first()
     if dispatch is None:
         raise OperationValidationError({"receipt": "Dispatch record is missing for this package."})
+    _ensure_actor_assigned_to_queue(
+        queue_code=QUEUE_CODE_RECEIPT,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        error_message="You are not assigned to the receipt queue for this package.",
+    )
     now = timezone.now()
     package.received_by_id = actor_id
     package.received_dtime = now
