@@ -9,13 +9,17 @@
   </header>
 
   <!-- Restricted domain notice -->
-  @if (showRestrictedDomainNotice()) {
+  @if (accessNotice(); as message) {
     <div class="md-notice md-notice--warning" role="alert">
       <mat-icon aria-hidden="true">warning_amber</mat-icon>
-      <p>
-        Advanced/System masters are restricted to System Administrator access.
-        Showing the default accessible domain instead.
-      </p>
+      <p>{{ message }}</p>
+    </div>
+  }
+
+  @if (authLoaded() && domains().length === 0) {
+    <div class="md-notice md-notice--warning" role="alert">
+      <mat-icon aria-hidden="true">lock</mat-icon>
+      <p>You do not currently have access to any master data domains in this workspace.</p>
     </div>
   }
 
@@ -96,8 +100,8 @@
                   <dmis-master-data-card
                     [title]="card.label"
                     [description]="card.note || 'Manage ' + card.label.toLowerCase() + ' records.'"
-                    [editable]="!card.readOnly"
-                    [canCreate]="!card.readOnly"
+                    [editable]="card.canEdit"
+                    [canCreate]="card.canCreate"
                     (viewClicked)="navigate(card.routePath)"
                     (createClicked)="create(card.routePath)"
                   >

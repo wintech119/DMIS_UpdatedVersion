@@ -22,17 +22,19 @@
           }
         }
       </h2>
-      @if (record() && !cfg.readOnly) {
+      @if (record() && (canEditRecord() || (isActive() ? canToggleActiveStatus() : canToggleInactiveStatus()))) {
         <div class="header-actions">
-          <button mat-flat-button color="primary" (click)="onEdit()">
-            <mat-icon>edit</mat-icon> Edit
-          </button>
+          @if (canEditRecord()) {
+            <button mat-flat-button color="primary" (click)="onEdit()">
+              <mat-icon>edit</mat-icon> Edit
+            </button>
+          }
           @if (cfg.hasStatus !== false) {
-            @if (isActive()) {
+            @if (isActive() && canToggleActiveStatus()) {
               <button mat-stroked-button (click)="onToggleStatus()">
                 <mat-icon>block</mat-icon> Inactivate
               </button>
-            } @else {
+            } @else if (!isActive() && canToggleInactiveStatus()) {
               <button mat-stroked-button (click)="onToggleStatus()">
                 <mat-icon>check_circle</mat-icon> Activate
               </button>

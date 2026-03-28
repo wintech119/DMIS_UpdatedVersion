@@ -181,6 +181,7 @@
   gap: 12px;
 }
 
+// ── Base pill (unselected) ──────────────────────────────────────────────
 .urgency-pill {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -188,66 +189,115 @@
   gap: 14px;
   width: 100%;
   padding: 14px 16px;
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-border);
   border-radius: 10px;
-  background: var(--color-surface);
+  background: #fff;
   color: var(--color-text-primary);
   text-align: left;
   cursor: pointer;
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 
-  &:hover:not(:disabled) {
-    border-color: rgba(15, 23, 42, 0.18);
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  &:hover:not(:disabled):not(.is-active) {
+    border-color: rgba(15, 23, 42, 0.22);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
     transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 
   &:disabled {
     cursor: not-allowed;
-    opacity: 0.68;
+    opacity: 0.55;
   }
 }
 
-.urgency-pill.is-active {
-  border-color: rgba(15, 23, 42, 0.26);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+// ── Active (selected) — strong visual differentiation per level ────────
+// Critical: red family — border #991b1b, bg tinted red
+.urgency-pill.is-active.is-critical {
+  border-color: #991b1b;
+  background: linear-gradient(180deg, #fef2f2, #fecaca);
+  box-shadow: 0 0 0 1px #991b1b, 0 4px 14px rgba(153, 27, 27, 0.12);
 }
 
-.urgency-pill.is-critical {
-  background: linear-gradient(180deg, #fff5f5, #fee2e2);
+// High: amber family — border #92400e, bg tinted amber
+.urgency-pill.is-active.is-high {
+  border-color: #92400e;
+  background: linear-gradient(180deg, #fffbeb, #fde68a);
+  box-shadow: 0 0 0 1px #92400e, 0 4px 14px rgba(146, 64, 14, 0.12);
 }
 
-.urgency-pill.is-high {
-  background: linear-gradient(180deg, #fffbeb, #fef3c7);
+// Medium: slate family — border #334155, bg tinted slate
+.urgency-pill.is-active.is-medium {
+  border-color: #334155;
+  background: linear-gradient(180deg, #f1f5f9, #cbd5e1);
+  box-shadow: 0 0 0 1px #334155, 0 4px 14px rgba(51, 65, 85, 0.10);
 }
 
-.urgency-pill.is-medium {
-  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+// Low: neutral — border #374151, bg tinted gray
+.urgency-pill.is-active.is-low {
+  border-color: #374151;
+  background: linear-gradient(180deg, #f9fafb, #d1d5db);
+  box-shadow: 0 0 0 1px #374151, 0 4px 14px rgba(55, 65, 81, 0.10);
 }
 
-.urgency-pill.is-low {
-  background: linear-gradient(180deg, #ffffff, #f3f4f6);
-}
-
-.urgency-pill__code {
+// ── Indicator circle (badge or checkmark) ──────────────────────────────
+.urgency-pill__indicator {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: var(--color-text-primary);
+  background: rgba(15, 23, 42, 0.07);
+  transition: background 180ms ease, color 180ms ease;
+}
+
+// Code letter inside the unselected badge
+.urgency-pill__code {
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--color-text-secondary);
 }
 
+// Checkmark icon inside the selected badge
+.urgency-pill__check {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  color: #fff;
+}
+
+// Active indicator coloring per level
+.urgency-pill.is-active .urgency-pill__indicator {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.urgency-pill.is-active.is-critical .urgency-pill__indicator {
+  background: #991b1b;
+}
+
+.urgency-pill.is-active.is-high .urgency-pill__indicator {
+  background: #92400e;
+}
+
+.urgency-pill.is-active.is-medium .urgency-pill__indicator {
+  background: #334155;
+}
+
+.urgency-pill.is-active.is-low .urgency-pill__indicator {
+  background: #374151;
+}
+
+// ── Body text ──────────────────────────────────────────────────────────
 .urgency-pill__body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 
   strong {
     font-size: var(--text-sm);
@@ -261,10 +311,31 @@
   }
 }
 
+// Selected body text is slightly bolder
+.urgency-pill.is-active .urgency-pill__body strong {
+  font-weight: var(--weight-bold);
+}
+
+.urgency-pill.is-active .urgency-pill__body small {
+  color: var(--color-text-primary);
+}
+
 .urgency-block__error {
   margin: 12px 0 0;
   color: #b91c1c;
   font-size: var(--text-sm);
+}
+
+.notes-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.notes-field {
+  width: 100%;
 }
 
 .step-full-width {
@@ -319,70 +390,103 @@
 
 .step-items-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .step-item-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--color-surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+
+  &:focus-within {
+    border-color: rgba(15, 23, 42, 0.18);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  }
+
+  // Compact density for inline form fields
+  .mat-mdc-form-field {
+    --mat-form-field-container-vertical-padding: 8px;
+    --mat-form-field-container-height: 44px;
+  }
 }
 
 .step-item-number {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin-top: 12px;
+  width: 24px;
+  height: 24px;
+  margin-top: 10px;
   border-radius: 50%;
   background: var(--color-accent);
   color: #fff;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
+  font-size: 0.65rem;
+  font-weight: var(--weight-bold);
   flex-shrink: 0;
 }
 
 .step-item-fields {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
+  align-items: flex-start;
 }
 
 .step-item-field {
   min-width: 0;
 
-  &--id {
-    flex: 1 1 260px;
+  &--name {
+    flex: 2.5 1 220px;
   }
 
   &--qty {
-    flex: 0 0 110px;
+    flex: 0 0 68px;
   }
 
   &--urgency {
-    flex: 0 0 170px;
+    flex: 0 0 116px;
   }
 
   &--reason {
-    flex: 1 1 220px;
+    flex: 1 1 130px;
   }
 
   &--date {
-    flex: 0 0 180px;
+    flex: 0 0 148px;
+
+    // Shrink the datepicker toggle so it doesn't crowd the label
+    .mat-datepicker-toggle {
+      transform: scale(0.85);
+      margin-right: -6px;
+    }
   }
+}
+
+.item-check-icon {
+  color: #16a34a;
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
 }
 
 .step-item-remove {
   flex-shrink: 0;
-  margin-top: 8px;
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+  transition: opacity 150ms ease, color 150ms ease;
+
+  &:hover {
+    opacity: 1;
+    color: #b91c1c;
+  }
 }
 
 @media (max-width: 900px) {
@@ -394,6 +498,32 @@
   .request-context-grid,
   .urgency-pills {
     grid-template-columns: 1fr;
+  }
+
+  .step-item-fields {
+    flex-wrap: wrap;
+  }
+
+  .step-item-field {
+    &--name {
+      flex: 1 1 100%;
+    }
+
+    &--qty {
+      flex: 0 0 68px;
+    }
+
+    &--urgency {
+      flex: 1 1 110px;
+    }
+
+    &--reason {
+      flex: 1 1 130px;
+    }
+
+    &--date {
+      flex: 1 1 130px;
+    }
   }
 }
 
@@ -407,21 +537,15 @@
   }
 
   .step-item-row {
-    flex-direction: column;
     position: relative;
-  }
-
-  .step-item-number {
-    margin-top: 0;
   }
 
   .step-item-fields {
     flex-direction: column;
-    width: 100%;
   }
 
   .step-item-field {
-    &--id,
+    &--name,
     &--qty,
     &--urgency,
     &--reason,
@@ -430,10 +554,14 @@
     }
   }
 
+  .step-item-number {
+    margin-top: 0;
+  }
+
   .step-item-remove {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 6px;
+    right: 6px;
     margin-top: 0;
   }
 }

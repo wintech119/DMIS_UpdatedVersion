@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Observable, catchError, finalize, map, of, shareReplay } from 'rxjs';
 
 export interface TenantMembershipSummary {
   tenant_id: number | null;
@@ -42,6 +43,7 @@ interface WhoAmIResponse {
 })
 export class AuthRbacService {
   private readonly http = inject(HttpClient);
+  private pendingLoad$?: Observable<void>;
 
   readonly roles = signal<string[]>([]);
   readonly permissions = signal<string[]>([]);
@@ -52,24 +54,34 @@ export class AuthRbacService {
   readonly loaded = signal(false);
 
   load(): void {
-    if (this.loading() || this.loaded()) {
-      return;
-    }
-    this.fetchWhoAmI();
+    this.ensureLoaded().subscribe();
   }
 
   refresh(): void {
-    this.fetchWhoAmI();
+    this.ensureLoaded(true).subscribe();
+  }
+
+  ensureLoaded(force = false): Observable<void> {
+    if (!force && this.loaded()) {
+      return of(void 0);
+    }
+    if (!force && this.pendingLoad$) {
+      return this.pendingLoad$;
+    }
+    return this.fetchWhoAmI(force);
   }
 
   hasPermission(permission: string): boolean {
     return this.permissions().includes(permission.toLowerCase());
   }
 
-  private fetchWhoAmI(): void {
+  private fetchWhoAmI(force = false): Observable<void> {
+    if (force) {
+      this.loaded.set(false);
+    }
     this.loading.set(true);
-    this.http.get<WhoAmIResponse>('/api/v1/auth/whoami/').subscribe({
-      next: (data) => {
+    const request$ = this.http.get<WhoAmIResponse>('/api/v1/auth/whoami/').pipe(
+      map((data) => {
         const roles = [
           ...new Set((data.roles ?? []).map((role) => String(role).trim()).filter(Boolean))
         ];
@@ -87,19 +99,25 @@ export class AuthRbacService {
         this.currentUserRef.set(currentUserRef || null);
         this.tenantContext.set(normalizeTenantContext(data.tenant_context));
         this.operationsCapabilities.set(normalizeOperationsCapabilities(data.operations_capabilities));
-        this.loaded.set(true);
-        this.loading.set(false);
-      },
-      error: () => {
+      }),
+      catchError(() => {
         this.roles.set([]);
         this.permissions.set([]);
         this.currentUserRef.set(null);
         this.tenantContext.set(null);
         this.operationsCapabilities.set(null);
+        return of(void 0);
+      }),
+      map(() => void 0),
+      finalize(() => {
         this.loaded.set(true);
         this.loading.set(false);
-      }
-    });
+        this.pendingLoad$ = undefined;
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    );
+    this.pendingLoad$ = request$;
+    return request$;
   }
 }
 

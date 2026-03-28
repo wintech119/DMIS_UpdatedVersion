@@ -243,6 +243,13 @@ class RbacResolutionTests(TestCase):
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("masterdata.view", permissions)
 
+    def test_governed_catalog_access_is_limited_to_global_governance_roles(self) -> None:
+        self.assertFalse(rbac.has_governed_catalog_access(["AGENCY_DISTRIBUTOR"]))
+        self.assertFalse(rbac.has_governed_catalog_access(["ODPEM_LOGISTICS_MANAGER"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["SYSTEM_ADMINISTRATOR"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["ODPEM_DG"]))
+        self.assertTrue(rbac.has_governed_catalog_access(["TST_READONLY"]))
+
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,

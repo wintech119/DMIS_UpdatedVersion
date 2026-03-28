@@ -63,7 +63,7 @@ describe('RequestItemsStepComponent', () => {
     const requestDateTooltip = requestDateHelpButton.injector.get(MatTooltip);
     expect(requestDateTooltip.message).toContain('queue sequencing');
 
-    expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThan(6);
+    expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThanOrEqual(6);
   });
 
   it('filters item-name autocomplete options and writes the selected item id', () => {

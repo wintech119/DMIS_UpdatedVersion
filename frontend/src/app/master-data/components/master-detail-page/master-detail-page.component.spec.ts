@@ -8,6 +8,7 @@ import { of } from 'rxjs';
 import { MasterDetailPageComponent } from './master-detail-page.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
 import { CatalogEditGuidance } from '../../models/master-data.models';
+import { MasterDataAccessService } from '../../services/master-data-access.service';
 import { MasterDataService } from '../../services/master-data.service';
 import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
@@ -24,6 +25,10 @@ describe('MasterDetailPageComponent', () => {
       'showSuccess',
       'showError',
       'showWarning',
+    ]);
+    const access = jasmine.createSpyObj<MasterDataAccessService>('MasterDataAccessService', [
+      'canEditRoutePath',
+      'canToggleStatusRoutePath',
     ]);
     const router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
@@ -54,6 +59,8 @@ describe('MasterDetailPageComponent', () => {
       return of([]);
     });
     dialog.open.and.returnValue({ afterClosed: () => of(true) } as never);
+    access.canEditRoutePath.and.returnValue(true);
+    access.canToggleStatusRoutePath.and.returnValue(true);
 
     TestBed.configureTestingModule({
       imports: [MasterDetailPageComponent, NoopAnimationsModule],
@@ -67,6 +74,7 @@ describe('MasterDetailPageComponent', () => {
         },
         { provide: Router, useValue: router },
         { provide: Clipboard, useValue: clipboard },
+        { provide: MasterDataAccessService, useValue: access },
         { provide: MasterDataService, useValue: masterDataService },
         { provide: DmisNotificationService, useValue: notificationService },
       ],
@@ -85,6 +93,7 @@ describe('MasterDetailPageComponent', () => {
       component: fixture.componentInstance,
       dialog,
       router,
+      access,
       editGate: TestBed.inject(MasterEditGateService),
     };
   }
@@ -100,7 +109,7 @@ describe('MasterDetailPageComponent', () => {
   });
 
   it('marks the detail edit gate as passed before navigating to the edit form', () => {
-    const { component, dialog, editGate, router } = setup('ifrc-item-references', {
+    const { component, dialog, editGate, router, access } = setup('ifrc-item-references', {
       ifrc_item_ref_id: 77,
       reference_desc: 'Water purification tablet',
       status_code: 'A',
@@ -132,6 +141,7 @@ describe('MasterDetailPageComponent', () => {
       'Category Code',
       'Spec Segment',
     ]));
+    expect(access.canEditRoutePath).toHaveBeenCalledWith('ifrc-item-references', false);
     expect(editGateMarkSpy).toHaveBeenCalled();
     expect(router.navigate).toHaveBeenCalledWith(['/master-data', 'ifrc-item-references', '77', 'edit']);
     expect(editGate.consumeGovernedEditWarningSkip()).toBeTrue();

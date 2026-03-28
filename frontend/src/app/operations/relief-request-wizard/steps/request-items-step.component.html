@@ -24,7 +24,7 @@
     <div class="request-context-grid">
       <mat-form-field appearance="outline">
         <mat-label>Requesting Entity</mat-label>
-        <mat-select formControlName="agency_id" [disabled]="creationBlocked || agencyOptions.length === 0">
+        <mat-select formControlName="agency_id">
           @for (option of agencyOptions; track option.value) {
             <mat-option [value]="option.value">{{ option.label }}</mat-option>
           }
@@ -46,7 +46,7 @@
 
       <mat-form-field appearance="outline">
         <mat-label>Event</mat-label>
-        <mat-select formControlName="eligible_event_id" [disabled]="creationBlocked">
+        <mat-select formControlName="eligible_event_id">
           <mat-option [value]="null">No linked event</mat-option>
           @for (option of eventOptions; track option.value) {
             <mat-option [value]="option.value">{{ option.label }}</mat-option>
@@ -119,7 +119,7 @@
         <p>This sets the intake tone for eligibility review, packaging, and dispatch sequencing.</p>
       </div>
 
-      <div class="urgency-pills" role="group" aria-label="Select request urgency">
+      <div class="urgency-pills" role="radiogroup" aria-label="Select request urgency">
         @for (option of urgencyOptions; track option.value) {
           <button
             type="button"
@@ -130,9 +130,17 @@
             [class.is-medium]="option.value === 'M'"
             [class.is-low]="option.value === 'L'"
             [disabled]="creationBlocked"
-            [attr.aria-pressed]="form.get('urgency_ind')?.value === option.value"
+            role="radio"
+            [attr.aria-checked]="form.get('urgency_ind')?.value === option.value"
+            [attr.aria-label]="option.label + ': ' + option.hint"
             (click)="selectRequestUrgency(option.value)">
-            <span class="urgency-pill__code">{{ option.value }}</span>
+            <span class="urgency-pill__indicator">
+              @if (form.get('urgency_ind')?.value === option.value) {
+                <mat-icon class="urgency-pill__check">check</mat-icon>
+              } @else {
+                <span class="urgency-pill__code">{{ option.value }}</span>
+              }
+            </span>
             <span class="urgency-pill__body">
               <strong>{{ option.label }}</strong>
               <small>{{ option.hint }}</small>
@@ -148,9 +156,11 @@
   </section>
 
   <section class="request-panel">
-    <p class="request-panel__eyebrow">Narrative</p>
-    <div class="section-title-with-help">
-      <h2 class="request-panel__title">Request notes</h2>
+    <div class="notes-header">
+      <div>
+        <p class="request-panel__eyebrow">Narrative</p>
+        <h2 class="request-panel__title">Request notes</h2>
+      </div>
       <button
         mat-icon-button
         type="button"
@@ -160,26 +170,17 @@
         <mat-icon>help_outline</mat-icon>
       </button>
     </div>
-    <p class="request-panel__copy">
-      Capture what ODPEM reviewers, packers, and dispatch staff should keep in view once the request leaves intake.
-    </p>
 
-    <mat-form-field appearance="outline" class="step-full-width">
-      <mat-label>Notes</mat-label>
+    <mat-form-field appearance="outline" class="step-full-width notes-field">
+      <mat-label>Operational notes, constraints, or context for this request</mat-label>
       <textarea
         matInput
         formControlName="rqst_notes_text"
         rows="3"
-        placeholder="Add operational notes, constraints, or context that should travel with this request"></textarea>
-      <button
-        mat-icon-button
-        matSuffix
-        type="button"
-        class="field-help-button"
-        [matTooltip]="tooltips.notes"
-        aria-label="More information about Notes">
-        <mat-icon>help_outline</mat-icon>
-      </button>
+        cdkTextareaAutosize
+        cdkAutosizeMinRows="2"
+        cdkAutosizeMaxRows="6"></textarea>
+      <mat-hint>Visible to reviewers, packers, and dispatch staff once the request leaves intake.</mat-hint>
     </mat-form-field>
   </section>
 
@@ -217,84 +218,59 @@
             <span class="step-item-number" aria-hidden="true">{{ i + 1 }}</span>
 
             <div class="step-item-fields">
-              <mat-form-field appearance="outline" class="step-item-field step-item-field--id">
+              <mat-form-field appearance="outline" class="step-item-field step-item-field--name">
                 <mat-label>Item name</mat-label>
                 <input
                   matInput
-                  formControlName="item_id"
+                  formControlName="item_name"
                   [matAutocomplete]="itemAuto"
-                  [disabled]="creationBlocked"
-                  required
-                  (input)="onItemInput(item, $any($event.target).value)"
-                  (blur)="markItemSelectionTouched(item)" />
+                  placeholder="Type to search items..."
+                  autocomplete="off"
+                  (blur)="onItemBlur(item)" />
+                <mat-icon matPrefix>search</mat-icon>
                 <mat-autocomplete
                   #itemAuto="matAutocomplete"
-                  [displayWith]="displayItemOption"
+                  autoActiveFirstOption
                   (optionSelected)="onItemSelected(item, $event)">
                   @for (option of filterItemOptions(item); track option.value) {
                     <mat-option [value]="option.value">{{ option.label }}</mat-option>
                   }
                 </mat-autocomplete>
-                <button
-                  mat-icon-button
-                  matSuffix
-                  type="button"
-                  class="field-help-button"
-                  [matTooltip]="tooltips.itemName"
-                  aria-label="More information about Item name">
-                  <mat-icon>help_outline</mat-icon>
-                </button>
                 @if (item.get('item_id')?.hasError('required') && item.get('item_id')?.touched) {
-                  <mat-error>Select an item.</mat-error>
+                  <mat-error>Select an item from the list.</mat-error>
                 }
                 @if (item.get('item_id')?.hasError('invalidSelection') && item.get('item_id')?.touched) {
-                  <mat-error>Select a valid item from the list.</mat-error>
+                  <mat-error>No match found — pick from the dropdown.</mat-error>
+                }
+                @if (hasItemMatch(item)) {
+                  <mat-icon matSuffix class="item-check-icon">check_circle</mat-icon>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="step-item-field step-item-field--qty">
-                <mat-label>Quantity</mat-label>
+                <mat-label>Qty</mat-label>
                 <input
                   matInput
                   type="number"
                   formControlName="request_qty"
-                  [disabled]="creationBlocked"
                   required
                   min="1" />
-                <button
-                  mat-icon-button
-                  matSuffix
-                  type="button"
-                  class="field-help-button"
-                  [matTooltip]="tooltips.quantity"
-                  aria-label="More information about Quantity">
-                  <mat-icon>help_outline</mat-icon>
-                </button>
                 @if (item.get('request_qty')?.hasError('required') && item.get('request_qty')?.touched) {
                   <mat-error>Required</mat-error>
                 }
                 @if (item.get('request_qty')?.hasError('min') && item.get('request_qty')?.touched) {
-                  <mat-error>Must be at least 1</mat-error>
+                  <mat-error>Min 1</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="step-item-field step-item-field--urgency">
-                <mat-label>Item urgency</mat-label>
-                <mat-select formControlName="urgency_ind" [disabled]="creationBlocked">
-                  <mat-option [value]="null">Follow request urgency</mat-option>
+                <mat-label>Urgency</mat-label>
+                <mat-select formControlName="urgency_ind">
+                  <mat-option [value]="null">Default</mat-option>
                   @for (option of urgencyOptions; track option.value) {
                     <mat-option [value]="option.value">{{ option.label }}</mat-option>
                   }
                 </mat-select>
-                <button
-                  mat-icon-button
-                  matSuffix
-                  type="button"
-                  class="field-help-button"
-                  [matTooltip]="tooltips.itemUrgency"
-                  aria-label="More information about Item urgency">
-                  <mat-icon>help_outline</mat-icon>
-                </button>
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="step-item-field step-item-field--reason">
@@ -302,40 +278,19 @@
                 <input
                   matInput
                   formControlName="rqst_reason_desc"
-                  [disabled]="creationBlocked"
-                  [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required for critical or high urgency' : 'Optional'" />
-                <button
-                  mat-icon-button
-                  matSuffix
-                  type="button"
-                  class="field-help-button"
-                  [matTooltip]="tooltips.reason"
-                  aria-label="More information about Reason">
-                  <mat-icon>help_outline</mat-icon>
-                </button>
+                  [placeholder]="isReasonRequired(item.get('urgency_ind')?.value) ? 'Required' : 'Optional'" />
                 @if (item.get('rqst_reason_desc')?.hasError('required') && item.get('rqst_reason_desc')?.touched) {
-                  <mat-error>Reason required for Critical or High urgency</mat-error>
+                  <mat-error>Required for C/H</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="step-item-field step-item-field--date">
-                <mat-label>Required by</mat-label>
+                <mat-label>Due date</mat-label>
                 <input
                   matInput
                   [matDatepicker]="picker"
-                  formControlName="required_by_date"
-                  [disabled]="creationBlocked"
-                  placeholder="Optional" />
-                <button
-                  mat-icon-button
-                  matSuffix
-                  type="button"
-                  class="field-help-button"
-                  [matTooltip]="tooltips.requiredBy"
-                  aria-label="More information about Required by">
-                  <mat-icon>help_outline</mat-icon>
-                </button>
-                <mat-datepicker-toggle matIconSuffix [for]="picker" />
+                  formControlName="required_by_date" />
+                <mat-datepicker-toggle matSuffix [for]="picker" />
                 <mat-datepicker #picker />
               </mat-form-field>
             </div>

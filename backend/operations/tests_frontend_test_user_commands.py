@@ -7,8 +7,25 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.test import SimpleTestCase
 
+from operations.management.commands.seed_relief_management_frontend_test_users import Command
+
 
 class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
+    def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
+        profiles = Command()._build_profiles("FFP", "Food For The Poor")
+
+        self.assertEqual([profile.username for profile in profiles], [
+            "relief_ffp_requester_tst",
+            "relief_ffp_receiver_tst",
+        ])
+        self.assertEqual(profiles[0].full_name, "Alicia Bennett")
+        self.assertEqual(profiles[0].job_title, "Distribution Coordinator")
+        self.assertEqual(profiles[1].full_name, "Dwayne Palmer")
+        self.assertEqual(profiles[1].job_title, "Receiving Officer")
+        for profile in profiles:
+            self.assertNotIn("odpem.gov.jm", profile.email)
+            self.assertTrue(profile.email.endswith("@agency.example.org"))
+
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
         return_value={"id": 20, "code": "AGENCY_DISTRIBUTOR"},

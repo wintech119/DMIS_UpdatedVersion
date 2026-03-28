@@ -418,9 +418,31 @@ _ROLE_PERMISSION_COMPAT_OVERRIDES = {
     },
 }
 
+GOVERNED_CATALOG_ROLE_CODES = frozenset({
+    "SYSTEM_ADMINISTRATOR",
+    "ODPEM_DDG",
+    "ODPEM_DG",
+    "ODPEM_DIR_PEOD",
+    "DG",
+    "DIR_PEOD",
+    "DIRECTOR_GENERAL",
+    "TST_DG",
+    "TST_DIR_PEOD",
+    "TST_READONLY",
+})
+
 
 def _dedupe_preserve_order(items: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(items))
+
+
+def has_governed_catalog_access(roles: Iterable[str]) -> bool:
+    normalized_roles = {
+        str(role or "").strip().upper()
+        for role in roles
+        if str(role or "").strip()
+    }
+    return bool(normalized_roles.intersection(GOVERNED_CATALOG_ROLE_CODES))
 
 
 def resolve_roles_and_permissions(

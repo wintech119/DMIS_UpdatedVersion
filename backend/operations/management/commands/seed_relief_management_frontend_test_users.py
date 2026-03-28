@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -8,22 +7,11 @@ from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
 from operations.relief_test_data import (
+    TemporaryFrontendUserSpec,
     default_frontend_test_agency_name,
     default_frontend_test_warehouse_name,
+    temporary_frontend_user_specs,
 )
-
-
-@dataclass(frozen=True)
-class UserSeedProfile:
-    username: str
-    email: str
-    user_name: str
-    first_name: str
-    last_name: str
-    full_name: str
-    job_title: str
-    role_code: str
-    access_level: str
 
 
 class Command(BaseCommand):
@@ -133,33 +121,9 @@ class Command(BaseCommand):
         self.stdout.write(f"- tenant memberships inserted/updated: {membership_changes}")
         self.stdout.write(f"- role assignments inserted: {role_changes}")
 
-    def _build_profiles(self, tenant_code: str, tenant_name: str) -> list[UserSeedProfile]:
-        normalized = tenant_code.lower().replace("-", "_").replace(" ", "_")
-        display_prefix = tenant_code.upper().replace("-", " ")
-        return [
-            UserSeedProfile(
-                username=f"relief_{normalized}_requester_tst",
-                email=f"relief.{normalized}.requester+tst@odpem.gov.jm",
-                user_name=f"{display_prefix}_REQUESTER",
-                first_name=tenant_code.upper(),
-                last_name="Requester",
-                full_name=f"{tenant_name} Requester Test",
-                job_title="Relief Requester Test",
-                role_code="AGENCY_DISTRIBUTOR",
-                access_level="FULL",
-            ),
-            UserSeedProfile(
-                username=f"relief_{normalized}_receiver_tst",
-                email=f"relief.{normalized}.receiver+tst@odpem.gov.jm",
-                user_name=f"{display_prefix}_RECEIVER",
-                first_name=tenant_code.upper(),
-                last_name="Receiver",
-                full_name=f"{tenant_name} Receiver Test",
-                job_title="Relief Receiver Test",
-                role_code="AGENCY_DISTRIBUTOR",
-                access_level="FULL",
-            ),
-        ]
+    def _build_profiles(self, tenant_code: str, tenant_name: str) -> list[TemporaryFrontendUserSpec]:
+        del tenant_name
+        return list(temporary_frontend_user_specs(tenant_code))
 
     def _resolve_tenant(self, tenant_id: Any, tenant_code: Any) -> dict[str, Any]:
         parsed_tenant_id = self._safe_int(tenant_id)

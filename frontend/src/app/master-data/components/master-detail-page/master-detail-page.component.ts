@@ -20,6 +20,7 @@ import { MasterEditGateService } from '../../services/master-edit-gate.service';
 import { DmisNotificationService } from '../../../replenishment/services/notification.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
+import { MasterDataAccessService } from '../../services/master-data-access.service';
 
 interface DetailFieldGroup {
   key: string;
@@ -54,6 +55,7 @@ export class MasterDetailPageComponent implements OnInit {
   private notify = inject(DmisNotificationService);
   private dialog = inject(MatDialog);
   private clipboard = inject(Clipboard);
+  private access = inject(MasterDataAccessService);
   private destroyRef = inject(DestroyRef);
   private latestRecordRequestId = 0;
 
@@ -65,6 +67,27 @@ export class MasterDetailPageComponent implements OnInit {
   itemUomConversions = signal<DetailUomConversion[]>([]);
 
   isItemRecord = computed(() => this.config()?.tableKey === 'items');
+  readonly canEditRecord = computed(() => {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    return this.access.canEditRoutePath(cfg.routePath, Boolean(cfg.readOnly));
+  });
+  readonly canToggleActiveStatus = computed(() => {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    return this.access.canToggleStatusRoutePath(cfg.routePath, true, Boolean(cfg.readOnly));
+  });
+  readonly canToggleInactiveStatus = computed(() => {
+    const cfg = this.config();
+    if (!cfg) {
+      return false;
+    }
+    return this.access.canToggleStatusRoutePath(cfg.routePath, false, Boolean(cfg.readOnly));
+  });
 
   auditExpanded = signal(false);
 
@@ -200,7 +223,7 @@ export class MasterDetailPageComponent implements OnInit {
 
   onEdit(): void {
     const cfg = this.config();
-    if (!cfg || !this.pk()) return;
+    if (!cfg || !this.pk() || !this.canEditRecord()) return;
 
     const dialogRef = this.dialog.open(MasterEditGateDialogComponent, {
       data: this.editGate.buildDialogData({
@@ -232,6 +255,12 @@ export class MasterDetailPageComponent implements OnInit {
     const r = this.record();
     if (!cfg || !r) return;
     const versionNbr = this.coerceVersionNumber(r['version_nbr']);
+    if (this.isActive() && !this.canToggleActiveStatus()) {
+      return;
+    }
+    if (!this.isActive() && !this.canToggleInactiveStatus()) {
+      return;
+    }
 
     if (this.isActive()) {
       const dialogRef = this.dialog.open(DmisConfirmDialogComponent, {

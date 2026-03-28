@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router, NavigationEnd, RouterOutlet, RouterLink } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { DmisDataFreshnessBannerComponent } from './replenishment/shared/dmis-data-freshness-banner/dmis-data-freshness-banner.component';
+import { AuthRbacService } from './replenishment/services/auth-rbac.service';
 import { SidenavComponent } from './layout/sidenav/sidenav.component';
 import { getMasterDomainLabel } from './master-data/models/master-domain-map';
 
@@ -110,6 +111,7 @@ function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
 export class AppComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly authRbac = inject(AuthRbacService);
   private routerSub!: Subscription;
 
   title = 'dmis-frontend';
@@ -128,6 +130,7 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.authRbac.load();
     this.loadWhoAmI();
     this.loadDevUsers();
 

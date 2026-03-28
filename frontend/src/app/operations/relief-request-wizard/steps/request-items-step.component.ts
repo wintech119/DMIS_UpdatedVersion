@@ -1,5 +1,5 @@
 import {
-  Component, ChangeDetectionStrategy, Input,
+  Component, ChangeDetectionStrategy, Input, OnChanges, SimpleChanges,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -16,6 +16,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { TextFieldModule } from '@angular/cdk/text-field';
 
 import {
   RequestReferenceOption,
@@ -37,12 +38,13 @@ import {
     MatDatepickerModule,
     MatNativeDateModule,
     MatTooltipModule,
+    TextFieldModule,
   ],
   templateUrl: './request-items-step.component.html',
   styleUrl: './request-items-step.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RequestItemsStepComponent {
+export class RequestItemsStepComponent implements OnChanges {
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) itemsArray!: FormArray<FormGroup>;
   @Input({ required: true }) onAddItem!: () => void;
@@ -55,6 +57,12 @@ export class RequestItemsStepComponent {
   @Input({ required: true }) submissionModeLabel = '';
   @Input({ required: true }) submissionModeHint = '';
   @Input({ required: true }) creationBlocked = false;
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['creationBlocked'] || changes['agencyOptions'] || changes['form'] || changes['itemsArray']) {
+      this.syncFormDisabledState();
+    }
+  }
 
   readonly urgencyOptions = URGENCY_OPTIONS;
   readonly tooltips = {
@@ -122,16 +130,8 @@ export class RequestItemsStepComponent {
     return index;
   }
 
-  displayItemOption = (value: number | string | null): string => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return this.itemOptions.find((option) => option.value === value)?.label ?? `Item ${value}`;
-    }
-    return typeof value === 'string' ? value : '';
-  };
-
   filterItemOptions(itemGroup: AbstractControl): RequestReferenceOption[] {
-    const rawValue = itemGroup.get('item_id')?.value;
-    const query = String(typeof rawValue === 'string' ? rawValue : '').trim().toLowerCase();
+    const query = String(itemGroup.get('item_name')?.value ?? '').trim().toLowerCase();
     if (!query) {
       return this.itemOptions.slice(0, 40);
     }
@@ -140,44 +140,70 @@ export class RequestItemsStepComponent {
       .slice(0, 40);
   }
 
-  onItemInput(itemGroup: AbstractControl, value: string): void {
-    const currentValue = itemGroup.get('item_id')?.value;
-    if (typeof currentValue === 'number') {
-      const selected = this.itemOptions.find((option) => option.value === currentValue);
-      if (!selected || selected.label !== value) {
-        itemGroup.get('item_id')?.setValue(value);
-        this.setItemNameValue(itemGroup, value);
-      }
-      return;
-    }
-
-    if (!value.trim()) {
-      itemGroup.get('item_id')?.setValue(null);
-      this.setItemNameValue(itemGroup, '');
-      return;
-    }
-
-    this.setItemNameValue(itemGroup, value);
-  }
-
   onItemSelected(itemGroup: AbstractControl, event: MatAutocompleteSelectedEvent): void {
     const selectedId = Number(event.option.value);
     const selectedLabel = this.itemOptions.find((option) => option.value === selectedId)?.label ?? '';
     itemGroup.get('item_id')?.setValue(selectedId);
     itemGroup.get('item_id')?.markAsTouched();
     itemGroup.get('item_id')?.markAsDirty();
-    this.setItemNameValue(itemGroup, selectedLabel);
+    itemGroup.get('item_name')?.setValue(selectedLabel, { emitEvent: false });
   }
 
-  markItemSelectionTouched(itemGroup: AbstractControl): void {
+  onItemBlur(itemGroup: AbstractControl): void {
+    const typed = String(itemGroup.get('item_name')?.value ?? '').trim();
+    const currentId = itemGroup.get('item_id')?.value;
+
+    if (!typed) {
+      itemGroup.get('item_id')?.setValue(null);
+      itemGroup.get('item_id')?.markAsTouched();
+      return;
+    }
+
+    // If there's already a valid selection, check the name still matches
+    if (typeof currentId === 'number' && currentId > 0) {
+      const match = this.itemOptions.find((o) => o.value === currentId);
+      if (match && match.label === typed) {
+        return; // Selection is still valid
+      }
+    }
+
+    // Try exact match by label
+    const exact = this.itemOptions.find((o) => o.label.toLowerCase() === typed.toLowerCase());
+    if (exact) {
+      itemGroup.get('item_id')?.setValue(exact.value);
+      itemGroup.get('item_name')?.setValue(exact.label, { emitEvent: false });
+    } else {
+      // No valid match — clear item_id so validation catches it
+      itemGroup.get('item_id')?.setValue(null);
+    }
     itemGroup.get('item_id')?.markAsTouched();
   }
 
-  private setItemNameValue(itemGroup: AbstractControl, value: string): void {
-    const control = itemGroup.get('item_name');
-    if (!control) {
-      return;
+  hasItemMatch(itemGroup: AbstractControl): boolean {
+    const id = itemGroup.get('item_id')?.value;
+    return typeof id === 'number' && Number.isFinite(id) && id > 0;
+  }
+
+  private syncFormDisabledState(): void {
+    if (!this.form) return;
+    const opts = { emitEvent: false };
+
+    // Header-level form controls
+    const agencyBlocked = this.creationBlocked || this.agencyOptions.length === 0;
+    const agency = this.form.get('agency_id');
+    agencyBlocked ? agency?.disable(opts) : agency?.enable(opts);
+
+    const event = this.form.get('eligible_event_id');
+    this.creationBlocked ? event?.disable(opts) : event?.enable(opts);
+
+    // Item-level form controls
+    if (!this.itemsArray) return;
+    const itemFields = ['item_name', 'request_qty', 'urgency_ind', 'rqst_reason_desc', 'required_by_date'];
+    for (const group of this.itemsArray.controls) {
+      for (const field of itemFields) {
+        const control = group.get(field);
+        this.creationBlocked ? control?.disable(opts) : control?.enable(opts);
+      }
     }
-    control.setValue(value.trim(), { emitEvent: false });
   }
 }

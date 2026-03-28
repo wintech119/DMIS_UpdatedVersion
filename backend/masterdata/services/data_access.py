@@ -312,6 +312,7 @@ class TableConfig:
         inactive_status: str = "I",
         has_audit: bool = True,
         has_version: bool = True,
+        lookup_label: str = "",
     ):
         self.key = key
         self.db_table = db_table
@@ -330,6 +331,7 @@ class TableConfig:
         self.inactive_status = inactive_status
         self.has_audit = has_audit
         self.has_version = has_version
+        self.lookup_label = lookup_label
 
         self._field_map: dict[str, FieldDef] = {f.name: f for f in fields}
         self._pk_def: FieldDef | None = next((f for f in fields if f.pk), None)
@@ -497,6 +499,7 @@ _register(TableConfig(
     pk_field="item_id",
     display_name="Items",
     default_order="item_name",
+    lookup_label="item_name",
     fields=[
         FieldDef("item_id", pk=True, auto_pk=True, db_type="int", label="ID"),
         FieldDef("item_code", required=False, unique=True, uppercase=True,
@@ -1529,12 +1532,14 @@ def get_lookup(
         return [], ["db_unavailable"]
 
     schema = _schema_name()
-    # Find the best label column (first searchable, or first non-pk non-status)
-    label_field = None
-    for fd in cfg.fields:
-        if fd.searchable and not fd.pk:
-            label_field = fd.name
-            break
+    # Use explicit lookup_label when configured, otherwise fall back to
+    # first searchable field or first non-pk non-status field.
+    label_field = cfg.lookup_label or None
+    if not label_field:
+        for fd in cfg.fields:
+            if fd.searchable and not fd.pk:
+                label_field = fd.name
+                break
     if not label_field:
         for fd in cfg.fields:
             if not fd.pk and fd.name != cfg.status_field:
