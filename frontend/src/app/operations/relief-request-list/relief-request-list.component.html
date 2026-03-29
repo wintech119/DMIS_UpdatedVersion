@@ -16,22 +16,10 @@
         <mat-icon>add</mat-icon>
         New Request
       </button>
-      <button mat-stroked-button type="button" (click)="setFilter('review')">
-        <mat-icon>fact_check</mat-icon>
-        Review Queue
-      </button>
     </div>
   </header>
 
-  <section class="ops-kpi-grid" aria-label="Request summary">
-    @for (metric of metrics(); track metric.label) {
-      <button class="ops-kpi-card" type="button" (click)="openMetric(metric)">
-        <span class="ops-kpi-card__label">{{ metric.label }}</span>
-        <span class="ops-kpi-card__value">{{ metric.value }}</span>
-        <p class="ops-kpi-card__meta">{{ metric.note }}</p>
-      </button>
-    }
-  </section>
+  <app-ops-metric-strip [items]="metricStrip()" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
@@ -96,22 +84,27 @@
                 (keydown.enter)="openRequest(request)"
                 (keydown.space)="openRequest(request); $event.preventDefault()">
                 <div class="ops-row__lead">
-                  <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                  <div class="ops-row__header">
+                    <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
+                    <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
+                    <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
+                    @if (request.request_mode) {
+                      <app-ops-status-chip [label]="formatRequestMode(request.request_mode)" tone="info"></app-ops-status-chip>
+                    }
+                  </div>
                   <div class="ops-row__meta">
                     <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
                     <span aria-hidden="true">|</span>
                     <span>{{ request.event_name ?? 'No event linked' }}</span>
-                    <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
-                    <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
-                  </div>
-                  <div class="ops-row__meta">
+                    <span aria-hidden="true">|</span>
                     <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    <span aria-hidden="true">|</span>
                     <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
                   </div>
                 </div>
 
                 <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral"></app-ops-status-chip>
+                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral" [showDot]="false"></app-ops-status-chip>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
               </article>

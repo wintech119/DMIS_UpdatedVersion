@@ -3,6 +3,33 @@
   height: 100vh;
 }
 
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 1000;
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 2px solid var(--color-focus-ring);
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:focus {
+    position: fixed;
+    left: 1rem;
+    top: 0.5rem;
+    width: auto;
+    height: auto;
+  }
+}
+
 .app-layout {
   display: flex;
   height: 100%;

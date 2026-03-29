@@ -86,21 +86,21 @@
                 (keydown.enter)="openTask(task)"
                 (keydown.space)="openTask(task); $event.preventDefault()">
                 <div class="ops-row__lead">
-                  <p class="ops-row__title">{{ task.title }}</p>
-                  <div class="ops-row__meta">
-                    <span>{{ task.description }}</span>
-                  </div>
-                  <div class="ops-row__meta">
+                  <div class="ops-row__header">
+                    <p class="ops-row__title">{{ task.title }}</p>
                     <app-ops-status-chip [label]="sourceLabel(task)" [tone]="sourceTone(task)"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatTaskType(task.task_type)" [tone]="chipTone(getTaskTone(task.task_type))"></app-ops-status-chip>
                     @if (task.priority) {
                       <app-ops-status-chip [label]="formatOperationsUrgency(task.priority)" [tone]="chipTone(getOperationsUrgencyTone(task.priority))"></app-ops-status-chip>
                     }
                   </div>
+                  <div class="ops-row__meta">
+                    <span>{{ task.description }}</span>
+                  </div>
                 </div>
 
                 <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(task.created_at)" tone="neutral"></app-ops-status-chip>
+                  <app-ops-status-chip [label]="formatOperationsAge(task.created_at)" tone="neutral" [showDot]="false"></app-ops-status-chip>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
               </article>

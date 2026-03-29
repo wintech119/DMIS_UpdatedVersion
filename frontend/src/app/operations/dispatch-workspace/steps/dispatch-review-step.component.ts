@@ -317,8 +317,9 @@ type ReviewLine = WaybillLineItem | AllocationLine;
       gap: 4px;
       padding: 12px;
       border-radius: 10px;
-      background: var(--color-surface-muted);
-      border: 1px solid #e5e5e2;
+      background: var(--ops-strip-bg, #ffffff);
+      border: 1px solid var(--color-border, #e5e5e2);
+      box-shadow: var(--ops-strip-shadow, 0 1px 3px rgba(55, 53, 47, 0.06));
     }
 
     .dispatch-review-empty {

@@ -751,10 +751,36 @@ def _resolve_candidate_warehouse_ids(
     return sorted(warehouse_ids)
 
 
+def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[str, Any]:
+    """Reshape the needs-list allocation response to match the operations contract.
+
+    The compat path returns ``required_qty`` / ``fulfilled_qty`` per item and wraps
+    the top level under ``needs_list``.  The operations frontend expects
+    ``request_qty`` / ``issue_qty`` and a ``request`` summary.
+    """
+    items: list[dict[str, Any]] = []
+    for group in compat.get("items", []):
+        item: dict[str, Any] = {**group}
+        item["request_qty"] = item.pop("required_qty", "0.0000")
+        item["issue_qty"] = item.pop("fulfilled_qty", "0.0000")
+        item.pop("reserved_qty", None)
+        item.pop("needs_list_item_id", None)
+        item.pop("criticality_level", None)
+        item.pop("criticality_rank", None)
+        items.append(item)
+    return {
+        "request": _request_summary(_load_request(reliefrqst_id)),
+        "items": items,
+    }
+
+
 def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None) -> dict[str, Any]:
     execution_link = _execution_link_for_request(reliefrqst_id)
     if execution_link is not None:
-        return compat_get_allocation_options(int(execution_link.needs_list_id))
+        return _reshape_compat_options(
+            compat_get_allocation_options(int(execution_link.needs_list_id)),
+            reliefrqst_id,
+        )
 
     warehouse_ids = [source_warehouse_id] if source_warehouse_id is not None else _resolve_candidate_warehouse_ids(reliefrqst_id)
     warehouse_ids = [warehouse_id for warehouse_id in warehouse_ids if warehouse_id]

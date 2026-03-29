@@ -15,7 +15,7 @@
             [label]="wb.persisted ? 'Persisted' : 'Deterministic rebuild'"
             [tone]="wb.persisted ? 'success' : 'info'" />
           @if (wb.compatibility_bridge) {
-            <app-ops-status-chip label="Compatibility bridge" tone="warning" />
+            <app-ops-status-chip label="Draft Artifact" tone="warning" />
           }
         </div>
       }
@@ -87,7 +87,7 @@
             <mat-icon aria-hidden="true">info</mat-icon>
             <span>
               @if (wb.compatibility_bridge) {
-                Compatibility bridge rendering is active for this package.
+                Draft Artifact rendering is active for this package.
               } @else {
                 Waybill derived from the live dispatch record. Can be regenerated on demand.
               }

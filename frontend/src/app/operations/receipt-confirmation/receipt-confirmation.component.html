@@ -48,7 +48,7 @@
           <div class="ops-doc-card__header">
             <div>
               <p class="ops-doc-card__eyebrow">Receipt context</p>
-              <h2>{{ dispatch.tracking_no || ('Package #' + dispatch.reliefpkg_id) }}</h2>
+              <h2>{{ dispatch.tracking_no || (dispatch.reliefpkg_id ? 'PKG-' + dispatch.reliefpkg_id : 'Unassigned Package') }}</h2>
             </div>
           </div>
           <app-ops-metric-strip [items]="summary()" />

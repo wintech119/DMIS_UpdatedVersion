@@ -9,6 +9,7 @@
       <p class="ops-hero__copy">
         Review submitted requests and close the loop with auditable approvals or rejections.
       </p>
+      <app-ops-status-chip label="Awaiting Eligibility Action" tone="info" />
     </div>
 
     <div class="ops-hero__actions">
@@ -90,22 +91,24 @@
                 (keydown.enter)="openReview(request)"
                 (keydown.space)="openReview(request); $event.preventDefault()">
                 <div class="ops-row__lead">
-                  <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
-                  <div class="ops-row__meta">
-                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
-                    <span aria-hidden="true">|</span>
-                    <span>{{ request.event_name ?? 'No event linked' }}</span>
+                  <div class="ops-row__header">
+                    <p class="ops-row__title">{{ request.tracking_no ?? 'Request #' + request.reliefrqst_id }}</p>
                     <app-ops-status-chip [label]="formatOperationsRequestStatus(request.status_code)" [tone]="chipTone(getOperationsRequestTone(request.status_code))"></app-ops-status-chip>
                     <app-ops-status-chip [label]="formatOperationsUrgency(request.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(request.urgency_ind))"></app-ops-status-chip>
                   </div>
                   <div class="ops-row__meta">
+                    <span>{{ request.agency_name ?? 'Agency ' + request.agency_id }}</span>
+                    <span aria-hidden="true">|</span>
+                    <span>{{ request.event_name ?? 'No event linked' }}</span>
+                    <span aria-hidden="true">|</span>
                     <span>{{ formatOperationsLineCount(request.item_count) }}</span>
+                    <span aria-hidden="true">|</span>
                     <span>Created {{ formatOperationsDateTime(request.create_dtime ?? request.request_date) }}</span>
                   </div>
                 </div>
 
                 <div class="ops-row__actions">
-                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral"></app-ops-status-chip>
+                  <app-ops-status-chip [label]="formatOperationsAge(request.create_dtime ?? request.request_date)" tone="neutral" [showDot]="false"></app-ops-status-chip>
                   <mat-icon aria-hidden="true">chevron_right</mat-icon>
                 </div>
               </article>
@@ -116,6 +119,11 @@
     </section>
 
     <aside class="ops-grid">
+      <div class="ops-callout ops-callout--info" role="note">
+        <mat-icon aria-hidden="true">visibility</mat-icon>
+        <span>This queue is visible only to users with eligibility review permissions.</span>
+      </div>
+
       <section class="ops-card">
         <div class="ops-card__header">
           <div>

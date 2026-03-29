@@ -70,6 +70,7 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly store = inject(OperationsWorkspaceStateService);
   readonly auth = inject(AuthRbacService);
 
+  readonly contextExpanded = signal(false);
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
     { label: 'Select Stock' },

@@ -33,6 +33,13 @@ interface DispatchConfirmationState {
   hint: string;
 }
 
+interface DispatchStateSummary {
+  label: string;
+  icon: string;
+  tone: 'success' | 'warning' | 'muted';
+  checks: { label: string; met: boolean }[];
+}
+
 @Component({
   selector: 'app-ops-dispatch-workspace',
   standalone: true,
@@ -108,6 +115,51 @@ export class OpsDispatchWorkspaceComponent {
     && !this.alreadyDispatched()
     && this.driverName().trim().length > 0
   );
+
+  readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
+    const detail = this.dispatchDetail();
+    const dispatched = this.alreadyDispatched();
+    const receiptConfirmed = !!detail?.received_dtime;
+    const reservationReady = this.hasCommittedAllocation() && !this.hasPendingOverride();
+
+    let label: string;
+    let icon: string;
+    let tone: 'success' | 'warning' | 'muted';
+
+    if (receiptConfirmed) {
+      label = 'Receipt Confirmed';
+      icon = 'verified';
+      tone = 'success';
+    } else if (dispatched) {
+      label = 'Dispatched';
+      icon = 'local_shipping';
+      tone = 'success';
+    } else if (this.hasPendingOverride()) {
+      label = 'Override Pending';
+      icon = 'hourglass_top';
+      tone = 'warning';
+    } else if (reservationReady) {
+      label = 'Ready to Dispatch';
+      icon = 'check_circle';
+      tone = 'success';
+    } else {
+      label = 'Awaiting Reservation';
+      icon = 'pending';
+      tone = 'warning';
+    }
+
+    return {
+      label,
+      icon,
+      tone,
+      checks: [
+        { label: 'Reservation committed', met: this.hasCommittedAllocation() },
+        { label: 'No pending override', met: !this.hasPendingOverride() },
+        { label: 'Dispatch recorded', met: dispatched },
+        { label: 'Receipt confirmed', met: receiptConfirmed },
+      ],
+    };
+  });
 
   readonly primaryActionLabel = computed(() => {
     if (this.alreadyDispatched()) {

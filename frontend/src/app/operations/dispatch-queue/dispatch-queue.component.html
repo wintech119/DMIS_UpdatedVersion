@@ -38,11 +38,33 @@
           <p class="ops-table-shell__eyebrow">Queue</p>
           <h2>Dispatch worklist</h2>
         </div>
-        <span class="ops-table-shell__meta">{{ items().length }} packages</span>
+        <span class="ops-table-shell__meta">{{ filteredItems().length }} packages</span>
       </div>
 
+      <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter dispatch queue">
+        @for (filter of filterOptions; track filter.value) {
+          <button
+            class="ops-chip"
+            [class.ops-chip--active]="activeFilter() === filter.value"
+            type="button"
+            role="radio"
+            [attr.aria-checked]="activeFilter() === filter.value"
+            (click)="activeFilter.set(filter.value)">
+            {{ filter.label }}
+          </button>
+        }
+      </div>
+
+      @if (filteredItems().length === 0) {
+        <dmis-empty-state
+          icon="filter_list"
+          title="No matching packages"
+          message="No packages match the current filter."
+        />
+      }
+
       <div class="ops-queue-list" role="list" aria-label="Dispatch queue">
-        @for (row of items(); track row.reliefpkg_id) {
+        @for (row of filteredItems(); track row.reliefpkg_id) {
           <article
             class="ops-queue-row"
             role="listitem"

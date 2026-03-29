@@ -96,26 +96,42 @@
         <div class="ops-pane__header">
           <div>
             <p class="ops-pane__eyebrow">Transport log</p>
-            <h2 id="dispatch-rail-title">Operational guardrails</h2>
+            <h2 id="dispatch-rail-title">Dispatch State</h2>
           </div>
         </div>
 
         <div class="ops-rail-stack">
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Reservation Ready</span>
-            <strong>{{ hasCommittedAllocation() && !hasPendingOverride() ? 'Yes' : 'Blocked' }}</strong>
+          <article class="ops-dispatch-state-card" [attr.data-tone]="dispatchStateSummary().tone">
+            <div class="ops-dispatch-state-card__header">
+              <mat-icon aria-hidden="true">{{ dispatchStateSummary().icon }}</mat-icon>
+              <strong>{{ dispatchStateSummary().label }}</strong>
+            </div>
+            <ul class="ops-dispatch-state-card__checks">
+              @for (check of dispatchStateSummary().checks; track check.label) {
+                <li>
+                  <mat-icon aria-hidden="true" [class.check--met]="check.met" [class.check--unmet]="!check.met">
+                    {{ check.met ? 'check_circle' : 'radio_button_unchecked' }}
+                  </mat-icon>
+                  <span>{{ check.label }}</span>
+                </li>
+              }
+            </ul>
           </article>
+
           <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Can Dispatch Now</span>
-            <strong>{{ canDispatchNow() ? 'Yes' : 'No' }}</strong>
-          </article>
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Already Dispatched</span>
-            <strong>{{ alreadyDispatched() ? 'Yes' : 'No' }}</strong>
-          </article>
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Receipt Confirmation</span>
-            <strong>{{ detail.received_dtime ? 'Recorded' : 'Live after dispatch' }}</strong>
+            <span class="ops-rail-card__label">Stock & Waybill</span>
+            <div class="ops-rail-card__row">
+              <mat-icon aria-hidden="true" class="check--{{ alreadyDispatched() ? 'met' : 'unmet' }}">
+                {{ alreadyDispatched() ? 'check_circle' : 'schedule' }}
+              </mat-icon>
+              <span>Stock {{ alreadyDispatched() ? 'deducted at dispatch' : 'deduction pending' }}</span>
+            </div>
+            <div class="ops-rail-card__row">
+              <mat-icon aria-hidden="true" class="check--{{ detail.waybill ? 'met' : 'unmet' }}">
+                {{ detail.waybill ? 'description' : 'schedule' }}
+              </mat-icon>
+              <span>Waybill {{ detail.waybill ? 'available' : 'pending' }}</span>
+            </div>
           </article>
         </div>
       </aside>

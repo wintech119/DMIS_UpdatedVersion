@@ -33,6 +33,7 @@ interface WorkflowStep {
   label: string;
   detail: string;
   tone: 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
+  timestamp?: string;
 }
 
 @Component({
@@ -92,26 +93,31 @@ export class ReliefRequestDetailComponent implements OnInit {
         label: 'Draft',
         detail: request.status_code === 0 ? 'Editable' : 'Captured',
         tone: request.status_code === 0 ? 'draft' : 'success',
+        timestamp: request.request_date ? formatOperationsDateTime(request.request_date) : undefined,
       },
       {
         label: 'Submitted',
         detail: submitted ? 'Sent to review' : 'Pending submit',
         tone: submitted ? 'review' : 'muted',
+        timestamp: submitted ? formatOperationsDateTime(request.create_dtime) : undefined,
       },
       {
         label: 'Eligibility Review',
         detail: reviewed ? 'Decision recorded' : 'Awaiting decision',
         tone: reviewed ? 'warning' : 'muted',
+        timestamp: reviewed ? formatOperationsDateTime(request.review_dtime) : undefined,
       },
       {
         label: 'Fulfillment',
         detail: hasPackage ? 'Package created' : 'Not yet started',
         tone: hasPackage ? 'success' : 'muted',
+        timestamp: request.action_dtime ? formatOperationsDateTime(request.action_dtime) : undefined,
       },
       {
         label: 'Dispatch',
         detail: dispatched ? 'Waybill available' : 'Pending handoff',
         tone: dispatched ? 'danger' : 'muted',
+        timestamp: dispatched ? formatOperationsDateTime(firstPackage?.dispatch_dtime) : undefined,
       },
     ];
   });

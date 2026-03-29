@@ -6,11 +6,10 @@ import {
   signal,
   OnInit,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatTableModule } from '@angular/material/table';
 
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
@@ -18,23 +17,36 @@ import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metri
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { PackageQueueItem } from '../models/operations.model';
-import { formatUrgency } from '../models/operations-status.util';
+import {
+  formatOperationsPackageStatus,
+  formatOperationsRequestStatus,
+  formatOperationsUrgency,
+  formatOperationsAge,
+  formatOperationsDateTime,
+  formatOperationsLineCount,
+  getOperationsPackageTone,
+  getOperationsRequestTone,
+  getOperationsUrgencyTone,
+  mapOperationsToneToChipTone,
+  OperationsTone,
+} from '../operations-display.util';
+
+type FulfillmentFilter = 'all' | 'awaiting' | 'preparing' | 'ready' | 'dispatched';
 
 @Component({
   selector: 'app-package-fulfillment-queue',
   standalone: true,
   imports: [
-    MatCardModule,
+    FormsModule,
     MatButtonModule,
     MatIconModule,
-    MatTableModule,
     OpsMetricStripComponent,
     OpsStatusChipComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
   ],
   templateUrl: './package-fulfillment-queue.component.html',
-  styleUrl: './package-fulfillment-queue.component.scss',
+  styleUrls: ['./package-fulfillment-queue.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PackageFulfillmentQueueComponent implements OnInit {
@@ -43,16 +55,51 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   readonly loading = signal(true);
   readonly items = signal<PackageQueueItem[]>([]);
+  readonly searchTerm = signal('');
+  readonly activeFilter = signal<FulfillmentFilter>('all');
+
+  readonly filterOptions: readonly { label: string; value: FulfillmentFilter }[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Awaiting', value: 'awaiting' },
+    { label: 'Preparing', value: 'preparing' },
+    { label: 'Ready', value: 'ready' },
+    { label: 'Dispatched', value: 'dispatched' },
+  ];
+
+  readonly filteredItems = computed(() => {
+    const term = this.searchTerm().trim().toLowerCase();
+    const filter = this.activeFilter();
+
+    return this.items().filter((row) => {
+      if (filter !== 'all' && this.getFulfillmentStage(row) !== filter) {
+        return false;
+      }
+      if (!term) {
+        return true;
+      }
+      const haystack = [
+        row.tracking_no,
+        row.agency_name,
+        row.event_name,
+        row.rqst_notes_text,
+        row.current_package?.tracking_no,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  });
 
   readonly queueStats = computed(() => {
     const items = this.items();
     const total = items.length;
-    const awaiting = items.filter((item) => !item.current_package || item.current_package.status_code === 'A').length;
-    const pending = items.filter((item) => item.current_package?.status_code === 'P').length;
-    const ready = items.filter((item) => item.current_package?.status_code === 'D').length;
+    const awaiting = items.filter((item) => this.getFulfillmentStage(item) === 'awaiting').length;
+    const preparing = items.filter((item) => this.getFulfillmentStage(item) === 'preparing').length;
+    const ready = items.filter((item) => this.getFulfillmentStage(item) === 'ready').length;
     return [
       { label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue' },
-      { label: 'Preparing', value: pending, note: 'Reservation in progress' },
+      { label: 'Preparing', value: preparing, note: 'Reservation in progress' },
       { label: 'Ready to Dispatch', value: ready, note: 'Packages committed' },
       { label: 'All Requests', value: total, note: 'Visible in the queue' },
     ];
@@ -66,17 +113,25 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     })),
   );
 
-  readonly displayedColumns = [
-    'tracking_no',
-    'agency',
-    'urgency',
-    'request_status',
-    'package',
-    'items',
-    'actions',
-  ];
+  readonly sidebarSummary = computed(() => {
+    const rows = this.filteredItems();
+    return {
+      total: rows.length,
+      awaiting: rows.filter((r) => this.getFulfillmentStage(r) === 'awaiting').length,
+      preparing: rows.filter((r) => this.getFulfillmentStage(r) === 'preparing').length,
+      ready: rows.filter((r) => this.getFulfillmentStage(r) === 'ready').length,
+    };
+  });
 
-  readonly formatUrgency = formatUrgency;
+  readonly formatPackageStatus = formatOperationsPackageStatus;
+  readonly formatRequestStatus = formatOperationsRequestStatus;
+  readonly formatUrgency = formatOperationsUrgency;
+  readonly formatAge = formatOperationsAge;
+  readonly formatDateTime = formatOperationsDateTime;
+  readonly formatLineCount = formatOperationsLineCount;
+  readonly getPackageTone = getOperationsPackageTone;
+  readonly getRequestTone = getOperationsRequestTone;
+  readonly getUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
     this.refreshQueue();
@@ -94,51 +149,42 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     return item.reliefrqst_id;
   }
 
-  urgencyTone(code: string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
-    switch (String(code ?? '').trim().toUpperCase()) {
-      case 'C':
-        return 'critical';
-      case 'H':
-        return 'warning';
-      case 'M':
-        return 'info';
-      case 'L':
-        return 'soft';
-      default:
-        return 'neutral';
-    }
+  chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
+    return mapOperationsToneToChipTone(tone);
   }
 
-  statusTone(code: number | string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
-    switch (String(code ?? '').trim().toUpperCase()) {
-      case '7':
-      case 'F':
-      case 'P':
-      case 'D':
-        return 'success';
-      case '5':
-      case '1':
-        return 'warning';
-      case '8':
-      case '4':
-      case '2':
-        return 'critical';
-      default:
-        return 'soft';
-    }
+  isLocked(row: PackageQueueItem): boolean {
+    const exec = String(row.current_package?.execution_status ?? row.execution_status ?? '').trim().toUpperCase();
+    return exec === 'COMMITTED';
   }
 
-  packageTone(code: string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
-    switch (String(code ?? '').trim().toUpperCase()) {
-      case 'P':
-        return 'success';
-      case 'D':
-        return 'info';
-      case 'A':
-        return 'soft';
-      default:
-        return 'neutral';
+  isOverridePending(row: PackageQueueItem): boolean {
+    const exec = String(row.current_package?.execution_status ?? row.execution_status ?? '').trim().toUpperCase();
+    return exec === 'PENDING_OVERRIDE_APPROVAL';
+  }
+
+  isReady(row: PackageQueueItem): boolean {
+    const pkg = row.current_package;
+    if (!pkg) {
+      return false;
     }
+    return pkg.status_code === 'P' && !this.isOverridePending(row);
+  }
+
+  onSearch(value: string): void {
+    this.searchTerm.set(value);
+  }
+
+  setFilter(filter: FulfillmentFilter): void {
+    this.activeFilter.set(filter);
+  }
+
+  getFulfillmentStage(row: PackageQueueItem): FulfillmentFilter {
+    const pkgStatus = row.current_package?.status_code ?? row.package_status;
+    if (!pkgStatus) return 'awaiting';
+    if (pkgStatus === 'P') return 'ready';
+    if (pkgStatus === 'D' || pkgStatus === 'C') return 'dispatched';
+    return row.current_package ? 'preparing' : 'awaiting';
   }
 
   private loadQueue(): void {

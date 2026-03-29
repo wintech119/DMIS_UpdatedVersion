@@ -1,3 +1,4 @@
+<a class="skip-to-main" href="#main-content">Skip to main content</a>
 <div class="app-layout">
   <app-sidenav
     [currentUser]="currentUser()"
@@ -52,7 +53,7 @@
 
     <dmis-data-freshness-banner></dmis-data-freshness-banner>
 
-    <main class="app-shell">
+    <main id="main-content" class="app-shell">
       <router-outlet />
     </main>
   </div>

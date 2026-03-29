@@ -200,6 +200,14 @@ interface ReviewGroup {
             <p>{{ commitOutcomeCopy() }}</p>
           </div>
         </div>
+        <div class="review-delta-summary">
+          <mat-icon aria-hidden="true">inventory</mat-icon>
+          <span>
+            Committing will reserve <strong>{{ reservedQuantity() | number:'1.0-4' }}</strong> units
+            across <strong>{{ store.selectedLineCount() }}</strong> stock lines.
+            Stock levels will be adjusted at dispatch.
+          </span>
+        </div>
       </mat-card>
     </div>
   `,
@@ -368,8 +376,9 @@ interface ReviewGroup {
       gap: 4px;
       padding: 12px;
       border-radius: 10px;
-      background: var(--color-surface-muted);
-      border: 1px solid #e5e5e2;
+      background: var(--ops-strip-bg, #ffffff);
+      border: 1px solid var(--color-border, #e5e5e2);
+      box-shadow: var(--ops-strip-shadow, 0 1px 3px rgba(55, 53, 47, 0.06));
     }
 
     .review-empty {

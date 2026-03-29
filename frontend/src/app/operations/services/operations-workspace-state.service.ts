@@ -350,12 +350,12 @@ export class OperationsWorkspaceStateService {
       return 'Select at least one stock line before continuing.';
     }
     if (selected > remaining + 0.0001) {
-      return 'Selected quantity cannot exceed the remaining requested quantity.';
+      return 'You cannot allocate more than the item still needs.';
     }
     for (const candidate of item.candidates) {
       const selectedQty = this.getSelectedQtyForCandidate(item.item_id, candidate);
       if (selectedQty > this.toNumber(candidate.available_qty) + 0.0001) {
-        return `Selected quantity exceeds available stock for batch ${candidate.batch_no || candidate.batch_id}.`;
+        return `You cannot allocate more than batch ${candidate.batch_no || candidate.batch_id} has available.`;
       }
     }
     return null;

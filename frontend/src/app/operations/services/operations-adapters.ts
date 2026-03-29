@@ -137,6 +137,8 @@ export function normalizeRequestSummary(raw: unknown): RequestSummary {
     execution_status: asNullableString(source['execution_status']),
     needs_list_id: asNullableNumber(source['needs_list_id']),
     compatibility_bridge: asBoolean(source['compatibility_bridge']),
+    request_mode: asNullableString(source['request_mode']) as RequestSummary['request_mode'],
+    authority_context: asNullableString(source['authority_context']),
   };
 }
 
