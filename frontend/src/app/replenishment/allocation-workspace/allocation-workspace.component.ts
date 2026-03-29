@@ -13,6 +13,7 @@ import { AllocationReviewStepComponent } from './steps/allocation-review-step.co
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { NeedsListResponse } from '../models/needs-list.model';
 import { ExecutionWorkspaceStateService } from '../execution/services/execution-workspace-state.service';
 import { DmisNotificationService } from '../services/notification.service';
@@ -42,6 +43,7 @@ const ALLOCATION_READY_STATUSES = new Set(['APPROVED', 'IN_PREPARATION', 'IN_PRO
     DmisApprovalStatusTrackerComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   providers: [ExecutionWorkspaceStateService],
   templateUrl: './allocation-workspace.component.html',
@@ -60,6 +62,14 @@ export class AllocationWorkspaceComponent {
   readonly auth = inject(AuthRbacService);
 
   readonly current = this.store.current;
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Select Stock' },
+    { label: 'Operational Details' },
+    { label: 'Review & Commit' },
+    { label: 'Confirmation' },
+  ]);
+
   readonly needsListId = signal('');
   readonly submissionErrors = signal<string[]>([]);
   readonly confirmationState = signal<AllocationConfirmationState | null>(null);
@@ -189,6 +199,14 @@ export class AllocationWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
+    this.currentStepIndex.update(i => i + 1);
+  }
+
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+      this.currentStepIndex.set(index);
+    }
   }
 
   goToReview(): void {
@@ -200,12 +218,14 @@ export class AllocationWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
+    this.currentStepIndex.update(i => i + 1);
   }
 
   resetConfirmation(): void {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 2;
+      this.currentStepIndex.set(2);
     }
   }
 
@@ -274,6 +294,7 @@ export class AllocationWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 3;
+            this.currentStepIndex.set(3);
           }
         });
       },

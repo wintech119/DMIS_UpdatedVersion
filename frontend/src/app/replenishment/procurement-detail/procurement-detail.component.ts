@@ -23,6 +23,7 @@ import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { AuthRbacService } from '../services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisReasonDialogComponent, DmisReasonDialogData, DmisReasonDialogResult } from '../shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import {
@@ -235,7 +236,8 @@ export class ShippedDatesDialogComponent {
     MatInputModule,
     MatTableModule,
     MatTooltipModule,
-    DmisSkeletonLoaderComponent
+    DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent
   ],
   templateUrl: './procurement-detail.component.html',
   styleUrl: './procurement-detail.component.scss',
@@ -327,6 +329,10 @@ export class ProcurementDetailComponent implements OnInit {
   ];
 
   readonly lifecycleSteps = LIFECYCLE_STEPS;
+
+  readonly trackerSteps = computed<StepDefinition[]>(() =>
+    LIFECYCLE_STEPS.map(status => ({ label: PROCUREMENT_STATUS_LABELS[status] }))
+  );
 
   readonly currentStepIndex = computed(() => {
     const s = this.status();

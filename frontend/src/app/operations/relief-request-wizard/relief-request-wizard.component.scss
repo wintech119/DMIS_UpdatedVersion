@@ -259,41 +259,8 @@
 }
 
 ::ng-deep .request-wizard-stepper {
-  .mat-step-header {
-    padding: 16px 24px;
-
-    &:hover {
-      background: var(--color-surface-muted);
-    }
-
-    .mat-step-label {
-      color: var(--color-text-secondary);
-      font-size: var(--text-sm);
-      font-weight: var(--weight-medium);
-
-      &.mat-step-label-active,
-      &.mat-step-label-selected {
-        color: var(--color-text-primary);
-        font-weight: var(--weight-semibold);
-      }
-    }
-
-    .mat-step-icon {
-      background: var(--color-text-secondary);
-      color: var(--color-surface);
-
-      &.mat-step-icon-selected {
-        background: var(--color-accent);
-      }
-
-      &.mat-step-icon-state-done {
-        background: var(--color-success);
-      }
-    }
-  }
-
-  .mat-stepper-horizontal-line {
-    border-top-color: var(--color-border);
+  .mat-horizontal-stepper-header-container {
+    display: none;
   }
 
   .mat-horizontal-content-container {
@@ -327,10 +294,6 @@
   }
 
   ::ng-deep .request-wizard-stepper {
-    .mat-step-header {
-      padding: 12px 16px;
-    }
-
     .mat-horizontal-content-container {
       padding: 0 16px 16px;
     }

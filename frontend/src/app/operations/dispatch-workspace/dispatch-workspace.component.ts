@@ -12,6 +12,7 @@ import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-st
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OperationsService } from '../services/operations.service';
@@ -46,6 +47,7 @@ interface DispatchConfirmationState {
     OpsDispatchReviewStepComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   templateUrl: './dispatch-workspace.component.html',
   styleUrl: './dispatch-workspace.component.scss',
@@ -59,6 +61,13 @@ export class OpsDispatchWorkspaceComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly operationsService = inject(OperationsService);
   private readonly notifications = inject(DmisNotificationService);
+
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Readiness' },
+    { label: 'Review & Dispatch' },
+    { label: 'Confirmation' },
+  ]);
 
   readonly reliefpkgId = signal(0);
   readonly loading = signal(false);
@@ -201,6 +210,13 @@ export class OpsDispatchWorkspaceComponent {
     }
   }
 
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+      this.currentStepIndex.set(index);
+    }
+  }
+
   goToDispatchReview(): void {
     if (!this.hasCommittedAllocation()) {
       this.notifications.showError('Reserve stock in the fulfillment workspace before moving to dispatch.');
@@ -211,6 +227,7 @@ export class OpsDispatchWorkspaceComponent {
       return;
     }
     this.stepper?.next();
+    this.currentStepIndex.update(i => i + 1);
   }
 
   completeDispatchAction(): void {
@@ -219,6 +236,7 @@ export class OpsDispatchWorkspaceComponent {
     }
     if (this.alreadyDispatched()) {
       this.stepper?.next();
+      this.currentStepIndex.update(i => i + 1);
       return;
     }
     if (!this.hasCommittedAllocation()) {
@@ -240,6 +258,7 @@ export class OpsDispatchWorkspaceComponent {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 1;
+      this.currentStepIndex.set(1);
     }
   }
 
@@ -318,6 +337,7 @@ export class OpsDispatchWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 2;
+            this.currentStepIndex.set(2);
           }
         });
       },

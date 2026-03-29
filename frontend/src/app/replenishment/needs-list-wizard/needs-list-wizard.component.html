@@ -12,6 +12,12 @@
     </div>
   </mat-card>
 
+  <dmis-step-tracker
+    [steps]="trackerSteps()"
+    [activeIndex]="currentStepIndex()"
+    [linear]="true"
+    (stepClick)="onTrackerStepClick($event)" />
+
   <!-- Stepper -->
   <mat-stepper linear #stepper (selectionChange)="onStepChange($event)" class="wizard-stepper">
 
@@ -31,7 +37,7 @@
     </mat-step>
 
     <!-- Step 3: Submit for Approval -->
-    <mat-step [completed]="confirmationState !== null">
+    <mat-step [completed]="confirmationState() !== null">
       <ng-template matStepLabel>Submit</ng-template>
       <app-submit-step
         (back)="stepper.previous()"
@@ -43,7 +49,7 @@
     <mat-step [editable]="false">
       <ng-template matStepLabel>Confirmation</ng-template>
       <div class="step-content confirmation-step">
-        @if (confirmationState; as confirmation) {
+        @if (confirmationState(); as confirmation) {
           <mat-card>
             <mat-card-content>
               <h2>

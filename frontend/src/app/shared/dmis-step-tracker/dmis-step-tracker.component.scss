@@ -1,0 +1,218 @@
+:host {
+  display: block;
+}
+
+.tracker {
+  position: relative;
+  padding: 12px 0 0;
+}
+
+.tracker__pills {
+  --pill-gap: clamp(20px, 3vw, 48px);
+  display: flex;
+  gap: var(--pill-gap);
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  padding: 8px 4px 12px;
+  -ms-overflow-style: none;
+  justify-content: center;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.tracker__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid transparent;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 180ms ease;
+  flex: 0 1 auto;
+  min-width: 0;
+  position: relative;
+  background: none;
+  outline: none;
+
+  // Connector line between pills
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 4px);
+    width: calc(var(--pill-gap) - 8px);
+    height: 2px;
+    background: var(--color-wizard-connector);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  &--completed:not(:last-child)::after {
+    background: var(--color-wizard-connector-done);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  &--active {
+    background: var(--color-wizard-step-active-bg);
+    color: var(--color-wizard-step-active-text);
+    border-color: var(--color-wizard-step-active-bg);
+    font-weight: var(--weight-semibold);
+    transform: scale(1.04);
+    box-shadow: 0 2px 8px rgba(19, 78, 74, 0.18);
+  }
+
+  &--completed {
+    background: var(--color-wizard-step-done-bg);
+    color: var(--color-wizard-step-done-text);
+    border-color: var(--color-wizard-step-done-bg);
+    cursor: pointer;
+  }
+
+  &--future {
+    background: var(--color-wizard-step-future-bg);
+    color: var(--color-wizard-step-future-text);
+    border-color: var(--color-wizard-step-future-border);
+  }
+
+  &--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.tracker__number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+
+  .tracker__pill--future & {
+    border: 1.5px solid var(--color-wizard-step-future-border);
+  }
+
+  .tracker__pill--active & {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .tracker__pill--completed & {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.tracker__check {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.tracker__connector {
+  height: 4px;
+  margin: 0 4px;
+  border-radius: 2px;
+  background: var(--color-wizard-connector);
+  position: relative;
+  overflow: hidden;
+}
+
+.tracker__connector-fill {
+  height: 100%;
+  background: var(--color-wizard-connector-done);
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+
+.tracker__arrow {
+  position: absolute;
+  top: 20px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--color-text-secondary);
+
+  &--left {
+    left: 0;
+  }
+
+  &--right {
+    right: 0;
+  }
+
+  &:hover {
+    background: var(--color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker__pill {
+    transition: none;
+  }
+
+  .tracker__connector-fill {
+    transition: none;
+  }
+
+  .tracker__pills {
+    scroll-behavior: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .tracker__pills {
+    --pill-gap: 8px;
+  }
+
+  .tracker__pill {
+    flex: 0 0 auto;
+    max-width: none;
+    padding: 6px 12px;
+    font-size: var(--text-xs);
+    gap: 6px;
+
+    &:not(:last-child)::after {
+      display: none;
+    }
+  }
+
+  .tracker__number {
+    width: 20px;
+    height: 20px;
+    font-size: 0.625rem;
+  }
+
+  .tracker__check {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+  }
+}

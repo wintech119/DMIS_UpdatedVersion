@@ -100,6 +100,12 @@
         <mat-progress-bar mode="indeterminate" class="request-wizard-progress" />
       }
 
+      <dmis-step-tracker
+        [steps]="trackerSteps()"
+        [activeIndex]="currentStepIndex()"
+        [linear]="true"
+        (stepClick)="onTrackerStepClick($event)" />
+
       <mat-stepper
         #stepper
         linear

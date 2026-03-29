@@ -1,5 +1,5 @@
-import { Component, OnInit, ViewChild, DestroyRef, ChangeDetectorRef, inject } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Component, OnInit, ViewChild, DestroyRef, ChangeDetectorRef, inject, signal, computed } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatStepperModule, MatStepper } from '@angular/material/stepper';
@@ -20,6 +20,7 @@ import { ReplenishmentService } from '../services/replenishment.service';
 import { EventPhase } from '../models/stock-status.model';
 import { DmisNotificationService } from '../services/notification.service';
 import { WizardState } from './models/wizard-state.model';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 
 interface SubmitStepCompleteEvent {
   action: 'draft_saved' | 'submitted_for_approval';
@@ -47,7 +48,8 @@ interface WizardConfirmationState {
     MatTooltipModule,
     ScopeStepComponent,
     PreviewStepComponent,
-    SubmitStepComponent
+    SubmitStepComponent,
+    DmisStepTrackerComponent
   ],
   templateUrl: './needs-list-wizard.component.html',
   styleUrls: ['./needs-list-wizard.component.scss']
@@ -65,7 +67,19 @@ export class NeedsListWizardComponent implements OnInit {
 
   readonly isStep1Valid$ = this.wizardService.isStep1Valid$();
   readonly isStep2Valid$ = this.wizardService.isStep2Valid$();
-  confirmationState: WizardConfirmationState | null = null;
+  readonly confirmationState = signal<WizardConfirmationState | null>(null);
+
+  readonly currentStepIndex = signal(0);
+
+  private readonly step1Valid = toSignal(this.isStep1Valid$, { initialValue: false });
+  private readonly step2Valid = toSignal(this.isStep2Valid$, { initialValue: false });
+
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Review Scope', completed: this.step1Valid() },
+    { label: 'Preview Results', completed: this.step2Valid() },
+    { label: 'Submit', completed: this.confirmationState() !== null },
+    { label: 'Confirmation', disabled: this.confirmationState() === null },
+  ]);
 
   ngOnInit(): void {
     const paramMap$ = this.route.paramMap ?? of(this.route.snapshot?.paramMap ?? convertToParamMap({}));
@@ -156,17 +170,22 @@ export class NeedsListWizardComponent implements OnInit {
   }
 
   onStepChange(event: StepperSelectionEvent): void {
-    // Track step changes for analytics
-    console.log('Step changed:', event.selectedIndex);
+    this.currentStepIndex.set(event.selectedIndex);
+  }
+
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+    }
   }
 
   onComplete(event: SubmitStepCompleteEvent): void {
-    this.confirmationState = {
+    this.confirmationState.set({
       action: event.action,
       totalItems: event.totalItems,
       completedAt: event.completedAt,
       approver: event.approver
-    };
+    });
 
     // Force navigation to step 4 confirmation without requiring header click.
     this.cdr.detectChanges();
@@ -180,12 +199,12 @@ export class NeedsListWizardComponent implements OnInit {
   returnToDashboardFromConfirmation(): void {
     const queryParams = this.dashboardQueryParams();
     this.wizardService.reset();
-    this.confirmationState = null;
+    this.confirmationState.set(null);
     this.router.navigate(['/replenishment/dashboard'], { queryParams });
   }
 
   returnToSubmitStepFromConfirmation(): void {
-    this.confirmationState = null;
+    this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 2;
     }
@@ -193,7 +212,7 @@ export class NeedsListWizardComponent implements OnInit {
 
   startNewNeedsList(): void {
     this.wizardService.reset();
-    this.confirmationState = null;
+    this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.reset();
     }
@@ -308,7 +327,7 @@ export class NeedsListWizardComponent implements OnInit {
       adjustments
     });
 
-    this.confirmationState = null;
+    this.confirmationState.set(null);
     this.cdr.detectChanges();
     queueMicrotask(() => {
       if (this.stepper && normalizedItems.length > 0) {

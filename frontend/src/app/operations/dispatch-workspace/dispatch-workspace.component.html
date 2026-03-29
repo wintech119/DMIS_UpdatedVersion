@@ -121,7 +121,13 @@
       </aside>
     </div>
 
-    <mat-stepper linear #stepper class="ops-stepper">
+    <dmis-step-tracker
+      [steps]="trackerSteps()"
+      [activeIndex]="currentStepIndex()"
+      [linear]="true"
+      (stepClick)="onTrackerStepClick($event)" />
+
+    <mat-stepper linear #stepper class="ops-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Readiness</ng-template>
         <app-ops-dispatch-readiness-step

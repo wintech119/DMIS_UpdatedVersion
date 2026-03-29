@@ -83,50 +83,10 @@
   }
 }
 
-// Stepper customization
-::ng-deep {
-  .wizard-stepper {
-    .mat-step-header {
-      padding: 16px 24px;
-
-      &:hover {
-        background-color: rgba(0, 0, 0, 0.04);
-      }
-
-      .mat-step-icon {
-        background-color: var(--color-text-secondary);
-        color: var(--color-surface);
-
-        &.mat-step-icon-selected {
-          background-color: var(--color-accent);
-        }
-
-        &.mat-step-icon-state-done {
-          background-color: var(--color-success);
-        }
-
-        &.mat-step-icon-state-error {
-          background-color: var(--color-critical);
-        }
-      }
-
-      .mat-step-label {
-        font-size: var(--text-md);
-        font-weight: var(--weight-medium);
-
-        &.mat-step-label-active {
-          color: var(--color-accent);
-        }
-
-        &.mat-step-label-selected {
-          font-weight: var(--weight-semibold);
-        }
-      }
-    }
-
-    .mat-stepper-horizontal-line {
-      border-top-color: var(--color-border);
-    }
+// Hide the native stepper header — replaced by dmis-step-tracker
+::ng-deep .wizard-stepper {
+  .mat-horizontal-stepper-header-container {
+    display: none;
   }
 }
 
@@ -169,18 +129,6 @@
           button {
             width: 100%;
           }
-        }
-      }
-    }
-  }
-
-  ::ng-deep {
-    .wizard-stepper {
-      .mat-step-header {
-        padding: 8px 12px;
-
-        .mat-step-label {
-          font-size: var(--text-xs);
         }
       }
     }

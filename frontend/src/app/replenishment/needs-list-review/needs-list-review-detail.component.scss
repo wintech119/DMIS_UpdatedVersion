@@ -48,17 +48,6 @@ $ab: #fff3e0; $af: #bf360c; $ax: #e65100;
   &.urgency-zero { opacity: .5; }
 }
 
-.workflow-stepper { @include fa; padding: .75rem 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .5rem; margin-bottom: .75rem; }
-.wf-step { @include fc; align-items: center; gap: .25rem; min-width: 5rem; }
-.wf-dot { width: 2rem; height: 2rem; border-radius: 50%; @include fa; justify-content: center; border: 2px solid var(--color-border); background: var(--color-surface); mat-icon { @include is(1rem); } }
-.wf-completed .wf-dot { background: #2e7d32; border-color: #2e7d32; color: #fff; }
-.wf-active .wf-dot { background: #1565c0; border-color: #1565c0; color: #fff; }
-.wf-terminal .wf-dot { background: #c62828; border-color: #c62828; color: #fff; }
-.wf-label { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: center; }
-.wf-active .wf-label { color: #1565c0; font-weight: var(--weight-bold); }
-.wf-terminal .wf-label { color: #c62828; font-weight: var(--weight-bold); }
-.wf-connector { flex: 1; height: 2px; background: var(--color-border); margin: 0 .25rem; align-self: flex-start; margin-top: 1rem; }
-.wf-connector-done { background: #2e7d32; }
 
 .kpi-pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
 .kpi-pill { @include pl; gap: .375rem; padding: .375rem .75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 1rem; white-space: nowrap; mat-icon { @include is(1rem); color: var(--color-accent); } }
@@ -180,11 +169,7 @@ $ab: #fff3e0; $af: #bf360c; $ax: #e65100;
   .desktop-only { display: none; }
   .mobile-only { display: flex; }
   .wizard-header { margin-bottom: 1rem; .header-content { padding: .75rem; flex-wrap: wrap; .header-text h1 { font-size: 1.125rem; } .header-text p { font-size: var(--text-sm); } } .header-badges { width: 100%; margin-top: .25rem; } }
-  .workflow-stepper { padding: .5rem .75rem; }
-  .wf-label { display: none; }
-  .wf-dot { width: 1.5rem; height: 1.5rem; }
-  .wf-connector { margin-top: .75rem; }
-  .info-grid { grid-template-columns: 1fr; }
+.info-grid { grid-template-columns: 1fr; }
   .kpi-pills { gap: .375rem; }
   .actions-card { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; border-radius: 0; .step-actions { flex-direction: column; gap: .5rem; .back-btn { width: 100%; } .primary-actions { width: 100%; flex-direction: column; button { width: 100%; min-height: 3rem; justify-content: center; } } } }
 }

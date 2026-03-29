@@ -151,6 +151,10 @@
   padding: 18px;
 }
 
+::ng-deep .ops-stepper .mat-horizontal-stepper-header-container {
+  display: none;
+}
+
 .ops-step-actions {
   display: flex;
   justify-content: flex-end;

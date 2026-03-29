@@ -97,36 +97,11 @@
 
         <!-- ══════ WIZARD STEPPER BAR (wizard mode only) ══════ -->
         @if (isWizardMode()) {
-          <nav class="wizard-stepper-bar" aria-label="Form steps">
-            <ol class="wizard-stepper-list" role="list">
-              @for (step of wizardSteps(); track step.key; let si = $index) {
-                @if (si > 0) {
-                  <li class="wizard-step__connector" [class.wizard-step__connector--done]="getStepState(si) === 'done' || getStepState(si) === 'active'" aria-hidden="true"></li>
-                }
-                <li class="wizard-step" role="listitem">
-                  <button type="button" class="wizard-step__pill"
-                    [class.wizard-step__pill--done]="getStepState(si) === 'done'"
-                    [class.wizard-step__pill--active]="getStepState(si) === 'active'"
-                    [class.wizard-step__pill--future]="getStepState(si) === 'future'"
-                    [attr.aria-label]="'Step ' + (si + 1) + ': ' + step.label"
-                    [attr.aria-current]="getStepState(si) === 'active' ? 'step' : null"
-                    (click)="goToStep(si)">
-                    @if (getStepState(si) === 'done') {
-                      <mat-icon class="wizard-step__icon" aria-hidden="true">check</mat-icon>
-                    } @else {
-                      <span class="wizard-step__number">{{ si + 1 }}</span>
-                    }
-                    <span class="wizard-step__label">{{ step.label }}</span>
-                    @if (si === 0 && ifrcCodeUpdatedOnStep1()) {
-                      <span class="wizard-step__code-updated-badge" aria-label="Item code updated">
-                        <mat-icon>sync</mat-icon> Code updated
-                      </span>
-                    }
-                  </button>
-                </li>
-              }
-            </ol>
-          </nav>
+          <dmis-step-tracker
+            [steps]="trackerSteps()"
+            [activeIndex]="currentStep()"
+            [linear]="true"
+            (stepClick)="onTrackerStepClick($event)" />
 
           @if (currentStep() > 0 && getWizardContextIdentity(); as identity) {
             <div class="wizard-context-strip"

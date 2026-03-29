@@ -58,6 +58,7 @@ import {
 } from '../../../replenishment/services/replenishment.service';
 import { validateFefoRequiresExpiry } from '../../models/table-configs/item.config';
 import { MasterEditGateDialogComponent } from '../master-edit-gate-dialog/master-edit-gate-dialog.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import {
   IFRCSuggestion,
   IFRCSuggestionCandidate,
@@ -137,6 +138,7 @@ class ItemUomConversionValidationError extends Error {
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
     MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
     MatProgressBarModule, MatCardModule, MatTooltipModule, MatDialogModule,
+    DmisStepTrackerComponent,
   ],
   templateUrl: './master-form-page.component.html',
   styleUrl: './master-form-page.component.scss',
@@ -226,6 +228,14 @@ export class MasterFormPageComponent implements OnInit {
   });
 
   totalSteps = computed(() => this.wizardSteps().length);
+
+  readonly trackerSteps = computed<StepDefinition[]>(() =>
+    this.wizardSteps().map(step => ({ label: step.label }))
+  );
+
+  onTrackerStepClick(index: number): void {
+    this.goToStep(index);
+  }
 
   currentStepGroup = computed<FormFieldGroup | null>(() => {
     const groups = this.renderableFieldGroups();

@@ -11,6 +11,7 @@ import { WizardStateService } from './services/wizard-state.service';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { NeedsListResponse } from '../models/needs-list.model';
 import { DmisNotificationService } from '../services/notification.service';
+import { DmisStepTrackerComponent } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 
 describe('NeedsListWizardComponent', () => {
   let component: NeedsListWizardComponent;
@@ -69,7 +70,7 @@ describe('NeedsListWizardComponent', () => {
     );
 
     await TestBed.configureTestingModule({
-      imports: [NeedsListWizardComponent, NoopAnimationsModule],
+      imports: [NeedsListWizardComponent, NoopAnimationsModule, DmisStepTrackerComponent],
       providers: [
         { provide: Router, useValue: mockRouter },
         { provide: ActivatedRoute, useValue: mockActivatedRoute as ActivatedRoute },
@@ -149,23 +150,23 @@ describe('NeedsListWizardComponent', () => {
       approver: 'Senior Director'
     });
 
-    expect(component.confirmationState).not.toBeNull();
-    expect(component.confirmationState?.action).toBe('submitted_for_approval');
-    expect(component.confirmationState?.totalItems).toBe(3);
+    expect(component.confirmationState()).not.toBeNull();
+    expect(component.confirmationState()?.action).toBe('submitted_for_approval');
+    expect(component.confirmationState()?.totalItems).toBe(3);
   });
 
   it('should reset and navigate from confirmation page', () => {
     wizardService.updateState({ event_id: 1 });
-    component.confirmationState = {
+    component.confirmationState.set({
       action: 'draft_saved',
       totalItems: 2,
       completedAt: new Date().toISOString()
-    };
+    });
 
     component.returnToDashboardFromConfirmation();
 
     expect(wizardService.getState().event_id).toBeUndefined();
-    expect(component.confirmationState).toBeNull();
+    expect(component.confirmationState()).toBeNull();
     expect(mockRouter.navigate).toHaveBeenCalledWith(
       ['/replenishment/dashboard'],
       { queryParams: { context: 'wizard', event_id: 1, phase: 'BASELINE' } }
@@ -173,17 +174,17 @@ describe('NeedsListWizardComponent', () => {
   });
 
   it('should return to submit step from draft confirmation', () => {
-    component.confirmationState = {
+    component.confirmationState.set({
       action: 'draft_saved',
       totalItems: 2,
       completedAt: new Date().toISOString()
-    };
+    });
     const mockStepper = { selectedIndex: 3 };
     (component as unknown as { stepper: { selectedIndex: number } }).stepper = mockStepper;
 
     component.returnToSubmitStepFromConfirmation();
 
-    expect(component.confirmationState).toBeNull();
+    expect(component.confirmationState()).toBeNull();
     expect(mockStepper.selectedIndex).toBe(2);
   });
 

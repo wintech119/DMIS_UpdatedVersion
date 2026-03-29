@@ -50,37 +50,17 @@
   @if (!loading() && !error() && procurement(); as proc) {
 
     <!-- Status Stepper -->
-    <div class="status-stepper-container" role="list" aria-label="Procurement lifecycle">
-      @if (isTerminal()) {
-        <div class="terminal-status" role="listitem">
-          <mat-icon class="terminal-icon">cancel</mat-icon>
-          <span class="terminal-label">{{ statusLabel() }}</span>
-        </div>
-      } @else {
-        @for (step of lifecycleSteps; track step; let i = $index; let last = $last) {
-          <div class="stepper-step"
-               [class.completed]="stepState(i) === 'completed'"
-               [class.active]="stepState(i) === 'active'"
-               [class.future]="stepState(i) === 'future'"
-               role="listitem"
-               [attr.aria-current]="stepState(i) === 'active' ? 'step' : null">
-            <div class="step-circle">
-              @if (stepState(i) === 'completed') {
-                <mat-icon class="step-check">check</mat-icon>
-              } @else {
-                <span class="step-number">{{ i + 1 }}</span>
-              }
-            </div>
-            <span class="step-label">{{ stepLabel(step) }}</span>
-          </div>
-          @if (!last) {
-            <div class="stepper-connector"
-                 [class.completed]="stepState(i) === 'completed'">
-            </div>
-          }
-        }
-      }
-    </div>
+    @if (!isTerminal()) {
+      <dmis-step-tracker
+        [steps]="trackerSteps()"
+        [activeIndex]="currentStepIndex()"
+        [linear]="false" />
+    } @else {
+      <div class="terminal-status" role="status">
+        <mat-icon class="terminal-icon">cancel</mat-icon>
+        <span class="terminal-label">{{ statusLabel() }}</span>
+      </div>
+    }
 
     <!-- Procurement Info Cards -->
     <div class="content-grid">

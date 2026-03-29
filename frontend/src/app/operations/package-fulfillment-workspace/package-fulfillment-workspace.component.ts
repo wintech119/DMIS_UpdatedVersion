@@ -12,6 +12,7 @@ import { FulfillmentPlanStepComponent } from './steps/fulfillment-plan-step.comp
 import { FulfillmentReviewStepComponent } from './steps/fulfillment-review-step.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
@@ -46,6 +47,7 @@ interface FulfillmentConfirmationState {
     FulfillmentReviewStepComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   providers: [OperationsWorkspaceStateService],
   templateUrl: './package-fulfillment-workspace.component.html',
@@ -67,6 +69,14 @@ export class PackageFulfillmentWorkspaceComponent {
   private readonly notifications = inject(DmisNotificationService);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly auth = inject(AuthRbacService);
+
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Select Stock' },
+    { label: 'Operational Details' },
+    { label: 'Review & Commit' },
+    { label: 'Confirmation' },
+  ]);
 
   readonly reliefrqstId = signal(0);
   readonly submissionErrors = signal<string[]>([]);
@@ -253,6 +263,14 @@ export class PackageFulfillmentWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
+    this.currentStepIndex.update(i => i + 1);
+  }
+
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+      this.currentStepIndex.set(index);
+    }
   }
 
   goToReview(): void {
@@ -264,12 +282,14 @@ export class PackageFulfillmentWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
+    this.currentStepIndex.update(i => i + 1);
   }
 
   resetConfirmation(): void {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 2;
+      this.currentStepIndex.set(2);
     }
   }
 
@@ -328,6 +348,7 @@ export class PackageFulfillmentWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 3;
+            this.currentStepIndex.set(3);
           }
         });
       },
