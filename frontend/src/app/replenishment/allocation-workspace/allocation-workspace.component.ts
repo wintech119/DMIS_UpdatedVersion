@@ -64,10 +64,22 @@ export class AllocationWorkspaceComponent {
   readonly current = this.store.current;
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
-    { label: 'Select Stock' },
-    { label: 'Operational Details' },
-    { label: 'Review & Commit' },
-    { label: 'Confirmation' },
+    {
+      label: 'Select Stock',
+      completed: this.isPlanStepComplete(),
+    },
+    {
+      label: 'Operational Details',
+      completed: this.isDetailStepComplete(),
+    },
+    {
+      label: 'Review & Commit',
+      completed: this.hasConfirmationStep(),
+    },
+    {
+      label: 'Confirmation',
+      disabled: !this.hasConfirmationStep(),
+    },
   ]);
 
   readonly needsListId = signal('');
@@ -191,32 +203,15 @@ export class AllocationWorkspaceComponent {
   }
 
   goToDetails(): void {
-    const errors = this.collectPlanErrors();
-    if (errors.length) {
-      this.submissionErrors.set(errors);
-      this.notifications.showError(errors[0]);
-      return;
-    }
-    this.submissionErrors.set([]);
-    this.stepper?.next();
+    this.navigateToStep(1, true);
   }
 
   onTrackerStepClick(index: number): void {
-    if (this.stepper) {
-      this.stepper.selectedIndex = index;
-      this.currentStepIndex.set(index);
-    }
+    this.navigateToStep(index, true);
   }
 
   goToReview(): void {
-    const errors = this.collectDetailErrors();
-    if (errors.length) {
-      this.submissionErrors.set(errors);
-      this.notifications.showError(errors[0]);
-      return;
-    }
-    this.submissionErrors.set([]);
-    this.stepper?.next();
+    this.navigateToStep(2, true);
   }
 
   resetConfirmation(): void {
@@ -421,5 +416,88 @@ export class AllocationWorkspaceComponent {
       return 'B';
     }
     return 'A';
+  }
+
+  private navigateToStep(index: number, showValidationMessages = false): void {
+    const stepper = this.stepper;
+    if (!stepper) {
+      return;
+    }
+
+    const currentIndex = stepper.selectedIndex;
+    const targetStep = stepper.steps.toArray()[index];
+    if (!targetStep) {
+      return;
+    }
+
+    if (index === currentIndex) {
+      this.currentStepIndex.set(index);
+      return;
+    }
+
+    if (targetStep.editable === false) {
+      return;
+    }
+
+    if (index > currentIndex) {
+      for (let stepIndex = currentIndex; stepIndex < index; stepIndex += 1) {
+        if (!this.canLeaveStep(stepIndex, showValidationMessages)) {
+          return;
+        }
+      }
+    }
+
+    stepper.selectedIndex = index;
+    this.currentStepIndex.set(index);
+  }
+
+  private canLeaveStep(stepIndex: number, showValidationMessages: boolean): boolean {
+    if (stepIndex === 0) {
+      return this.validatePlanStep(showValidationMessages);
+    }
+    if (stepIndex === 1) {
+      return this.validateDetailStep(showValidationMessages);
+    }
+    return true;
+  }
+
+  private isPlanStepComplete(): boolean {
+    return this.collectPlanErrors().length === 0;
+  }
+
+  private isDetailStepComplete(): boolean {
+    return this.collectDetailErrors().length === 0;
+  }
+
+  private hasConfirmationStep(): boolean {
+    return this.confirmationState() !== null;
+  }
+
+  private validatePlanStep(showValidationMessages: boolean): boolean {
+    const errors = this.collectPlanErrors();
+    if (!errors.length) {
+      this.submissionErrors.set([]);
+      return true;
+    }
+
+    this.submissionErrors.set(errors);
+    if (showValidationMessages) {
+      this.notifications.showError(errors[0]);
+    }
+    return false;
+  }
+
+  private validateDetailStep(showValidationMessages: boolean): boolean {
+    const errors = this.collectDetailErrors();
+    if (!errors.length) {
+      this.submissionErrors.set([]);
+      return true;
+    }
+
+    this.submissionErrors.set(errors);
+    if (showValidationMessages) {
+      this.notifications.showError(errors[0]);
+    }
+    return false;
   }
 }

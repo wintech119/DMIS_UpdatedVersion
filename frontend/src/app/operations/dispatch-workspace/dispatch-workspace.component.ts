@@ -71,9 +71,18 @@ export class OpsDispatchWorkspaceComponent {
 
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
-    { label: 'Readiness' },
-    { label: 'Review & Dispatch' },
-    { label: 'Confirmation' },
+    {
+      label: 'Readiness',
+      completed: this.canAdvanceToDispatchReview(),
+    },
+    {
+      label: 'Review & Dispatch',
+      completed: this.hasDispatchConfirmation(),
+    },
+    {
+      label: 'Confirmation',
+      disabled: !this.hasDispatchConfirmation(),
+    },
   ]);
 
   readonly reliefpkgId = signal(0);
@@ -263,22 +272,11 @@ export class OpsDispatchWorkspaceComponent {
   }
 
   onTrackerStepClick(index: number): void {
-    if (this.stepper) {
-      this.stepper.selectedIndex = index;
-      this.currentStepIndex.set(index);
-    }
+    this.navigateToStep(index, true);
   }
 
   goToDispatchReview(): void {
-    if (!this.hasCommittedAllocation()) {
-      this.notifications.showError('Reserve stock in the fulfillment workspace before moving to dispatch.');
-      return;
-    }
-    if (this.hasPendingOverride()) {
-      this.notifications.showWarning('Dispatch stays blocked while override approval is pending.');
-      return;
-    }
-    this.stepper?.next();
+    this.navigateToStep(1, true);
   }
 
   completeDispatchAction(): void {
@@ -424,5 +422,85 @@ export class OpsDispatchWorkspaceComponent {
     }
     const localOffsetMs = parsed.getTimezoneOffset() * 60000;
     return new Date(parsed.getTime() - localOffsetMs).toISOString().slice(0, 16);
+  }
+
+  private navigateToStep(index: number, showValidationMessages = false): void {
+    const stepper = this.stepper;
+    if (!stepper) {
+      return;
+    }
+
+    const currentIndex = stepper.selectedIndex;
+    const targetStep = stepper.steps.toArray()[index];
+    if (!targetStep) {
+      return;
+    }
+
+    if (index === currentIndex) {
+      this.currentStepIndex.set(index);
+      return;
+    }
+
+    if (targetStep.editable === false) {
+      return;
+    }
+
+    if (index > currentIndex) {
+      for (let stepIndex = currentIndex; stepIndex < index; stepIndex += 1) {
+        if (!this.canLeaveStep(stepIndex, showValidationMessages)) {
+          return;
+        }
+      }
+    }
+
+    stepper.selectedIndex = index;
+    this.currentStepIndex.set(index);
+  }
+
+  private canLeaveStep(stepIndex: number, showValidationMessages: boolean): boolean {
+    if (stepIndex === 0) {
+      return this.validateDispatchReviewAccess(showValidationMessages);
+    }
+    return true;
+  }
+
+  private canAdvanceToDispatchReview(): boolean {
+    return this.getDispatchReviewBlocker() === null;
+  }
+
+  private hasDispatchConfirmation(): boolean {
+    return this.displayConfirmation() !== null;
+  }
+
+  private validateDispatchReviewAccess(showValidationMessages: boolean): boolean {
+    const blocker = this.getDispatchReviewBlocker();
+    if (!blocker) {
+      return true;
+    }
+
+    if (showValidationMessages) {
+      if (blocker.tone === 'warning') {
+        this.notifications.showWarning(blocker.message);
+      } else {
+        this.notifications.showError(blocker.message);
+      }
+    }
+    return false;
+  }
+
+  private getDispatchReviewBlocker(): { message: string; tone: 'error' | 'warning' } | null {
+    if (!this.hasCommittedAllocation()) {
+      return {
+        message: 'Reserve stock in the fulfillment workspace before moving to dispatch.',
+        tone: 'error',
+      };
+    }
+    if (this.hasPendingOverride()) {
+      return {
+        message: 'Dispatch stays blocked while override approval is pending.',
+        tone: 'warning',
+      };
+    }
+    return null;
   }
 }
