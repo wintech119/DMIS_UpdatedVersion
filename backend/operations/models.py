@@ -251,17 +251,28 @@ class OperationsReceipt(models.Model):
     class Meta:
         db_table = "operations_receipt"
 
+    def _resolve_dispatch(self) -> OperationsDispatch | None:
+        cached_dispatch = self._state.fields_cache.get("dispatch")
+        if cached_dispatch is not None:
+            return cached_dispatch
+        if self.dispatch_id is None:
+            return None
+        try:
+            return self.dispatch
+        except OperationsDispatch.DoesNotExist:
+            return None
+
     @property
     def package(self) -> OperationsPackage | None:
         """Derive the package through the one-to-one dispatch relationship, or None if no dispatch."""
-        if self.dispatch_id is None or self.dispatch is None:
-            return None
-        return self.dispatch.package
+        dispatch = self._resolve_dispatch()
+        return dispatch.package if dispatch is not None else None
 
     @property
     def package_id(self) -> int | None:
         """Derive the package ID through the one-to-one dispatch relationship."""
-        return self.dispatch.package_id if self.dispatch_id is not None else None
+        dispatch = self._resolve_dispatch()
+        return dispatch.package_id if dispatch is not None else None
 
 
 class OperationsNotification(models.Model):

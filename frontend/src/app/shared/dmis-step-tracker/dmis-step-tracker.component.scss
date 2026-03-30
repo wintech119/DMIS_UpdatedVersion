@@ -70,6 +70,7 @@
     color: var(--color-wizard-step-active-text);
     border-color: var(--color-wizard-step-active-bg);
     font-weight: var(--weight-semibold);
+    will-change: transform;
     transform: scale(1.04);
     box-shadow: 0 2px 8px rgba(19, 78, 74, 0.18);
   }

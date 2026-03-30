@@ -84,6 +84,7 @@
 }
 
 // Hide the native stepper header — replaced by dmis-step-tracker
+/* stylelint-disable-next-line selector-pseudo-element-no-unknown */
 ::ng-deep .wizard-stepper {
   .mat-horizontal-stepper-header-container {
     display: none;

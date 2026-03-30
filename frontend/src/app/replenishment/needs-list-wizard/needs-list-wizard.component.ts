@@ -176,6 +176,7 @@ export class NeedsListWizardComponent implements OnInit {
   onTrackerStepClick(index: number): void {
     if (this.stepper) {
       this.stepper.selectedIndex = index;
+      this.currentStepIndex.set(index);
     }
   }
 

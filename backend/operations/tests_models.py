@@ -56,7 +56,28 @@ class OperationsReceiptModelTests(TestCase):
             receipt_status_code="RECEIVED",
             received_by_user_id="receiver-1",
         )
+        receipt.refresh_from_db()
 
+        self.assertEqual(receipt.package_id, package.package_id)
+        self.assertEqual(receipt.package, package)
+
+    def test_receipt_package_properties_use_assigned_unsaved_dispatch(self) -> None:
+        request = self._create_request(71)
+        package = self._create_package(91, request)
+        dispatch = OperationsDispatch(
+            package=package,
+            dispatch_no="DP00091",
+            status_code="PENDING",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        receipt = OperationsReceipt(
+            dispatch=dispatch,
+            receipt_status_code="PENDING",
+        )
+
+        self.assertIsNone(receipt.dispatch_id)
         self.assertEqual(receipt.package_id, package.package_id)
         self.assertEqual(receipt.package, package)
 

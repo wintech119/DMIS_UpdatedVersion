@@ -16,6 +16,11 @@ import { MatIconModule } from '@angular/material/icon';
 
 export interface StepDefinition {
   label: string;
+  /**
+   * Controls whether a step before the active index is treated as completed.
+   * When omitted, prior steps default to completed in the tracker. Set this to
+   * false to keep an earlier step incomplete in linear flows.
+   */
   completed?: boolean;
   disabled?: boolean;
 }
@@ -56,6 +61,9 @@ export class DmisStepTrackerComponent implements AfterViewInit, OnDestroy {
 
   private resizeObserver: ResizeObserver | null = null;
 
+  // Prior steps default to completed unless callers explicitly set completed: false.
+  // That keeps existing trackers concise, but linear flows should opt out when a
+  // previous step must remain incomplete for navigation and accessibility.
   resolvedSteps = computed<ResolvedStep[]>(() => {
     const allSteps = this.steps();
     const active = this.activeIndex();
@@ -126,6 +134,10 @@ export class DmisStepTrackerComponent implements AfterViewInit, OnDestroy {
     }
 
     this.stepClick.emit(index);
+  }
+
+  isAriaDisabled(step: ResolvedStep): boolean {
+    return !!step.disabled || (this.linear() && step.state === 'future');
   }
 
   onKeydown(event: KeyboardEvent, index: number): void {
