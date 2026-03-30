@@ -160,6 +160,7 @@ export class AllocationWorkspaceComponent {
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const needsListId = String(params.get('id') ?? '').trim();
       this.needsListId.set(needsListId);
+      this.resetWorkflowStep();
       this.confirmationState.set(null);
       this.submissionErrors.set([]);
       if (needsListId) {
@@ -212,6 +213,11 @@ export class AllocationWorkspaceComponent {
 
   goToReview(): void {
     this.navigateToStep(2, true);
+  }
+
+  private resetWorkflowStep(): void {
+    this.stepper?.reset();
+    this.currentStepIndex.set(0);
   }
 
   resetConfirmation(): void {
