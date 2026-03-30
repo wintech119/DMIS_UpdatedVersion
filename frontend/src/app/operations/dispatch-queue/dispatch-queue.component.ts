@@ -22,6 +22,8 @@ import { OperationsService } from '../services/operations.service';
 import { DispatchQueueItem } from '../models/operations.model';
 import { formatPackageStatus } from '../models/operations-status.util';
 
+type DispatchFilter = 'all' | 'ready' | 'in_transit' | 'completed';
+
 @Component({
   selector: 'app-dispatch-queue',
   standalone: true,
@@ -46,18 +48,48 @@ export class DispatchQueueComponent implements OnInit {
 
   readonly loading = signal(true);
   readonly items = signal<DispatchQueueItem[]>([]);
+  readonly activeFilter = signal<DispatchFilter>('all');
+
+  readonly filterOptions: readonly { label: string; value: DispatchFilter }[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Ready', value: 'ready' },
+    { label: 'In Transit', value: 'in_transit' },
+    { label: 'Completed', value: 'completed' },
+  ];
+
+  readonly filteredItems = computed(() => {
+    const filter = this.activeFilter();
+    const allItems = this.items();
+    switch (filter) {
+      case 'ready':
+        return allItems.filter((item) => item.status_code === 'P');
+      case 'in_transit':
+        return allItems.filter((item) => item.status_code === 'D' && !item.received_dtime);
+      case 'completed':
+        return allItems.filter((item) => item.status_code === 'C');
+      default:
+        return allItems;
+    }
+  });
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const total = items.length;
-    const dispatched = items.filter((item) => item.status_code === 'D').length;
+    const ready = items.filter((item) => item.status_code === 'P').length;
+    const inTransit = items.filter((item) => item.status_code === 'D' && !item.received_dtime).length;
+    const recentlyDispatched = items.filter((item) => {
+      if (item.status_code !== 'C' || !item.received_dtime) {
+        return false;
+      }
+      const receivedDate = new Date(item.received_dtime);
+      const ageMs = Date.now() - receivedDate.getTime();
+      return ageMs >= 0 && ageMs < 48 * 60 * 60 * 1000;
+    }).length;
     const completed = items.filter((item) => item.status_code === 'C').length;
-    const pending = items.filter((item) => item.status_code === 'P').length;
     return [
-      { label: 'Pending Dispatch', value: pending, note: 'Awaiting handoff' },
-      { label: 'Dispatched', value: dispatched, note: 'Already in transit' },
-      { label: 'Completed', value: completed, note: 'Receipt recorded' },
-      { label: 'All Packages', value: total, note: 'Visible in queue' },
+      { label: 'Ready', value: ready, note: 'Awaiting handoff' },
+      { label: 'In Transit', value: inTransit, note: 'Dispatched, receipt pending' },
+      { label: 'Recently Dispatched', value: recentlyDispatched, note: 'Received within 48h' },
+      { label: 'Completed', value: completed, note: 'Receipt confirmed' },
     ];
   });
 
@@ -86,6 +118,10 @@ export class DispatchQueueComponent implements OnInit {
 
   refreshQueue(): void {
     this.loadQueue();
+  }
+
+  setFilter(filter: DispatchFilter): void {
+    this.activeFilter.set(filter);
   }
 
   viewDispatch(item: DispatchQueueItem): void {

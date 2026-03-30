@@ -239,6 +239,9 @@
                     <div class="ops-timeline__meta">
                       <span>{{ step.detail }}</span>
                     </div>
+                    @if (step.timestamp) {
+                      <p class="ops-timeline__timestamp">{{ step.timestamp }}</p>
+                    }
                   </div>
                 </div>
               }

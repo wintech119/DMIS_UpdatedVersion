@@ -109,18 +109,29 @@ export function formatOperationsAge(value: string | null | undefined): string {
   }
   const minutes = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 60000));
   if (minutes < 60) {
-    return `${Math.max(1, minutes)}m`;
+    const displayMinutes = Math.max(1, minutes);
+    return displayMinutes === 1 ? '1 min' : `${displayMinutes} mins`;
   }
   const hours = Math.round(minutes / 60);
   if (hours < 24) {
-    return `${hours}h`;
+    return hours === 1 ? '1 hr' : `${hours} hrs`;
   }
   const days = Math.round(hours / 24);
-  return `${days}d`;
+  return days === 1 ? '1 day' : `${days} days`;
 }
 
 export function formatOperationsLineCount(count: number): string {
   return count === 1 ? '1 item' : `${count} items`;
+}
+
+const REQUEST_MODE_LABELS: Record<string, string> = {
+  SELF: 'Self',
+  SUBORDINATE: 'Subordinate',
+  ODPEM_BRIDGE: 'ODPEM Bridge',
+};
+
+export function formatRequestMode(mode: string | null | undefined): string {
+  return REQUEST_MODE_LABELS[String(mode ?? '').toUpperCase()] ?? String(mode ?? 'Unknown');
 }
 
 const TASK_TYPE_LABELS: Record<string, string> = {

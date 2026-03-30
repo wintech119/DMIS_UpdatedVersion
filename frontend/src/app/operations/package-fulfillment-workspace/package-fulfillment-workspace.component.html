@@ -44,86 +44,107 @@
   @if (!store.loading() && !store.loadError() && packageDetail(); as detail) {
     <app-ops-metric-strip [items]="workspaceMetrics()" />
 
-    <div class="ops-split">
-      <section class="ops-pane ops-pane--wide" aria-labelledby="fulfillment-summary-title">
-        <div class="ops-pane__header">
-          <div>
-            <p class="ops-pane__eyebrow">Packing context</p>
-            <h2 id="fulfillment-summary-title">Request and fulfilment context</h2>
-          </div>
-          <div class="ops-pane__actions">
-            <button mat-stroked-button type="button" (click)="openWaybill()" [disabled]="!store.hasWaybill()">
-              <mat-icon>description</mat-icon>
-              Waybill
-            </button>
-            <button mat-stroked-button type="button" (click)="openReceiptConfirmation()">
-              <mat-icon>fact_check</mat-icon>
-              Receipt
-            </button>
-          </div>
-        </div>
+    <button
+      type="button"
+      class="ops-context-toggle"
+      [class.ops-context-toggle--expanded]="contextExpanded()"
+      (click)="contextExpanded.set(!contextExpanded())"
+      [attr.aria-expanded]="contextExpanded()">
+      <mat-icon aria-hidden="true">expand_more</mat-icon>
+      {{ contextExpanded() ? 'Hide request context' : 'Show request context & guardrails' }}
+    </button>
 
-        <div class="ops-context-grid">
-          <article class="ops-context-card">
-            <span class="ops-context-card__label">Agency</span>
-            <strong>{{ detail.request.agency_name || ('Agency ' + detail.request.agency_id) }}</strong>
-            <p>{{ detail.request.event_name || 'No event set' }}</p>
-          </article>
-          <article class="ops-context-card">
-            <span class="ops-context-card__label">Urgency</span>
-            <strong>{{ formatUrgency(detail.request.urgency_ind) }}</strong>
-            <p>{{ detail.items.length || 0 }} item lines</p>
-          </article>
-          <article class="ops-context-card">
-            <span class="ops-context-card__label">Execution</span>
-            <strong>{{ formatExecutionStatus(detail.package?.execution_status) }}</strong>
-            <p>Reservation freezes stock until dispatch.</p>
-          </article>
-          <article class="ops-context-card">
-            <span class="ops-context-card__label">Package</span>
-            <strong>{{ formatPackageStatus(detail.package?.status_code) }}</strong>
-            <p>{{ detail.package?.tracking_no || 'Pending build' }}</p>
-          </article>
-        </div>
+    <div class="ops-context-collapse" [class.ops-context-collapse--open]="contextExpanded()">
+      <div class="ops-context-collapse__inner">
+        <div class="ops-split">
+          <section class="ops-pane ops-pane--wide" aria-labelledby="fulfillment-summary-title">
+            <div class="ops-pane__header">
+              <div>
+                <p class="ops-pane__eyebrow">Packing context</p>
+                <h2 id="fulfillment-summary-title">Request and fulfilment context</h2>
+              </div>
+              <div class="ops-pane__actions">
+                <button mat-stroked-button type="button" (click)="openWaybill()" [disabled]="!store.hasWaybill()">
+                  <mat-icon>description</mat-icon>
+                  Waybill
+                </button>
+                <button mat-stroked-button type="button" (click)="openReceiptConfirmation()">
+                  <mat-icon>fact_check</mat-icon>
+                  Receipt
+                </button>
+              </div>
+            </div>
 
-        @if (overrideApprovalHint(); as hint) {
-          <div class="ops-callout" role="status">
-            <mat-icon aria-hidden="true">info</mat-icon>
-            <span>{{ hint }}</span>
-          </div>
-        }
-      </section>
+            <div class="ops-context-grid">
+              <article class="ops-context-card">
+                <span class="ops-context-card__label">Agency</span>
+                <strong>{{ detail.request.agency_name || ('Agency ' + detail.request.agency_id) }}</strong>
+                <p>{{ detail.request.event_name || 'No event set' }}</p>
+              </article>
+              <article class="ops-context-card">
+                <span class="ops-context-card__label">Urgency</span>
+                <strong>{{ formatUrgency(detail.request.urgency_ind) }}</strong>
+                <p>{{ detail.items.length || 0 }} item lines</p>
+              </article>
+              <article class="ops-context-card">
+                <span class="ops-context-card__label">Execution</span>
+                <strong>{{ formatExecutionStatus(detail.package?.execution_status) }}</strong>
+                <p>Reservation freezes stock until dispatch.</p>
+              </article>
+              <article class="ops-context-card">
+                <span class="ops-context-card__label">Package</span>
+                <strong>{{ formatPackageStatus(detail.package?.status_code) }}</strong>
+                <p>{{ detail.package?.tracking_no || 'Pending build' }}</p>
+              </article>
+            </div>
 
-      <aside class="ops-pane ops-pane--rail" aria-labelledby="fulfillment-rail-title">
-        <div class="ops-pane__header">
-          <div>
-            <p class="ops-pane__eyebrow">Fulfillment rail</p>
-            <h2 id="fulfillment-rail-title">Operating guardrails</h2>
-          </div>
-        </div>
+            @if (overrideApprovalHint(); as hint) {
+              <div class="ops-callout" role="status">
+                <mat-icon aria-hidden="true">info</mat-icon>
+                <span>{{ hint }}</span>
+              </div>
+            }
+          </section>
 
-        <div class="ops-rail-stack">
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Selection Method</span>
-            <strong>{{ formatAllocationMethod(store.selectedMethod()) }}</strong>
-          </article>
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Bypass Visibility</span>
-            <strong>{{ store.planRequiresOverride() || store.hasPendingOverride() ? 'Visible' : 'Not required' }}</strong>
-          </article>
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Physical Deduction</span>
-            <strong>On dispatch only</strong>
-          </article>
-          <article class="ops-rail-card">
-            <span class="ops-rail-card__label">Receipt Confirmation</span>
-            <strong>Route pending backend hookup</strong>
-          </article>
+          <aside class="ops-pane ops-pane--rail" aria-labelledby="fulfillment-rail-title">
+            <div class="ops-pane__header">
+              <div>
+                <p class="ops-pane__eyebrow">Fulfillment rail</p>
+                <h2 id="fulfillment-rail-title">Operating guardrails</h2>
+              </div>
+            </div>
+
+            <div class="ops-rail-stack">
+              <article class="ops-rail-card">
+                <span class="ops-rail-card__label">Selection Method</span>
+                <strong>{{ formatAllocationMethod(store.selectedMethod()) }}</strong>
+                <p class="ops-rail-card__hint">Items must follow {{ formatAllocationMethod(store.selectedMethod()) }} ordering. Deviations require override approval.</p>
+              </article>
+              <article class="ops-rail-card">
+                <span class="ops-rail-card__label">Bypass Visibility</span>
+                <strong>{{ store.planRequiresOverride() || store.hasPendingOverride() ? 'Visible' : 'Not required' }}</strong>
+              </article>
+              <article class="ops-rail-card">
+                <span class="ops-rail-card__label">Physical Deduction</span>
+                <strong>On dispatch only</strong>
+              </article>
+              <article class="ops-rail-card">
+                <span class="ops-rail-card__label">Receipt Confirmation</span>
+                <strong>Route pending backend hookup</strong>
+              </article>
+            </div>
+          </aside>
         </div>
-      </aside>
+      </div>
     </div>
 
-    <mat-stepper linear #stepper class="ops-stepper">
+    <dmis-step-tracker
+      [steps]="trackerSteps()"
+      [activeIndex]="currentStepIndex()"
+      [linear]="true"
+      (stepClick)="onTrackerStepClick($event)" />
+
+    <mat-stepper linear #stepper class="ops-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Select Stock</ng-template>
         <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />

@@ -1,5 +1,5 @@
-﻿import { Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
-import { Router, NavigationEnd, RouterLink } from '@angular/router';
+﻿import { ChangeDetectorRef, Component, ChangeDetectionStrategy, output, input, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Router, NavigationEnd, RouterLink, RouterLinkActive } from '@angular/router';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
@@ -18,6 +18,7 @@ const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
   standalone: true,
   imports: [
     RouterLink,
+    RouterLinkActive,
     MatExpansionModule,
     MatListModule,
     MatIconModule,
@@ -30,6 +31,7 @@ const COLLAPSED_STORAGE_KEY = 'dmis_sidenav_collapsed';
 })
 export class SidenavComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly appAccess = inject(AppAccessService);
   private readonly masterDataAccess = inject(MasterDataAccessService);
   private routerSub!: Subscription;
@@ -52,7 +54,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.routerSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe((e) => this.currentUrl.set(this.normalizeUrl(e.urlAfterRedirects)));
+      .subscribe((e) => {
+        this.currentUrl.set(this.normalizeUrl(e.urlAfterRedirects));
+        this.cdr.markForCheck();
+      });
   }
 
   ngOnDestroy(): void {

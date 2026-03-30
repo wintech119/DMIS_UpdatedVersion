@@ -158,6 +158,18 @@ import {
           </div>
         </div>
 
+        @if (isAlreadyDispatched()) {
+          <div class="dispatch-alert dispatch-alert--info" role="status" style="margin-bottom: 14px">
+            <mat-icon aria-hidden="true">lock</mat-icon>
+            <span>Transport details were captured at dispatch time and are now read-only.</span>
+          </div>
+        } @else if (hasAllocation() && !isPendingOverride()) {
+          <div class="dispatch-alert dispatch-alert--warning" role="status" style="margin-bottom: 14px">
+            <mat-icon aria-hidden="true">edit_note</mat-icon>
+            <span>Complete transport details before dispatching. Driver name is required.</span>
+          </div>
+        }
+
         <div class="dispatch-transport-grid">
           <mat-form-field appearance="outline" class="dispatch-field">
             <mat-label>Transport Mode</mat-label>
@@ -366,8 +378,9 @@ import {
       gap: 4px;
       padding: 12px;
       border-radius: 10px;
-      background: var(--color-surface-muted);
-      border: 1px solid #e5e5e2;
+      background: var(--ops-strip-bg, #ffffff);
+      border: 1px solid var(--color-border, #e5e5e2);
+      box-shadow: var(--ops-strip-shadow, 0 1px 3px rgba(55, 53, 47, 0.06));
     }
 
     .dispatch-empty {

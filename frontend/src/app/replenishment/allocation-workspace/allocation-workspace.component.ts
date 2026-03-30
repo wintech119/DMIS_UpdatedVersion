@@ -13,6 +13,7 @@ import { AllocationReviewStepComponent } from './steps/allocation-review-step.co
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { NeedsListResponse } from '../models/needs-list.model';
 import { ExecutionWorkspaceStateService } from '../execution/services/execution-workspace-state.service';
 import { DmisNotificationService } from '../services/notification.service';
@@ -42,6 +43,7 @@ const ALLOCATION_READY_STATUSES = new Set(['APPROVED', 'IN_PREPARATION', 'IN_PRO
     DmisApprovalStatusTrackerComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   providers: [ExecutionWorkspaceStateService],
   templateUrl: './allocation-workspace.component.html',
@@ -60,6 +62,26 @@ export class AllocationWorkspaceComponent {
   readonly auth = inject(AuthRbacService);
 
   readonly current = this.store.current;
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    {
+      label: 'Select Stock',
+      completed: this.isPlanStepComplete(),
+    },
+    {
+      label: 'Operational Details',
+      completed: this.isDetailStepComplete(),
+    },
+    {
+      label: 'Review & Commit',
+      completed: this.hasConfirmationStep(),
+    },
+    {
+      label: 'Confirmation',
+      disabled: !this.hasConfirmationStep(),
+    },
+  ]);
+
   readonly needsListId = signal('');
   readonly submissionErrors = signal<string[]>([]);
   readonly confirmationState = signal<AllocationConfirmationState | null>(null);
@@ -138,6 +160,7 @@ export class AllocationWorkspaceComponent {
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const needsListId = String(params.get('id') ?? '').trim();
       this.needsListId.set(needsListId);
+      this.resetWorkflowStep();
       this.confirmationState.set(null);
       this.submissionErrors.set([]);
       if (needsListId) {
@@ -181,31 +204,27 @@ export class AllocationWorkspaceComponent {
   }
 
   goToDetails(): void {
-    const errors = this.collectPlanErrors();
-    if (errors.length) {
-      this.submissionErrors.set(errors);
-      this.notifications.showError(errors[0]);
-      return;
-    }
-    this.submissionErrors.set([]);
-    this.stepper?.next();
+    this.navigateToStep(1, true);
+  }
+
+  onTrackerStepClick(index: number): void {
+    this.navigateToStep(index, true);
   }
 
   goToReview(): void {
-    const errors = this.collectDetailErrors();
-    if (errors.length) {
-      this.submissionErrors.set(errors);
-      this.notifications.showError(errors[0]);
-      return;
-    }
-    this.submissionErrors.set([]);
-    this.stepper?.next();
+    this.navigateToStep(2, true);
+  }
+
+  private resetWorkflowStep(): void {
+    this.stepper?.reset();
+    this.currentStepIndex.set(0);
   }
 
   resetConfirmation(): void {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 2;
+      this.currentStepIndex.set(2);
     }
   }
 
@@ -274,6 +293,7 @@ export class AllocationWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 3;
+            this.currentStepIndex.set(3);
           }
         });
       },
@@ -402,5 +422,88 @@ export class AllocationWorkspaceComponent {
       return 'B';
     }
     return 'A';
+  }
+
+  private navigateToStep(index: number, showValidationMessages = false): void {
+    const stepper = this.stepper;
+    if (!stepper) {
+      return;
+    }
+
+    const currentIndex = stepper.selectedIndex;
+    const targetStep = stepper.steps.toArray()[index];
+    if (!targetStep) {
+      return;
+    }
+
+    if (index === currentIndex) {
+      this.currentStepIndex.set(index);
+      return;
+    }
+
+    if (targetStep.editable === false) {
+      return;
+    }
+
+    if (index > currentIndex) {
+      for (let stepIndex = currentIndex; stepIndex < index; stepIndex += 1) {
+        if (!this.canLeaveStep(stepIndex, showValidationMessages)) {
+          return;
+        }
+      }
+    }
+
+    stepper.selectedIndex = index;
+    this.currentStepIndex.set(index);
+  }
+
+  private canLeaveStep(stepIndex: number, showValidationMessages: boolean): boolean {
+    if (stepIndex === 0) {
+      return this.validatePlanStep(showValidationMessages);
+    }
+    if (stepIndex === 1) {
+      return this.validateDetailStep(showValidationMessages);
+    }
+    return true;
+  }
+
+  private isPlanStepComplete(): boolean {
+    return this.collectPlanErrors().length === 0;
+  }
+
+  private isDetailStepComplete(): boolean {
+    return this.collectDetailErrors().length === 0;
+  }
+
+  private hasConfirmationStep(): boolean {
+    return this.confirmationState() !== null;
+  }
+
+  private validatePlanStep(showValidationMessages: boolean): boolean {
+    const errors = this.collectPlanErrors();
+    if (!errors.length) {
+      this.submissionErrors.set([]);
+      return true;
+    }
+
+    this.submissionErrors.set(errors);
+    if (showValidationMessages) {
+      this.notifications.showError(errors[0]);
+    }
+    return false;
+  }
+
+  private validateDetailStep(showValidationMessages: boolean): boolean {
+    const errors = this.collectDetailErrors();
+    if (!errors.length) {
+      this.submissionErrors.set([]);
+      return true;
+    }
+
+    this.submissionErrors.set(errors);
+    if (showValidationMessages) {
+      this.notifications.showError(errors[0]);
+    }
+    return false;
   }
 }

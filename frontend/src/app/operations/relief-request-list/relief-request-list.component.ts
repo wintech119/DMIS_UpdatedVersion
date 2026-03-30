@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestSummary } from '../models/operations.model';
@@ -17,6 +18,7 @@ import {
   formatOperationsLineCount,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
+  formatRequestMode,
   OperationsTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
@@ -43,6 +45,7 @@ interface QueueMetric {
     MatInputModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    OpsMetricStripComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './relief-request-list.component.html',
@@ -112,6 +115,15 @@ export class ReliefRequestListComponent implements OnInit {
     ];
   });
 
+  readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
+    const m = this.metrics();
+    return m.map(metric => ({
+      label: metric.label,
+      value: String(metric.value),
+      hint: metric.note,
+    }));
+  });
+
   readonly statusSummary = computed(() => {
     const rows = this.filteredRequests();
     return {
@@ -127,6 +139,7 @@ export class ReliefRequestListComponent implements OnInit {
   readonly formatOperationsAge = formatOperationsAge;
   readonly formatOperationsDateTime = formatOperationsDateTime;
   readonly formatOperationsLineCount = formatOperationsLineCount;
+  readonly formatRequestMode = formatRequestMode;
   readonly getOperationsRequestTone = getOperationsRequestTone;
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
 

@@ -33,6 +33,7 @@ import {
 } from '../shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { formatStatusLabel } from './status-label.util';
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -78,13 +79,6 @@ const APPROVAL_WARNING_LABELS: Record<string, string> = {
     'Donation restriction value is unrecognized and requires review.'
 };
 
-interface WorkflowStep {
-  id: string;
-  label: string;
-  icon: string;
-  state: 'completed' | 'active' | 'pending' | 'terminal';
-}
-
 const FRESHNESS_RANK: Record<FreshnessLevel, number> = {
   HIGH: 0,
   MEDIUM: 1,
@@ -125,7 +119,8 @@ const HORIZON_ACTIONS = {
     DmisDataFreshnessBannerComponent,
     TimeToStockoutComponent,
     DmisSkeletonLoaderComponent,
-    DmisEmptyStateComponent
+    DmisEmptyStateComponent,
+    DmisStepTrackerComponent
   ],
   templateUrl: './needs-list-review-detail.component.html',
   styleUrl: './needs-list-review-detail.component.scss',
@@ -241,42 +236,35 @@ export class NeedsListReviewDetailComponent implements OnInit {
     return 'No approval actions are available for your current permissions.';
   });
 
-  readonly workflowSteps = computed<WorkflowStep[]>(() => {
+  readonly trackerSteps = computed<StepDefinition[]>(() => {
     const status = this.status();
-    const steps: { id: string; label: string; icon: string }[] = [
-      { id: 'SUBMITTED', label: 'Submitted', icon: 'send' },
-      { id: 'UNDER_REVIEW', label: 'Under Review', icon: 'rate_review' },
-      { id: 'APPROVED', label: 'Approved', icon: 'verified' },
-      { id: 'FULFILLED', label: 'Fulfilled', icon: 'task_alt' },
+    const steps: StepDefinition[] = [
+      { label: 'Submitted' },
+      { label: 'Under Review' },
+      { label: 'Approved' },
+      { label: 'Fulfilled' },
     ];
+    if (status === 'REJECTED') steps[1] = { label: 'Rejected' };
+    else if (status === 'CANCELLED') steps[1] = { label: 'Cancelled' };
+    return steps;
+  });
 
-    let activeIndex: number;
-    let isTerminal = false;
+  readonly reviewStepIndex = computed(() => {
+    const status = this.status();
     switch (status) {
       case 'DRAFT': case 'MODIFIED': case 'RETURNED':
-        activeIndex = -1; break;
+        return -1;
       case 'SUBMITTED': case 'PENDING': case 'PENDING_APPROVAL':
-        activeIndex = 0; break;
-      case 'UNDER_REVIEW': case 'ESCALATED':
-        activeIndex = 1; break;
-      case 'APPROVED':
-        activeIndex = 2; break;
-      case 'IN_PREPARATION': case 'DISPATCHED': case 'RECEIVED': case 'IN_PROGRESS':
-        activeIndex = 2; break;
+        return 0;
+      case 'UNDER_REVIEW': case 'ESCALATED': case 'REJECTED': case 'CANCELLED':
+        return 1;
+      case 'APPROVED': case 'IN_PREPARATION': case 'DISPATCHED': case 'RECEIVED': case 'IN_PROGRESS':
+        return 2;
       case 'COMPLETED': case 'FULFILLED':
-        activeIndex = 3; break;
-      case 'REJECTED': case 'CANCELLED':
-        activeIndex = 1; isTerminal = true; break;
+        return 3;
       default:
-        activeIndex = 0; break;
+        return 0;
     }
-
-    return steps.map((s, i) => ({
-      ...s,
-      state: i < activeIndex ? 'completed' as const
-           : i === activeIndex ? (isTerminal ? 'terminal' as const : 'active' as const)
-           : 'pending' as const
-    }));
   });
 
   readonly itemTotals = computed(() => {

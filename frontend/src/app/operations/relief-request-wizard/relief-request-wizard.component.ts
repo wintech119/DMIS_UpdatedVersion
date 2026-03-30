@@ -28,6 +28,7 @@ import {
   OperationsCapabilities,
 } from '../../replenishment/services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { RequestItemsStepComponent } from './steps/request-items-step.component';
 import { RequestReviewStepComponent, ReviewFormValue } from './steps/request-review-step.component';
 
@@ -52,6 +53,7 @@ type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
     MatProgressBarModule,
     MatTooltipModule,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
     RequestItemsStepComponent,
     RequestReviewStepComponent,
   ],
@@ -247,6 +249,11 @@ export class ReliefRequestWizardComponent implements OnInit {
     return agencyValid && urgencyValid && hasItems && itemsValid;
   });
 
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Request Setup', completed: this.isStep1Valid() },
+    { label: 'Review & Route' },
+  ]);
+
   readonly addItemFn = (): void => this.addItem();
   readonly removeItemFn = (index: number): void => this.removeItem(index);
 
@@ -427,6 +434,12 @@ export class ReliefRequestWizardComponent implements OnInit {
       return itemId.trim();
     }
     return fallbackText || 'Not selected';
+  }
+
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+    }
   }
 
   onSaveAsDraft(): void {

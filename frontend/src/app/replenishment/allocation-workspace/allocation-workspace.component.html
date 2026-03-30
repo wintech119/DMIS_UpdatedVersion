@@ -127,7 +127,13 @@
       </div>
     </div>
 
-    <mat-stepper linear #stepper class="wizard-stepper">
+    <dmis-step-tracker
+      [steps]="trackerSteps()"
+      [activeIndex]="currentStepIndex()"
+      [linear]="true"
+      (stepClick)="onTrackerStepClick($event)" />
+
+    <mat-stepper linear #stepper class="wizard-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Select Stock</ng-template>
         <app-allocation-plan-step [readOnly]="lockPlanEdits()"></app-allocation-plan-step>

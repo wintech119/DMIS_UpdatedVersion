@@ -34,13 +34,19 @@
         <strong>{{ currentStageLabel() }}</strong>
         <p>{{ completed() ? 'Request saved successfully.' : ('Step ' + (currentStepIndex() + 1) + ' of 2') }}</p>
       </article>
-      <article class="request-wizard-meta-card">
-        <span class="request-wizard-meta-card__label">Submission Mode</span>
-        <strong>{{ submissionModeLabel() }}</strong>
-        <p>{{ submissionModeHint() }}</p>
-      </article>
     </div>
   </section>
+
+  <div class="request-wizard-authority-banner" role="status">
+    <mat-icon aria-hidden="true">security</mat-icon>
+    <div>
+      <strong>{{ submissionModeLabel() }}</strong>
+      <p>{{ submissionModeHint() }}</p>
+      @if (requestDateText()) {
+        <p class="request-wizard-authority-banner__date">Request date: {{ requestDateText() }}</p>
+      }
+    </div>
+  </div>
 
   @if (pageBusy()) {
     <dmis-skeleton-loader variant="form-field" [count]="4" />
@@ -99,6 +105,12 @@
       @if (saving()) {
         <mat-progress-bar mode="indeterminate" class="request-wizard-progress" />
       }
+
+      <dmis-step-tracker
+        [steps]="trackerSteps()"
+        [activeIndex]="currentStepIndex()"
+        [linear]="true"
+        (stepClick)="onTrackerStepClick($event)" />
 
       <mat-stepper
         #stepper

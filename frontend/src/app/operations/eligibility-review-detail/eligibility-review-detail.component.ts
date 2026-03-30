@@ -84,7 +84,10 @@ export class EligibilityReviewDetailComponent implements OnInit {
     if (!detail.decision_made) {
       return 'Not decided';
     }
-    return detail.status_code === 4 || detail.status_code === 8 ? 'Rejected' : 'Approved';
+    if (detail.status_code === 8) {
+      return 'Ineligible';
+    }
+    return detail.status_code === 4 ? 'Rejected' : 'Approved';
   });
 
   readonly workflow = computed<WorkflowStep[]>(() => {
@@ -167,7 +170,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
         if (!confirmed) {
           return;
         }
-        this.submitDecision({ decision: 'Y' });
+        this.submitDecision({ decision: 'Y' }, 'Request approved.');
       });
   }
 
@@ -190,7 +193,31 @@ export class EligibilityReviewDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: DmisReasonDialogResult | undefined) => {
         if (result?.reason) {
-          this.submitDecision({ decision: 'N', reason: result.reason });
+          this.submitDecision({ decision: 'N', reason: result.reason }, 'Request rejected.');
+        }
+      });
+  }
+
+  markIneligible(): void {
+    const detail = this.detail();
+    if (!detail) {
+      return;
+    }
+
+    const dialogRef = this.dialog.open(DmisReasonDialogComponent, {
+      width: '480px',
+      data: {
+        title: 'Mark Ineligible',
+        actionLabel: 'Mark Ineligible',
+        actionColor: 'warn',
+      } satisfies DmisReasonDialogData,
+    });
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result: DmisReasonDialogResult | undefined) => {
+        if (result?.reason) {
+          this.submitDecision({ decision: 'N', reason: result.reason }, 'Request marked ineligible.');
         }
       });
   }
@@ -211,7 +238,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
     return item.item_id;
   }
 
-  private submitDecision(payload: EligibilityDecisionPayload): void {
+  private submitDecision(payload: EligibilityDecisionPayload, successMessage: string): void {
     const detail = this.detail();
     if (!detail) {
       return;
@@ -224,7 +251,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
         next: (updated) => {
           this.detail.set(updated);
           this.submitting.set(false);
-          this.notify.showSuccess(payload.decision === 'Y' ? 'Request approved.' : 'Request rejected.');
+          this.notify.showSuccess(successMessage);
         },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);

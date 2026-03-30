@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from operations.models import (
@@ -41,10 +40,9 @@ class OperationsReceiptModelTests(TestCase):
             update_by_id="tester",
         )
 
-    def test_receipt_save_rejects_package_that_does_not_match_dispatch(self) -> None:
+    def test_receipt_package_property_returns_dispatch_package(self) -> None:
         request = self._create_request(70)
         package = self._create_package(90, request)
-        other_package = self._create_package(91, request)
         dispatch = OperationsDispatch.objects.create(
             package=package,
             dispatch_no="DP00090",
@@ -53,20 +51,40 @@ class OperationsReceiptModelTests(TestCase):
             update_by_id="tester",
         )
 
-        with self.assertRaises(ValidationError) as raised:
-            OperationsReceipt.objects.create(
-                dispatch=dispatch,
-                package=other_package,
-                receipt_status_code="RECEIVED",
-                received_by_user_id="receiver-1",
-            )
+        receipt = OperationsReceipt.objects.create(
+            dispatch=dispatch,
+            receipt_status_code="RECEIVED",
+            received_by_user_id="receiver-1",
+        )
+        receipt.refresh_from_db()
 
-        self.assertEqual(
-            raised.exception.message_dict,
-            {"package": ["Receipt package must match the dispatch package."]},
+        self.assertEqual(receipt.package_id, package.package_id)
+        self.assertEqual(receipt.package, package)
+
+    def test_receipt_package_properties_use_assigned_unsaved_dispatch(self) -> None:
+        request = self._create_request(71)
+        package = self._create_package(91, request)
+        dispatch = OperationsDispatch(
+            package=package,
+            dispatch_no="DP00091",
+            status_code="PENDING",
+            create_by_id="tester",
+            update_by_id="tester",
         )
 
-    def test_receipt_model_declares_unique_constraint_on_package(self) -> None:
-        constraint_names = {constraint.name for constraint in OperationsReceipt._meta.constraints}
+        receipt = OperationsReceipt(
+            dispatch=dispatch,
+            receipt_status_code="PENDING",
+        )
 
-        self.assertIn("operations_receipt_unique_package", constraint_names)
+        self.assertIsNone(receipt.dispatch_id)
+        self.assertEqual(receipt.package_id, package.package_id)
+        self.assertEqual(receipt.package, package)
+
+    def test_receipt_package_and_id_none_without_dispatch(self) -> None:
+        receipt = OperationsReceipt(
+            receipt_status_code="PENDING",
+        )
+        self.assertIsNone(receipt.dispatch_id)
+        self.assertIsNone(receipt.package_id)
+        self.assertIsNone(receipt.package)

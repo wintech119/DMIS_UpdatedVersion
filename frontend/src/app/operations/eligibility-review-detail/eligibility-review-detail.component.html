@@ -40,6 +40,10 @@
             <mat-icon>cancel</mat-icon>
             Reject
           </button>
+          <button mat-stroked-button color="warn" type="button" (click)="markIneligible()" [disabled]="submitting()">
+            <mat-icon>block</mat-icon>
+            Ineligible
+          </button>
         } @else if (rq.decision_made) {
           <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="rq.status_code !== 7 && rq.status_code !== 5">
             <mat-icon>inventory_2</mat-icon>
@@ -193,7 +197,7 @@
               </div>
               <div class="ops-summary-card">
                 <span class="ops-summary-card__label">Tracking</span>
-                <p class="ops-summary-card__value">{{ rq.tracking_no ?? 'Draft only' }}</p>
+                <p class="ops-summary-card__value">{{ rq.tracking_no ?? 'Under Eligibility Review' }}</p>
               </div>
               <div class="ops-summary-card">
                 <span class="ops-summary-card__label">Items</span>

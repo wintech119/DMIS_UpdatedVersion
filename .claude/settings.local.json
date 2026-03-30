@@ -4,7 +4,14 @@
       "Bash(PGPASSWORD=\"$PGPASSWORD\" \"C:/Program Files/PostgreSQL/18/bin/psql.exe\":*)",
       "Bash(npx ng:*)",
       "Bash(python manage.py check)",
-      "Bash(python manage.py test --verbosity=2)"
+      "Bash(python manage.py test --verbosity=2)",
+      "Bash(gh pr view)",
+      "Bash(gh pr list)",
+      "Bash(python manage.py test operations.tests_models -v2 --keepdb)",
+      "Bash(DJANGO_USE_SQLITE=1 DJANGO_ALLOW_SQLITE=1 DJANGO_DEBUG=1 python backend/manage.py test operations --verbosity 2)",
+      "Bash(DJANGO_USE_SQLITE=1 DJANGO_ALLOW_SQLITE=1 DJANGO_DEBUG=1 python backend/manage.py test operations.tests_contract_services.OperationsWorkflowContractTests.test_receipt_confirmation_persists_receipt_artifact --verbosity 2)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright"
     ]
   },
   "enableAllProjectMcpServers": true,

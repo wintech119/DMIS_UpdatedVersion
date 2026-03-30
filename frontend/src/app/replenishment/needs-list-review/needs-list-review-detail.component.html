@@ -49,28 +49,10 @@
     }
 
     <!-- Workflow Status Stepper -->
-    <div class="workflow-stepper" role="navigation" aria-label="Approval workflow progress">
-      @for (step of workflowSteps(); track step.id; let last = $last) {
-        <div class="wf-step" [class.wf-completed]="step.state === 'completed'"
-             [class.wf-active]="step.state === 'active'"
-             [class.wf-terminal]="step.state === 'terminal'"
-             [class.wf-pending]="step.state === 'pending'">
-          <div class="wf-dot">
-            @if (step.state === 'completed') {
-              <mat-icon aria-hidden="true">check</mat-icon>
-            } @else if (step.state === 'terminal') {
-              <mat-icon aria-hidden="true">close</mat-icon>
-            } @else {
-              <mat-icon aria-hidden="true">{{ step.icon }}</mat-icon>
-            }
-          </div>
-          <span class="wf-label">{{ step.label }}</span>
-        </div>
-        @if (!last) {
-          <div class="wf-connector" [class.wf-connector-done]="step.state === 'completed'"></div>
-        }
-      }
-    </div>
+    <dmis-step-tracker
+      [steps]="trackerSteps()"
+      [activeIndex]="reviewStepIndex()"
+      [linear]="false" />
 
     <!-- Urgency Summary Strip -->
     <div class="urgency-strip" role="status" aria-label="Severity distribution">

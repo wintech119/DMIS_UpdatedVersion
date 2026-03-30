@@ -12,6 +12,7 @@ import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-st
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OperationsService } from '../services/operations.service';
@@ -32,6 +33,13 @@ interface DispatchConfirmationState {
   hint: string;
 }
 
+interface DispatchStateSummary {
+  label: string;
+  icon: string;
+  tone: 'success' | 'warning' | 'muted';
+  checks: { label: string; met: boolean }[];
+}
+
 @Component({
   selector: 'app-ops-dispatch-workspace',
   standalone: true,
@@ -46,6 +54,7 @@ interface DispatchConfirmationState {
     OpsDispatchReviewStepComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   templateUrl: './dispatch-workspace.component.html',
   styleUrl: './dispatch-workspace.component.scss',
@@ -59,6 +68,22 @@ export class OpsDispatchWorkspaceComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly operationsService = inject(OperationsService);
   private readonly notifications = inject(DmisNotificationService);
+
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    {
+      label: 'Readiness',
+      completed: this.canAdvanceToDispatchReview(),
+    },
+    {
+      label: 'Review & Dispatch',
+      completed: this.hasDispatchConfirmation(),
+    },
+    {
+      label: 'Confirmation',
+      disabled: !this.hasDispatchConfirmation(),
+    },
+  ]);
 
   readonly reliefpkgId = signal(0);
   readonly loading = signal(false);
@@ -99,6 +124,51 @@ export class OpsDispatchWorkspaceComponent {
     && !this.alreadyDispatched()
     && this.driverName().trim().length > 0
   );
+
+  readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
+    const detail = this.dispatchDetail();
+    const dispatched = this.alreadyDispatched();
+    const receiptConfirmed = !!detail?.received_dtime;
+    const reservationReady = this.hasCommittedAllocation() && !this.hasPendingOverride();
+
+    let label: string;
+    let icon: string;
+    let tone: 'success' | 'warning' | 'muted';
+
+    if (receiptConfirmed) {
+      label = 'Receipt Confirmed';
+      icon = 'verified';
+      tone = 'success';
+    } else if (dispatched) {
+      label = 'Dispatched';
+      icon = 'local_shipping';
+      tone = 'success';
+    } else if (this.hasPendingOverride()) {
+      label = 'Override Pending';
+      icon = 'hourglass_top';
+      tone = 'warning';
+    } else if (reservationReady) {
+      label = 'Ready to Dispatch';
+      icon = 'check_circle';
+      tone = 'success';
+    } else {
+      label = 'Awaiting Reservation';
+      icon = 'pending';
+      tone = 'warning';
+    }
+
+    return {
+      label,
+      icon,
+      tone,
+      checks: [
+        { label: 'Reservation committed', met: this.hasCommittedAllocation() },
+        { label: 'No pending override', met: !this.hasPendingOverride() },
+        { label: 'Dispatch recorded', met: dispatched },
+        { label: 'Receipt confirmed', met: receiptConfirmed },
+      ],
+    };
+  });
 
   readonly primaryActionLabel = computed(() => {
     if (this.alreadyDispatched()) {
@@ -201,16 +271,12 @@ export class OpsDispatchWorkspaceComponent {
     }
   }
 
+  onTrackerStepClick(index: number): void {
+    this.navigateToStep(index, true);
+  }
+
   goToDispatchReview(): void {
-    if (!this.hasCommittedAllocation()) {
-      this.notifications.showError('Reserve stock in the fulfillment workspace before moving to dispatch.');
-      return;
-    }
-    if (this.hasPendingOverride()) {
-      this.notifications.showWarning('Dispatch stays blocked while override approval is pending.');
-      return;
-    }
-    this.stepper?.next();
+    this.navigateToStep(1, true);
   }
 
   completeDispatchAction(): void {
@@ -240,6 +306,7 @@ export class OpsDispatchWorkspaceComponent {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 1;
+      this.currentStepIndex.set(1);
     }
   }
 
@@ -318,6 +385,7 @@ export class OpsDispatchWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 2;
+            this.currentStepIndex.set(2);
           }
         });
       },
@@ -354,5 +422,85 @@ export class OpsDispatchWorkspaceComponent {
     }
     const localOffsetMs = parsed.getTimezoneOffset() * 60000;
     return new Date(parsed.getTime() - localOffsetMs).toISOString().slice(0, 16);
+  }
+
+  private navigateToStep(index: number, showValidationMessages = false): void {
+    const stepper = this.stepper;
+    if (!stepper) {
+      return;
+    }
+
+    const currentIndex = stepper.selectedIndex;
+    const targetStep = stepper.steps.toArray()[index];
+    if (!targetStep) {
+      return;
+    }
+
+    if (index === currentIndex) {
+      this.currentStepIndex.set(index);
+      return;
+    }
+
+    if (targetStep.editable === false) {
+      return;
+    }
+
+    if (index > currentIndex) {
+      for (let stepIndex = currentIndex; stepIndex < index; stepIndex += 1) {
+        if (!this.canLeaveStep(stepIndex, showValidationMessages)) {
+          return;
+        }
+      }
+    }
+
+    stepper.selectedIndex = index;
+    this.currentStepIndex.set(index);
+  }
+
+  private canLeaveStep(stepIndex: number, showValidationMessages: boolean): boolean {
+    if (stepIndex === 0) {
+      return this.validateDispatchReviewAccess(showValidationMessages);
+    }
+    return true;
+  }
+
+  private canAdvanceToDispatchReview(): boolean {
+    return this.getDispatchReviewBlocker() === null;
+  }
+
+  private hasDispatchConfirmation(): boolean {
+    return this.displayConfirmation() !== null;
+  }
+
+  private validateDispatchReviewAccess(showValidationMessages: boolean): boolean {
+    const blocker = this.getDispatchReviewBlocker();
+    if (!blocker) {
+      return true;
+    }
+
+    if (showValidationMessages) {
+      if (blocker.tone === 'warning') {
+        this.notifications.showWarning(blocker.message);
+      } else {
+        this.notifications.showError(blocker.message);
+      }
+    }
+    return false;
+  }
+
+  private getDispatchReviewBlocker(): { message: string; tone: 'error' | 'warning' } | null {
+    if (!this.hasCommittedAllocation()) {
+      return {
+        message: 'Reserve stock in the fulfillment workspace before moving to dispatch.',
+        tone: 'error',
+      };
+    }
+    if (this.hasPendingOverride()) {
+      return {
+        message: 'Dispatch stays blocked while override approval is pending.',
+        tone: 'warning',
+      };
+    }
+    return null;
   }
 }

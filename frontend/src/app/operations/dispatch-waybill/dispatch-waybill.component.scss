@@ -27,7 +27,7 @@
 
 .ops-doc-hero__title {
   margin: 8px 0 10px;
-  font-size: clamp(2.1rem, 4vw, 3.7rem);
+  font-size: clamp(1.6rem, 2.5vw, 2.2rem);
   line-height: 0.98;
 }
 
@@ -319,8 +319,22 @@
 
 /* Print styles */
 @media print {
-  .ops-doc-hero__actions {
+  .ops-doc-shell {
+    padding: 0;
+  }
+
+  .ops-doc-hero__actions,
+  .ops-doc-hero__description,
+  .ops-doc-chip-row {
     display: none;
+  }
+
+  .ops-doc-hero {
+    margin-bottom: 0.5rem;
+  }
+
+  .ops-doc-hero__title {
+    font-size: 1.6rem;
   }
 
   .ops-doc-layout {
@@ -332,9 +346,29 @@
     box-shadow: none;
     border: 1px solid #e0e0e0;
     margin-bottom: 1rem;
+    padding: 14px;
+    border-radius: 0;
+  }
+
+  .ops-doc-banner {
+    border-radius: 0;
+    padding: 8px 12px;
+  }
+
+  .ops-doc-dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .ops-route-graphic {
+    padding: 0.75rem 0;
   }
 
   .ops-qr-placeholder__box {
     border-style: solid;
+  }
+
+  .ops-doc-rail .ops-doc-card:last-child {
+    display: none;
   }
 }

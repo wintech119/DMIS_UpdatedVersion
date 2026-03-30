@@ -12,6 +12,7 @@ import { DispatchReviewStepComponent } from './steps/dispatch-review-step.compon
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisApprovalStatusTrackerComponent } from '../shared/dmis-approval-status-tracker/dmis-approval-status-tracker.component';
+import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { NeedsListResponse } from '../models/needs-list.model';
 import { ExecutionWorkspaceStateService } from '../execution/services/execution-workspace-state.service';
 import { DmisNotificationService } from '../services/notification.service';
@@ -37,6 +38,7 @@ interface DispatchConfirmationState {
     DmisApprovalStatusTrackerComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    DmisStepTrackerComponent,
   ],
   providers: [ExecutionWorkspaceStateService],
   templateUrl: './dispatch-workspace.component.html',
@@ -56,6 +58,12 @@ export class DispatchWorkspaceComponent {
   readonly current = this.store.current;
   readonly needsListId = signal('');
   readonly confirmationState = signal<DispatchConfirmationState | null>(null);
+  readonly currentStepIndex = signal(0);
+  readonly trackerSteps = computed<StepDefinition[]>(() => [
+    { label: 'Readiness' },
+    { label: 'Review & Dispatch' },
+    { label: 'Confirmation' },
+  ]);
 
   readonly approvalHorizon = computed(() => this.resolveApprovalHorizon(this.current()));
 
@@ -146,6 +154,13 @@ export class DispatchWorkspaceComponent {
     this.router.navigate(['/replenishment/needs-list', needsListId, 'review']);
   }
 
+  onTrackerStepClick(index: number): void {
+    if (this.stepper) {
+      this.stepper.selectedIndex = index;
+      this.currentStepIndex.set(index);
+    }
+  }
+
   goToDispatchReview(): void {
     if (!this.store.hasCommittedAllocation()) {
       this.notifications.showError('Reserve stock in the allocation workspace before moving to dispatch.');
@@ -189,6 +204,7 @@ export class DispatchWorkspaceComponent {
     this.confirmationState.set(null);
     if (this.stepper) {
       this.stepper.selectedIndex = 1;
+      this.currentStepIndex.set(1);
     }
   }
 
@@ -238,6 +254,7 @@ export class DispatchWorkspaceComponent {
         queueMicrotask(() => {
           if (this.stepper) {
             this.stepper.selectedIndex = 2;
+            this.currentStepIndex.set(2);
           }
         });
       },

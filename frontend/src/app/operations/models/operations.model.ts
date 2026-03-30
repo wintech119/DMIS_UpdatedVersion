@@ -6,6 +6,12 @@ export type UrgencyCode = 'C' | 'H' | 'M' | 'L';
 export type EligibilityDecision = 'Y' | 'N';
 export type AllocationSourceType = 'ON_HAND' | 'TRANSFER' | 'DONATION' | 'PROCUREMENT';
 export type AllocationMethod = 'FEFO' | 'FIFO' | 'MIXED' | 'MANUAL';
+export type AllocationItemStatus =
+  | 'not_started'
+  | 'partly_allocated'
+  | 'fully_allocated'
+  | 'unavailable'
+  | 'complete';
 export type OperationsEntityType = 'RELIEF_REQUEST' | 'REQUEST' | 'PACKAGE' | 'DISPATCH';
 
 export interface RequestReferenceOption {
@@ -79,6 +85,8 @@ export interface RequestSummary {
   execution_status: string | null;
   needs_list_id: number | null;
   compatibility_bridge: boolean;
+  request_mode: 'SELF' | 'SUBORDINATE' | 'ODPEM_BRIDGE' | null;
+  authority_context: string | null;
 }
 
 export interface RequestDetailResponse extends RequestSummary {

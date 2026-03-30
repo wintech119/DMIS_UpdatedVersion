@@ -1,0 +1,57 @@
+<nav class="tracker" aria-label="Wizard progress">
+  @if (canScrollLeft()) {
+    <button
+      type="button"
+      class="tracker__arrow tracker__arrow--left"
+      (click)="scrollLeft()"
+      aria-label="Scroll steps left">
+      <mat-icon>chevron_left</mat-icon>
+    </button>
+  }
+
+  <div
+    #scrollContainer
+    class="tracker__pills"
+    (scroll)="onScroll()">
+    @for (step of resolvedSteps(); track step.index) {
+      <button
+        type="button"
+        class="tracker__pill"
+        [class.tracker__pill--active]="step.state === 'active'"
+        [class.tracker__pill--completed]="step.state === 'completed'"
+        [class.tracker__pill--future]="step.state === 'future'"
+        [class.tracker__pill--disabled]="step.disabled"
+        [attr.aria-current]="step.state === 'active' ? 'step' : null"
+        [attr.aria-disabled]="isAriaDisabled(step) ? 'true' : null"
+        [tabindex]="step.state === 'active' ? 0 : -1"
+        (click)="onStepClick(step.index)"
+        (keydown)="onKeydown($event, step.index)">
+        <span class="tracker__number">
+          @if (step.state === 'completed') {
+            <mat-icon class="tracker__check">check</mat-icon>
+          } @else {
+            {{ step.index + 1 }}
+          }
+        </span>
+        <span class="tracker__label">{{ step.label }}</span>
+      </button>
+    }
+  </div>
+
+  @if (canScrollRight()) {
+    <button
+      type="button"
+      class="tracker__arrow tracker__arrow--right"
+      (click)="scrollRight()"
+      aria-label="Scroll steps right">
+      <mat-icon>chevron_right</mat-icon>
+    </button>
+  }
+
+  <div class="tracker__connector" aria-hidden="true">
+    <div
+      class="tracker__connector-fill"
+      [style.width.%]="progressPercent()">
+    </div>
+  </div>
+</nav>
