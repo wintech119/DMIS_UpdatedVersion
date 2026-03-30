@@ -12,7 +12,6 @@
   <div
     #scrollContainer
     class="tracker__pills"
-    role="tablist"
     (scroll)="onScroll()">
     @for (step of resolvedSteps(); track step.index) {
       <button
@@ -22,8 +21,7 @@
         [class.tracker__pill--completed]="step.state === 'completed'"
         [class.tracker__pill--future]="step.state === 'future'"
         [class.tracker__pill--disabled]="step.disabled"
-        role="tab"
-        [attr.aria-selected]="step.state === 'active'"
+        [attr.aria-current]="step.state === 'active' ? 'step' : null"
         [attr.aria-disabled]="isAriaDisabled(step) ? 'true' : null"
         [tabindex]="step.state === 'active' ? 0 : -1"
         (click)="onStepClick(step.index)"

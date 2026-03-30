@@ -109,7 +109,7 @@ export function formatOperationsAge(value: string | null | undefined): string {
   }
   const minutes = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 60000));
   if (minutes < 60) {
-    return minutes === 1 ? '1 min' : `${Math.max(1, minutes)} mins`;
+    return minutes === 1 ? '1 min' : `${minutes} mins`;
   }
   const hours = Math.round(minutes / 60);
   if (hours < 24) {

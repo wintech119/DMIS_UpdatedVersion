@@ -25,7 +25,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 export class OpsStatusChipComponent {
   readonly label = input.required<string>();
   readonly tone = input<'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline'>('neutral');
-  readonly showDot = input(false);
+  readonly showDot = input(true);
 
   readonly chipClass = computed(() => `ops-chip--${this.tone()}`);
 }

@@ -9,6 +9,7 @@
 
 .tracker__pills {
   --pill-gap: clamp(20px, 3vw, 48px);
+
   display: flex;
   gap: var(--pill-gap);
   overflow-x: auto;

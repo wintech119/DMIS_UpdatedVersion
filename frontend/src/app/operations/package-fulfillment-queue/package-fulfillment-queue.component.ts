@@ -78,10 +78,11 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         return true;
       }
       const haystack = [
-        row.tracking_no,
+        row.tracking_no ?? `REQ-${row.reliefrqst_id}`,
         row.agency_name,
         row.event_name,
         row.rqst_notes_text,
+        row.package_tracking_no,
         row.current_package?.tracking_no,
       ]
         .filter(Boolean)
@@ -182,7 +183,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   getFulfillmentStage(row: PackageQueueItem): FulfillmentFilter {
     const pkgStatus = row.current_package?.status_code ?? row.package_status;
     if (!pkgStatus) return 'awaiting';
-    if (pkgStatus === 'P') return 'ready';
+    if (pkgStatus === 'P') return this.isOverridePending(row) ? 'preparing' : 'ready';
     if (pkgStatus === 'D' || pkgStatus === 'C') return 'dispatched';
     return row.current_package ? 'preparing' : 'awaiting';
   }

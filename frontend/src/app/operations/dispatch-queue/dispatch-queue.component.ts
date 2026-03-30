@@ -81,7 +81,8 @@ export class DispatchQueueComponent implements OnInit {
         return false;
       }
       const receivedDate = new Date(item.received_dtime);
-      return (Date.now() - receivedDate.getTime()) < 48 * 60 * 60 * 1000;
+      const ageMs = Date.now() - receivedDate.getTime();
+      return ageMs >= 0 && ageMs < 48 * 60 * 60 * 1000;
     }).length;
     const completed = items.filter((item) => item.status_code === 'C').length;
     return [

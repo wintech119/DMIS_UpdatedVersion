@@ -95,6 +95,7 @@
                    [routerLink]="firstChild.route"
                    [queryParams]="firstChild.queryParams"
                    routerLinkActive="active"
+                   [routerLinkActiveOptions]="{ exact: !!firstChild.queryParams }"
                    [matTooltip]="getGroupTooltip(group)"
                    matTooltipPosition="right"
                    matTooltipShowDelay="300"
