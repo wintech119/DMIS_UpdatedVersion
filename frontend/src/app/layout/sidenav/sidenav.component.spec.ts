@@ -71,7 +71,11 @@ describe('SidenavComponent', () => {
       ?.groups.find((group) => group.label === 'Master Data');
 
     expect(masterGroup).toBeDefined();
-    expect(component.visibleChildren(masterGroup as any).map((item) => item.label)).toEqual([
+    if (!masterGroup) {
+      throw new Error('Expected Master Data navigation group to exist.');
+    }
+
+    expect(component.visibleChildren(masterGroup).map((item) => item.label)).toEqual([
       'Operational Masters',
     ]);
   });
@@ -88,12 +92,16 @@ describe('SidenavComponent', () => {
       .find((section) => section.sectionLabel === 'OPERATIONS')
       ?.groups.find((group) => group.label === 'Operations');
 
-    expect(component.visibleChildren(replenishmentGroup as any).map((item) => item.label)).toEqual([
+    if (!replenishmentGroup || !operationsGroup) {
+      throw new Error('Expected replenishment and operations navigation groups to exist.');
+    }
+
+    expect(component.visibleChildren(replenishmentGroup).map((item) => item.label)).toEqual([
       'Stock Status Dashboard',
       'My Drafts & Submissions',
       'Needs List Wizard',
     ]);
-    expect(component.visibleChildren(operationsGroup as any).map((item) => item.label)).toEqual([
+    expect(component.visibleChildren(operationsGroup).map((item) => item.label)).toEqual([
       'Dashboard',
       'Relief Requests',
       'Eligibility Review',

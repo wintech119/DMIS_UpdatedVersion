@@ -191,10 +191,18 @@ export class RequestItemsStepComponent implements OnChanges {
     // Header-level form controls
     const agencyBlocked = this.creationBlocked || this.agencyOptions.length === 0;
     const agency = this.form.get('agency_id');
-    agencyBlocked ? agency?.disable(opts) : agency?.enable(opts);
+    if (agencyBlocked) {
+      agency?.disable(opts);
+    } else {
+      agency?.enable(opts);
+    }
 
     const event = this.form.get('eligible_event_id');
-    this.creationBlocked ? event?.disable(opts) : event?.enable(opts);
+    if (this.creationBlocked) {
+      event?.disable(opts);
+    } else {
+      event?.enable(opts);
+    }
 
     // Item-level form controls
     if (!this.itemsArray) return;
@@ -202,7 +210,11 @@ export class RequestItemsStepComponent implements OnChanges {
     for (const group of this.itemsArray.controls) {
       for (const field of itemFields) {
         const control = group.get(field);
-        this.creationBlocked ? control?.disable(opts) : control?.enable(opts);
+        if (this.creationBlocked) {
+          control?.disable(opts);
+        } else {
+          control?.enable(opts);
+        }
       }
     }
   }

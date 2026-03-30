@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { ActivatedRouteSnapshot, CanActivateFn, CanMatchFn, Route, Router, UrlSegment, UrlTree } from '@angular/router';
+import { CanActivateFn, CanMatchFn, Router, UrlTree } from '@angular/router';
 import { map, Observable } from 'rxjs';
 
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';

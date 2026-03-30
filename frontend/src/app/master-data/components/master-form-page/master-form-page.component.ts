@@ -304,17 +304,20 @@ export class MasterFormPageComponent implements OnInit {
     const noInventory = this.selectedAssignmentInventoryId() === null;
     const opts = { emitEvent: false } as const;
 
-    loading
-      ? this.locationForm.controls.inventory_id.disable(opts)
-      : this.locationForm.controls.inventory_id.enable(opts);
+    if (loading) {
+      this.locationForm.controls.inventory_id.disable(opts);
+    } else {
+      this.locationForm.controls.inventory_id.enable(opts);
+    }
 
     const dependentBlocked = loading || noInventory;
-    dependentBlocked
-      ? this.locationForm.controls.location_id.disable(opts)
-      : this.locationForm.controls.location_id.enable(opts);
-    dependentBlocked
-      ? this.locationForm.controls.batch_id.disable(opts)
-      : this.locationForm.controls.batch_id.enable(opts);
+    if (dependentBlocked) {
+      this.locationForm.controls.location_id.disable(opts);
+      this.locationForm.controls.batch_id.disable(opts);
+    } else {
+      this.locationForm.controls.location_id.enable(opts);
+      this.locationForm.controls.batch_id.enable(opts);
+    }
   });
 
   /** Group form fields by their group property */
