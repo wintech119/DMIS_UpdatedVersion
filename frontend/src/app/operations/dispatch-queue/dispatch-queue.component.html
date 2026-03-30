@@ -43,15 +43,19 @@
 
       <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter dispatch queue">
         @for (filter of filterOptions; track filter.value) {
-          <button
-            class="ops-chip"
-            [class.ops-chip--active]="activeFilter() === filter.value"
-            type="button"
-            role="radio"
-            [attr.aria-checked]="activeFilter() === filter.value"
-            (click)="activeFilter.set(filter.value)">
-            {{ filter.label }}
-          </button>
+          <label class="ops-filter-option">
+            <input
+              class="ops-filter-option__input"
+              type="radio"
+              name="dispatch-queue-filter"
+              [checked]="activeFilter() === filter.value"
+              (change)="setFilter(filter.value)" />
+            <span
+              class="ops-chip"
+              [class.ops-chip--active]="activeFilter() === filter.value">
+              {{ filter.label }}
+            </span>
+          </label>
         }
       </div>
 

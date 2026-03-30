@@ -761,8 +761,8 @@ def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[
     items: list[dict[str, Any]] = []
     for group in compat.get("items", []):
         item: dict[str, Any] = {**group}
-        item["request_qty"] = item.pop("required_qty", "0.0000")
-        item["issue_qty"] = item.pop("fulfilled_qty", "0.0000")
+        item["request_qty"] = _compat_qty_string(item.pop("required_qty", "0"))
+        item["issue_qty"] = _compat_qty_string(item.pop("fulfilled_qty", "0"))
         item.pop("reserved_qty", None)
         item.pop("needs_list_item_id", None)
         item.pop("criticality_level", None)
@@ -772,6 +772,13 @@ def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[
         "request": _request_summary(_load_request(reliefrqst_id)),
         "items": items,
     }
+
+
+def _compat_qty_string(value: Any) -> str:
+    try:
+        return str(_quantize_qty(Decimal(str(value if value not in (None, "") else "0"))))
+    except (InvalidOperation, ValueError, TypeError):
+        return "0.0000"
 
 
 def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None) -> dict[str, Any]:

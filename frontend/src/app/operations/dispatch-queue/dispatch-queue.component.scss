@@ -96,6 +96,24 @@
   font-size: 0.92rem;
 }
 
+.ops-filter-option {
+  position: relative;
+  display: inline-flex;
+}
+
+.ops-filter-option__input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.ops-filter-option__input:focus-visible + .ops-chip {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
 .ops-queue-list {
   display: grid;
   gap: 12px;

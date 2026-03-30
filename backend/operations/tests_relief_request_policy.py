@@ -261,6 +261,28 @@ class TrackingNumberHelperTests(SimpleTestCase):
     def test_tracking_number_keeps_zero_padding_for_small_ids(self) -> None:
         self.assertEqual(operations_service._tracking_no("PK", 7), "PK00007")
 
+    @patch("operations.services._request_summary", return_value={"reliefrqst_id": 88, "tracking_no": "RQ00088"})
+    @patch("operations.services._load_request", return_value=SimpleNamespace(reliefrqst_id=88, tracking_no="RQ00088"))
+    def test_reshape_compat_options_normalizes_quantities_to_four_decimals(
+        self,
+        _load_request_mock,
+        _request_summary_mock,
+    ) -> None:
+        payload = operations_service._reshape_compat_options(
+            {
+                "items": [
+                    {"item_id": 101, "required_qty": "2", "fulfilled_qty": None},
+                    {"item_id": 102, "required_qty": "bad", "fulfilled_qty": ""},
+                ]
+            },
+            88,
+        )
+
+        self.assertEqual(payload["items"][0]["request_qty"], "2.0000")
+        self.assertEqual(payload["items"][0]["issue_qty"], "0.0000")
+        self.assertEqual(payload["items"][1]["request_qty"], "0.0000")
+        self.assertEqual(payload["items"][1]["issue_qty"], "0.0000")
+
 
 class ReliefRequestServiceTests(TestCase):
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 77, "tracking_no": "RQ00077"})

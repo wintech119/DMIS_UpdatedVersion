@@ -120,6 +120,10 @@ export class DispatchQueueComponent implements OnInit {
     this.loadQueue();
   }
 
+  setFilter(filter: DispatchFilter): void {
+    this.activeFilter.set(filter);
+  }
+
   viewDispatch(item: DispatchQueueItem): void {
     this.router.navigate(['/operations/dispatch', item.reliefpkg_id]);
   }
