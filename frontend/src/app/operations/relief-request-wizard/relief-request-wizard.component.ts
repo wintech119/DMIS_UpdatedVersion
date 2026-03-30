@@ -110,6 +110,11 @@ export class ReliefRequestWizardComponent implements OnInit {
 
   readonly capabilities = computed<OperationsCapabilities | null>(() => this.auth.operationsCapabilities());
 
+  readonly isDualMode = computed(() => {
+    const modes = this.capabilities()?.allowed_origin_modes ?? [];
+    return modes.includes('self') && modes.includes('for_subordinate');
+  });
+
   readonly creationBlocked = computed(() =>
     !this.isEditMode()
     && this.auth.loaded()
@@ -157,54 +162,63 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (requestDateIso) {
       return formatDisplayDate(requestDateIso);
     }
-    return this.isEditMode() ? 'Waiting for request record' : 'System stamped on first save';
+    return this.isEditMode() ? 'Will appear after saving' : 'Set automatically when saved';
   });
 
   readonly requestDateHint = computed(() =>
     this.requestDateIso()
-      ? 'Recorded by Operations when the request was first created.'
-      : 'The backend stamps the formal request date when the draft is first saved.'
+      ? 'Date this request was first saved.'
+      : 'This date is recorded automatically the first time you save the request.'
   );
 
   readonly submissionModeLabel = computed(() => {
+    if (this.isDualMode()) {
+      return 'Your organisation or managed entity';
+    }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'For subordinate entity';
+        return 'Request on behalf of a managed entity';
       case 'on_behalf_bridge':
-        return 'ODPEM bridge on behalf';
+        return 'ODPEM-assisted request';
       case 'self':
-        return 'Self request';
+        return 'Your organisation\'s request';
       default:
-        return this.isEditMode() ? 'Draft update' : 'Relief request unavailable';
+        return this.isEditMode() ? 'Editing draft request' : 'Request creation is not available';
     }
   });
 
   readonly submissionModeHint = computed(() => {
+    if (this.isDualMode()) {
+      return 'Choose the agency that needs supplies. You can select your own organisation or any entity you manage.';
+    }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'Select the subordinate agency or entity by name. This tenant is acting as the request authority for units under its control.';
+        return 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
       case 'on_behalf_bridge':
-        return 'Select the beneficiary agency by name. This is the transitional ODPEM bridge lane for on-behalf request entry.';
+        return 'Choose the agency that needs support. As ODPEM, you are entering this request on their behalf.';
       case 'self':
-        return 'Select the requesting agency by name. This lane is for the active operational tenant requesting assistance for itself.';
+        return 'Choose the agency that needs relief supplies. This request will be submitted under your organisation\'s authority.';
       default:
-        return 'This route reflects the backend capabilities advertised for the active tenant.';
+        return 'Your account does not have permission to create relief requests. Contact your administrator if you believe this is incorrect.';
     }
   });
 
   readonly workflowLabel = computed(() => {
     if (this.isEditMode()) {
-      return 'Draft revision';
+      return 'Editing draft';
+    }
+    if (this.isDualMode()) {
+      return 'New request';
     }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'Subordinate intake';
+        return 'New request (on behalf)';
       case 'on_behalf_bridge':
-        return 'ODPEM bridge intake';
+        return 'New request (ODPEM-assisted)';
       case 'self':
-        return 'Self intake';
+        return 'New request';
       default:
-        return 'Request entry';
+        return 'New request';
     }
   });
 

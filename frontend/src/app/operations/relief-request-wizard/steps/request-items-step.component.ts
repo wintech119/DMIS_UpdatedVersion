@@ -80,19 +80,19 @@ export class RequestItemsStepComponent implements OnChanges {
 
   get requestingAgencyTooltip(): string {
     switch (this.submissionModeLabel) {
-      case 'For subordinate entity':
-        return 'Choose the subordinate agency or entity that needs support. The request is still saved against that agency ID even though the form shows names.';
-      case 'ODPEM bridge on behalf':
-        return 'Choose the beneficiary agency by name. This bridge lane is for transitional ODPEM-assisted request entry and still saves the agency ID underneath.';
-      case 'Self request':
-        return 'Choose the entity that is requesting relief in this transaction. In self mode this should be the active operational tenant.';
+      case 'Request on behalf of a managed entity':
+        return 'Choose which agency under your authority needs supplies.';
+      case 'ODPEM-assisted request':
+        return 'Choose the agency you are entering this request for.';
+      case 'Your organisation\'s request':
+        return 'Choose your agency. In most cases there will be only one option.';
       default:
-        return 'Choose the entity that should appear as the requesting entity on this relief request.';
+        return 'Choose the agency requesting relief supplies.';
     }
   }
 
   get submissionModeTooltip(): string {
-    return `${this.submissionModeHint} This lane is controlled by the backend permissions advertised for the active tenant.`;
+    return this.submissionModeHint;
   }
 
   isReasonRequired(urgency: UrgencyCode | string | null): boolean {

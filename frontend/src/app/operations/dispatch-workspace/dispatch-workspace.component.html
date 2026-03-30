@@ -80,7 +80,7 @@
           <article class="ops-context-card">
             <span class="ops-context-card__label">Waybill State</span>
             <strong>{{ detail.waybill ? 'Available' : 'Pending' }}</strong>
-            <p>Deterministic rebuild contract.</p>
+            <p>Updated automatically from the dispatch record.</p>
           </article>
         </div>
 
@@ -210,9 +210,9 @@
                 <div class="ops-callout" role="status">
                   <mat-icon aria-hidden="true">info</mat-icon>
                   <span>
-                    Waybill artifact mode: <strong>{{ wb.artifact_mode || 'deterministic rebuild' }}</strong>.
+                    Waybill mode: <strong>{{ wb.artifact_mode || 'auto-generated' }}</strong>.
                     @if (!wb.persisted) {
-                      This waybill is rebuilt from the dispatch record and is not persisted separately yet.
+                      This waybill updates automatically from the dispatch record.
                     }
                   </span>
                 </div>

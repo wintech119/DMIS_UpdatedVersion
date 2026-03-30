@@ -22,11 +22,14 @@ export interface TenantContextSummary {
   memberships: TenantMembershipSummary[];
 }
 
+export type OriginMode = 'self' | 'for_subordinate' | 'on_behalf_bridge';
+
 export interface OperationsCapabilities {
   can_create_relief_request: boolean;
   can_create_relief_request_on_behalf: boolean;
-  relief_request_submission_mode: 'self' | 'for_subordinate' | 'on_behalf_bridge' | null;
+  relief_request_submission_mode: OriginMode | null;
   default_requesting_tenant_id: number | null;
+  allowed_origin_modes: OriginMode[];
 }
 
 interface WhoAmIResponse {
@@ -147,6 +150,8 @@ function normalizeTenantContext(source: Partial<TenantContextSummary> | null | u
   };
 }
 
+const VALID_ORIGIN_MODES = new Set<OriginMode>(['self', 'for_subordinate', 'on_behalf_bridge']);
+
 function normalizeOperationsCapabilities(
   source: Partial<OperationsCapabilities> | null | undefined,
 ): OperationsCapabilities | null {
@@ -155,17 +160,29 @@ function normalizeOperationsCapabilities(
   }
 
   const submissionMode = String(source.relief_request_submission_mode ?? '').trim().toLowerCase();
+  const validMode: OriginMode | null =
+    VALID_ORIGIN_MODES.has(submissionMode as OriginMode) ? submissionMode as OriginMode : null;
 
   return {
     can_create_relief_request: Boolean(source.can_create_relief_request),
     can_create_relief_request_on_behalf: Boolean(source.can_create_relief_request_on_behalf),
-    relief_request_submission_mode: submissionMode === 'self'
-      || submissionMode === 'for_subordinate'
-      || submissionMode === 'on_behalf_bridge'
-      ? submissionMode
-      : null,
+    relief_request_submission_mode: validMode,
     default_requesting_tenant_id: asNullableNumber(source.default_requesting_tenant_id),
+    allowed_origin_modes: normalizeAllowedOriginModes(source, validMode),
   };
+}
+
+function normalizeAllowedOriginModes(
+  source: Record<string, unknown>,
+  fallbackMode: OriginMode | null,
+): OriginMode[] {
+  const raw = source['allowed_origin_modes'];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry: unknown) => String(entry ?? '').trim().toLowerCase())
+      .filter((mode): mode is OriginMode => VALID_ORIGIN_MODES.has(mode as OriginMode));
+  }
+  return fallbackMode ? [fallbackMode] : [];
 }
 
 function asNullableString(value: unknown): string | null {

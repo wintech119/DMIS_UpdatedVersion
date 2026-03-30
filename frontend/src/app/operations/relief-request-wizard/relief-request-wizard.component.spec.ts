@@ -43,6 +43,7 @@ describe('ReliefRequestWizardComponent', () => {
             operationsCapabilities: () => ({
               can_create_relief_request: true,
               relief_request_submission_mode: 'self',
+              allowed_origin_modes: ['self'],
             }),
           },
         },
@@ -76,7 +77,7 @@ describe('ReliefRequestWizardComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
 
     expect(compiled.textContent).not.toContain('Stitch');
-    expect(compiled.textContent).toContain('Create or update a relief request using the active request authority');
+    expect(compiled.textContent).toContain('Create or update a relief request by selecting the agency');
   });
 
   it('uses a destination-specific tooltip for the back button', () => {
@@ -101,6 +102,74 @@ describe('ReliefRequestWizardComponent', () => {
       { value: 88, label: 'Tarps' },
     ]);
     expect(fixture.componentInstance.requestForm.get('agency_id')?.value).toBe(12);
+  });
+
+  it('shows dual-mode label when both self and for_subordinate modes are available', () => {
+    fixture.destroy();
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+      providers: [
+        {
+          provide: OperationsService,
+          useValue: jasmine.createSpyObj<OperationsService>('OperationsService', [
+            'getRequestReferenceData',
+            'getRequest',
+            'createRequest',
+            'updateRequest',
+            'submitRequest',
+          ]),
+        },
+        {
+          provide: DmisNotificationService,
+          useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+            'showError',
+            'showWarning',
+            'showSuccess',
+          ]),
+        },
+        {
+          provide: AuthRbacService,
+          useValue: {
+            load: jasmine.createSpy('load'),
+            loaded: () => true,
+            operationsCapabilities: () => ({
+              can_create_relief_request: true,
+              relief_request_submission_mode: 'self',
+              allowed_origin_modes: ['self', 'for_subordinate'],
+            }),
+          },
+        },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { paramMap: convertToParamMap({}) } },
+        },
+        {
+          provide: Router,
+          useValue: jasmine.createSpyObj('Router', ['navigate']),
+        },
+      ],
+    });
+
+    const dualOpsService = TestBed.inject(OperationsService) as jasmine.SpyObj<OperationsService>;
+    dualOpsService.getRequestReferenceData.and.returnValue(of({
+      agencies: [
+        { value: 12, label: 'S07 TEST DISTRIBUTOR AGENCY - PARISH_KN' },
+        { value: 13, label: 'S07 TEST DISTRIBUTOR AGENCY - FFP' },
+      ],
+      events: [],
+      items: [],
+    }));
+
+    const dualFixture = TestBed.createComponent(ReliefRequestWizardComponent);
+    dualFixture.detectChanges();
+
+    expect(dualFixture.componentInstance.isDualMode()).toBeTrue();
+    expect(dualFixture.componentInstance.submissionModeLabel()).toBe('Your organisation or managed entity');
+    expect(dualFixture.componentInstance.workflowLabel()).toBe('New request');
+
+    dualFixture.destroy();
   });
 
   it('updates the review snapshot with the selected event label', () => {

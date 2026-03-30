@@ -63,6 +63,26 @@ class Command(BaseCommand):
 
         now = timezone.now()
         with transaction.atomic():
+            # Deactivate any conflicting active policies for the subordinate
+            # that would override the request-authority relationship.
+            conflicting_count = TenantRequestPolicy.objects.filter(
+                tenant_id=subordinate["tenant_id"],
+                status_code="ACTIVE",
+            ).exclude(
+                effective_date=effective_date,
+            ).update(
+                status_code="SUPERSEDED",
+                update_by_id=actor_id,
+                update_dtime=now,
+            )
+            if conflicting_count:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Deactivated {conflicting_count} conflicting active policy row(s) "
+                        f"for subordinate tenant {subordinate['tenant_id']}."
+                    )
+                )
+
             TenantRequestPolicy.objects.update_or_create(
                 tenant_id=subordinate["tenant_id"],
                 effective_date=effective_date,
@@ -94,6 +114,22 @@ class Command(BaseCommand):
                     "update_dtime": now,
                 },
             )
+            # Reactivate any previously-deactivated scope rows for the same pair
+            TenantControlScope.objects.filter(
+                controller_tenant_id=parish["tenant_id"],
+                controlled_tenant_id=subordinate["tenant_id"],
+                control_type="REQUEST_AUTHORITY",
+            ).exclude(
+                status_code="ACTIVE",
+            ).exclude(
+                effective_date=effective_date,
+            ).update(
+                status_code="ACTIVE",
+                expiry_date=None,
+                update_by_id=actor_id,
+                update_dtime=now,
+            )
+
             TenantHierarchy.objects.update_or_create(
                 parent_tenant_id=parish["tenant_id"],
                 child_tenant_id=subordinate["tenant_id"],
@@ -107,6 +143,22 @@ class Command(BaseCommand):
                     "update_by_id": actor_id,
                     "update_dtime": now,
                 },
+            )
+            # Reactivate any previously-deactivated hierarchy rows for the same pair
+            TenantHierarchy.objects.filter(
+                parent_tenant_id=parish["tenant_id"],
+                child_tenant_id=subordinate["tenant_id"],
+                relationship_type="REQUEST_AUTHORITY",
+            ).exclude(
+                status_code="ACTIVE",
+            ).exclude(
+                effective_date=effective_date,
+            ).update(
+                status_code="ACTIVE",
+                can_parent_request_on_behalf_flag=True,
+                expiry_date=None,
+                update_by_id=actor_id,
+                update_dtime=now,
             )
 
         self.stdout.write(self.style.SUCCESS("Temporary Relief Management hierarchy data is ready."))

@@ -62,6 +62,8 @@ describe('ReceiptConfirmationComponent', () => {
         execution_status: 'DISPATCHED',
         needs_list_id: null,
         compatibility_bridge: false,
+        request_mode: null,
+        authority_context: null,
       },
       waybill: {
         waybill_no: 'WB-00090',

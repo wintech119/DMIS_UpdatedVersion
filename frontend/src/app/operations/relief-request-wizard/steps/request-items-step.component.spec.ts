@@ -42,8 +42,8 @@ describe('RequestItemsStepComponent', () => {
     component.itemOptions = [{ value: 23, label: 'Blankets' }];
     component.requestDateText = 'March 27, 2026';
     component.requestDateHint = 'Recorded at intake.';
-    component.submissionModeLabel = 'For subordinate entity';
-    component.submissionModeHint = 'Parish request-authority tenants can raise requests for subordinate entities.';
+    component.submissionModeLabel = 'Request on behalf of a managed entity';
+    component.submissionModeHint = 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
     component.creationBlocked = false;
 
     fixture.detectChanges();
@@ -52,16 +52,16 @@ describe('RequestItemsStepComponent', () => {
   it('replaces stale design-system copy and exposes field help tooltips', () => {
     const text = fixture.nativeElement.textContent as string;
 
-    expect(text).toContain('Capture the requesting entity and event by name');
+    expect(text).toContain('Select the requesting agency and any linked event');
     expect(text).not.toContain('Stitch');
 
     const agencyHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Requesting entity"]'));
     const agencyTooltip = agencyHelpButton.injector.get(MatTooltip);
-    expect(agencyTooltip.message).toContain('subordinate agency or entity');
+    expect(agencyTooltip.message).toContain('agency under your authority');
 
     const requestDateHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Request date"]'));
     const requestDateTooltip = requestDateHelpButton.injector.get(MatTooltip);
-    expect(requestDateTooltip.message).toContain('queue sequencing');
+    expect(requestDateTooltip.message).toContain('audit history');
 
     expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThanOrEqual(6);
   });

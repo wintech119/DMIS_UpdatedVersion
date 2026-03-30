@@ -63,6 +63,8 @@ describe('OpsDispatchWorkspaceComponent', () => {
         execution_status: 'READY_FOR_DISPATCH',
         needs_list_id: null,
         compatibility_bridge: false,
+        request_mode: null,
+        authority_context: null,
       },
       allocation: {
         allocation_lines: [

@@ -194,8 +194,8 @@ export class OpsDispatchWorkspaceComponent {
     if (this.alreadyDispatched()) {
       return {
         title: 'Dispatch Recorded',
-        message: 'This package already has a recorded dispatch and waybill reference.',
-        hint: 'Distribution confirmation remains out of scope. Use the request tracker for continued visibility.',
+        message: 'This package has already been dispatched and has a waybill on record.',
+        hint: 'You can track this package from the request list.',
       };
     }
     return null;

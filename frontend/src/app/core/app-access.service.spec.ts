@@ -36,6 +36,7 @@ describe('AppAccessService', () => {
       can_create_relief_request_on_behalf: false,
       relief_request_submission_mode: null,
       default_requesting_tenant_id: null,
+      allowed_origin_modes: [],
       ...overrides,
     };
   }

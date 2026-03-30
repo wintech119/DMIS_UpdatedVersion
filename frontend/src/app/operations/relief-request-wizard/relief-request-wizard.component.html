@@ -17,8 +17,8 @@
         </p>
         <h1 class="request-wizard-header__title">{{ pageTitle() }}</h1>
         <p class="request-wizard-header__description">
-          Create or update a relief request using the active request authority, name-first agency and event selection,
-          and the urgency needed to guide eligibility review, packaging, and dispatch.
+          Create or update a relief request by selecting the agency, event, and urgency level.
+          Submitted requests are routed for eligibility review, packaging, and dispatch.
         </p>
       </div>
     </div>
@@ -27,7 +27,7 @@
       <article class="request-wizard-meta-card">
         <span class="request-wizard-meta-card__label">Workflow</span>
         <strong>{{ workflowLabel() }}</strong>
-        <p>{{ isEditMode() ? 'Only draft requests remain editable.' : 'Capture the request, then route it into eligibility review.' }}</p>
+        <p>{{ isEditMode() ? 'Only draft requests can be edited.' : 'Complete the form, then submit for review.' }}</p>
       </article>
       <article class="request-wizard-meta-card">
         <span class="request-wizard-meta-card__label">Stage</span>
@@ -65,7 +65,7 @@
       <div class="request-wizard-blocked__icon">
         <mat-icon aria-hidden="true">lock</mat-icon>
       </div>
-      <h2 class="request-wizard-blocked__title">Relief request entry is not available</h2>
+      <h2 class="request-wizard-blocked__title">You cannot create requests at this time</h2>
       <p class="request-wizard-blocked__message">
         {{ submissionModeHint() }}
       </p>
