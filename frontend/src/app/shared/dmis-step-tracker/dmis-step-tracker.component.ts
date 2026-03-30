@@ -86,8 +86,13 @@ export class DmisStepTrackerComponent implements AfterViewInit, OnDestroy {
 
   progressPercent = computed(() => {
     const total = this.steps().length;
-    const active = this.activeIndex();
-    return Math.round((active / Math.max(total - 1, 1)) * 100);
+    if (total === 0) {
+      return 0;
+    }
+
+    const maxIndex = Math.max(total - 1, 0);
+    const active = Math.min(Math.max(this.activeIndex(), 0), maxIndex);
+    return Math.round((active / Math.max(maxIndex, 1)) * 100);
   });
 
   ngAfterViewInit(): void {

@@ -199,7 +199,6 @@ export class AllocationWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
-    this.currentStepIndex.update(i => i + 1);
   }
 
   onTrackerStepClick(index: number): void {
@@ -218,7 +217,6 @@ export class AllocationWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.stepper?.next();
-    this.currentStepIndex.update(i => i + 1);
   }
 
   resetConfirmation(): void {

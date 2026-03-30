@@ -171,7 +171,6 @@ export class DispatchWorkspaceComponent {
       return;
     }
     this.stepper?.next();
-    this.currentStepIndex.update(i => i + 1);
   }
 
   completeDispatchAction(): void {
@@ -180,7 +179,6 @@ export class DispatchWorkspaceComponent {
     }
     if (this.alreadyDispatched()) {
       this.stepper?.next();
-      this.currentStepIndex.update(i => i + 1);
       return;
     }
     if (!this.store.hasCommittedAllocation()) {
