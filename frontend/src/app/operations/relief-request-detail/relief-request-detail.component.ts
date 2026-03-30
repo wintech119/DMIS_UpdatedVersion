@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -40,6 +41,7 @@ interface WorkflowStep {
   selector: 'app-relief-request-detail',
   standalone: true,
   imports: [
+    DecimalPipe,
     MatButtonModule,
     MatCardModule,
     MatIconModule,
@@ -91,8 +93,8 @@ export class ReliefRequestDetailComponent implements OnInit {
     return [
       {
         label: 'Draft',
-        detail: request.status_code === 0 ? 'Editable' : 'Captured',
-        tone: request.status_code === 0 ? 'draft' : 'success',
+        detail: request.status_code === 'DRAFT' ? 'Editable' : 'Captured',
+        tone: request.status_code === 'DRAFT' ? 'draft' : 'success',
         timestamp: request.request_date ? formatOperationsDateTime(request.request_date) : undefined,
       },
       {
@@ -158,7 +160,7 @@ export class ReliefRequestDetailComponent implements OnInit {
 
   openEdit(): void {
     const request = this.request();
-    if (!request || request.status_code !== 0) {
+    if (!request || request.status_code !== 'DRAFT') {
       return;
     }
     this.router.navigate(['/operations/relief-requests', request.reliefrqst_id, 'edit']);
@@ -214,8 +216,12 @@ export class ReliefRequestDetailComponent implements OnInit {
             },
             error: (err: HttpErrorResponse) => {
               this.submitting.set(false);
-              const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit request.';
-              this.notify.showError(detail);
+              const errors = err.error?.errors;
+              const extracted = (typeof errors === 'object' && errors !== null)
+                ? Object.values(errors).find((v): v is string => typeof v === 'string') ?? null
+                : null;
+              const fallback = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit request.';
+              this.notify.showError(extracted ?? fallback);
             },
           });
       });

@@ -102,7 +102,7 @@ export class ReliefRequestListComponent implements OnInit {
 
   readonly metrics = computed<QueueMetric[]>(() => {
     const rows = this.requests();
-    const draft = rows.filter((row) => row.status_code === 0).length;
+    const draft = rows.filter((row) => row.status_code === 'DRAFT').length;
     const review = rows.filter((row) => this.getStatusGroup(row) === 'review').length;
     const submitted = rows.filter((row) => this.getStatusGroup(row) === 'submitted').length;
     const closed = rows.filter((row) => this.getStatusGroup(row) === 'closed').length;
@@ -195,13 +195,13 @@ export class ReliefRequestListComponent implements OnInit {
   }
 
   private getStatusGroup(request: RequestSummary): RequestFilter {
-    if (request.status_code === 0) {
+    if (request.status_code === 'DRAFT') {
       return 'draft';
     }
-    if (request.status_code === 1 || request.status_code === 3) {
+    if (request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT') {
       return 'review';
     }
-    if (request.status_code === 2 || request.status_code === 4 || request.status_code === 8) {
+    if (request.status_code === 'CANCELLED' || request.status_code === 'REJECTED' || request.status_code === 'INELIGIBLE') {
       return 'closed';
     }
     return 'submitted';

@@ -109,7 +109,7 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
 
 export function normalizeRequestSummary(raw: unknown): RequestSummary {
   const source = asRecord(raw);
-  const statusCode = asNumber(source['status_code']) as RequestSummary['status_code'];
+  const statusCode = asString(source['status_code'], 'DRAFT').toUpperCase() as RequestSummary['status_code'];
   return {
     reliefrqst_id: asNumber(source['reliefrqst_id']),
     tracking_no: asNullableString(source['tracking_no']),

@@ -23,29 +23,20 @@
       </div>
     </div>
 
-    <div class="request-wizard-header__meta">
-      <article class="request-wizard-meta-card">
-        <span class="request-wizard-meta-card__label">Workflow</span>
-        <strong>{{ workflowLabel() }}</strong>
-        <p>{{ isEditMode() ? 'Only draft requests can be edited.' : 'Complete the form, then submit for review.' }}</p>
-      </article>
-      <article class="request-wizard-meta-card">
-        <span class="request-wizard-meta-card__label">Stage</span>
-        <strong>{{ currentStageLabel() }}</strong>
-        <p>{{ completed() ? 'Request saved successfully.' : ('Step ' + (currentStepIndex() + 1) + ' of 2') }}</p>
-      </article>
-    </div>
   </section>
 
-  <div class="request-wizard-authority-banner" role="status">
+  <div class="request-wizard-context-strip" role="status">
     <mat-icon aria-hidden="true">security</mat-icon>
-    <div>
+    <span class="request-wizard-context-strip__mode">
       <strong>{{ submissionModeLabel() }}</strong>
-      <p>{{ submissionModeHint() }}</p>
-      @if (requestDateText()) {
-        <p class="request-wizard-authority-banner__date">Request date: {{ requestDateText() }}</p>
-      }
-    </div>
+      <span>{{ submissionModeHint() }}</span>
+    </span>
+    @if (requestDateText()) {
+      <span class="request-wizard-context-strip__date">
+        <mat-icon aria-hidden="true">calendar_today</mat-icon>
+        {{ requestDateText() }}
+      </span>
+    }
   </div>
 
   @if (pageBusy()) {
@@ -82,7 +73,7 @@
       @if (savedRequest(); as saved) {
         <p class="request-wizard-success__message">
           {{ saved.tracking_no ?? 'Request #' + saved.reliefrqst_id }} has been saved
-          @if (saved.status_code === 0) {
+          @if (saved.status_code === 'DRAFT') {
             as a draft.
           } @else {
             and submitted for review.
@@ -126,8 +117,6 @@
             [agencyOptions]="agencyOptions()"
             [eventOptions]="eventOptions()"
             [itemOptions]="itemOptions()"
-            [requestDateText]="requestDateText()"
-            [requestDateHint]="requestDateHint()"
             [submissionModeLabel]="submissionModeLabel()"
             [submissionModeHint]="submissionModeHint()"
             [creationBlocked]="creationBlocked()" />

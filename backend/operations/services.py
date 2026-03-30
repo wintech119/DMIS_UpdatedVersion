@@ -197,8 +197,14 @@ def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
     return [
         {
             "item_id": int(row["item_id"]),
-            "item_code": item_names.get(int(row["item_id"]), {}).get("item_code"),
-            "item_name": item_names.get(int(row["item_id"]), {}).get("item_name"),
+            "item_code": (
+                item_names.get(int(row["item_id"]), {}).get("item_code")
+                or item_names.get(int(row["item_id"]), {}).get("code")
+            ),
+            "item_name": (
+                item_names.get(int(row["item_id"]), {}).get("item_name")
+                or item_names.get(int(row["item_id"]), {}).get("name")
+            ),
             "request_qty": str(_quantize_qty(row.get("request_qty"))),
             "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
             "urgency_ind": row.get("urgency_ind"),
@@ -523,15 +529,11 @@ def update_request(
         "agency_id",
         "urgency_ind",
         "eligible_event_id",
-        "action_by_id",
-        "action_dtime",
         "version_nbr",
     ]
     if "rqst_notes_text" in normalized:
         request.rqst_notes_text = normalized["rqst_notes_text"]
         update_fields.append("rqst_notes_text")
-    request.action_by_id = actor_id
-    request.action_dtime = timezone.now()
     request.version_nbr = int(request.version_nbr or 0) + 1
     request.save(update_fields=update_fields)
     if normalized["items"]:

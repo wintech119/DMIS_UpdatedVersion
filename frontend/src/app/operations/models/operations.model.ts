@@ -1,5 +1,14 @@
 // Status code types
-export type RequestStatusCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type RequestStatusCode =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'UNDER_ELIGIBILITY_REVIEW'
+  | 'APPROVED_FOR_FULFILLMENT'
+  | 'PARTIALLY_FULFILLED'
+  | 'FULFILLED'
+  | 'INELIGIBLE'
+  | 'REJECTED'
+  | 'CANCELLED';
 export type PackageStatusCode = 'A' | 'P' | 'D' | 'C';
 export type ItemStatusCode = 'R' | 'P' | 'F';
 export type UrgencyCode = 'C' | 'H' | 'M' | 'L';

@@ -84,10 +84,10 @@ export class EligibilityReviewDetailComponent implements OnInit {
     if (!detail.decision_made) {
       return 'Not decided';
     }
-    if (detail.status_code === 8) {
+    if (detail.status_code === 'INELIGIBLE') {
       return 'Ineligible';
     }
-    return detail.status_code === 4 ? 'Rejected' : 'Approved';
+    return detail.status_code === 'REJECTED' ? 'Rejected' : 'Approved';
   });
 
   readonly workflow = computed<WorkflowStep[]>(() => {
@@ -109,8 +109,8 @@ export class EligibilityReviewDetailComponent implements OnInit {
       },
       {
         label: 'Fulfillment',
-        detail: detail.status_code === 7 || detail.status_code === 5 ? 'Ready for packing' : 'Blocked until approval',
-        tone: detail.status_code === 7 || detail.status_code === 5 ? 'success' : 'muted',
+        detail: detail.status_code === 'FULFILLED' || detail.status_code === 'PARTIALLY_FULFILLED' ? 'Ready for packing' : 'Blocked until approval',
+        tone: detail.status_code === 'FULFILLED' || detail.status_code === 'PARTIALLY_FULFILLED' ? 'success' : 'muted',
       },
     ];
   });
@@ -255,8 +255,12 @@ export class EligibilityReviewDetailComponent implements OnInit {
         },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
-          const detailMessage = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit decision.';
-          this.notify.showError(detailMessage);
+          const errors = err.error?.errors;
+          const extracted = (typeof errors === 'object' && errors !== null)
+            ? Object.values(errors).find((v): v is string => typeof v === 'string') ?? null
+            : null;
+          const fallback = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit decision.';
+          this.notify.showError(extracted ?? fallback);
         },
       });
   }

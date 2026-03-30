@@ -346,7 +346,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => {
-          if (data.status_code !== 0) {
+          if (data.status_code !== 'DRAFT') {
             this.error.set('Only draft requests can be edited in this workspace.');
             this.loading.set(false);
             return;
@@ -562,9 +562,13 @@ export class ReliefRequestWizardComponent implements OnInit {
             this.saving.set(false);
             this.savedRequest.set(saved);
             this.completed.set(true);
+            const errors = (err.error as Record<string, unknown>)?.['errors'];
+            const extracted = (typeof errors === 'object' && errors !== null)
+              ? Object.values(errors).find((v): v is string => typeof v === 'string') ?? null
+              : null;
             const detail = (err.error as Record<string, unknown>)?.['detail'];
-            const message = typeof detail === 'string' ? detail : 'Request saved as draft, but submission failed.';
-            this.notify.showWarning(message);
+            const fallback = typeof detail === 'string' ? detail : 'Request saved as draft, but submission failed.';
+            this.notify.showWarning(extracted ?? fallback);
           },
         });
       return;

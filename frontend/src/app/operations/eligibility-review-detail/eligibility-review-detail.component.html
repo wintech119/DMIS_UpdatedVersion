@@ -45,7 +45,7 @@
             Ineligible
           </button>
         } @else if (rq.decision_made) {
-          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="rq.status_code !== 7 && rq.status_code !== 5">
+          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="rq.status_code !== 'FULFILLED' && rq.status_code !== 'PARTIALLY_FULFILLED'">
             <mat-icon>inventory_2</mat-icon>
             Open Fulfillment
           </button>
@@ -64,8 +64,8 @@
           </div>
           <div class="ops-card__body">
             @if (rq.decision_made) {
-              <div class="ops-callout" [class.ops-callout--success]="rq.status_code === 7 || rq.status_code === 5" [class.ops-callout--danger]="rq.status_code === 4 || rq.status_code === 8">
-                <mat-icon aria-hidden="true">{{ rq.status_code === 4 || rq.status_code === 8 ? 'cancel' : 'check_circle' }}</mat-icon>
+              <div class="ops-callout" [class.ops-callout--success]="rq.status_code === 'FULFILLED' || rq.status_code === 'PARTIALLY_FULFILLED'" [class.ops-callout--danger]="rq.status_code === 'REJECTED' || rq.status_code === 'INELIGIBLE'">
+                <mat-icon aria-hidden="true">{{ rq.status_code === 'REJECTED' || rq.status_code === 'INELIGIBLE' ? 'cancel' : 'check_circle' }}</mat-icon>
                 <div>
                   <p class="ops-section__copy">
                     Decision recorded: {{ decisionLabel() }}.

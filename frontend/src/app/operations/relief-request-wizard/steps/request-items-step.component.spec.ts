@@ -40,8 +40,6 @@ describe('RequestItemsStepComponent', () => {
     component.agencyOptions = [{ value: 12, label: 'St. Mary Parish Council' }];
     component.eventOptions = [{ value: 44, label: 'Flood Response 2026' }];
     component.itemOptions = [{ value: 23, label: 'Blankets' }];
-    component.requestDateText = 'March 27, 2026';
-    component.requestDateHint = 'Recorded at intake.';
     component.submissionModeLabel = 'Request on behalf of a managed entity';
     component.submissionModeHint = 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
     component.creationBlocked = false;
@@ -59,11 +57,7 @@ describe('RequestItemsStepComponent', () => {
     const agencyTooltip = agencyHelpButton.injector.get(MatTooltip);
     expect(agencyTooltip.message).toContain('agency under your authority');
 
-    const requestDateHelpButton = fixture.debugElement.query(By.css('[aria-label="More information about Request date"]'));
-    const requestDateTooltip = requestDateHelpButton.injector.get(MatTooltip);
-    expect(requestDateTooltip.message).toContain('audit history');
-
-    expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThanOrEqual(6);
+    expect(fixture.debugElement.queryAll(By.css('.field-help-button')).length).toBeGreaterThanOrEqual(4);
   });
 
   it('filters item-name autocomplete options and writes the selected item id', () => {

@@ -43,7 +43,7 @@ describe('ReceiptConfirmationComponent', () => {
         eligible_event_id: 4,
         event_name: 'Flood Response',
         urgency_ind: 'H',
-        status_code: 3,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
         status_label: 'Approved',
         request_date: '2026-03-26',
         create_dtime: '2026-03-26T08:00:00Z',
