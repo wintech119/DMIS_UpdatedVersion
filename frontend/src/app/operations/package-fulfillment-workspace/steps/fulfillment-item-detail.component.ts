@@ -8,11 +8,15 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSelectModule } from '@angular/material/select';
 
+import { LookupItem } from '../../../master-data/models/master-data.models';
 import { AllocationCandidate, AllocationItemGroup } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { formatSourceType } from '../../models/operations-status.util';
+import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
 
 interface WarehouseGroup {
   name: string;
@@ -34,7 +38,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-fulfillment-item-detail',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, MatButtonModule, MatIconModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatSelectModule, OpsStockAvailabilityStateComponent],
   template: `
     <div class="detail">
       <!-- Item header row: name + badges + actions grouped together -->
@@ -50,6 +54,26 @@ const COMPLIANCE_LABELS: Record<string, string> = {
           @if (store().isRuleBypassedForItem(item().item_id)) {
             <span class="detail__badge detail__badge--warning">Bypass</span>
           }
+          @if (isOverridden()) {
+            <span class="detail__badge detail__badge--override">Overridden</span>
+          }
+          @if (warehouseOptions().length > 1) {
+            <mat-form-field appearance="outline" class="detail__warehouse-select">
+              <mat-label>Source</mat-label>
+              <mat-select
+                [ngModel]="effectiveWarehouse()"
+                (ngModelChange)="onWarehouseOverride($event)"
+                [disabled]="readOnly()"
+                panelClass="detail-warehouse-panel"
+                [attr.aria-label]="'Source warehouse for ' + (item().item_name || 'this item')">
+                @for (wh of warehouseOptions(); track wh.value) {
+                  <mat-option [value]="stringifyValue(wh.value)">
+                    {{ wh.label }}{{ stringifyValue(wh.value) === defaultWarehouseId() ? ' (default)' : '' }}
+                  </mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          }
           <button
             class="detail__text-btn"
             type="button"
@@ -62,32 +86,71 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </div>
       </div>
 
-      <!-- 5 Metric cards — white, elevated off the warm background -->
+      <!-- 5 Metric cards — the operator's story -->
       <div class="detail__metrics">
+        <!-- 1. Requested -->
         <div class="metric-card">
           <span class="metric-card__label">Requested</span>
           <span class="metric-card__value">{{ item().request_qty | number:'1.0-4' }}</span>
         </div>
-        <div class="metric-card">
-          <span class="metric-card__label">Issued</span>
-          <span class="metric-card__value">{{ item().issue_qty | number:'1.0-4' }}</span>
+
+        <!-- 2. Available Here -->
+        <div class="metric-card"
+          [class.metric-card--warning-tint]="totalAvailableHere() > 0 && totalAvailableHere() < remainingQty()"
+          [class.metric-card--critical-tint]="totalAvailableHere() === 0 && remainingQty() > 0">
+          <span class="metric-card__label">Available Here</span>
+          <span class="metric-card__value"
+            [class.metric-card__value--accent]="totalAvailableHere() >= remainingQty()"
+            [class.metric-card__value--warning]="totalAvailableHere() > 0 && totalAvailableHere() < remainingQty()"
+            [class.metric-card__value--danger]="totalAvailableHere() === 0 && remainingQty() > 0">
+            {{ totalAvailableHere() | number:'1.0-4' }}
+          </span>
+          @if (availabilityHint(); as hint) {
+            <span class="metric-card__hint">{{ hint }}</span>
+          }
         </div>
+
+        <!-- 3. Reserving -->
         <div class="metric-card">
-          <span class="metric-card__label">Need Now</span>
-          <span class="metric-card__value">{{ item().remaining_qty | number:'1.0-4' }}</span>
-        </div>
-        <div class="metric-card">
-          <span class="metric-card__label">Allocating Now</span>
+          <span class="metric-card__label">Reserving</span>
           <span class="metric-card__value metric-card__value--accent">
-            {{ store().getSelectedTotalForItem(item().item_id) | number:'1.0-4' }}
+            {{ reservingQty() | number:'1.0-4' }}
           </span>
         </div>
-        <div class="metric-card">
+
+        <!-- 4. Shortfall -->
+        <div class="metric-card"
+          [class.metric-card--critical-tint]="shortfallQty() > 0"
+          [class.metric-card--success-tint]="shortfallQty() === 0 && reservingQty() > 0">
           <span class="metric-card__label">Shortfall</span>
           <span class="metric-card__value"
-            [class.metric-card__value--danger]="store().getUncoveredQtyForItem(item().item_id) > 0">
-            {{ store().getUncoveredQtyForItem(item().item_id) | number:'1.0-4' }}
+            [class.metric-card__value--danger]="shortfallQty() > 0"
+            [class.metric-card__value--success]="shortfallQty() === 0 && reservingQty() > 0">
+            {{ shortfallQty() | number:'1.0-4' }}
           </span>
+          @if (shortfallHint(); as hint) {
+            <span class="metric-card__hint">{{ hint }}</span>
+          }
+        </div>
+
+        <!-- 5. Status -->
+        <div class="metric-card metric-card--status"
+          [attr.data-status]="fillStatus()"
+          role="status"
+          [attr.aria-label]="statusLabel() + ', ' + (fillRatio() * 100 | number:'1.0-0') + '% of need covered'">
+          <span class="metric-card__label">Status</span>
+          <span class="metric-card__value metric-card__value--status"
+            [attr.data-status]="fillStatus()">
+            {{ statusLabel() }}
+          </span>
+          <div class="metric-card__bar" role="progressbar"
+            [attr.aria-valuenow]="fillRatio() * 100 | number:'1.0-0'"
+            aria-valuemin="0" aria-valuemax="100">
+            <div class="metric-card__bar-fill"
+              [attr.data-status]="fillStatus()"
+              [style.width.%]="fillRatio() * 100">
+            </div>
+          </div>
         </div>
       </div>
 
@@ -102,105 +165,113 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       <!-- Available Warehouses -->
       <p class="detail__section-eyebrow">Available Warehouses</p>
 
-      @for (wh of warehouseGroups(); track wh.inventoryId) {
-        <div class="warehouse-card">
-          <div class="warehouse-card__header">
-            <mat-icon class="warehouse-card__icon" aria-hidden="true">warehouse</mat-icon>
-            <div>
-              <strong class="warehouse-card__name">{{ wh.name }}</strong>
-              <span class="warehouse-card__meta">
-                {{ wh.totalAvailable | number:'1.0-2' }} available &middot; {{ wh.batchCount }} batch{{ wh.batchCount === 1 ? '' : 'es' }}
-              </span>
+      @if (itemAvailabilityIssue(); as issue) {
+        <app-ops-stock-availability-state
+          [kind]="issue.kind"
+          [scope]="issue.scope"
+          [itemName]="item().item_name || null"
+          [remainingQty]="item().remaining_qty" />
+      } @else {
+        @for (wh of warehouseGroups(); track wh.inventoryId) {
+          <div class="warehouse-card">
+            <div class="warehouse-card__header">
+              <mat-icon class="warehouse-card__icon" aria-hidden="true">warehouse</mat-icon>
+              <div>
+                <strong class="warehouse-card__name">{{ wh.name }}</strong>
+                <span class="warehouse-card__meta">
+                  {{ wh.totalAvailable | number:'1.0-2' }} available &middot; {{ wh.batchCount }} batch{{ wh.batchCount === 1 ? '' : 'es' }}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <div class="warehouse-card__table-wrap">
-            <table class="warehouse-table">
-              <thead>
-                <tr>
-                  <th>Batch / Lot</th>
-                  <th>Source</th>
-                  <th>Batch Date</th>
-                  <th>Expiry</th>
-                  <th class="col-num">Available</th>
-                  <th class="col-num">Reserved</th>
-                  <th>Qty to reserve</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (c of wh.candidates; track c.batch_id + '-' + c.source_type) {
-                  <tr [class.row--selected]="store().getSelectedQtyForCandidate(item().item_id, c) > 0">
-                    <td>
-                      <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
-                      @if (c.compliance_markers?.length) {
-                        <div class="marker-list">
-                          @for (m of c.compliance_markers; track m) {
-                            <span class="marker-chip">{{ formatMarker(m) }}</span>
-                          }
-                        </div>
-                      }
-                    </td>
-                    <td>{{ formatSource(c.source_type) }}</td>
-                    <td>{{ c.batch_date ? (c.batch_date | date:'MMM d, y') : 'N/A' }}</td>
-                    <td>{{ c.expiry_date ? (c.expiry_date | date:'MMM d, y') : 'N/A' }}</td>
-                    <td class="col-num">{{ c.available_qty | number:'1.0-4' }}</td>
-                    <td class="col-num">{{ c.reserved_qty | number:'1.0-4' }}</td>
-                    <td>
-                      <input
-                        class="qty-input"
-                        type="number"
-                        min="0"
-                        step="0.0001"
-                        [disabled]="readOnly()"
-                        [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
-                        (ngModelChange)="onQtyChange(c, $event)"
-                        [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
-                      />
-                    </td>
+            <div class="warehouse-card__table-wrap">
+              <table class="warehouse-table">
+                <thead>
+                  <tr>
+                    <th>Batch / Lot</th>
+                    <th>Source</th>
+                    <th>Batch Date</th>
+                    <th>Expiry</th>
+                    <th class="col-num">Available</th>
+                    <th class="col-num">Reserved</th>
+                    <th>Qty to reserve</th>
                   </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      }
-
-      <!-- Mobile cards -->
-      <div class="mobile-cards">
-        @for (c of item().candidates; track c.inventory_id + '-' + c.batch_id + '-' + c.source_type) {
-          <div class="mobile-card">
-            <div class="mobile-card__header">
-              <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
-              <span class="detail__badge">{{ formatSource(c.source_type) }}</span>
+                </thead>
+                <tbody>
+                  @for (c of wh.candidates; track c.batch_id + '-' + c.source_type) {
+                    <tr [class.row--selected]="store().getSelectedQtyForCandidate(item().item_id, c) > 0">
+                      <td>
+                        <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
+                        @if (c.compliance_markers?.length) {
+                          <div class="marker-list">
+                            @for (m of c.compliance_markers; track m) {
+                              <span class="marker-chip">{{ formatMarker(m) }}</span>
+                            }
+                          </div>
+                        }
+                      </td>
+                      <td>{{ formatSource(c.source_type) }}</td>
+                      <td>{{ c.batch_date ? (c.batch_date | date:'MMM d, y') : 'N/A' }}</td>
+                      <td>{{ c.expiry_date ? (c.expiry_date | date:'MMM d, y') : 'N/A' }}</td>
+                      <td class="col-num">{{ c.available_qty | number:'1.0-4' }}</td>
+                      <td class="col-num">{{ c.reserved_qty | number:'1.0-4' }}</td>
+                      <td>
+                        <input
+                          class="qty-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          [disabled]="readOnly()"
+                          [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
+                          (ngModelChange)="onQtyChange(c, $event)"
+                          [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
+                        />
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
             </div>
-            <div class="mobile-card__meta">
-              <span>{{ c.warehouse_name || ('Inventory ' + c.inventory_id) }}</span>
-            </div>
-            <div class="mobile-card__fields">
-              <div class="mobile-card__field">
-                <span>Available</span>
-                <strong>{{ c.available_qty | number:'1.0-4' }}</strong>
-              </div>
-              <div class="mobile-card__field">
-                <span>Reserved</span>
-                <strong>{{ c.reserved_qty | number:'1.0-4' }}</strong>
-              </div>
-            </div>
-            <label class="mobile-card__input">
-              <span>Qty To Reserve</span>
-              <input
-                class="qty-input"
-                type="number"
-                min="0"
-                step="0.0001"
-                [disabled]="readOnly()"
-                [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
-                (ngModelChange)="onQtyChange(c, $event)"
-              />
-            </label>
           </div>
         }
-      </div>
+
+        <!-- Mobile cards -->
+        <div class="mobile-cards">
+          @for (c of item().candidates; track c.inventory_id + '-' + c.batch_id + '-' + c.source_type) {
+            <div class="mobile-card">
+              <div class="mobile-card__header">
+                <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
+                <span class="detail__badge">{{ formatSource(c.source_type) }}</span>
+              </div>
+              <div class="mobile-card__meta">
+                <span>{{ c.warehouse_name || ('Inventory ' + c.inventory_id) }}</span>
+              </div>
+              <div class="mobile-card__fields">
+                <div class="mobile-card__field">
+                  <span>Available</span>
+                  <strong>{{ c.available_qty | number:'1.0-4' }}</strong>
+                </div>
+                <div class="mobile-card__field">
+                  <span>Reserved</span>
+                  <strong>{{ c.reserved_qty | number:'1.0-4' }}</strong>
+                </div>
+              </div>
+              <label class="mobile-card__input">
+                <span>Qty To Reserve</span>
+                <input
+                  class="qty-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  [disabled]="readOnly()"
+                  [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
+                  (ngModelChange)="onQtyChange(c, $event)"
+                />
+              </label>
+            </div>
+          }
+        </div>
+      }
 
       @if (store().isRuleBypassedForItem(item().item_id)) {
         <p class="detail__notice detail__notice--warning" role="status">
@@ -275,6 +346,37 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: #6e4200;
     }
 
+    .detail__badge--override {
+      background: #e0f2fe;
+      color: #0c4a6e;
+    }
+
+    .detail__warehouse-select {
+      width: 140px;
+      font-size: 0.68rem;
+      --mat-form-field-container-height: 32px;
+      --mat-form-field-container-vertical-padding: 4px;
+      --mat-select-trigger-text-size: 0.68rem;
+    }
+
+    .detail__warehouse-select ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+      display: none;
+    }
+
+    .detail__warehouse-select ::ng-deep .mat-mdc-select-value-text {
+      font-size: 0.68rem;
+    }
+
+    .detail__warehouse-select ::ng-deep .mat-mdc-floating-label {
+      font-size: 0.68rem;
+    }
+
+    .detail__warehouse-select ::ng-deep .mat-mdc-form-field-infix {
+      padding-top: 6px;
+      padding-bottom: 4px;
+      min-height: 32px;
+    }
+
     .detail__text-btn {
       border: 0;
       background: 0;
@@ -315,6 +417,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       border: 1px solid rgba(55, 53, 47, 0.14);
       background: #ffffff;
       box-shadow: 0 1px 3px rgba(55, 53, 47, 0.06);
+      transition: background-color 300ms ease;
     }
 
     .metric-card__label {
@@ -334,12 +437,118 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: var(--color-text-primary);
     }
 
+    .metric-card__hint {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.62rem;
+      color: var(--color-text-secondary);
+    }
+
     .metric-card__value--accent {
-      color: var(--color-accent, #6366f1);
+      color: #0f766e;
+    }
+
+    .metric-card__value--warning {
+      color: #6e4200;
+    }
+
+    .metric-card__value--success {
+      color: #286a36;
     }
 
     .metric-card__value--danger {
-      color: var(--color-critical, #991b1b);
+      color: #8c1d13;
+    }
+
+    /* ── Conditional background tints ── */
+    .metric-card--warning-tint {
+      background: rgba(253, 232, 177, 0.3);
+    }
+
+    .metric-card--critical-tint {
+      background: rgba(253, 221, 216, 0.25);
+    }
+
+    .metric-card--success-tint {
+      background: rgba(237, 247, 239, 0.5);
+    }
+
+    /* ── Active card (Reserving with value > 0) — intentionally no border accent ── */
+
+    /* ── Status card ── */
+    .metric-card__value--status[data-status='not_started'] {
+      color: #787774;
+    }
+
+    .metric-card__value--status[data-status='partial'] {
+      color: #6e4200;
+    }
+
+    .metric-card__value--status[data-status='filled'] {
+      color: #286a36;
+    }
+
+    .metric-card__value--status[data-status='over_allocated'] {
+      color: #8c1d13;
+    }
+
+    .metric-card--status[data-status='partial'] {
+      background: rgba(253, 232, 177, 0.25);
+    }
+
+    .metric-card--status[data-status='filled'] {
+      background: rgba(237, 247, 239, 0.5);
+    }
+
+    .metric-card--status[data-status='over_allocated'] {
+      background: rgba(253, 221, 216, 0.25);
+    }
+
+    /* ── Progress bar ── */
+    .metric-card__bar {
+      margin-top: 6px;
+      height: 3px;
+      border-radius: 2px;
+      background: #E3E3E0;
+      overflow: hidden;
+    }
+
+    .metric-card__bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: #E3E3E0;
+      transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                  background-color 300ms ease;
+    }
+
+    .metric-card__bar-fill[data-status='partial'] {
+      background: #d97706;
+    }
+
+    .metric-card__bar-fill[data-status='filled'] {
+      background: #059669;
+    }
+
+    .metric-card__bar-fill[data-status='over_allocated'] {
+      background: #dc3545;
+      animation: bar-pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes bar-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .metric-card {
+        transition: none;
+      }
+      .metric-card__bar-fill {
+        transition: none;
+      }
+      .metric-card__bar-fill[data-status='over_allocated'] {
+        animation: none;
+      }
     }
 
     /* ── Inline notice — compact, no heavy left-border ── */
@@ -546,6 +755,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       .detail__metrics {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
+
+      .metric-card--status {
+        grid-column: span 2;
+      }
     }
 
     @media (max-width: 768px) {
@@ -555,6 +768,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
 
       .detail__metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metric-card--status {
+        grid-column: 1 / -1;
       }
 
       .warehouse-card__table-wrap {
@@ -573,7 +790,79 @@ export class FulfillmentItemDetailComponent {
   readonly item = input.required<AllocationItemGroup>();
   readonly readOnly = input(false);
   readonly store = input.required<OperationsWorkspaceStateService>();
+  readonly warehouseOptions = input<LookupItem[]>([]);
+  readonly defaultWarehouseId = input<string>('');
   readonly back = output<void>();
+  readonly itemAvailabilityIssue = computed(() => this.store().getItemAvailabilityIssue(this.item()));
+
+  readonly effectiveWarehouse = computed(() =>
+    this.store().effectiveWarehouseForItem(this.item().item_id),
+  );
+
+  readonly isOverridden = computed(() => {
+    const defaultId = this.defaultWarehouseId();
+    const effective = this.effectiveWarehouse();
+    return !!defaultId && !!effective && effective !== defaultId;
+  });
+
+  // ── Metric card computed signals ──
+
+  readonly remainingQty = computed(() => Number(this.item().remaining_qty) || 0);
+
+  readonly totalAvailableHere = computed(() =>
+    this.item().candidates.reduce((sum, c) => sum + (Number(c.available_qty) || 0), 0),
+  );
+
+  readonly reservingQty = computed(() =>
+    this.store().getSelectedTotalForItem(this.item().item_id),
+  );
+
+  readonly shortfallQty = computed(() =>
+    this.store().getUncoveredQtyForItem(this.item().item_id),
+  );
+
+  readonly fillRatio = computed(() => {
+    const remaining = this.remainingQty();
+    if (remaining <= 0) return 1;
+    return Math.min(this.reservingQty() / remaining, 1);
+  });
+
+  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated'>(() => {
+    const remaining = this.remainingQty();
+    const reserving = this.reservingQty();
+    if (reserving <= 0) return 'not_started';
+    if (reserving > remaining + 0.0001) return 'over_allocated';
+    if (reserving >= remaining - 0.0001) return 'filled';
+    return 'partial';
+  });
+
+  readonly statusLabel = computed(() => {
+    switch (this.fillStatus()) {
+      case 'not_started': return 'Not Started';
+      case 'partial': return 'Partly Filled';
+      case 'filled': return 'Filled';
+      case 'over_allocated': return 'Over-Allocated';
+    }
+  });
+
+  readonly availabilityHint = computed<string | null>(() => {
+    const available = this.totalAvailableHere();
+    const remaining = this.remainingQty();
+    if (remaining <= 0 || available >= remaining) return null;
+    if (available === 0) return 'No stock at selected warehouse';
+    const pct = Math.round((available / remaining) * 100);
+    return `Covers ${pct}% of need`;
+  });
+
+  readonly shortfallHint = computed<string | null>(() => {
+    const shortfall = this.shortfallQty();
+    if (shortfall <= 0) return null;
+    const available = this.totalAvailableHere();
+    const remaining = this.remainingQty();
+    return available < remaining
+      ? 'Warehouse stock insufficient'
+      : 'Increase reservation to cover';
+  });
 
   readonly warehouseGroups = computed<WarehouseGroup[]>(() => {
     const candidates = this.item().candidates;
@@ -610,6 +899,14 @@ export class FulfillmentItemDetailComponent {
 
   formatMarker(marker: string): string {
     return COMPLIANCE_LABELS[marker] ?? marker.replace(/_/g, ' ');
+  }
+
+  onWarehouseOverride(warehouseId: string): void {
+    this.store().updateItemWarehouse(this.item().item_id, warehouseId);
+  }
+
+  stringifyValue(value: unknown): string {
+    return String(value ?? '');
   }
 
   formatSource(sourceType: string): string {

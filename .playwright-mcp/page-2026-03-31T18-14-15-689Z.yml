@@ -1,0 +1,262 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e4]:
+    - complementary [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: DMIS
+        - button [ref=e9] [cursor=pointer]:
+          - img [ref=e10]: branding_watermark
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: MAIN
+          - link "Dashboard" [ref=e14] [cursor=pointer]:
+            - /url: /replenishment/dashboard
+            - img [ref=e15]: dashboard
+            - generic [ref=e16]: Dashboard
+        - generic [ref=e17]:
+          - generic [ref=e18]: REPLENISHMENT
+          - generic [ref=e19]:
+            - button "Supply Replenishment" [expanded] [ref=e20] [cursor=pointer]:
+              - generic [ref=e22]:
+                - img [ref=e23]: local_shipping
+                - generic [ref=e24]: Supply Replenishment
+            - region "Supply Replenishment" [ref=e27]:
+              - generic [ref=e28]:
+                - link "Stock Status Dashboard" [ref=e29] [cursor=pointer]:
+                  - /url: /replenishment/dashboard
+                  - img [ref=e30]: monitoring
+                  - generic [ref=e31]: Stock Status Dashboard
+                - link "My Drafts & Submissions" [ref=e86] [cursor=pointer]:
+                  - /url: /replenishment/my-submissions
+                  - img [ref=e87]: assignment
+                  - generic [ref=e88]: My Drafts & Submissions
+                - link "Needs List Wizard" [ref=e89] [cursor=pointer]:
+                  - /url: /replenishment/needs-list-wizard
+                  - img [ref=e90]: playlist_add
+                  - generic [ref=e91]: Needs List Wizard
+                - link "Review Queue" [ref=e92] [cursor=pointer]:
+                  - /url: /replenishment/needs-list-review
+                  - img [ref=e93]: fact_check
+                  - generic [ref=e94]: Review Queue
+        - generic [ref=e32]:
+          - generic [ref=e33]: INVENTORY
+          - generic [ref=e34]:
+            - img [ref=e35]: inventory_2
+            - generic [ref=e36]: View Inventory
+          - generic [ref=e37]:
+            - img [ref=e38]: volunteer_activism
+            - generic [ref=e39]: Donations
+          - generic [ref=e40]:
+            - img [ref=e41]: move_to_inbox
+            - generic [ref=e42]: Donation Intake
+        - generic [ref=e43]:
+          - generic [ref=e44]: OPERATIONS
+          - generic [ref=e95]:
+            - button "Operations" [expanded] [ref=e96] [cursor=pointer]:
+              - generic [ref=e98]:
+                - img [ref=e99]: assignment
+                - generic [ref=e100]: Operations
+            - region "Operations" [ref=e103]:
+              - generic [ref=e104]:
+                - link "Dashboard" [ref=e105] [cursor=pointer]:
+                  - /url: /operations/dashboard
+                  - img [ref=e106]: dashboard
+                  - generic [ref=e107]: Dashboard
+                - link "Relief Requests" [ref=e108] [cursor=pointer]:
+                  - /url: /operations/relief-requests
+                  - img [ref=e109]: request_page
+                  - generic [ref=e110]: Relief Requests
+                - link "Eligibility Review" [ref=e111] [cursor=pointer]:
+                  - /url: /operations/eligibility-review
+                  - img [ref=e112]: verified_user
+                  - generic [ref=e113]: Eligibility Review
+                - link "Package Fulfillment" [ref=e114] [cursor=pointer]:
+                  - /url: /operations/package-fulfillment
+                  - img [ref=e115]: inventory_2
+                  - generic [ref=e116]: Package Fulfillment
+                - link "Dispatch" [ref=e117] [cursor=pointer]:
+                  - /url: /operations/dispatch
+                  - img [ref=e118]: local_shipping
+                  - generic [ref=e119]: Dispatch
+                - link "Task Center" [ref=e120] [cursor=pointer]:
+                  - /url: /operations/tasks
+                  - img [ref=e121]: task_alt
+                  - generic [ref=e122]: Task Center
+        - generic [ref=e45]:
+          - generic [ref=e46]: MANAGEMENT
+          - button "Master Data" [ref=e124] [cursor=pointer]:
+            - generic [ref=e126]:
+              - img [ref=e127]: settings
+              - generic [ref=e128]: Master Data
+          - button "Reports" [ref=e48] [cursor=pointer]:
+            - generic [ref=e50]:
+              - img [ref=e51]: assessment
+              - generic [ref=e52]: Reports
+          - generic [ref=e54]:
+            - img [ref=e55]: manage_accounts
+            - generic [ref=e56]: User Management
+          - generic [ref=e57]:
+            - img [ref=e58]: notifications
+            - generic [ref=e59]: Notifications
+      - generic [ref=e61]:
+        - img [ref=e63]: account_circle
+        - generic [ref=e64]:
+          - generic [ref=e65]: sysadmin.odpem+tst@odpem.gov.jm
+          - generic [ref=e130]: SYSTEM_ADMINISTRATOR
+    - generic [ref=e66]:
+      - banner [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e69]: DMIS
+          - generic [ref=e131]: /
+          - link "Operations" [ref=e132] [cursor=pointer]:
+            - /url: /operations/dashboard
+          - generic [ref=e133]: /
+          - generic [ref=e134]: Package Fulfillment
+        - generic [ref=e135]:
+          - generic [ref=e136]: Login as
+          - combobox "Login as" [ref=e137]:
+            - option "Default" [selected]
+            - option "andrea.campbell+tst@odpem.gov.jm (TST_DIR_PEOD)"
+            - option "devon.scott+tst@odpem.gov.jm (TST_LOGISTICS_OFFICER)"
+            - option "kemar.brown+tst@odpem.gov.jm (TST_LOGISTICS_MANAGER)"
+            - option "marcus.reid+tst@odpem.gov.jm (TST_DG)"
+            - option "relief.ffp.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.ffp.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.jrc.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.jrc.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.parish_kn.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.parish_kn.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "sarah.johnson+tst@odpem.gov.jm (TST_READONLY)"
+            - option "sysadmin.odpem+tst@odpem.gov.jm (SYSTEM_ADMINISTRATOR)"
+          - button "Reset" [disabled] [ref=e138]
+      - 'status "All warehouse data is fresh. Last sync: Unknown." [ref=e73]':
+        - generic [ref=e74]:
+          - button "All warehouse data is fresh" [ref=e75] [cursor=pointer]:
+            - img [ref=e76]: check_circle
+            - generic [ref=e77]: All warehouse data is fresh
+            - img [ref=e78]: expand_more
+          - button "Refresh" [ref=e80]:
+            - img [ref=e81]: refresh
+            - generic [ref=e82]: Refresh
+      - main [ref=e85]:
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - generic [ref=e142]:
+              - paragraph [ref=e143]:
+                - img [ref=e144]: inventory_2
+                - text: Operations / Package Fulfillment
+              - heading "Package Fulfillment Queue" [level=1] [ref=e145]
+              - paragraph [ref=e146]: Prioritized worklist for stock reservation, packing, and dispatch preparation.
+            - button "Refresh Queue" [ref=e148]:
+              - img [ref=e149]: refresh
+              - generic [ref=e150]: Refresh Queue
+          - list [ref=e154]:
+            - listitem [ref=e155]:
+              - generic [ref=e156]: Awaiting Fulfillment
+              - strong [ref=e157]: "0"
+              - generic [ref=e158]: New work in queue
+            - listitem [ref=e159]:
+              - generic [ref=e160]: Preparing
+              - strong [ref=e161]: "2"
+              - generic [ref=e162]: Reservation in progress
+            - listitem [ref=e163]:
+              - generic [ref=e164]: Ready to Dispatch
+              - strong [ref=e165]: "0"
+              - generic [ref=e166]: Packages committed
+            - listitem [ref=e167]:
+              - generic [ref=e168]: All Requests
+              - strong [ref=e169]: "2"
+              - generic [ref=e170]: Visible in the queue
+          - generic [ref=e171]:
+            - generic [ref=e172]:
+              - generic [ref=e173]:
+                - generic [ref=e174]:
+                  - paragraph [ref=e175]: Queue
+                  - heading "Pending Fulfillment Work" [level=2] [ref=e176]
+                  - paragraph [ref=e177]: Search and filter packages awaiting stock reservation and dispatch.
+                - generic [ref=e178]: 2 requests
+              - generic [ref=e179]:
+                - generic [ref=e180]:
+                  - generic "Search fulfillment queue" [ref=e181]:
+                    - img [ref=e182]: search
+                    - searchbox "Search fulfillment queue" [ref=e183]
+                  - radiogroup "Filter queue by fulfillment stage" [ref=e184]:
+                    - radio "All" [checked] [ref=e185] [cursor=pointer]
+                    - radio "Awaiting" [ref=e186] [cursor=pointer]
+                    - radio "Preparing" [ref=e187] [cursor=pointer]
+                    - radio "Ready" [ref=e188] [cursor=pointer]
+                    - radio "Dispatched" [ref=e189] [cursor=pointer]
+                - generic [ref=e190]:
+                  - button "RQ95007 Approved Medium Draft S07 TEST DISTRIBUTOR AGENCY - FFP Hurricane Mellisa 2025 2 items Created Mar 30, 2026, 08:19 PM Pkg PK95024 17 hrs" [ref=e191] [cursor=pointer]:
+                    - generic [ref=e192]:
+                      - generic [ref=e193]:
+                        - paragraph [ref=e194]: RQ95007
+                        - generic [ref=e196]: Approved
+                        - generic [ref=e199]: Medium
+                        - generic [ref=e202]: Draft
+                      - generic [ref=e204]:
+                        - generic [ref=e205]: S07 TEST DISTRIBUTOR AGENCY - FFP
+                        - generic [ref=e206]: "|"
+                        - generic [ref=e207]: Hurricane Mellisa 2025
+                        - generic [ref=e208]: "|"
+                        - generic [ref=e209]: 2 items
+                        - generic [ref=e210]: "|"
+                        - generic [ref=e211]: Created Mar 30, 2026, 08:19 PM
+                        - generic [ref=e212]: "|"
+                        - generic [ref=e213]: Pkg PK95024
+                    - generic [ref=e214]:
+                      - generic [ref=e216]: 17 hrs
+                      - img [ref=e217]: chevron_right
+                  - button "RQ95004 Partially Fulfilled High Draft ODPEM LOGISTICS TEST AGENCY TEST EVENT 1 2 items Created Mar 24, 2026, 04:27 PM Pkg PK95025 7 days" [ref=e218] [cursor=pointer]:
+                    - generic [ref=e219]:
+                      - generic [ref=e220]:
+                        - paragraph [ref=e221]: RQ95004
+                        - generic [ref=e223]: Partially Fulfilled
+                        - generic [ref=e226]: High
+                        - generic [ref=e229]: Draft
+                      - generic [ref=e231]:
+                        - generic [ref=e232]: ODPEM LOGISTICS TEST AGENCY
+                        - generic [ref=e233]: "|"
+                        - generic [ref=e234]: TEST EVENT 1
+                        - generic [ref=e235]: "|"
+                        - generic [ref=e236]: 2 items
+                        - generic [ref=e237]: "|"
+                        - generic [ref=e238]: Created Mar 24, 2026, 04:27 PM
+                        - generic [ref=e239]: "|"
+                        - generic [ref=e240]: Pkg PK95025
+                    - generic [ref=e241]:
+                      - generic [ref=e243]: 7 days
+                      - img [ref=e244]: chevron_right
+            - complementary [ref=e245]:
+              - generic [ref=e246]:
+                - generic [ref=e248]:
+                  - paragraph [ref=e249]: Workload
+                  - heading "Queue metrics" [level=2] [ref=e250]
+                - generic [ref=e252]:
+                  - generic [ref=e253]:
+                    - generic [ref=e254]: Total shown
+                    - paragraph [ref=e255]: "2"
+                  - generic [ref=e256]:
+                    - generic [ref=e257]: Awaiting
+                    - paragraph [ref=e258]: "0"
+                  - generic [ref=e259]:
+                    - generic [ref=e260]: Preparing
+                    - paragraph [ref=e261]: "2"
+                  - generic [ref=e262]:
+                    - generic [ref=e263]: Ready
+                    - paragraph [ref=e264]: "0"
+              - generic [ref=e265]:
+                - generic [ref=e267]:
+                  - paragraph [ref=e268]: Guidance
+                  - heading "What to do next" [level=2] [ref=e269]
+                - generic [ref=e271]:
+                  - generic [ref=e274]:
+                    - paragraph [ref=e275]: Awaiting requests need stock reserved.
+                    - generic [ref=e277]: Open a request to begin batch selection and quantity allocation.
+                  - generic [ref=e280]:
+                    - paragraph [ref=e281]: Preparing packages are being committed.
+                    - generic [ref=e283]: Review selections, add override notes if needed, then lock the package.
+                  - generic [ref=e286]:
+                    - paragraph [ref=e287]: Ready packages move to dispatch.
+                    - generic [ref=e289]: Once committed, the package appears in the Dispatch Queue for handoff.

@@ -24,6 +24,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
       reliefrqst_id: 12,
       agency_id: 8,
       eligible_event_id: 4,
+      source_warehouse_id: 1,
       to_inventory_id: 3,
       destination_warehouse_name: 'Kingston Warehouse',
       status_code: 'P',

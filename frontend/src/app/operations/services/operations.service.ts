@@ -5,6 +5,7 @@ import { Observable, catchError, map, of, switchMap, throwError } from 'rxjs';
 import {
   AllocationCommitPayload,
   AllocationCommitResponse,
+  AllocationItemGroup,
   AllocationOptionsResponse,
   CreateRequestPayload,
   RequestReferenceDataResponse,
@@ -27,6 +28,7 @@ import {
 } from '../models/operations.model';
 import {
   createDispatchDetailFallback,
+  normalizeAllocationItemGroup,
   normalizeAllocationOptions,
   normalizeDispatchDetail,
   normalizeDispatchQueueItem,
@@ -130,7 +132,12 @@ export class OperationsService {
 
   savePackageDraft(
     reliefrqstId: number,
-    payload: { to_inventory_id?: number; transport_mode?: string; comments_text?: string },
+    payload: {
+      source_warehouse_id?: number;
+      to_inventory_id?: number;
+      transport_mode?: string;
+      comments_text?: string;
+    },
   ): Observable<PackageDetailResponse> {
     return this.http.post<PackageDetailResponse>(
       `${this.apiUrl}/packages/${reliefrqstId}/draft`,
@@ -150,6 +157,18 @@ export class OperationsService {
       `${this.apiUrl}/packages/${reliefrqstId}/allocation-options`,
       { params },
     ).pipe(map(normalizeAllocationOptions));
+  }
+
+  getItemAllocationOptions(
+    reliefrqstId: number,
+    itemId: number,
+    sourceWarehouseId: number,
+  ): Observable<AllocationItemGroup> {
+    const params = new HttpParams().set('source_warehouse_id', String(sourceWarehouseId));
+    return this.http.get<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocation-options/${itemId}`,
+      { params },
+    ).pipe(map(normalizeAllocationItemGroup));
   }
 
   commitAllocations(

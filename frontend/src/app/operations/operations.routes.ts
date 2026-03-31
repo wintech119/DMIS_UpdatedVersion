@@ -13,6 +13,7 @@ import { OpsDispatchWorkspaceComponent } from './dispatch-workspace/dispatch-wor
 import { DispatchWaybillComponent } from './dispatch-waybill/dispatch-waybill.component';
 import { ReceiptConfirmationComponent } from './receipt-confirmation/receipt-confirmation.component';
 import { TaskCenterComponent } from './task-center/task-center.component';
+import { OpsStockAvailabilityPreviewComponent } from './shared/ops-stock-availability-preview.component';
 import { appAccessGuard } from '../core/app-access.guard';
 
 export const OPERATIONS_ROUTES: Routes = [
@@ -27,6 +28,7 @@ export const OPERATIONS_ROUTES: Routes = [
   { path: 'eligibility-review/:reliefrqstId', component: EligibilityReviewDetailComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.eligibility' } },
   { path: 'package-fulfillment', component: PackageFulfillmentQueueComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'package-fulfillment/:reliefrqstId', component: PackageFulfillmentWorkspaceComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
+  { path: 'dev/stock-availability-preview', component: OpsStockAvailabilityPreviewComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'dispatch', component: DispatchQueueComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.dispatch' } },
   { path: 'dispatch/:reliefpkgId/waybill', component: DispatchWaybillComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.dispatch' } },
   { path: 'dispatch/:reliefpkgId', component: OpsDispatchWorkspaceComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.dispatch' } },

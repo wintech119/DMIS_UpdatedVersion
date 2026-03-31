@@ -1,0 +1,71 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e4]:
+    - complementary [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: DMIS
+        - button [ref=e9] [cursor=pointer]:
+          - img [ref=e10]: branding_watermark
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: MAIN
+          - link "Dashboard" [ref=e14] [cursor=pointer]:
+            - /url: /replenishment/dashboard
+            - img [ref=e15]: dashboard
+            - generic [ref=e16]: Dashboard
+        - generic [ref=e17]:
+          - generic [ref=e18]: REPLENISHMENT
+          - generic [ref=e19]:
+            - button "Supply Replenishment" [expanded] [ref=e20] [cursor=pointer]:
+              - generic [ref=e22]:
+                - img [ref=e23]: local_shipping
+                - generic [ref=e24]: Supply Replenishment
+            - region "Supply Replenishment" [ref=e27]:
+              - link "Stock Status Dashboard" [ref=e29] [cursor=pointer]:
+                - /url: /replenishment/dashboard
+                - img [ref=e30]: monitoring
+                - generic [ref=e31]: Stock Status Dashboard
+        - generic [ref=e32]:
+          - generic [ref=e33]: INVENTORY
+          - generic [ref=e34]:
+            - img [ref=e35]: inventory_2
+            - generic [ref=e36]: View Inventory
+          - generic [ref=e37]:
+            - img [ref=e38]: volunteer_activism
+            - generic [ref=e39]: Donations
+          - generic [ref=e40]:
+            - img [ref=e41]: move_to_inbox
+            - generic [ref=e42]: Donation Intake
+        - generic [ref=e44]: OPERATIONS
+        - generic [ref=e45]:
+          - generic [ref=e46]: MANAGEMENT
+          - button "Reports" [ref=e48] [cursor=pointer]:
+            - generic [ref=e50]:
+              - img [ref=e51]: assessment
+              - generic [ref=e52]: Reports
+          - generic [ref=e54]:
+            - img [ref=e55]: manage_accounts
+            - generic [ref=e56]: User Management
+          - generic [ref=e57]:
+            - img [ref=e58]: notifications
+            - generic [ref=e59]: Notifications
+      - generic [ref=e61]:
+        - img [ref=e63]: account_circle
+        - generic [ref=e65]: Unknown
+    - generic [ref=e66]:
+      - banner [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e69]: DMIS
+          - generic [ref=e70]: /
+          - generic [ref=e71]: Home
+      - 'status "All warehouse data is fresh. Last sync: Unknown." [ref=e73]':
+        - generic [ref=e74]:
+          - button "All warehouse data is fresh" [ref=e75] [cursor=pointer]:
+            - img [ref=e76]: check_circle
+            - generic [ref=e77]: All warehouse data is fresh
+            - img [ref=e78]: expand_more
+          - button "Refresh" [ref=e80]:
+            - img [ref=e81]: refresh
+            - generic [ref=e82]: Refresh
+      - main [ref=e85]

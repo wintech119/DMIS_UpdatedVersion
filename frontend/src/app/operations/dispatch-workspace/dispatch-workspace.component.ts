@@ -57,7 +57,7 @@ interface DispatchStateSummary {
     DmisStepTrackerComponent,
   ],
   templateUrl: './dispatch-workspace.component.html',
-  styleUrl: './dispatch-workspace.component.scss',
+  styleUrls: ['./dispatch-workspace.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OpsDispatchWorkspaceComponent {

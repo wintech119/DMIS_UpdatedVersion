@@ -1,0 +1,336 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e4]:
+    - complementary [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: DMIS
+        - button [ref=e9] [cursor=pointer]:
+          - img [ref=e10]: branding_watermark
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: MAIN
+          - link "Dashboard" [ref=e14] [cursor=pointer]:
+            - /url: /replenishment/dashboard
+            - img [ref=e15]: dashboard
+            - generic [ref=e16]: Dashboard
+        - generic [ref=e17]:
+          - generic [ref=e18]: REPLENISHMENT
+          - generic [ref=e19]:
+            - button "Supply Replenishment" [expanded] [ref=e20] [cursor=pointer]:
+              - generic [ref=e22]:
+                - img [ref=e23]: local_shipping
+                - generic [ref=e24]: Supply Replenishment
+            - region "Supply Replenishment" [ref=e27]:
+              - generic [ref=e28]:
+                - link "Stock Status Dashboard" [ref=e29] [cursor=pointer]:
+                  - /url: /replenishment/dashboard
+                  - img [ref=e30]: monitoring
+                  - generic [ref=e31]: Stock Status Dashboard
+                - link "My Drafts & Submissions" [ref=e86] [cursor=pointer]:
+                  - /url: /replenishment/my-submissions
+                  - img [ref=e87]: assignment
+                  - generic [ref=e88]: My Drafts & Submissions
+                - link "Needs List Wizard" [ref=e89] [cursor=pointer]:
+                  - /url: /replenishment/needs-list-wizard
+                  - img [ref=e90]: playlist_add
+                  - generic [ref=e91]: Needs List Wizard
+                - link "Review Queue" [ref=e92] [cursor=pointer]:
+                  - /url: /replenishment/needs-list-review
+                  - img [ref=e93]: fact_check
+                  - generic [ref=e94]: Review Queue
+        - generic [ref=e32]:
+          - generic [ref=e33]: INVENTORY
+          - generic [ref=e34]:
+            - img [ref=e35]: inventory_2
+            - generic [ref=e36]: View Inventory
+          - generic [ref=e37]:
+            - img [ref=e38]: volunteer_activism
+            - generic [ref=e39]: Donations
+          - generic [ref=e40]:
+            - img [ref=e41]: move_to_inbox
+            - generic [ref=e42]: Donation Intake
+        - generic [ref=e43]:
+          - generic [ref=e44]: OPERATIONS
+          - generic [ref=e95]:
+            - button "Operations" [expanded] [ref=e96] [cursor=pointer]:
+              - generic [ref=e98]:
+                - img [ref=e99]: assignment
+                - generic [ref=e100]: Operations
+            - region "Operations" [ref=e103]:
+              - generic [ref=e104]:
+                - link "Dashboard" [ref=e105] [cursor=pointer]:
+                  - /url: /operations/dashboard
+                  - img [ref=e106]: dashboard
+                  - generic [ref=e107]: Dashboard
+                - link "Relief Requests" [ref=e108] [cursor=pointer]:
+                  - /url: /operations/relief-requests
+                  - img [ref=e109]: request_page
+                  - generic [ref=e110]: Relief Requests
+                - link "Eligibility Review" [ref=e111] [cursor=pointer]:
+                  - /url: /operations/eligibility-review
+                  - img [ref=e112]: verified_user
+                  - generic [ref=e113]: Eligibility Review
+                - link "Package Fulfillment" [ref=e114] [cursor=pointer]:
+                  - /url: /operations/package-fulfillment
+                  - img [ref=e115]: inventory_2
+                  - generic [ref=e116]: Package Fulfillment
+                - link "Dispatch" [ref=e117] [cursor=pointer]:
+                  - /url: /operations/dispatch
+                  - img [ref=e118]: local_shipping
+                  - generic [ref=e119]: Dispatch
+                - link "Task Center" [ref=e120] [cursor=pointer]:
+                  - /url: /operations/tasks
+                  - img [ref=e121]: task_alt
+                  - generic [ref=e122]: Task Center
+        - generic [ref=e45]:
+          - generic [ref=e46]: MANAGEMENT
+          - button "Master Data" [ref=e124] [cursor=pointer]:
+            - generic [ref=e126]:
+              - img [ref=e127]: settings
+              - generic [ref=e128]: Master Data
+          - button "Reports" [ref=e48] [cursor=pointer]:
+            - generic [ref=e50]:
+              - img [ref=e51]: assessment
+              - generic [ref=e52]: Reports
+          - generic [ref=e54]:
+            - img [ref=e55]: manage_accounts
+            - generic [ref=e56]: User Management
+          - generic [ref=e57]:
+            - img [ref=e58]: notifications
+            - generic [ref=e59]: Notifications
+      - generic [ref=e61]:
+        - img [ref=e63]: account_circle
+        - generic [ref=e64]:
+          - generic [ref=e65]: sysadmin.odpem+tst@odpem.gov.jm
+          - generic [ref=e130]: SYSTEM_ADMINISTRATOR
+    - generic [ref=e66]:
+      - banner [ref=e67]:
+        - generic [ref=e68]:
+          - generic [ref=e69]: DMIS
+          - generic [ref=e131]: /
+          - link "Operations" [ref=e132] [cursor=pointer]:
+            - /url: /operations/dashboard
+          - generic [ref=e133]: /
+          - link "Package Fulfillment" [ref=e290] [cursor=pointer]:
+            - /url: /operations/package-fulfillment
+          - generic [ref=e291]: /
+          - generic [ref=e292]: "Package #95007"
+        - generic [ref=e135]:
+          - generic [ref=e136]: Login as
+          - combobox "Login as" [ref=e137]:
+            - option "Default" [selected]
+            - option "andrea.campbell+tst@odpem.gov.jm (TST_DIR_PEOD)"
+            - option "devon.scott+tst@odpem.gov.jm (TST_LOGISTICS_OFFICER)"
+            - option "kemar.brown+tst@odpem.gov.jm (TST_LOGISTICS_MANAGER)"
+            - option "marcus.reid+tst@odpem.gov.jm (TST_DG)"
+            - option "relief.ffp.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.ffp.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.jrc.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.jrc.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.parish_kn.receiver+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "relief.parish_kn.requester+tst@odpem.gov.jm (AGENCY_DISTRIBUTOR)"
+            - option "sarah.johnson+tst@odpem.gov.jm (TST_READONLY)"
+            - option "sysadmin.odpem+tst@odpem.gov.jm (SYSTEM_ADMINISTRATOR)"
+          - button "Reset" [disabled] [ref=e138]
+      - 'status "All warehouse data is fresh. Last sync: Unknown." [ref=e73]':
+        - generic [ref=e74]:
+          - button "All warehouse data is fresh" [ref=e75] [cursor=pointer]:
+            - img [ref=e76]: check_circle
+            - generic [ref=e77]: All warehouse data is fresh
+            - img [ref=e78]: expand_more
+          - button "Refresh" [ref=e80]:
+            - img [ref=e81]: refresh
+            - generic [ref=e82]: Refresh
+      - main [ref=e85]:
+        - generic [ref=e294]:
+          - region "Item Selection and Packing" [ref=e295]:
+            - generic [ref=e296]:
+              - paragraph [ref=e297]:
+                - img [ref=e298]: inventory_2
+                - text: Operations / Package Fulfillment
+              - heading "Item Selection and Packing" [level=1] [ref=e299]
+              - paragraph [ref=e300]: Reserve stock against the relief request, keep audit-relevant notes visible, and hold dispatch until the plan is ready.
+            - button "Refresh" [ref=e302]:
+              - img [ref=e303]: refresh
+              - generic [ref=e304]: Refresh
+          - list [ref=e308]:
+            - listitem [ref=e309]:
+              - generic [ref=e310]: Request Tracking Number
+              - strong [ref=e311]: RQ95007
+              - generic [ref=e312]: The request anchor remains visible during packing.
+            - listitem [ref=e313]:
+              - generic [ref=e314]: Package Tracking Number
+              - strong [ref=e315]: PK95024
+              - generic [ref=e316]: Generated when stock is committed.
+            - listitem [ref=e317]:
+              - generic [ref=e318]: Reservation State
+              - strong [ref=e319]: Not reserved yet
+              - generic [ref=e320]: Not started
+            - listitem [ref=e321]:
+              - generic [ref=e322]: Waybill Reference
+              - strong [ref=e323]: Assigned on dispatch
+              - generic [ref=e324]: Waybill remains pending until dispatch.
+          - button "Show request context & guardrails" [ref=e325] [cursor=pointer]:
+            - img [ref=e326]: expand_more
+            - text: Show request context & guardrails
+          - generic [ref=e327]:
+            - region "Request and fulfilment context" [ref=e328]:
+              - generic [ref=e329]:
+                - generic [ref=e330]:
+                  - paragraph [ref=e331]: Packing context
+                  - heading "Request and fulfilment context" [level=2] [ref=e332]
+                - generic [ref=e333]:
+                  - button "Waybill" [disabled]:
+                    - img: description
+                    - generic: Waybill
+                  - button "Receipt" [ref=e334]:
+                    - img [ref=e335]: fact_check
+                    - generic [ref=e336]: Receipt
+              - generic [ref=e339]:
+                - article [ref=e340]:
+                  - generic [ref=e341]: Agency
+                  - strong [ref=e342]: S07 TEST DISTRIBUTOR AGENCY - FFP
+                  - paragraph [ref=e343]: Hurricane Mellisa 2025
+                - article [ref=e344]:
+                  - generic [ref=e345]: Urgency
+                  - strong [ref=e346]: Medium
+                  - paragraph [ref=e347]: 2 item lines
+                - article [ref=e348]:
+                  - generic [ref=e349]: Execution
+                  - strong [ref=e350]: Not started
+                  - paragraph [ref=e351]: Reservation freezes stock until dispatch.
+                - article [ref=e352]:
+                  - generic [ref=e353]: Package
+                  - strong [ref=e354]: Unknown
+                  - paragraph [ref=e355]: PK95024
+            - complementary "Operating guardrails" [ref=e356]:
+              - generic [ref=e358]:
+                - paragraph [ref=e359]: Fulfillment rail
+                - heading "Operating guardrails" [level=2] [ref=e360]
+              - generic [ref=e361]:
+                - article [ref=e362]:
+                  - generic [ref=e363]: Selection Method
+                  - strong [ref=e364]: Mixed
+                  - paragraph [ref=e365]: Items must follow Mixed ordering. Deviations require override approval.
+                - article [ref=e366]:
+                  - generic [ref=e367]: Bypass Visibility
+                  - strong [ref=e368]: Not required
+                - article [ref=e369]:
+                  - generic [ref=e370]: Physical Deduction
+                  - strong [ref=e371]: On dispatch only
+                - article [ref=e372]:
+                  - generic [ref=e373]: Receipt Confirmation
+                  - strong [ref=e374]: Route pending backend hookup
+          - navigation "Wizard progress" [ref=e376]:
+            - tablist [ref=e377]:
+              - 'button "Step 1: Select Stock" [ref=e378] [cursor=pointer]':
+                - generic [ref=e379]: "1"
+                - generic [ref=e380]: Select Stock
+              - 'button "Step 2: Operational Details" [disabled] [ref=e381] [cursor=pointer]':
+                - generic [ref=e382]: "2"
+                - generic [ref=e383]: Operational Details
+              - 'button "Step 3: Review & Commit" [disabled] [ref=e384] [cursor=pointer]':
+                - generic [ref=e385]: "3"
+                - generic [ref=e386]: Review & Commit
+              - 'button "Step 4: Confirmation" [disabled] [ref=e387] [cursor=pointer]':
+                - generic [ref=e388]: "4"
+                - generic [ref=e389]: Confirmation
+          - tabpanel "1 Select Stock" [ref=e394]:
+            - generic [ref=e396]:
+              - heading "Stock-Aware Selection" [level=2] [ref=e397]
+              - paragraph [ref=e399]: Select an item on the left, then use the warehouse stock lines on the right to reserve inventory. The system orders batches by FEFO or FIFO when available.
+              - region "Source warehouse selection" [ref=e401]:
+                - generic [ref=e402]:
+                  - generic [ref=e403]:
+                    - img [ref=e405]: warehouse
+                    - generic [ref=e406]: ODPEM KINGSTON WAREHOUSE (KW)
+                  - paragraph [ref=e407]: Default source — applies to all items unless overridden
+                  - generic [ref=e411] [cursor=pointer]:
+                    - generic [ref=e412]: Source warehouse
+                    - combobox "Select default source warehouse" [ref=e414]:
+                      - img [ref=e420]
+              - generic [ref=e422]:
+                - generic [ref=e424]:
+                  - paragraph [ref=e425]: Items to Fulfil
+                  - 'button "FACE MASK, LARGE, 25CM FIFO MMASSURGFA25 Req: 20 Rem: 20" [ref=e426] [cursor=pointer]':
+                    - generic [ref=e427]:
+                      - strong [ref=e428]: FACE MASK, LARGE, 25CM
+                      - generic [ref=e429]: FIFO
+                    - generic [ref=e430]: MMASSURGFA25
+                    - generic [ref=e431]:
+                      - generic [ref=e432]: "Req: 20"
+                      - generic [ref=e433]: "Rem: 20"
+                  - 'button "CORNED BEEF, CANNED, 500G FEFO FCANMEATCN05 Req: 10 Rem: 10" [ref=e434] [cursor=pointer]':
+                    - generic [ref=e435]:
+                      - strong [ref=e436]: CORNED BEEF, CANNED, 500G
+                      - generic [ref=e437]: FEFO
+                    - generic [ref=e438]: FCANMEATCN05
+                    - generic [ref=e439]:
+                      - generic [ref=e440]: "Req: 10"
+                      - generic [ref=e441]: "Rem: 10"
+                - generic [ref=e444]:
+                  - generic [ref=e445]:
+                    - generic [ref=e446]:
+                      - heading "FACE MASK, LARGE, 25CM" [level=3] [ref=e447]
+                      - paragraph [ref=e448]: MMASSURGFA25
+                    - generic [ref=e449]:
+                      - generic [ref=e450]: FIFO
+                      - generic [ref=e453] [cursor=pointer]:
+                        - generic [ref=e454]: Source
+                        - combobox "Source" [ref=e456]:
+                          - generic [ref=e457]:
+                            - generic [ref=e459]: ODPEM KINGSTON WAREHOUSE (KW) (default)
+                            - img [ref=e462]
+                      - button "Clear selection" [ref=e464] [cursor=pointer]
+                      - button "Manual override" [ref=e466] [cursor=pointer]
+                  - generic [ref=e467]:
+                    - generic [ref=e468]:
+                      - generic [ref=e469]: Requested
+                      - generic [ref=e470]: "20"
+                    - generic [ref=e471]:
+                      - generic [ref=e472]: Available Here
+                      - generic [ref=e473]: "20"
+                    - generic [ref=e474]:
+                      - generic [ref=e475]: Reserving
+                      - generic [ref=e476]: "20"
+                    - generic [ref=e477]:
+                      - generic [ref=e478]: Shortfall
+                      - generic [ref=e479]: "0"
+                    - status "Filled, 100% of need covered" [ref=e480]:
+                      - generic [ref=e481]: Status
+                      - generic [ref=e482]: Filled
+                      - progressbar [ref=e483]
+                  - paragraph [ref=e485]: Available Warehouses
+                  - generic [ref=e486]:
+                    - generic [ref=e487]:
+                      - img [ref=e488]: warehouse
+                      - generic [ref=e489]:
+                        - strong [ref=e490]: ODPEM KINGSTON WAREHOUSE (KW)
+                        - generic [ref=e491]: 20 available · 1 batch
+                    - table [ref=e493]:
+                      - rowgroup [ref=e494]:
+                        - row "Batch / Lot Source Batch Date Expiry Available Reserved Qty to reserve" [ref=e495]:
+                          - columnheader "Batch / Lot" [ref=e496]
+                          - columnheader "Source" [ref=e497]
+                          - columnheader "Batch Date" [ref=e498]
+                          - columnheader "Expiry" [ref=e499]
+                          - columnheader "Available" [ref=e500]
+                          - columnheader "Reserved" [ref=e501]
+                          - columnheader "Qty to reserve" [ref=e502]
+                      - rowgroup [ref=e503]:
+                        - row "TST-RQ95007-W1-I124 On Hand Mar 1, 2026 N/A 20 0" [ref=e504]:
+                          - cell "TST-RQ95007-W1-I124" [ref=e505]:
+                            - strong [ref=e506]: TST-RQ95007-W1-I124
+                          - cell "On Hand" [ref=e507]
+                          - cell "Mar 1, 2026" [ref=e508]
+                          - cell "N/A" [ref=e509]
+                          - cell "20" [ref=e510]
+                          - cell "0" [ref=e511]
+                          - cell [ref=e512]:
+                            - spinbutton "Quantity to reserve for batch TST-RQ95007-W1-I124" [ref=e513]: "20"
+            - generic [ref=e514]:
+              - button "Back to Request" [ref=e515]:
+                - generic [ref=e516]: Back to Request
+              - button "Continue" [ref=e519]:
+                - generic [ref=e520]: Continue

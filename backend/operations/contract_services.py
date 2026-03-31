@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
@@ -83,6 +84,7 @@ _UNSET = object()
 ENTITY_REQUEST = "RELIEF_REQUEST"
 ENTITY_PACKAGE = "PACKAGE"
 ENTITY_DISPATCH = "DISPATCH"
+_VALID_ALLOCATION_SOURCE_TYPES = {"ON_HAND", "TRANSFER", "DONATION", "PROCUREMENT"}
 
 
 def _require_actor_id(actor_id: str | None) -> str:
@@ -110,6 +112,112 @@ def _optional_positive_int_payload_value(
     return parsed
 
 
+def _required_positive_int_from_allocation_row(
+    raw: Mapping[str, Any],
+    *,
+    row_index: int,
+    field_name: str,
+    aliases: Iterable[str] | None = None,
+) -> int:
+    candidate_fields = [field_name, *(aliases or ())]
+    raw_value = None
+    resolved_field = field_name
+    for candidate in candidate_fields:
+        if candidate in raw and raw.get(candidate) not in (None, ""):
+            raw_value = raw.get(candidate)
+            resolved_field = candidate
+            break
+    try:
+        parsed = int(str(raw_value).strip())
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError(
+            {f"allocations[{row_index}].{resolved_field}": f"{resolved_field} must be a positive integer."}
+        ) from exc
+    if parsed <= 0:
+        raise OperationValidationError(
+            {f"allocations[{row_index}].{resolved_field}": f"{resolved_field} must be a positive integer."}
+        )
+    return parsed
+
+
+def _validate_allocation_rows(raw_allocations: object) -> list[dict[str, Any]]:
+    if raw_allocations in (None, ""):
+        return []
+    if not isinstance(raw_allocations, list):
+        raise OperationValidationError({"allocations": "allocations must be provided as a list."})
+
+    validated_rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_allocations):
+        if not isinstance(raw, Mapping):
+            raise OperationValidationError({f"allocations[{index}]": "Each allocation row must be an object."})
+
+        qty_value = raw.get("quantity", raw.get("allocated_qty"))
+        try:
+            qty_decimal = Decimal(str(qty_value).strip())
+        except (InvalidOperation, TypeError, ValueError, AttributeError) as exc:
+            raise OperationValidationError(
+                {f"allocations[{index}].quantity": f"Invalid quantity for allocation row {index}: {qty_value!r}."}
+            ) from exc
+        if qty_decimal <= 0:
+            raise OperationValidationError(
+                {f"allocations[{index}].quantity": "Allocation quantity must be greater than zero."}
+            )
+
+        item_id = _required_positive_int_from_allocation_row(raw, row_index=index, field_name="item_id")
+        source_warehouse_id = _required_positive_int_from_allocation_row(
+            raw,
+            row_index=index,
+            field_name="inventory_id",
+            aliases=("source_warehouse_id",),
+        )
+        batch_id = _required_positive_int_from_allocation_row(raw, row_index=index, field_name="batch_id")
+
+        source_type = str(raw.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND"
+        if source_type not in _VALID_ALLOCATION_SOURCE_TYPES:
+            raise OperationValidationError(
+                {
+                    f"allocations[{index}].source_type":
+                        f"Invalid source_type {source_type!r} for allocation row {index}."
+                }
+            )
+
+        source_record_id: int | None = None
+        if raw.get("source_record_id") not in (None, ""):
+            source_record_id = _required_positive_int_from_allocation_row(
+                raw,
+                row_index=index,
+                field_name="source_record_id",
+            )
+
+        uom_code_raw = raw.get("uom_code")
+        uom_code = str(uom_code_raw).strip() if uom_code_raw not in (None, "") else None
+        if uom_code is not None and len(uom_code) > 25:
+            raise OperationValidationError(
+                {f"allocations[{index}].uom_code": "uom_code must not exceed 25 characters."}
+            )
+
+        validated_rows.append(
+            {
+                "item_id": item_id,
+                "source_warehouse_id": source_warehouse_id,
+                "batch_id": batch_id,
+                "quantity": qty_decimal,
+                "source_type": source_type,
+                "source_record_id": source_record_id,
+                "uom_code": uom_code,
+            }
+        )
+
+    return validated_rows
+
+
+def _allowed_fulfillment_queue_codes(normalized_roles: set[str]) -> list[str]:
+    allowed_queue_codes = [QUEUE_CODE_FULFILLMENT]
+    if ROLE_LOGISTICS_MANAGER in normalized_roles:
+        allowed_queue_codes.append(QUEUE_CODE_OVERRIDE)
+    return allowed_queue_codes
+
+
 REQUEST_FILTERS = {
     "draft": {REQUEST_STATUS_DRAFT},
     "awaiting": {REQUEST_STATUS_SUBMITTED, REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW},
@@ -134,6 +242,7 @@ FULFILLMENT_VISIBLE_REQUEST_STATUSES = frozenset(
     {
         REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
         REQUEST_STATUS_PARTIALLY_FULFILLED,
+        REQUEST_STATUS_FULFILLED,
     }
 )
 
@@ -684,12 +793,19 @@ def _ensure_fulfillment_request_access(
     if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
 
+    active_tenant_id = tenant_context.active_tenant_id
+    if active_tenant_id is None:
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
     assignment_statuses = ["OPEN"] if write else ["OPEN", "COMPLETED"]
+    allowed_queue_codes = _allowed_fulfillment_queue_codes(normalized_roles)
     has_assignment = OperationsQueueAssignment.objects.filter(
-        queue_code__in=[QUEUE_CODE_FULFILLMENT, QUEUE_CODE_OVERRIDE],
+        Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
+        queue_code__in=allowed_queue_codes,
         entity_type=ENTITY_REQUEST,
         entity_id=int(request_record.relief_request_id),
         assignment_status__in=assignment_statuses,
+        assigned_tenant_id=active_tenant_id,
     ).exists()
     if not has_assignment:
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
@@ -1288,7 +1404,7 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
     else:
         request_ids = list(
             OperationsReliefRequest.objects.filter(
-                status_code__in=[REQUEST_STATUS_APPROVED_FOR_FULFILLMENT, REQUEST_STATUS_PARTIALLY_FULFILLED]
+                status_code__in=list(FULFILLMENT_VISIBLE_REQUEST_STATUSES)
             )
             .order_by("-request_date", "-relief_request_id")
             .values_list("relief_request_id", flat=True)[:200]
@@ -1296,7 +1412,7 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
     for reliefrqst_id in request_ids:
         request = legacy_service._load_request(int(reliefrqst_id))
         request_record = _sync_operations_request(request, actor_id=actor_id)
-        if request_record.status_code not in {REQUEST_STATUS_APPROVED_FOR_FULFILLMENT, REQUEST_STATUS_PARTIALLY_FULFILLED}:
+        if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
             continue
         try:
             _ensure_fulfillment_request_access(
@@ -1381,6 +1497,7 @@ def save_package(
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
+    validated_allocations = _validate_allocation_rows(payload.get("allocations"))
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
@@ -1399,18 +1516,8 @@ def save_package(
     if package is None:
         return result
     first_inventory_id: int | None | object = _UNSET
-    allocations = payload.get("allocations")
-    if isinstance(allocations, list) and allocations:
-        first_allocation = allocations[0]
-        if isinstance(first_allocation, Mapping) and "inventory_id" in first_allocation:
-            raw_inventory_id = first_allocation.get("inventory_id")
-            if raw_inventory_id in (None, ""):
-                first_inventory_id = None
-            else:
-                try:
-                    first_inventory_id = int(raw_inventory_id)
-                except (TypeError, ValueError):
-                    first_inventory_id = None
+    if validated_allocations:
+        first_inventory_id = validated_allocations[0]["source_warehouse_id"]
     if requested_source_warehouse_id is not _UNSET:
         first_inventory_id = requested_source_warehouse_id
     status_code = PACKAGE_STATUS_DRAFT
@@ -1429,31 +1536,21 @@ def save_package(
         source_warehouse_id=first_inventory_id,
     )
     # ── Dual-write: sync allocation lines to new operations table ──
-    raw_allocations = payload.get("allocations")
-    if isinstance(raw_allocations, list) and raw_allocations:
+    if validated_allocations:
         OperationsAllocationLine.objects.filter(package=package_record).delete()
         lines_to_create = []
         now = timezone.now()
-        for raw in raw_allocations:
-            if not isinstance(raw, Mapping):
-                continue
-            qty = raw.get("quantity", raw.get("allocated_qty"))
-            try:
-                qty_decimal = Decimal(str(qty if qty not in (None, "") else "0"))
-            except Exception:
-                qty_decimal = Decimal("0")
-            if qty_decimal <= 0:
-                continue
+        for allocation in validated_allocations:
             lines_to_create.append(
                 OperationsAllocationLine(
                     package=package_record,
-                    item_id=int(raw.get("item_id", 0)),
-                    source_warehouse_id=int(raw.get("inventory_id", 0)),
-                    batch_id=int(raw.get("batch_id", 0)),
-                    quantity=qty_decimal,
-                    source_type=str(raw.get("source_type", "ON_HAND")).strip().upper() or "ON_HAND",
-                    source_record_id=int(raw["source_record_id"]) if raw.get("source_record_id") else None,
-                    uom_code=str(raw.get("uom_code") or "")[:25] or None,
+                    item_id=allocation["item_id"],
+                    source_warehouse_id=allocation["source_warehouse_id"],
+                    batch_id=allocation["batch_id"],
+                    quantity=allocation["quantity"],
+                    source_type=allocation["source_type"],
+                    source_record_id=allocation["source_record_id"],
+                    uom_code=allocation["uom_code"],
                     create_by_id=actor_id,
                     create_dtime=now,
                     update_by_id=actor_id,

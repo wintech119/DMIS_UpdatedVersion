@@ -48,6 +48,7 @@ describe('OperationsService', () => {
       package: {
         reliefpkg_id: 44,
         reliefrqst_id: 12,
+        source_warehouse_id: 2,
         status_code: 'P',
         allocation: {
           allocation_lines: [
@@ -77,6 +78,7 @@ describe('OperationsService', () => {
       }),
       package: jasmine.objectContaining({
         reliefpkg_id: 44,
+        source_warehouse_id: 2,
         status_label: 'Ready for Dispatch',
       }),
       allocation: jasmine.objectContaining({
@@ -221,6 +223,61 @@ describe('OperationsService', () => {
       waybill: null,
       allocation: jasmine.objectContaining({
         allocation_lines: jasmine.any(Array),
+      }),
+    }));
+  });
+
+  it('posts source warehouse when saving a package draft', () => {
+    let result: unknown;
+
+    service.savePackageDraft(12, {
+      source_warehouse_id: 3,
+      to_inventory_id: 8,
+      transport_mode: 'TRUCK',
+      comments_text: 'Ready for loading.',
+    }).subscribe((value) => {
+      result = value;
+    });
+
+    const draftRequest = httpMock.expectOne('/api/v1/operations/packages/12/draft');
+    expect(draftRequest.request.method).toBe('POST');
+    expect(draftRequest.request.body).toEqual({
+      source_warehouse_id: 3,
+      to_inventory_id: 8,
+      transport_mode: 'TRUCK',
+      comments_text: 'Ready for loading.',
+    });
+    draftRequest.flush({ status: 'DRAFT', reliefrqst_id: 12, reliefpkg_id: 44 });
+
+    const packageRequest = httpMock.expectOne('/api/v1/operations/packages/12');
+    expect(packageRequest.request.method).toBe('GET');
+    packageRequest.flush({
+      request: {
+        reliefrqst_id: 12,
+        agency_id: 8,
+        agency_name: 'Parish Shelter',
+        urgency_ind: 'H',
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        source_warehouse_id: 3,
+        to_inventory_id: 8,
+        transport_mode: 'TRUCK',
+        comments_text: 'Ready for loading.',
+        status_code: 'D',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      package: jasmine.objectContaining({
+        source_warehouse_id: 3,
+        to_inventory_id: 8,
+        transport_mode: 'TRUCK',
+        comments_text: 'Ready for loading.',
       }),
     }));
   });

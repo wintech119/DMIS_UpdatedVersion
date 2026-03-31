@@ -139,11 +139,11 @@
             </div>
             <div class="ops-summary-card">
               <span class="ops-summary-card__label">Newest</span>
-              <p class="ops-summary-card__value">{{ summary().newest.tracking_no ?? 'Pending' }}</p>
+              <p class="ops-summary-card__value">{{ summary().newest?.tracking_no ?? 'Pending' }}</p>
             </div>
             <div class="ops-summary-card">
               <span class="ops-summary-card__label">Oldest</span>
-              <p class="ops-summary-card__value">{{ summary().oldest.tracking_no ?? 'Pending' }}</p>
+              <p class="ops-summary-card__value">{{ summary().oldest?.tracking_no ?? 'Pending' }}</p>
             </div>
             <div class="ops-summary-card">
               <span class="ops-summary-card__label">Route</span>

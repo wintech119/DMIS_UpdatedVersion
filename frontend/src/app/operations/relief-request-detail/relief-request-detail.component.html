@@ -55,12 +55,6 @@
               @if (submitting()) { Submitting... } @else { Submit for Review }
             </button>
           }
-          @if (rq.status_code !== 'DRAFT') {
-            <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="!(rq.reliefrqst_id)">
-              <mat-icon>inventory_2</mat-icon>
-              Open Fulfillment
-            </button>
-          }
         </div>
       </div>
     </header>
@@ -192,10 +186,6 @@
                 <p class="ops-section__eyebrow">Packages</p>
                 <h2 class="ops-section__title">Fulfillment output</h2>
               </div>
-              <button mat-stroked-button type="button" (click)="openFulfillment()">
-                <mat-icon>inventory_2</mat-icon>
-                Open Fulfillment Workspace
-              </button>
             </div>
             <div class="ops-card__body">
               <table class="ops-table" aria-label="Request packages">

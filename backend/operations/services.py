@@ -840,6 +840,62 @@ def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: i
     return {"request": _request_summary(_load_request(reliefrqst_id)), "items": results}
 
 
+def get_item_allocation_options(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+) -> dict[str, Any]:
+    """Return allocation candidates for a single item from a single warehouse.
+
+    Used when the operator overrides the source warehouse for one item without
+    reloading data for every other item in the request.
+    """
+    item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    row = next((r for r in item_rows if int(r["item_id"]) == item_id), None)
+    if row is None:
+        raise OperationValidationError(
+            {"item_id": f"Item {item_id} is not part of request {reliefrqst_id}."}
+        )
+
+    item = Item.objects.filter(item_id=item_id).first()
+    remaining_qty = max(
+        Decimal("0"),
+        _quantize_qty(row["request_qty"]) - _quantize_qty(row["issue_qty"]),
+    )
+    candidates = _fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=timezone.localdate())
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, candidates)
+    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
+        sorted_candidates, remaining_qty
+    )
+    return {
+        "item_id": item_id,
+        "item_code": getattr(item, "item_code", None),
+        "item_name": getattr(item, "item_name", None),
+        "request_qty": str(_quantize_qty(row["request_qty"])),
+        "issue_qty": str(_quantize_qty(row["issue_qty"])),
+        "remaining_qty": str(remaining_qty.quantize(Decimal("0.0001"))),
+        "urgency_ind": row.get("urgency_ind"),
+        "candidates": [
+            {
+                **candidate,
+                "available_qty": str(_quantize_qty(candidate["available_qty"])),
+                "usable_qty": str(_quantize_qty(candidate["usable_qty"])),
+                "reserved_qty": str(_quantize_qty(candidate["reserved_qty"])),
+                "batch_date": _as_iso(candidate.get("batch_date")),
+                "expiry_date": _as_iso(candidate.get("expiry_date")),
+            }
+            for candidate in sorted_candidates
+        ],
+        "suggested_allocations": [
+            {**candidate, "quantity": str(_quantize_qty(candidate["quantity"]))}
+            for candidate in suggested_allocations
+        ],
+        "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
+        "source_warehouse_id": source_warehouse_id,
+    }
+
+
 def _normalized_allocations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_allocations = payload.get("allocations")
     if not isinstance(raw_allocations, list) or not raw_allocations:

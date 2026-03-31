@@ -32,6 +32,12 @@ interface ReviewMetric {
   route: string;
 }
 
+interface ReviewSummary {
+  total: number;
+  oldest: RequestSummary | null;
+  newest: RequestSummary | null;
+}
+
 @Component({
   selector: 'app-eligibility-review-queue',
   standalone: true,
@@ -113,7 +119,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
     ];
   });
 
-  readonly summary = computed(() => {
+  readonly summary = computed<ReviewSummary>(() => {
     const rows = this.filteredRequests();
     return {
       total: rows.length,

@@ -167,14 +167,6 @@ export class ReliefRequestDetailComponent implements OnInit {
     this.router.navigate(['/operations/relief-requests', request.reliefrqst_id, 'edit']);
   }
 
-  openFulfillment(): void {
-    const request = this.request();
-    if (!request) {
-      return;
-    }
-    this.router.navigate(['/operations/package-fulfillment', request.reliefrqst_id]);
-  }
-
   openDispatch(pkg: PackageSummary): void {
     this.router.navigate(['/operations/dispatch', pkg.reliefpkg_id]);
   }

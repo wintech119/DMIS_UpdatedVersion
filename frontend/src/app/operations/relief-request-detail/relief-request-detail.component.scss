@@ -1,15 +1,3 @@
-// ── Hero primary action ────────────────────────────────────────────────
-// Force the Submit for Review button to render as a solid dark fill so it
-// doesn't blend into the white page background.
-:host .ops-hero__actions [mat-flat-button] {
-  --mdc-filled-button-container-color: #37352F;
-  --mdc-filled-button-label-text-color: #ffffff;
-  --mat-filled-button-state-layer-color: #ffffff;
-  background-color: #37352F;
-  color: #ffffff;
-  border: none;
-}
-
 // ── Hero layout ────────────────────────────────────────────────────────
 .ops-hero__lead {
   display: flex;

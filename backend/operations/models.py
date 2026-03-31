@@ -167,6 +167,43 @@ class OperationsPackageLock(models.Model):
         ]
 
 
+class OperationsAllocationLine(AuditedModel):
+    """Per-item allocation line with its own source warehouse.
+
+    Replaces the legacy ``reliefpkg_item.fr_inventory_id`` pattern with a
+    Django-managed model.  During the transition both this table **and** the
+    legacy ``reliefpkg_item`` table are written to (dual-write).
+    """
+
+    line_id = models.BigAutoField(primary_key=True)
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="allocation_lines",
+    )
+    item_id = models.IntegerField()
+    source_warehouse_id = models.IntegerField()
+    batch_id = models.IntegerField()
+    quantity = models.DecimalField(max_digits=15, decimal_places=4)
+    source_type = models.CharField(max_length=20, default="ON_HAND")
+    source_record_id = models.IntegerField(blank=True, null=True)
+    uom_code = models.CharField(max_length=25, blank=True, null=True)
+    reason_text = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_allocation_line"
+        indexes = [
+            models.Index(fields=["package", "item_id"]),
+            models.Index(fields=["source_warehouse_id", "item_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package", "source_warehouse_id", "batch_id", "item_id"],
+                name="uq_ops_alloc_pkg_wh_batch_item",
+            ),
+        ]
+
+
 class OperationsDispatch(AuditedModel):
     dispatch_id = models.BigAutoField(primary_key=True)
     package = models.OneToOneField(
