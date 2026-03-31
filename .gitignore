@@ -134,6 +134,10 @@ docs/ops/mcp-postgres-troubleshooting.md
 CLAUDE_CODE_SUPPLY*
 CODEX_SUPPLY*
 DASHBOARD_IMPLEMENTATION*
+.playwright-mcp/
+/fulfillment-*.png
+/operations-*.png
+/hero-check.png
 
 # ---------------------------------------------------------------------------
 # Non-application / generated or downloaded data

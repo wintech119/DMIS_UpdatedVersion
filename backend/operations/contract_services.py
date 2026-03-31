@@ -805,7 +805,8 @@ def _ensure_fulfillment_request_access(
         entity_type=ENTITY_REQUEST,
         entity_id=int(request_record.relief_request_id),
         assignment_status__in=assignment_statuses,
-        assigned_tenant_id=active_tenant_id,
+    ).filter(
+        Q(assigned_tenant_id=active_tenant_id) | Q(assigned_tenant_id__isnull=True)
     ).exists()
     if not has_assignment:
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
@@ -1348,7 +1349,6 @@ def submit_eligibility_decision(
             entity_type=ENTITY_REQUEST,
             entity_id=reliefrqst_id,
             role_codes=FULFILLMENT_ROLE_CODES,
-            tenant_id=request_record.beneficiary_tenant_id,
         )
         create_role_notifications(
             event_code=EVENT_REQUEST_APPROVED,
@@ -1393,22 +1393,20 @@ def submit_eligibility_decision(
 def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may view this queue.")
-    entity_ids = list(
+    queue_ids = set(
         actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
         .filter(queue_code__in=[QUEUE_CODE_FULFILLMENT, QUEUE_CODE_OVERRIDE], entity_type=ENTITY_REQUEST)
         .values_list("entity_id", flat=True)
     )
-    results: list[dict[str, Any]] = []
-    if entity_ids:
-        request_ids = entity_ids[:200]
-    else:
-        request_ids = list(
-            OperationsReliefRequest.objects.filter(
-                status_code__in=list(FULFILLMENT_VISIBLE_REQUEST_STATUSES)
-            )
-            .order_by("-request_date", "-relief_request_id")
-            .values_list("relief_request_id", flat=True)[:200]
+    status_ids = set(
+        OperationsReliefRequest.objects.filter(
+            status_code__in=list(FULFILLMENT_VISIBLE_REQUEST_STATUSES)
         )
+        .order_by("-request_date", "-relief_request_id")
+        .values_list("relief_request_id", flat=True)[:200]
+    )
+    request_ids = list(status_ids | queue_ids)[:200]
+    results: list[dict[str, Any]] = []
     for reliefrqst_id in request_ids:
         request = legacy_service._load_request(int(reliefrqst_id))
         request_record = _sync_operations_request(request, actor_id=actor_id)
