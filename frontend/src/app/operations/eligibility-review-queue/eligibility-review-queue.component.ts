@@ -82,7 +82,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
       if (filter === 'high' && String(request.urgency_ind ?? '').toUpperCase() !== 'H') {
         return false;
       }
-      if (filter === 'submitted' && !(request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT')) {
+      if (filter === 'submitted' && !(request.status_code === 'SUBMITTED' || request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT')) {
         return false;
       }
       if (filter === 'closed' && !(request.status_code === 'CANCELLED' || request.status_code === 'REJECTED' || request.status_code === 'INELIGIBLE' || request.status_code === 'FULFILLED')) {

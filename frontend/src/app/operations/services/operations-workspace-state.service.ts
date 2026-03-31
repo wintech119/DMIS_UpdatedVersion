@@ -326,8 +326,8 @@ export class OperationsWorkspaceStateService {
     if (!reliefrqstId || !normalizedWarehouseId) {
       return;
     }
-    const prevOverrides = this.itemWarehouseOverrides();
-    const prevSelections = this.selectedRowsByItem();
+    const prevOverrideValue = this.itemWarehouseOverrides()[itemId];
+    const prevSelectionValue = this.selectedRowsByItem()[itemId];
 
     const requestId = (this.latestItemWarehouseRequestIds[itemId] ?? 0) + 1;
     this.latestItemWarehouseRequestIds[itemId] = requestId;
@@ -343,13 +343,13 @@ export class OperationsWorkspaceStateService {
         if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
           return;
         }
-        const nextOverrides = { ...prevOverrides };
+        const currentOverrides = { ...this.itemWarehouseOverrides() };
         if (normalizedWarehouseId === defaultWarehouseId) {
-          delete nextOverrides[itemId];
+          delete currentOverrides[itemId];
         } else {
-          nextOverrides[itemId] = normalizedWarehouseId;
+          currentOverrides[itemId] = normalizedWarehouseId;
         }
-        this.itemWarehouseOverrides.set(nextOverrides);
+        this.itemWarehouseOverrides.set(currentOverrides);
         this.optionsError.set(null);
 
         const currentOptions = this.options();
@@ -360,7 +360,7 @@ export class OperationsWorkspaceStateService {
           this.options.set({ ...currentOptions, items: updatedItems });
         }
         this.selectedRowsByItem.set({
-          ...prevSelections,
+          ...this.selectedRowsByItem(),
           [itemId]: itemGroup.suggested_allocations.map((line) => ({
             item_id: line.item_id,
             inventory_id: line.inventory_id,
@@ -377,8 +377,20 @@ export class OperationsWorkspaceStateService {
         if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
           return;
         }
-        this.itemWarehouseOverrides.set(prevOverrides);
-        this.selectedRowsByItem.set(prevSelections);
+        const rollbackOverrides = { ...this.itemWarehouseOverrides() };
+        if (prevOverrideValue !== undefined) {
+          rollbackOverrides[itemId] = prevOverrideValue;
+        } else {
+          delete rollbackOverrides[itemId];
+        }
+        this.itemWarehouseOverrides.set(rollbackOverrides);
+        const rollbackSelections = { ...this.selectedRowsByItem() };
+        if (prevSelectionValue !== undefined) {
+          rollbackSelections[itemId] = prevSelectionValue;
+        } else {
+          delete rollbackSelections[itemId];
+        }
+        this.selectedRowsByItem.set(rollbackSelections);
         this.optionsError.set(this.extractError(error, 'Failed to load stock for this item.'));
         this.switching.set(false);
       },

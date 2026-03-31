@@ -68,7 +68,7 @@ interface ReviewGroup {
           <div>
             <strong>Resolve these items before continuing:</strong>
             <ul class="review-error-list">
-              @for (error of submissionErrors; track error) {
+              @for (error of submissionErrors; track $index) {
                 <li>{{ error }}</li>
               }
             </ul>
