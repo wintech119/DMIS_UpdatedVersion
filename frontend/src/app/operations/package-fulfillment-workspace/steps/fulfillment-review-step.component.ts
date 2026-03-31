@@ -2,6 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
+import { catchError, of } from 'rxjs';
 
 import { AllocationCandidate, AllocationSelectionPayload } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
@@ -534,7 +535,7 @@ export class FulfillmentReviewStepComponent {
   readonly packageDetail = this.store.packageDetail;
   private readonly masterData = inject(MasterDataService);
   private readonly warehouseOptions = toSignal(
-    this.masterData.lookup('warehouses'),
+    this.masterData.lookup('warehouses').pipe(catchError(() => of([]))),
     { initialValue: [] },
   );
 

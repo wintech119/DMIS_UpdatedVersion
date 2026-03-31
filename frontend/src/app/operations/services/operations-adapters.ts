@@ -110,7 +110,12 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
 
 export function normalizeRequestSummary(raw: unknown): RequestSummary {
   const source = asRecord(raw);
-  const statusCode = asString(source['status_code'], 'DRAFT').toUpperCase() as RequestSummary['status_code'];
+  const VALID_STATUS_CODES = new Set<string>([
+    'DRAFT', 'SUBMITTED', 'UNDER_ELIGIBILITY_REVIEW', 'APPROVED_FOR_FULFILLMENT',
+    'PARTIALLY_FULFILLED', 'FULFILLED', 'INELIGIBLE', 'REJECTED', 'CANCELLED',
+  ]);
+  const rawStatus = asString(source['status_code'], 'DRAFT').trim().toUpperCase();
+  const statusCode = (VALID_STATUS_CODES.has(rawStatus) ? rawStatus : 'DRAFT') as RequestSummary['status_code'];
   return {
     reliefrqst_id: asNumber(source['reliefrqst_id']),
     tracking_no: asNullableString(source['tracking_no']),

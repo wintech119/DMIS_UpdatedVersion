@@ -1396,19 +1396,19 @@ def submit_eligibility_decision(
 def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may view this queue.")
-    queue_ids = set(
+    queue_list = list(
         actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
         .filter(queue_code__in=[QUEUE_CODE_FULFILLMENT, QUEUE_CODE_OVERRIDE], entity_type=ENTITY_REQUEST)
         .values_list("entity_id", flat=True)
     )
-    status_ids = set(
+    status_list = list(
         OperationsReliefRequest.objects.filter(
             status_code__in=list(FULFILLMENT_VISIBLE_REQUEST_STATUSES)
         )
         .order_by("-request_date", "-relief_request_id")
         .values_list("relief_request_id", flat=True)[:200]
     )
-    request_ids = list(status_ids | queue_ids)[:200]
+    request_ids = list(dict.fromkeys(status_list + queue_list))[:200]
     results: list[dict[str, Any]] = []
     for reliefrqst_id in request_ids:
         request = legacy_service._load_request(int(reliefrqst_id))
@@ -1498,7 +1498,7 @@ def save_package(
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
-    validated_allocations = _validate_allocation_rows(payload.get("allocations"))
+    validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
     _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)

@@ -272,6 +272,7 @@ export class OperationsWorkspaceStateService {
     this.itemWarehouseOverrides.set({});
 
     this.loading.set(true);
+    this.loadError.set(null);
     this.optionsError.set(null);
     this.options.set(null);
     this.selectedRowsByItem.set({});
@@ -386,11 +387,12 @@ export class OperationsWorkspaceStateService {
 
   /** Clear all per-item warehouse overrides and reload with the default warehouse. */
   clearWarehouseOverrides(): void {
-    this.itemWarehouseOverrides.set({});
     const reliefrqstId = this.reliefrqstId();
     const sourceWarehouseId = this.sourceWarehouseId();
     if (reliefrqstId && sourceWarehouseId) {
       this.updateSourceWarehouse(sourceWarehouseId);
+    } else {
+      this.itemWarehouseOverrides.set({});
     }
   }
 
