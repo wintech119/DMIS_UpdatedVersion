@@ -112,7 +112,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly metrics = computed<ReviewMetric[]>(() => {
     const rows = this.requests();
     return [
-      { label: 'Pending', value: rows.filter((row) => row.status_code === 'UNDER_ELIGIBILITY_REVIEW' || row.status_code === 'APPROVED_FOR_FULFILLMENT').length, note: 'Awaiting a decision', route: '/operations/eligibility-review' },
+      { label: 'Pending', value: rows.filter((row) => row.status_code === 'SUBMITTED' || row.status_code === 'UNDER_ELIGIBILITY_REVIEW' || row.status_code === 'APPROVED_FOR_FULFILLMENT').length, note: 'Awaiting a decision', route: '/operations/eligibility-review' },
       { label: 'Critical', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
       { label: 'High', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
       { label: 'Closed', value: rows.filter((row) => row.status_code === 'CANCELLED' || row.status_code === 'REJECTED' || row.status_code === 'FULFILLED' || row.status_code === 'INELIGIBLE').length, note: 'Finalized decisions', route: '/operations/eligibility-review' },

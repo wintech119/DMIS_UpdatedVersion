@@ -160,6 +160,12 @@ p, span, a, label, td, th, li {
   .mat-mdc-option .mdc-list-item__primary-text {
     font-size: 0.8rem;
   }
+
+  @media (pointer: coarse), (max-width: 768px) {
+    .mat-mdc-option {
+      min-height: 44px;
+    }
+  }
 }
 
 // ===== DMIS SNACKBAR STYLES =====

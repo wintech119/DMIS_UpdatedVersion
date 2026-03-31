@@ -166,6 +166,7 @@ interface ReviewGroup {
                     <div class="review-mobile-row__lead">
                       <span>{{ batchLabel(row) }}</span>
                       <span class="ops-chip ops-chip--outline">{{ formatSource(row.source_type) }}</span>
+                      <span class="review-mobile-row__warehouse">{{ warehouseLabel(row) }}</span>
                     </div>
                     <strong>{{ row.quantity | number:'1.0-4' }}</strong>
                   </div>
@@ -428,6 +429,15 @@ interface ReviewGroup {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .review-mobile-row__warehouse {
+      color: var(--color-text-secondary, #787774);
+      font-size: 0.75rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 120px;
     }
 
     .desktop-only {

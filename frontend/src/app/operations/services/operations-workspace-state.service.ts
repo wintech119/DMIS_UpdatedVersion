@@ -53,6 +53,7 @@ const DEFAULT_DRAFT: WorkspaceDraft = {
 export class OperationsWorkspaceStateService {
   private readonly operationsService = inject(OperationsService);
   private latestSourceWarehouseRequestId = 0;
+  private latestItemWarehouseRequestIds: Record<number, number> = {};
 
   readonly reliefrqstId = signal(0);
   readonly reliefpkgId = signal(0);
@@ -332,6 +333,9 @@ export class OperationsWorkspaceStateService {
     const prevOverrides = this.itemWarehouseOverrides();
     const prevSelections = this.selectedRowsByItem();
 
+    const requestId = (this.latestItemWarehouseRequestIds[itemId] ?? 0) + 1;
+    this.latestItemWarehouseRequestIds[itemId] = requestId;
+
     this.switching.set(true);
 
     this.operationsService.getItemAllocationOptions(
@@ -340,6 +344,9 @@ export class OperationsWorkspaceStateService {
       Number(normalizedWarehouseId),
     ).subscribe({
       next: (itemGroup) => {
+        if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
+          return;
+        }
         const nextOverrides = { ...prevOverrides };
         if (normalizedWarehouseId === defaultWarehouseId) {
           delete nextOverrides[itemId];
@@ -371,6 +378,9 @@ export class OperationsWorkspaceStateService {
         this.switching.set(false);
       },
       error: (error: HttpErrorResponse) => {
+        if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
+          return;
+        }
         this.itemWarehouseOverrides.set(prevOverrides);
         this.selectedRowsByItem.set(prevSelections);
         this.optionsError.set(this.extractError(error, 'Failed to load stock for this item.'));

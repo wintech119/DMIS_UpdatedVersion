@@ -58,7 +58,7 @@ import { LookupItem } from '../../master-data/models/master-data.models';
               [disabled]="disabled()"
               aria-label="Select default source warehouse">
               @for (option of warehouseOptions(); track option.value) {
-                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                <mat-option [value]="'' + option.value">{{ option.label }}</mat-option>
               }
             </mat-select>
           </mat-form-field>
@@ -82,6 +82,7 @@ import { LookupItem } from '../../master-data/models/master-data.models';
           </span>
           <button
             mat-button
+            type="button"
             class="ops-warehouse-picker__reset-btn"
             [disabled]="disabled()"
             (click)="onClearOverrides()">
@@ -320,8 +321,8 @@ export class OpsSourceWarehousePickerComponent {
     return match?.label ?? 'Unknown warehouse';
   });
 
-  onWarehouseChange(newId: string): void {
-    this.warehouseChange.emit(newId);
+  onWarehouseChange(newId: unknown): void {
+    this.warehouseChange.emit(newId == null ? '' : String(newId));
   }
 
   onClearOverrides(): void {
