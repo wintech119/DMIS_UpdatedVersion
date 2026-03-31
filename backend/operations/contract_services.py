@@ -755,12 +755,14 @@ def _can_read_eligibility_request(
     if request_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
         return False
 
+    request_pk = int(request_record.relief_request_id)
     return (
-        OperationsEligibilityDecision.objects.filter(relief_request_id=int(request_record.relief_request_id)).exists()
+        OperationsEligibilityDecision.objects.filter(relief_request_id=request_pk).exists()
         or OperationsQueueAssignment.objects.filter(
+            Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
             queue_code=QUEUE_CODE_ELIGIBILITY,
             entity_type=ENTITY_REQUEST,
-            entity_id=int(request_record.relief_request_id),
+            entity_id=request_pk,
         ).exists()
     )
 
@@ -781,7 +783,8 @@ def _ensure_fulfillment_request_access(
             tenant_context=tenant_context,
             write=write,
         )
-        return
+        if not write:
+            return
     except OperationValidationError:
         pass
 
@@ -1534,7 +1537,7 @@ def save_package(
         source_warehouse_id=first_inventory_id,
     )
     # ── Dual-write: sync allocation lines to new operations table ──
-    if validated_allocations:
+    if validated_allocations is not None:
         OperationsAllocationLine.objects.filter(package=package_record).delete()
         lines_to_create = []
         now = timezone.now()

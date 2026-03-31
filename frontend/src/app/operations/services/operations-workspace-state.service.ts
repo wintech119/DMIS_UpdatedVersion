@@ -256,15 +256,24 @@ export class OperationsWorkspaceStateService {
 
   updateSourceWarehouse(sourceWarehouseId: string): void {
     const normalizedSourceWarehouseId = this.sanitizeInteger(sourceWarehouseId);
+
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId) {
+      this.patchDraft({ source_warehouse_id: normalizedSourceWarehouseId });
+      this.itemWarehouseOverrides.set({});
+      return;
+    }
+
+    // Capture previous state for rollback on error.
+    const prevDraft = this.draft();
+    const prevOverrides = this.itemWarehouseOverrides();
+    const prevOptions = this.options();
+    const prevSelections = this.selectedRowsByItem();
+
     this.patchDraft({ source_warehouse_id: normalizedSourceWarehouseId });
 
     // Changing the default warehouse resets all per-item overrides.
     this.itemWarehouseOverrides.set({});
-
-    const reliefrqstId = this.reliefrqstId();
-    if (!reliefrqstId) {
-      return;
-    }
 
     this.loading.set(true);
     this.optionsError.set(null);
@@ -299,6 +308,10 @@ export class OperationsWorkspaceStateService {
         if (this.latestSourceWarehouseRequestId !== requestId) {
           return;
         }
+        this.patchDraft({ source_warehouse_id: prevDraft.source_warehouse_id });
+        this.itemWarehouseOverrides.set(prevOverrides);
+        this.options.set(prevOptions);
+        this.selectedRowsByItem.set(prevSelections);
         this.loading.set(false);
         this.loadError.set(this.extractError(error, 'Failed to save package draft.'));
       },

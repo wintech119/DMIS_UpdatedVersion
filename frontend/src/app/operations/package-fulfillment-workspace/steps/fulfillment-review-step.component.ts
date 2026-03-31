@@ -134,7 +134,7 @@ interface ReviewGroup {
               </thead>
               <tbody>
                 @for (group of reviewGroups(); track group.itemId) {
-                  @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type; let first = $first) {
+                  @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? ''); let first = $first) {
                     <tr [class.review-row--group-start]="first">
                       <td class="review-cell--item">
                         @if (first) {
@@ -161,7 +161,7 @@ interface ReviewGroup {
                   <span class="review-item-name">{{ group.itemName }}</span>
                   <strong>{{ group.selectedQty | number:'1.0-4' }}</strong>
                 </div>
-                @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type) {
+                @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? '')) {
                   <div class="review-mobile-row">
                     <div class="review-mobile-row__lead">
                       <span>{{ batchLabel(row) }}</span>

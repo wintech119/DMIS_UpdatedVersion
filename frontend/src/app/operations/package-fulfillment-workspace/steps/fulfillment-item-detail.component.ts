@@ -198,7 +198,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (c of wh.candidates; track c.batch_id + '-' + c.source_type) {
+                  @for (c of wh.candidates; track c.batch_id + '-' + c.source_type + '-' + (c.source_record_id ?? '')) {
                     <tr [class.row--selected]="store().getSelectedQtyForCandidate(item().item_id, c) > 0">
                       <td>
                         <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
@@ -220,7 +220,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                           class="qty-input"
                           type="number"
                           min="0"
-                          step="1"
+                          step="any"
                           [disabled]="readOnly()"
                           [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                           (ngModelChange)="onQtyChange(c, $event)"
@@ -237,7 +237,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
 
         <!-- Mobile cards -->
         <div class="mobile-cards">
-          @for (c of item().candidates; track c.inventory_id + '-' + c.batch_id + '-' + c.source_type) {
+          @for (c of item().candidates; track c.inventory_id + '-' + c.batch_id + '-' + c.source_type + '-' + (c.source_record_id ?? '')) {
             <div class="mobile-card">
               <div class="mobile-card__header">
                 <strong>{{ c.batch_no || ('Batch ' + c.batch_id) }}</strong>
@@ -262,7 +262,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                   class="qty-input"
                   type="number"
                   min="0"
-                  step="1"
+                  step="any"
                   [disabled]="readOnly()"
                   [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                   (ngModelChange)="onQtyChange(c, $event)"
