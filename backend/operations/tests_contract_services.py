@@ -22,9 +22,11 @@ from operations.constants import (
     PACKAGE_STATUS_RECEIVED,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
+    QUEUE_CODE_FULFILLMENT,
     QUEUE_CODE_RECEIPT,
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    REQUEST_STATUS_REJECTED,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
 )
 from operations.exceptions import OperationValidationError
@@ -1194,6 +1196,37 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.save_package")
+    @patch("operations.contract_services.get_package")
+    def test_package_draft_save_persists_requested_source_warehouse_without_allocations(
+        self,
+        get_package_mock,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "DRAFT", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+        get_package_mock.return_value = {"package": {"source_warehouse_id": 3}}
+
+        contract_services.save_package(
+            70,
+            payload={"source_warehouse_id": 3, "comments_text": "Seeded for warehouse testing."},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.source_warehouse_id, 3)
+        self.assertEqual(package_record.status_code, "DRAFT")
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
     def test_package_save_rejects_conflicting_lock_before_legacy_write(
         self,
         save_package_mock,
@@ -1607,15 +1640,33 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=81).exists())
 
     @patch(
-        "operations.contract_services.get_request",
-        return_value={"reliefrqst_id": 70, "status_code": REQUEST_STATUS_APPROVED_FOR_FULFILLMENT},
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
     )
-    @patch("operations.contract_services._sync_operations_request")
-    def test_get_eligibility_request_does_not_force_under_review_status_on_read(
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_eligibility_request_preserves_approved_status_on_read(
         self,
-        sync_request_mock,
+        load_request_mock,
+        get_agency_scope_mock,
         get_request_mock,
+        filter_packages_mock,
+        _request_summary_payload_mock,
     ) -> None:
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        load_request_mock.return_value = request
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+        get_request_mock.return_value = {"reliefrqst_id": 70, "items": [], "packages": []}
+        filter_packages_mock.return_value.order_by.return_value = []
         self._create_operations_request_record()
         OperationsEligibilityDecision.objects.create(
             relief_request_id=70,
@@ -1633,10 +1684,107 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_context=self.dispatch_ready_context,
         )
 
-        sync_request_mock.assert_not_called()
-        get_request_mock.assert_called_once()
+        self.assertEqual(payload["status_code"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
         self.assertTrue(payload["decision_made"])
         self.assertFalse(payload["can_edit"])
+
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.ReliefRqst.objects.filter")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_eligibility_queue_includes_decided_requests_after_assignment_completion(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        _request_summary_payload_mock,
+        relief_request_filter_mock,
+    ) -> None:
+        awaiting_request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        approved_request = self._request_stub(
+            reliefrqst_id=71,
+            agency_id=502,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        load_request_mock.side_effect = lambda reliefrqst_id, **kwargs: {
+            70: awaiting_request,
+            71: approved_request,
+        }[int(reliefrqst_id)]
+        get_agency_scope_mock.side_effect = lambda agency_id: {
+            501: self._agency_scope_for(501, 20, "FFP"),
+            502: self._agency_scope_for(502, 30, "OUT-30"),
+        }[int(agency_id)]
+        relief_request_filter_mock.return_value.order_by.return_value.iterator.return_value = []
+
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+
+        OperationsReliefRequest.objects.create(
+            relief_request_id=71,
+            request_no="RQ00071",
+            requesting_tenant_id=30,
+            requesting_agency_id=502,
+            beneficiary_tenant_id=30,
+            beneficiary_agency_id=502,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsEligibilityDecision.objects.create(
+            relief_request_id=71,
+            decision_code="APPROVED",
+            decided_by_user_id="eligibility-1",
+            decided_by_role_code=ELIGIBILITY_ROLE_CODES[0],
+            decided_at=timezone.now(),
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=71,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="COMPLETED",
+        )
+
+        result = contract_services.list_eligibility_queue(
+            actor_id="eligibility-1",
+            actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [71, 70])
 
     @patch("operations.contract_services._ensure_request_access")
     @patch("operations.contract_services._sync_operations_request")
@@ -1679,6 +1827,232 @@ class OperationsWorkflowContractTests(TestCase):
         )
         request.save.assert_not_called()
         self.assertFalse(OperationsEligibilityDecision.objects.filter(relief_request_id=70).exists())
+
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_request")
+    def test_submit_eligibility_decision_returns_payload_for_cross_tenant_queue_assignee(
+        self,
+        get_request_mock,
+        load_request_mock,
+        filter_packages_mock,
+        _request_summary_payload_mock,
+    ) -> None:
+        get_request_mock.return_value = {
+            "reliefrqst_id": 70,
+            "items": [],
+            "packages": [],
+        }
+        filter_packages_mock.return_value.order_by.return_value = []
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        request.review_by_id = None
+        request.review_dtime = None
+        request.action_by_id = None
+        request.action_dtime = None
+        request.status_reason_desc = None
+        request.version_nbr = 1
+        request.save = Mock()
+        load_request_mock.return_value = request
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=14,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            submitted_by_id="requester-1",
+            submitted_at=timezone.now(),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+
+        result = contract_services.submit_eligibility_decision(
+            70,
+            payload={"decision": "APPROVED"},
+            actor_id="eligibility-1",
+            actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+            tenant_context=_tenant_context(
+                tenant_id=27,
+                tenant_code="OFFICE-OF-DISASTER-P",
+                tenant_type="NATIONAL",
+                access_level="ADMIN",
+            ),
+        )
+
+        self.assertEqual(result["status_code"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        self.assertTrue(result["decision_made"])
+        self.assertFalse(result["can_edit"])
+        self.assertEqual(result["eligibility_decision"]["decision_code"], "APPROVED")
+        self.assertEqual(
+            request.status_code,
+            contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        self.assertEqual(request.review_by_id, "eligibility-1")
+        self.assertIsNotNone(request.review_dtime)
+        self.assertIsNone(request.action_by_id)
+        self.assertIsNone(request.action_dtime)
+        request.save.assert_called_once()
+        self.assertEqual(
+            set(request.save.call_args.kwargs["update_fields"]),
+            {
+                "review_by_id",
+                "review_dtime",
+                "action_by_id",
+                "action_dtime",
+                "status_code",
+                "status_reason_desc",
+                "version_nbr",
+            },
+        )
+        self.assertEqual(
+            OperationsEligibilityDecision.objects.get(relief_request_id=70).decision_code,
+            "APPROVED",
+        )
+        self.assertEqual(
+            OperationsQueueAssignment.objects.get(
+                queue_code=QUEUE_CODE_ELIGIBILITY,
+                entity_type="RELIEF_REQUEST",
+                entity_id=70,
+            ).assignment_status,
+            "COMPLETED",
+        )
+        fulfillment_assignment = OperationsQueueAssignment.objects.get(
+            queue_code=contract_services.QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=contract_services.FULFILLMENT_ROLE_CODES[0],
+        )
+        self.assertEqual(fulfillment_assignment.assigned_tenant_id, 20)
+        self.assertEqual(
+            OperationsNotification.objects.get(
+                queue_code=contract_services.QUEUE_CODE_FULFILLMENT,
+                entity_type="RELIEF_REQUEST",
+                entity_id=70,
+                recipient_role_code=contract_services.FULFILLMENT_ROLE_CODES[0],
+            ).recipient_tenant_id,
+            20,
+        )
+
+    @patch(
+        "operations.contract_services._request_summary_payload",
+        side_effect=lambda request, request_record: {
+            "reliefrqst_id": int(request.reliefrqst_id),
+            "status_code": request_record.status_code,
+        },
+    )
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_request")
+    def test_submit_eligibility_decision_rejected_sets_legacy_action_fields(
+        self,
+        get_request_mock,
+        load_request_mock,
+        filter_packages_mock,
+        _request_summary_payload_mock,
+    ) -> None:
+        get_request_mock.return_value = {
+            "reliefrqst_id": 70,
+            "items": [],
+            "packages": [],
+        }
+        filter_packages_mock.return_value.order_by.return_value = []
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
+        )
+        request.review_by_id = None
+        request.review_dtime = None
+        request.action_by_id = None
+        request.action_dtime = None
+        request.status_reason_desc = None
+        request.version_nbr = 1
+        request.save = Mock()
+        load_request_mock.return_value = request
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=14,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            submitted_by_id="requester-1",
+            submitted_at=timezone.now(),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
+            assignment_status="OPEN",
+        )
+
+        result = contract_services.submit_eligibility_decision(
+            70,
+            payload={"decision": "REJECTED", "reason": "Outside current scope"},
+            actor_id="eligibility-1",
+            actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+            tenant_context=_tenant_context(
+                tenant_id=27,
+                tenant_code="OFFICE-OF-DISASTER-P",
+                tenant_type="NATIONAL",
+                access_level="ADMIN",
+            ),
+        )
+
+        self.assertEqual(result["status_code"], REQUEST_STATUS_REJECTED)
+        self.assertEqual(request.status_code, contract_services.legacy_service.STATUS_DENIED)
+        self.assertEqual(request.status_reason_desc, "Outside current scope")
+        self.assertEqual(request.review_by_id, "eligibility-1")
+        self.assertIsNotNone(request.review_dtime)
+        self.assertEqual(request.action_by_id, "eligibility-1")
+        self.assertIsNotNone(request.action_dtime)
+        self.assertEqual(
+            OperationsEligibilityDecision.objects.get(relief_request_id=70).decision_code,
+            "REJECTED",
+        )
+        self.assertEqual(
+            OperationsEligibilityDecision.objects.get(relief_request_id=70).decision_reason,
+            "Outside current scope",
+        )
+        self.assertEqual(
+            OperationsQueueAssignment.objects.get(
+                queue_code=QUEUE_CODE_ELIGIBILITY,
+                entity_type="RELIEF_REQUEST",
+                entity_id=70,
+            ).assignment_status,
+            "COMPLETED",
+        )
 
     @patch("operations.contract_services.ReliefRqst.objects.order_by")
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
@@ -1788,6 +2162,108 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
+
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_fulfillment_queue_includes_cross_tenant_queue_assignment(
+        self,
+        load_request_mock,
+        _current_package_mock,
+        get_agency_scope_mock,
+        _request_summary_mock,
+    ) -> None:
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=14,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code="LOGISTICS_MANAGER",
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=70, agency_id=501, status_code=3)
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        result = contract_services.list_packages(
+            actor_id="logistics-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=_tenant_context(
+                tenant_id=27,
+                tenant_code="OFFICE-OF-DISASTER-P",
+                tenant_type="NATIONAL",
+                access_level="ADMIN",
+            ),
+        )
+
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._request_items", return_value=[])
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "status_code": request_record.status_code})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_package_allows_cross_tenant_queue_assignment(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        _request_summary_mock,
+        _request_items_mock,
+        _current_package_mock,
+    ) -> None:
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=14,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code="LOGISTICS_MANAGER",
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=70, agency_id=501, status_code=3)
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        result = contract_services.get_package(
+            70,
+            actor_id="logistics-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=_tenant_context(
+                tenant_id=27,
+                tenant_code="OFFICE-OF-DISASTER-P",
+                tenant_type="NATIONAL",
+                access_level="ADMIN",
+            ),
+        )
+
+        self.assertEqual(result["request"]["reliefrqst_id"], 70)
+        self.assertIsNone(result["package"])
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -2051,3 +2527,271 @@ class OperationsWorkflowContractTests(TestCase):
             )
 
         self.assertEqual(raised.exception.errors, {"receipt": "Dispatch record is missing for this package."})
+
+
+class ItemAllocationOptionsTests(TestCase):
+    """Tests for the per-item allocation options endpoint."""
+
+    def setUp(self) -> None:
+        self.tenant_ctx = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
+        self.agency_scope = operations_policy.AgencyScope(
+            agency_id=501,
+            agency_name="FFP Shelter",
+            agency_type="SHELTER",
+            warehouse_id=11,
+            tenant_id=20,
+            tenant_code="FFP",
+            tenant_name="Food For The Poor",
+            tenant_type="EXTERNAL",
+        )
+        self.request_stub = SimpleNamespace(
+            reliefrqst_id=80,
+            agency_id=501,
+            tracking_no="RQ00080",
+            eligible_event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_ind="H",
+            rqst_notes_text="Multi-warehouse test",
+            create_by_id="requester-1",
+            create_dtime=datetime(2026, 3, 26, 9, 0, 0),
+            review_by_id=None,
+            review_dtime=None,
+            status_code=3,
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_item_allocation_options")
+    def test_returns_single_item_options(
+        self,
+        get_item_options_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+        get_item_options_mock.return_value = {
+            "item_id": 101,
+            "item_code": "MASK001",
+            "item_name": "Face Mask",
+            "request_qty": "20.0000",
+            "issue_qty": "0.0000",
+            "remaining_qty": "20.0000",
+            "urgency_ind": "H",
+            "candidates": [],
+            "suggested_allocations": [],
+            "remaining_after_suggestion": "20.0000",
+            "source_warehouse_id": 1,
+        }
+
+        result = contract_services.get_item_allocation_options(
+            80,
+            101,
+            source_warehouse_id=1,
+            actor_id="fulfiller-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["item_id"], 101)
+        self.assertEqual(result["source_warehouse_id"], 1)
+        get_item_options_mock.assert_called_once_with(80, 101, source_warehouse_id=1)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_item_allocation_options")
+    def test_item_not_in_request_raises_validation_error(
+        self,
+        get_item_options_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+        get_item_options_mock.side_effect = OperationValidationError(
+            {"item_id": "Item 999 is not part of request 80."}
+        )
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.get_item_allocation_options(
+                80,
+                999,
+                source_warehouse_id=1,
+                actor_id="fulfiller-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                tenant_context=self.tenant_ctx,
+            )
+
+
+class MultiWarehouseDualWriteTests(TestCase):
+    """Tests that dual-write populates OperationsAllocationLine on commit."""
+
+    def setUp(self) -> None:
+        from operations.models import OperationsAllocationLine
+
+        self.OperationsAllocationLine = OperationsAllocationLine
+        self.tenant_ctx = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
+        self.agency_scope = operations_policy.AgencyScope(
+            agency_id=501,
+            agency_name="FFP Shelter",
+            agency_type="SHELTER",
+            warehouse_id=11,
+            tenant_id=20,
+            tenant_code="FFP",
+            tenant_name="Food For The Poor",
+            tenant_type="EXTERNAL",
+        )
+        self.request_stub = SimpleNamespace(
+            reliefrqst_id=81,
+            agency_id=501,
+            tracking_no="RQ00081",
+            eligible_event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_ind="H",
+            rqst_notes_text="Dual write test",
+            create_by_id="requester-1",
+            create_dtime=datetime(2026, 3, 26, 9, 0, 0),
+            review_by_id=None,
+            review_dtime=None,
+            status_code=3,
+        )
+        self.package_stub = SimpleNamespace(
+            reliefpkg_id=91,
+            tracking_no="PK00091",
+            reliefrqst_id=81,
+            agency_id=501,
+            eligible_event_id=12,
+            dispatch_dtime=None,
+            to_inventory_id=8,
+            transport_mode=None,
+            comments_text=None,
+            status_code="P",
+            received_dtime=None,
+            received_by_id=None,
+            update_by_id="locker-1",
+            update_dtime=datetime(2026, 3, 26, 10, 0, 0),
+            version_nbr=1,
+            save=lambda **kwargs: None,
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_dual_write_creates_allocation_lines(
+        self,
+        save_package_mock,
+        current_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        current_package_mock.return_value = self.package_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+        save_package_mock.return_value = {
+            "status": "COMMITTED",
+            "reliefpkg_id": 91,
+            "allocation_lines": [
+                {"item_id": 101, "inventory_id": 1, "batch_id": 10, "quantity": "20.0000"},
+                {"item_id": 102, "inventory_id": 2, "batch_id": 20, "quantity": "10.0000"},
+            ],
+        }
+
+        payload = {
+            "source_warehouse_id": 1,
+            "allocations": [
+                {"item_id": 101, "inventory_id": 1, "batch_id": 10, "quantity": "20.0000", "source_type": "ON_HAND"},
+                {"item_id": 102, "inventory_id": 2, "batch_id": 20, "quantity": "10.0000", "source_type": "ON_HAND"},
+            ],
+        }
+
+        contract_services.save_package(
+            81,
+            payload=payload,
+            actor_id="fulfiller-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.tenant_ctx,
+        )
+
+        lines = list(
+            self.OperationsAllocationLine.objects.filter(
+                package__package_id=91
+            ).order_by("item_id")
+        )
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0].item_id, 101)
+        self.assertEqual(lines[0].source_warehouse_id, 1)
+        self.assertEqual(lines[0].batch_id, 10)
+        self.assertEqual(lines[1].item_id, 102)
+        self.assertEqual(lines[1].source_warehouse_id, 2)
+        self.assertEqual(lines[1].batch_id, 20)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_dual_write_replaces_old_lines_on_update(
+        self,
+        save_package_mock,
+        current_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        current_package_mock.return_value = self.package_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        # Create a package record to host allocation lines.
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=81,
+            request_no="RQ00081",
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="APPROVED_FOR_FULFILLMENT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        pkg_record = OperationsPackage.objects.create(
+            package_id=91,
+            package_no="PK00091",
+            relief_request=request_record,
+            status_code="COMMITTED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        # Seed an old line that should be replaced.
+        self.OperationsAllocationLine.objects.create(
+            package=pkg_record,
+            item_id=999,
+            source_warehouse_id=99,
+            batch_id=99,
+            quantity=5,
+            create_by_id="old",
+            update_by_id="old",
+        )
+
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 91, "allocation_lines": []}
+
+        payload = {
+            "allocations": [
+                {"item_id": 101, "inventory_id": 1, "batch_id": 10, "quantity": "15.0000"},
+            ],
+        }
+
+        contract_services.save_package(
+            81,
+            payload=payload,
+            actor_id="fulfiller-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.tenant_ctx,
+        )
+
+        lines = list(self.OperationsAllocationLine.objects.filter(package=pkg_record))
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].item_id, 101)
+        # Old line (item 999) should be gone.
+        self.assertFalse(self.OperationsAllocationLine.objects.filter(item_id=999).exists())

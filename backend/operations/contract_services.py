@@ -54,6 +54,7 @@ from operations.constants import (
 )
 from operations.exceptions import OperationValidationError
 from operations.models import (
+    OperationsAllocationLine,
     OperationsDispatch,
     OperationsDispatchTransport,
     OperationsEligibilityDecision,
@@ -91,6 +92,24 @@ def _require_actor_id(actor_id: str | None) -> str:
     return actor_id
 
 
+def _optional_positive_int_payload_value(
+    payload: Mapping[str, Any],
+    field_name: str,
+) -> int | None | object:
+    if field_name not in payload:
+        return _UNSET
+    raw_value = payload.get(field_name)
+    if raw_value in (None, ""):
+        return None
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError({field_name: "Must be a positive integer."}) from exc
+    if parsed <= 0:
+        raise OperationValidationError({field_name: "Must be a positive integer."})
+    return parsed
+
+
 REQUEST_FILTERS = {
     "draft": {REQUEST_STATUS_DRAFT},
     "awaiting": {REQUEST_STATUS_SUBMITTED, REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW},
@@ -99,6 +118,24 @@ REQUEST_FILTERS = {
     "completed": {REQUEST_STATUS_FULFILLED},
     "dispatched": {REQUEST_STATUS_PARTIALLY_FULFILLED, REQUEST_STATUS_FULFILLED},
 }
+
+ELIGIBILITY_VISIBLE_REQUEST_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+        REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+        REQUEST_STATUS_PARTIALLY_FULFILLED,
+        REQUEST_STATUS_FULFILLED,
+        REQUEST_STATUS_REJECTED,
+        REQUEST_STATUS_INELIGIBLE,
+    }
+)
+
+FULFILLMENT_VISIBLE_REQUEST_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+        REQUEST_STATUS_PARTIALLY_FULFILLED,
+    }
+)
 
 
 def _lookup_reference_options(table_key: str) -> list[dict[str, Any]]:
@@ -583,6 +620,81 @@ def _ensure_request_access(
     raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
 
 
+def _can_read_eligibility_request(
+    request_record: OperationsReliefRequest,
+    *,
+    actor_id: str,
+    actor_roles: Iterable[str],
+    tenant_context: TenantContext,
+) -> bool:
+    try:
+        _ensure_request_access(
+            request_record,
+            actor_id=actor_id,
+            actor_roles=actor_roles,
+            tenant_context=tenant_context,
+        )
+        return True
+    except OperationValidationError:
+        pass
+
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return True
+    if not any(role in set(ELIGIBILITY_ROLE_CODES) for role in normalized_roles):
+        return False
+    if request_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
+        return False
+
+    return (
+        OperationsEligibilityDecision.objects.filter(relief_request_id=int(request_record.relief_request_id)).exists()
+        or OperationsQueueAssignment.objects.filter(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type=ENTITY_REQUEST,
+            entity_id=int(request_record.relief_request_id),
+        ).exists()
+    )
+
+
+def _ensure_fulfillment_request_access(
+    request_record: OperationsReliefRequest,
+    *,
+    actor_id: str,
+    actor_roles: Iterable[str],
+    tenant_context: TenantContext,
+    write: bool = False,
+) -> None:
+    try:
+        _ensure_request_access(
+            request_record,
+            actor_id=actor_id,
+            actor_roles=actor_roles,
+            tenant_context=tenant_context,
+            write=write,
+        )
+        return
+    except OperationValidationError:
+        pass
+
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return
+    if not any(role in set(FULFILLMENT_ROLE_CODES) for role in normalized_roles):
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+    if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
+    assignment_statuses = ["OPEN"] if write else ["OPEN", "COMPLETED"]
+    has_assignment = OperationsQueueAssignment.objects.filter(
+        queue_code__in=[QUEUE_CODE_FULFILLMENT, QUEUE_CODE_OVERRIDE],
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(request_record.relief_request_id),
+        assignment_status__in=assignment_statuses,
+    ).exists()
+    if not has_assignment:
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
+
 def _ensure_package_access(
     package_record: OperationsPackage,
     *,
@@ -950,33 +1062,70 @@ def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantC
 
 def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
-    _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may view this queue.")
-    entity_ids = list(
-        actor_queue_queryset(actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
-        .filter(queue_code=QUEUE_CODE_ELIGIBILITY, entity_type=ENTITY_REQUEST)
-        .values_list("entity_id", flat=True)
-    )
+    normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may view this queue.")
     results: list[dict[str, Any]] = []
-    queryset = ReliefRqst.objects.filter(reliefrqst_id__in=entity_ids) if entity_ids else ReliefRqst.objects.filter(status_code=legacy_service.STATUS_AWAITING_APPROVAL)
-    for request in queryset.order_by("-request_date", "-reliefrqst_id")[:200]:
+    seen_request_ids: set[int] = set()
+
+    for request_record in OperationsReliefRequest.objects.filter(
+        status_code__in=ELIGIBILITY_VISIBLE_REQUEST_STATUSES,
+    ).order_by("-request_date", "-relief_request_id").iterator():
+        if not _can_read_eligibility_request(
+            request_record,
+            actor_id=actor_id,
+            actor_roles=normalized_roles,
+            tenant_context=tenant_context,
+        ):
+            continue
+        try:
+            request = legacy_service._load_request(int(request_record.relief_request_id))
+        except ReliefRqst.DoesNotExist:
+            continue
+        refreshed_record = _sync_operations_request(request, actor_id=actor_id)
+        if refreshed_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
+            continue
+        results.append(_request_summary_payload(request, refreshed_record))
+        seen_request_ids.add(int(request.reliefrqst_id))
+        if len(results) >= 200:
+            return {"results": results}
+
+    for request in ReliefRqst.objects.filter(status_code=legacy_service.STATUS_AWAITING_APPROVAL).order_by("-request_date", "-reliefrqst_id").iterator():
+        if int(request.reliefrqst_id) in seen_request_ids:
+            continue
         try:
             _ensure_request_access(
                 _request_access_probe_from_legacy(request),
                 actor_id=actor_id,
-                actor_roles=actor_roles or (),
+                actor_roles=normalized_roles,
                 tenant_context=tenant_context,
             )
         except OperationValidationError:
             continue
         request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
         results.append(_request_summary_payload(request, request_record))
+        if len(results) >= 200:
+            break
     return {"results": results}
 
 
 def get_eligibility_request(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
-    _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may review requests.")
-    payload = get_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context, actor_roles=actor_roles)
+    normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may review requests.")
+    request = legacy_service._load_request(reliefrqst_id)
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    if not _can_read_eligibility_request(
+        request_record,
+        actor_id=actor_id,
+        actor_roles=normalized_roles,
+        tenant_context=tenant_context,
+    ):
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
+    payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
+    payload.update(_request_summary_payload(request, request_record))
+    payload["packages"] = []
+    for package in ReliefPkg.objects.filter(reliefrqst_id=reliefrqst_id).order_by("-reliefpkg_id"):
+        package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+        payload["packages"].append(_package_summary_payload(package, package_record))
     decision = OperationsEligibilityDecision.objects.filter(relief_request_id=reliefrqst_id).first()
     payload["decision_made"] = decision is not None
     payload["can_edit"] = payload.get("status_code") == REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW and decision is None
@@ -1025,33 +1174,38 @@ def submit_eligibility_decision(
     now = timezone.now()
     request.review_by_id = actor_id
     request.review_dtime = now
-    request.action_by_id = actor_id
-    request.action_dtime = now
     request.version_nbr = int(request.version_nbr or 0) + 1
+    update_fields = [
+        "review_by_id",
+        "review_dtime",
+        "action_by_id",
+        "action_dtime",
+        "status_code",
+        "status_reason_desc",
+        "version_nbr",
+    ]
     if decision_code == "APPROVED":
+        # Legacy reliefrqst constraints require action_* fields to remain null
+        # until the request reaches a terminal decision status.
+        request.action_by_id = None
+        request.action_dtime = None
         request.status_code = legacy_service.STATUS_SUBMITTED
         request.status_reason_desc = None
         next_status = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
     elif decision_code == "REJECTED":
+        request.action_by_id = actor_id
+        request.action_dtime = now
         request.status_code = legacy_service.STATUS_DENIED
         request.status_reason_desc = decision_reason
         next_status = REQUEST_STATUS_REJECTED
     else:
+        request.action_by_id = actor_id
+        request.action_dtime = now
         request.status_code = legacy_service.STATUS_INELIGIBLE
         request.status_reason_desc = decision_reason
         next_status = REQUEST_STATUS_INELIGIBLE
-    request.save(
-        update_fields=[
-            "review_by_id",
-            "review_dtime",
-            "action_by_id",
-            "action_dtime",
-            "status_code",
-            "status_reason_desc",
-            "version_nbr",
-        ]
-    )
-    OperationsEligibilityDecision.objects.create(
+    request.save(update_fields=update_fields)
+    eligibility_decision = OperationsEligibilityDecision.objects.create(
         relief_request_id=reliefrqst_id,
         decision_code=decision_code,
         decision_reason=decision_reason,
@@ -1098,7 +1252,26 @@ def submit_eligibility_decision(
             tenant_id=request_record.requesting_tenant_id,
             message_text=f"Relief request {request.tracking_no} was marked {decision_code.lower()}.",
         )
-    return get_eligibility_request(reliefrqst_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
+    # Build the response from the already-authorized request state in this
+    # transaction. Re-reading through get_eligibility_request() after closing
+    # the eligibility queue can invalidate access for cross-tenant reviewers
+    # whose authority comes from the queue assignment itself.
+    payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
+    payload.update(_request_summary_payload(request, request_record))
+    payload["packages"] = []
+    for package in ReliefPkg.objects.filter(reliefrqst_id=reliefrqst_id).order_by("-reliefpkg_id"):
+        package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+        payload["packages"].append(_package_summary_payload(package, package_record))
+    payload["decision_made"] = True
+    payload["can_edit"] = False
+    payload["eligibility_decision"] = {
+        "decision_code": eligibility_decision.decision_code,
+        "decision_reason": eligibility_decision.decision_reason,
+        "decided_by_user_id": eligibility_decision.decided_by_user_id,
+        "decided_by_role_code": eligibility_decision.decided_by_role_code,
+        "decided_at": legacy_service._as_iso(eligibility_decision.decided_at),
+    }
+    return payload
 
 
 def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
@@ -1126,7 +1299,7 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
         if request_record.status_code not in {REQUEST_STATUS_APPROVED_FOR_FULFILLMENT, REQUEST_STATUS_PARTIALLY_FULFILLED}:
             continue
         try:
-            _ensure_request_access(
+            _ensure_fulfillment_request_access(
                 request_record,
                 actor_id=actor_id,
                 actor_roles=actor_roles or (),
@@ -1149,7 +1322,7 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id) if package is not None else None
     payload = {
@@ -1167,8 +1340,34 @@ def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: i
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     return legacy_service.get_package_allocation_options(reliefrqst_id, source_warehouse_id=source_warehouse_id)
+
+
+def get_item_allocation_options(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    """Return allocation candidates for a single item from a single warehouse."""
+    actor_id = _require_actor_id(actor_id)
+    request = legacy_service._load_request(reliefrqst_id)
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    _ensure_fulfillment_request_access(
+        request_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+    )
+    return legacy_service.get_item_allocation_options(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=source_warehouse_id,
+    )
 
 
 @transaction.atomic
@@ -1181,9 +1380,10 @@ def save_package(
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
+    requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
+    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None
     if package_locked_before_save:
@@ -1211,6 +1411,8 @@ def save_package(
                     first_inventory_id = int(raw_inventory_id)
                 except (TypeError, ValueError):
                     first_inventory_id = None
+    if requested_source_warehouse_id is not _UNSET:
+        first_inventory_id = requested_source_warehouse_id
     status_code = PACKAGE_STATUS_DRAFT
     override_status = None
     if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
@@ -1226,6 +1428,40 @@ def save_package(
         override_status_code=override_status,
         source_warehouse_id=first_inventory_id,
     )
+    # ── Dual-write: sync allocation lines to new operations table ──
+    raw_allocations = payload.get("allocations")
+    if isinstance(raw_allocations, list) and raw_allocations:
+        OperationsAllocationLine.objects.filter(package=package_record).delete()
+        lines_to_create = []
+        now = timezone.now()
+        for raw in raw_allocations:
+            if not isinstance(raw, Mapping):
+                continue
+            qty = raw.get("quantity", raw.get("allocated_qty"))
+            try:
+                qty_decimal = Decimal(str(qty if qty not in (None, "") else "0"))
+            except Exception:
+                qty_decimal = Decimal("0")
+            if qty_decimal <= 0:
+                continue
+            lines_to_create.append(
+                OperationsAllocationLine(
+                    package=package_record,
+                    item_id=int(raw.get("item_id", 0)),
+                    source_warehouse_id=int(raw.get("inventory_id", 0)),
+                    batch_id=int(raw.get("batch_id", 0)),
+                    quantity=qty_decimal,
+                    source_type=str(raw.get("source_type", "ON_HAND")).strip().upper() or "ON_HAND",
+                    source_record_id=int(raw["source_record_id"]) if raw.get("source_record_id") else None,
+                    uom_code=str(raw.get("uom_code") or "")[:25] or None,
+                    create_by_id=actor_id,
+                    create_dtime=now,
+                    update_by_id=actor_id,
+                    update_dtime=now,
+                )
+            )
+        if lines_to_create:
+            OperationsAllocationLine.objects.bulk_create(lines_to_create)
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_OVERRIDE,
@@ -1293,7 +1529,7 @@ def approve_override(
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
+    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is None:
         raise OperationValidationError({"override": "No package exists for this request."})

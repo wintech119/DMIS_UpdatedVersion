@@ -9,12 +9,16 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { FulfillmentItemListComponent } from './fulfillment-item-list.component';
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
+import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
+import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-warehouse-picker.component';
 
 @Component({
   selector: 'app-fulfillment-plan-step',
@@ -24,6 +28,8 @@ import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.compon
     MatIconModule,
     FulfillmentItemListComponent,
     FulfillmentItemDetailComponent,
+    OpsStockAvailabilityStateComponent,
+    OpsSourceWarehousePickerComponent,
   ],
   template: `
     <div class="plan-step">
@@ -45,30 +51,60 @@ import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.compon
         </div>
       }
 
-      @if (store.optionsError(); as optionsError) {
+      @if (store.optionsError() && !requestAvailabilityIssue()) {
         <div class="plan-alert plan-alert--warning" role="status">
           <mat-icon aria-hidden="true">warning</mat-icon>
-          <span>{{ optionsError }}</span>
+          <span>{{ store.optionsError() }}</span>
         </div>
       }
 
+      <app-ops-source-warehouse-picker
+        [warehouseOptions]="sourceWarehouseOptions()"
+        [selectedId]="sourceWarehouseId()"
+        [overrideCount]="store.overrideCount()"
+        [itemCount]="items().length"
+        [disabled]="readOnly || store.submitting()"
+        (warehouseChange)="onSourceWarehouseChange($event)"
+        (clearOverrides)="store.clearWarehouseOverrides()"
+      />
+
       <div class="plan-split">
-        <app-fulfillment-item-list
-          [items]="items()"
-          [selectedItemId]="selectedItemId()"
-          [store]="store"
-          (itemSelected)="onItemSelected($event)"
-        />
+        @if (items().length) {
+          <app-fulfillment-item-list
+            [items]="items()"
+            [selectedItemId]="selectedItemId()"
+            [store]="store"
+            [defaultWarehouseId]="sourceWarehouseId()"
+            (itemSelected)="onItemSelected($event)"
+          />
+        } @else {
+          <div class="plan-list-empty" role="status">
+            <mat-icon aria-hidden="true">inventory_2</mat-icon>
+            <p>No item-level stock lines are available to review yet.</p>
+          </div>
+        }
 
         @if (selectedItem(); as item) {
-          <div #detailPanel class="plan-split__detail" tabindex="-1">
+          <div #detailPanel class="plan-split__detail" tabindex="-1"
+            [class.plan-split__detail--switching]="store.switching()">
+            @if (store.switching()) {
+              <div class="plan-shimmer" aria-live="polite" aria-label="Refreshing item stock data"></div>
+            }
             <app-fulfillment-item-detail
               [item]="item"
               [readOnly]="readOnly"
               [store]="store"
+              [warehouseOptions]="sourceWarehouseOptions()"
+              [defaultWarehouseId]="sourceWarehouseId()"
               (back)="clearSelection()"
             />
           </div>
+        } @else if (requestAvailabilityIssue(); as issue) {
+          <app-ops-stock-availability-state
+            class="plan-split__detail"
+            [kind]="issue.kind"
+            [scope]="issue.scope"
+            [detail]="issue.detail ?? null" />
         } @else {
           <div class="plan-empty">
             <mat-icon aria-hidden="true">touch_app</mat-icon>
@@ -137,6 +173,47 @@ import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.compon
       outline: none;
     }
 
+    .plan-split__detail {
+      position: relative;
+      transition: opacity 180ms ease;
+    }
+
+    .plan-split__detail--switching {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .plan-shimmer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      border-radius: 8px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.5) 50%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      background-size: 200% 100%;
+      animation: shimmer-slide 1.2s ease-in-out infinite;
+    }
+
+    @keyframes shimmer-slide {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .plan-split__detail {
+        transition: none;
+      }
+      .plan-shimmer {
+        animation: none;
+        background: rgba(255, 255, 255, 0.4);
+      }
+    }
+
+    .plan-list-empty,
     .plan-empty {
       display: grid;
       place-items: center;
@@ -149,6 +226,11 @@ import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.compon
       color: var(--color-text-secondary);
     }
 
+    .plan-list-empty {
+      min-height: 16rem;
+    }
+
+    .plan-list-empty mat-icon,
     .plan-empty mat-icon {
       font-size: 32px;
       width: 32px;
@@ -170,11 +252,17 @@ import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.compon
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FulfillmentPlanStepComponent {
+  private readonly masterData = inject(MasterDataService);
+
   @Input() readOnly = false;
   @ViewChild('detailPanel', { read: ElementRef }) detailPanel?: ElementRef<HTMLElement>;
 
   readonly store = inject(OperationsWorkspaceStateService);
   readonly items = computed(() => this.store.options()?.items ?? []);
+  readonly requestAvailabilityIssue = this.store.requestAvailabilityIssue;
+  readonly sourceWarehouseId = this.store.sourceWarehouseId;
+  private readonly allSourceWarehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
+  readonly sourceWarehouseOptions = computed(() => this.allSourceWarehouseOptions());
   readonly selectedItemId = signal<number | null>(null);
   readonly selectionCleared = signal(false);
 
@@ -207,5 +295,9 @@ export class FulfillmentPlanStepComponent {
   clearSelection(): void {
     this.selectionCleared.set(true);
     this.selectedItemId.set(null);
+  }
+
+  onSourceWarehouseChange(value: string): void {
+    this.store.updateSourceWarehouse(value);
   }
 }

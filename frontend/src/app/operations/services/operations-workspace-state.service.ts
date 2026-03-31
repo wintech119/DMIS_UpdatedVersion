@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { forkJoin, of } from 'rxjs';
+import { of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import {
@@ -18,6 +18,7 @@ import {
 import { OperationsService } from './operations.service';
 
 interface WorkspaceDraft {
+  source_warehouse_id: string;
   to_inventory_id: string;
   transport_mode: string;
   comments_text: string;
@@ -30,7 +31,17 @@ interface LoadResult {
   options: AllocationOptionsResponse | null;
 }
 
+export interface StockAvailabilityIssue {
+  kind: 'missing-warehouse' | 'no-candidates';
+  scope: 'request' | 'item';
+  detail?: string | null;
+}
+
+const MISSING_WAREHOUSE_ERROR =
+  'source_warehouse_id is required when no needs-list compatibility bridge exists.';
+
 const DEFAULT_DRAFT: WorkspaceDraft = {
+  source_warehouse_id: '',
   to_inventory_id: '',
   transport_mode: '',
   comments_text: '',
@@ -59,6 +70,15 @@ export class OperationsWorkspaceStateService {
   readonly draft = signal<WorkspaceDraft>({ ...DEFAULT_DRAFT });
   readonly selectedRowsByItem = signal<Record<number, AllocationSelectionPayload[]>>({});
 
+  /** Per-item warehouse overrides: item_id -> warehouse_id string. */
+  readonly itemWarehouseOverrides = signal<Record<number, string>>({});
+
+  /** True while a per-item warehouse switch is loading (does NOT clear existing data). */
+  readonly switching = signal(false);
+
+  /** Number of items using a warehouse different from the default. */
+  readonly overrideCount = computed(() => Object.keys(this.itemWarehouseOverrides()).length);
+
   readonly selectedLineCount = computed(() =>
     Object.values(this.selectedRowsByItem()).reduce((sum, rows) => sum + rows.length, 0),
   );
@@ -75,6 +95,21 @@ export class OperationsWorkspaceStateService {
   });
 
   readonly hasWaybill = computed(() => !!(this.waybill()?.waybill_no));
+
+  readonly requestAvailabilityIssue = computed<StockAvailabilityIssue | null>(() => {
+    const message = this.optionsError();
+    if (!message) {
+      return null;
+    }
+    if (message.includes(MISSING_WAREHOUSE_ERROR)) {
+      return {
+        kind: 'missing-warehouse',
+        scope: 'request',
+        detail: message,
+      };
+    }
+    return null;
+  });
 
   readonly selectedMethod = computed<AllocationMethod | undefined>(() => {
     const itemGroups = this.options()?.items ?? [];
@@ -119,6 +154,13 @@ export class OperationsWorkspaceStateService {
       .reduce((sum, row) => sum + this.toNumber(row.quantity), 0),
   );
 
+  readonly sourceWarehouseId = computed(() => this.draft().source_warehouse_id);
+
+  /** Returns the effective warehouse for a given item (override if set, else default). */
+  effectiveWarehouseForItem(itemId: number): string {
+    return this.itemWarehouseOverrides()[itemId] ?? this.sourceWarehouseId();
+  }
+
   // ── Loading ────────────────────────────────────────────────────
 
   load(reliefrqstId: number, loadOptions = true): void {
@@ -131,37 +173,33 @@ export class OperationsWorkspaceStateService {
     this.waybill.set(null);
     this.waybillError.set(null);
     this.selectedRowsByItem.set({});
+    this.itemWarehouseOverrides.set({});
     this.draft.set({ ...DEFAULT_DRAFT });
 
-    forkJoin({
-      packageDetail: this.operationsService.getPackage(reliefrqstId).pipe(
-        catchError((error: HttpErrorResponse) => {
-          this.loadError.set(this.extractError(error, 'Failed to load package details.'));
-          return of(null);
-        }),
-      ),
-      options: loadOptions
-        ? this.operationsService.getAllocationOptions(reliefrqstId).pipe(
-            catchError((error: HttpErrorResponse) => {
-              this.optionsError.set(this.extractError(error, 'Failed to load allocation options.'));
-              return of(null);
-            }),
-          )
-        : of(null),
-    }).subscribe({
-      next: ({ packageDetail, options }: LoadResult) => {
+    this.operationsService.getPackage(reliefrqstId).pipe(
+      catchError((error: HttpErrorResponse) => {
+        this.loadError.set(this.extractError(error, 'Failed to load package details.'));
+        return of(null);
+      }),
+    ).subscribe({
+      next: (packageDetail) => {
         this.packageDetail.set(packageDetail);
-        this.options.set(options);
         if (packageDetail) {
           this.hydrateDraft(packageDetail);
           if (packageDetail.package) {
             this.reliefpkgId.set(packageDetail.package.reliefpkg_id);
           }
         }
-        if (options) {
-          this.initializeSelections(packageDetail, options);
+        if (!loadOptions) {
+          this.options.set(null);
+          this.loading.set(false);
+          return;
         }
-        this.loading.set(false);
+        this.loadAllocationOptions(
+          reliefrqstId,
+          packageDetail?.package?.source_warehouse_id ?? undefined,
+          packageDetail,
+        );
       },
       error: () => {
         this.loading.set(false);
@@ -212,6 +250,132 @@ export class OperationsWorkspaceStateService {
 
   patchDraft(patch: Partial<WorkspaceDraft>): void {
     this.draft.update((current) => ({ ...current, ...patch }));
+  }
+
+  updateSourceWarehouse(sourceWarehouseId: string): void {
+    const normalizedSourceWarehouseId = this.sanitizeInteger(sourceWarehouseId);
+    this.patchDraft({ source_warehouse_id: normalizedSourceWarehouseId });
+
+    // Changing the default warehouse resets all per-item overrides.
+    this.itemWarehouseOverrides.set({});
+
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId) {
+      return;
+    }
+
+    this.loading.set(true);
+    this.optionsError.set(null);
+    this.options.set(null);
+    this.selectedRowsByItem.set({});
+
+    const draft = this.draft();
+    this.operationsService.savePackageDraft(reliefrqstId, {
+      source_warehouse_id: normalizedSourceWarehouseId ? Number(normalizedSourceWarehouseId) : undefined,
+      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
+      transport_mode: draft.transport_mode.trim() || undefined,
+      comments_text: draft.comments_text.trim() || undefined,
+    }).subscribe({
+      next: (detail) => {
+        this.packageDetail.set(detail);
+        this.hydrateDraft(detail);
+        if (detail.package) {
+          this.reliefpkgId.set(detail.package.reliefpkg_id);
+        }
+        this.loadAllocationOptions(
+          reliefrqstId,
+          detail.package?.source_warehouse_id ?? undefined,
+          detail,
+        );
+      },
+      error: (error: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.loadError.set(this.extractError(error, 'Failed to save package draft.'));
+      },
+    });
+  }
+
+  /**
+   * Change the source warehouse for a single item without reloading all items.
+   * Only the target item's candidates and selections are refreshed.
+   */
+  updateItemWarehouse(itemId: number, warehouseId: string): void {
+    const normalizedWarehouseId = this.sanitizeInteger(warehouseId);
+    const defaultWarehouseId = this.sourceWarehouseId();
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId || !normalizedWarehouseId) {
+      return;
+    }
+
+    // If the user picked the same warehouse as the default, remove the override.
+    if (normalizedWarehouseId === defaultWarehouseId) {
+      const next = { ...this.itemWarehouseOverrides() };
+      delete next[itemId];
+      this.itemWarehouseOverrides.set(next);
+    } else {
+      this.itemWarehouseOverrides.set({
+        ...this.itemWarehouseOverrides(),
+        [itemId]: normalizedWarehouseId,
+      });
+    }
+
+    this.switching.set(true);
+
+    // Clear only this item's selections while loading.
+    const nextSelections = { ...this.selectedRowsByItem() };
+    nextSelections[itemId] = [];
+    this.selectedRowsByItem.set(nextSelections);
+
+    this.operationsService.getItemAllocationOptions(
+      reliefrqstId,
+      itemId,
+      Number(normalizedWarehouseId),
+    ).pipe(
+      catchError((error: HttpErrorResponse) => {
+        this.switching.set(false);
+        this.optionsError.set(this.extractError(error, 'Failed to load stock for this item.'));
+        return of(null);
+      }),
+    ).subscribe({
+      next: (itemGroup) => {
+        if (itemGroup) {
+          // Replace only this item's data in the options list.
+          const currentOptions = this.options();
+          if (currentOptions) {
+            const updatedItems = currentOptions.items.map((existing) =>
+              existing.item_id === itemId ? itemGroup : existing,
+            );
+            this.options.set({ ...currentOptions, items: updatedItems });
+          }
+          // Apply suggested allocations for this item.
+          if (itemGroup.suggested_allocations.length) {
+            this.selectedRowsByItem.set({
+              ...this.selectedRowsByItem(),
+              [itemId]: itemGroup.suggested_allocations.map((line) => ({
+                item_id: line.item_id,
+                inventory_id: line.inventory_id,
+                batch_id: line.batch_id,
+                quantity: line.quantity,
+                source_type: line.source_type,
+                source_record_id: line.source_record_id ?? null,
+                uom_code: line.uom_code ?? null,
+              })),
+            });
+          }
+        }
+        this.switching.set(false);
+      },
+    });
+  }
+
+  /** Clear all per-item warehouse overrides and reload with the default warehouse. */
+  clearWarehouseOverrides(): void {
+    this.itemWarehouseOverrides.set({});
+    const reliefrqstId = this.reliefrqstId();
+    const sourceWarehouseId = this.sourceWarehouseId();
+    if (reliefrqstId && sourceWarehouseId) {
+      this.updateSourceWarehouse(sourceWarehouseId);
+    }
   }
 
   // ── Selection management ───────────────────────────────────────
@@ -361,6 +525,17 @@ export class OperationsWorkspaceStateService {
     return null;
   }
 
+  getItemAvailabilityIssue(item: AllocationItemGroup): StockAvailabilityIssue | null {
+    const remaining = this.toNumber(item.remaining_qty);
+    if (remaining > 0 && item.candidates.length === 0) {
+      return {
+        kind: 'no-candidates',
+        scope: 'item',
+      };
+    }
+    return null;
+  }
+
   // ── Payload builders ───────────────────────────────────────────
 
   buildCommitPayload(): { payload: AllocationCommitPayload | null; errors: string[] } {
@@ -390,6 +565,7 @@ export class OperationsWorkspaceStateService {
 
     const draft = this.draft();
     const payload: AllocationCommitPayload = {
+      source_warehouse_id: draft.source_warehouse_id ? Number(draft.source_warehouse_id) : undefined,
       allocations,
       to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
       transport_mode: draft.transport_mode.trim() || undefined,
@@ -443,10 +619,36 @@ export class OperationsWorkspaceStateService {
     }
     this.draft.update((d) => ({
       ...d,
+      source_warehouse_id: d.source_warehouse_id || (pkg.source_warehouse_id != null ? String(pkg.source_warehouse_id) : ''),
       to_inventory_id: d.to_inventory_id || (pkg.to_inventory_id != null ? String(pkg.to_inventory_id) : ''),
       transport_mode: d.transport_mode || pkg.transport_mode || '',
       comments_text: d.comments_text || pkg.comments_text || '',
     }));
+  }
+
+  private loadAllocationOptions(
+    reliefrqstId: number,
+    sourceWarehouseId: number | undefined,
+    packageDetail: PackageDetailResponse | null,
+  ): void {
+    this.operationsService.getAllocationOptions(reliefrqstId, sourceWarehouseId).pipe(
+      catchError((error: HttpErrorResponse) => {
+        this.optionsError.set(this.extractError(error, 'Failed to load allocation options.'));
+        return of(null);
+      }),
+    ).subscribe({
+      next: (options) => {
+        this.options.set(options);
+        if (options) {
+          this.initializeSelections(packageDetail, options);
+        }
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.loadError.set('Failed to load fulfillment workspace.');
+      },
+    });
   }
 
   private initializeSelections(
@@ -544,6 +746,10 @@ export class OperationsWorkspaceStateService {
 
   private formatQuantity(value: number): string {
     return this.toFixedQuantity(value).toFixed(4);
+  }
+
+  private sanitizeInteger(value: unknown): string {
+    return String(value ?? '').replace(/[^\d]/g, '');
   }
 
   private extractError(error: HttpErrorResponse, fallback: string): string {
