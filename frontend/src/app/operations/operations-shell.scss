@@ -166,7 +166,17 @@ button.ops-chip:focus-visible,
   color: var(--color-text-primary);
 }
 
+.ops-toolbar__filters .ops-chip.ops-chip--active,
+button.ops-chip.ops-chip--active,
 .ops-chip--active {
+  background: var(--color-text-primary);
+  color: #ffffff;
+}
+
+.ops-toolbar__filters .ops-chip.ops-chip--active:hover,
+.ops-toolbar__filters .ops-chip.ops-chip--active:focus-visible,
+button.ops-chip.ops-chip--active:hover,
+button.ops-chip.ops-chip--active:focus-visible {
   background: var(--color-text-primary);
   color: #ffffff;
 }

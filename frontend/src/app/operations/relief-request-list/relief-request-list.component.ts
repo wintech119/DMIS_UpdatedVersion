@@ -25,7 +25,7 @@ import {
   mapOperationsToneToChipTone,
 } from '../operations-display.util';
 
-type RequestFilter = 'all' | 'draft' | 'review' | 'submitted' | 'closed';
+type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
 
 interface QueueMetric {
   label: string;
@@ -65,7 +65,8 @@ export class ReliefRequestListComponent implements OnInit {
     { label: 'All', value: 'all' },
     { label: 'Draft', value: 'draft' },
     { label: 'Review', value: 'review' },
-    { label: 'Submitted', value: 'submitted' },
+    { label: 'Approved', value: 'approved' },
+    { label: 'Dispatched', value: 'dispatched' },
     { label: 'Closed', value: 'closed' },
   ];
 
@@ -104,14 +105,14 @@ export class ReliefRequestListComponent implements OnInit {
     const rows = this.requests();
     const draft = rows.filter((row) => row.status_code === 'DRAFT').length;
     const review = rows.filter((row) => this.getStatusGroup(row) === 'review').length;
-    const submitted = rows.filter((row) => this.getStatusGroup(row) === 'submitted').length;
-    const closed = rows.filter((row) => this.getStatusGroup(row) === 'closed').length;
+    const approved = rows.filter((row) => this.getStatusGroup(row) === 'approved').length;
+    const dispatched = rows.filter((row) => this.getStatusGroup(row) === 'dispatched').length;
 
     return [
       { label: 'Drafts', value: draft, route: '/operations/relief-requests', tone: 'draft', note: 'Unsubmitted and editable' },
       { label: 'In Review', value: review, route: '/operations/eligibility-review', tone: 'review', note: 'Queued for decision' },
-      { label: 'Submitted', value: submitted, route: '/operations/relief-requests', tone: 'warning', note: 'Waiting in the live queue' },
-      { label: 'Closed', value: closed, route: '/operations/relief-requests', tone: 'success', note: 'Fulfilled or completed' },
+      { label: 'Approved', value: approved, route: '/operations/relief-requests', tone: 'warning', note: 'Awaiting fulfillment' },
+      { label: 'Dispatched', value: dispatched, route: '/operations/relief-requests', tone: 'success', note: 'Packages on the road' },
     ];
   });
 
@@ -202,15 +203,16 @@ export class ReliefRequestListComponent implements OnInit {
       case 'UNDER_ELIGIBILITY_REVIEW':
         return 'review';
       case 'APPROVED_FOR_FULFILLMENT':
+        return 'approved';
       case 'PARTIALLY_FULFILLED':
-        return 'submitted';
       case 'FULFILLED':
+        return 'dispatched';
       case 'CANCELLED':
       case 'REJECTED':
       case 'INELIGIBLE':
         return 'closed';
       default:
-        return 'submitted';
+        return 'approved';
     }
   }
 }
