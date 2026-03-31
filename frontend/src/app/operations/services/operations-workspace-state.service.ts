@@ -26,11 +26,6 @@ interface WorkspaceDraft {
   override_note: string;
 }
 
-interface LoadResult {
-  packageDetail: PackageDetailResponse | null;
-  options: AllocationOptionsResponse | null;
-}
-
 export interface StockAvailabilityIssue {
   kind: 'missing-warehouse' | 'no-candidates';
   scope: 'request' | 'item';
