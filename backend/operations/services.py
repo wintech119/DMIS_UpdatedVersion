@@ -194,26 +194,23 @@ def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
     )
     item_ids = [int(row["item_id"]) for row in rows]
     item_names, _ = data_access.get_item_names(item_ids)
-    return [
-        {
-            "item_id": int(row["item_id"]),
-            "item_code": (
-                item_names.get(int(row["item_id"]), {}).get("item_code")
-                or item_names.get(int(row["item_id"]), {}).get("code")
-            ),
-            "item_name": (
-                item_names.get(int(row["item_id"]), {}).get("item_name")
-                or item_names.get(int(row["item_id"]), {}).get("name")
-            ),
-            "request_qty": str(_quantize_qty(row.get("request_qty"))),
-            "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
-            "urgency_ind": row.get("urgency_ind"),
-            "rqst_reason_desc": row.get("rqst_reason_desc"),
-            "required_by_date": _as_iso(row.get("required_by_date")),
-            "status_code": row.get("status_code"),
-        }
-        for row in rows
-    ]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        lookup = item_names.get(int(row["item_id"]), {})
+        result.append(
+            {
+                "item_id": int(row["item_id"]),
+                "item_code": lookup.get("item_code") or lookup.get("code"),
+                "item_name": lookup.get("item_name") or lookup.get("name"),
+                "request_qty": str(_quantize_qty(row.get("request_qty"))),
+                "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
+                "urgency_ind": row.get("urgency_ind"),
+                "rqst_reason_desc": row.get("rqst_reason_desc"),
+                "required_by_date": _as_iso(row.get("required_by_date")),
+                "status_code": row.get("status_code"),
+            }
+        )
+    return result
 
 
 def _ensure_request_in_fulfillment_state(request: ReliefRqst) -> None:
