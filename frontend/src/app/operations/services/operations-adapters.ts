@@ -266,7 +266,7 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     issuance_order: issuanceOrder,
     compliance_markers: complianceMarkers,
     override_required: asBoolean(source['override_required']),
-    source_warehouse_id: source['source_warehouse_id'] != null && !isNaN(Number(source['source_warehouse_id'])) ? asNumber(source['source_warehouse_id']) : null,
+    source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
   };
 }
 
