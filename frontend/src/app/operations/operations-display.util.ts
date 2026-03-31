@@ -132,6 +132,15 @@ export function extractOperationsErrorMessage(value: unknown): string | null {
     if (typeof value['message'] === 'string' && value['message'].trim()) {
       return value['message'].trim();
     }
+    if (typeof value['detail'] === 'string' && value['detail'].trim()) {
+      return value['detail'].trim();
+    }
+    if (value['detail'] !== undefined) {
+      const nestedDetail = extractOperationsErrorMessage(value['detail']);
+      if (nestedDetail) {
+        return nestedDetail;
+      }
+    }
     if (isOperationsRecord(value['errors'])) {
       const nested = Object.values(value['errors']).map(extractOperationsErrorMessage).find(Boolean);
       return nested ?? null;

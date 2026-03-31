@@ -582,17 +582,24 @@ export class ReliefRequestWizardComponent implements OnInit {
     const errors = isRecord(err.error) && isRecord(err.error['errors'])
       ? err.error['errors'] as Record<string, unknown>
       : null;
+    let shouldRefreshStepState = false;
 
     const agencyMessage = extractOperationsErrorMessage(errors?.['agency_id']);
     if (agencyMessage) {
       this.requestForm.get('agency_id')?.setErrors({ server: agencyMessage });
       this.requestForm.get('agency_id')?.markAsTouched();
+      shouldRefreshStepState = true;
     }
 
     const eventMessage = extractOperationsErrorMessage(errors?.['eligible_event_id']);
     if (eventMessage) {
       this.requestForm.get('eligible_event_id')?.setErrors({ server: eventMessage });
       this.requestForm.get('eligible_event_id')?.markAsTouched();
+      shouldRefreshStepState = true;
+    }
+
+    if (shouldRefreshStepState) {
+      this.requestForm.updateValueAndValidity({ emitEvent: true });
     }
 
     const message = extractOperationsErrorMessage(err.error) ?? 'Failed to save request. Please try again.';

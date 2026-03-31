@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { MatTooltip } from '@angular/material/tooltip';
@@ -113,6 +114,32 @@ describe('ReliefRequestWizardComponent', () => {
       fixture.detectChanges();
 
       expect(component.reviewFormValue().event_name).toBe('Flood Response 2026');
+    });
+
+    it('recomputes step validity immediately after server control errors are applied', () => {
+      const component = fixture.componentInstance;
+
+      component.requestForm.get('urgency_ind')?.setValue('M');
+      const itemGroup = component.itemsArray.at(0);
+      itemGroup.get('item_id')?.setValue(88);
+      itemGroup.get('request_qty')?.setValue(2);
+      fixture.detectChanges();
+
+      expect(component.isStep1Valid()).toBeTrue();
+
+      (component as unknown as { handleSaveError: (err: HttpErrorResponse) => void }).handleSaveError(
+        new HttpErrorResponse({
+          error: {
+            errors: {
+              agency_id: ['Choose a valid agency.'],
+            },
+          },
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(component.requestForm.get('agency_id')?.hasError('server')).toBeTrue();
+      expect(component.isStep1Valid()).toBeFalse();
     });
   });
 

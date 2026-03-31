@@ -9,24 +9,36 @@ from django.test import SimpleTestCase, TestCase
 
 from operations.models import TenantControlScope, TenantHierarchy, TenantRequestPolicy
 
+TEST_PARISH_TENANT = {
+    "tenant_id": 14,
+    "tenant_code": "PARISH-KN",
+    "tenant_name": "Kingston and St. Andrew Municipal Corporation",
+    "tenant_type": "PARISH",
+}
+
+TEST_FFP_TENANT = {
+    "tenant_id": 20,
+    "tenant_code": "FFP",
+    "tenant_name": "Food For The Poor",
+    "tenant_type": "EXTERNAL",
+}
+
+TEST_ODPEM_TENANT = {
+    "tenant_id": 27,
+    "tenant_code": "OFFICE-OF-DISASTER-P",
+    "tenant_name": "ODPEM",
+    "tenant_type": "EXTERNAL",
+}
+
+
+def tenant_sequence(*tenants: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(tenant) for tenant in tenants]
+
 
 class SeedReliefManagementHierarchyTestDataCommandTests(SimpleTestCase):
     @patch(
         "operations.management.commands.seed_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 14,
-                "tenant_code": "PARISH-KN",
-                "tenant_name": "Kingston and St. Andrew Municipal Corporation",
-                "tenant_type": "PARISH",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_PARISH_TENANT, TEST_FFP_TENANT),
     )
     def test_dry_run_reports_planned_hierarchy_seed(
         self,
@@ -44,20 +56,7 @@ class SeedReliefManagementHierarchyTestDataCommandTests(SimpleTestCase):
 
     @patch(
         "operations.management.commands.seed_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 27,
-                "tenant_code": "OFFICE-OF-DISASTER-P",
-                "tenant_name": "ODPEM",
-                "tenant_type": "EXTERNAL",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_ODPEM_TENANT, TEST_FFP_TENANT),
     )
     def test_dry_run_rejects_non_parish_controller(
         self,
@@ -68,20 +67,7 @@ class SeedReliefManagementHierarchyTestDataCommandTests(SimpleTestCase):
 
     @patch(
         "operations.management.commands.cleanup_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 14,
-                "tenant_code": "PARISH-KN",
-                "tenant_name": "Kingston and St. Andrew Municipal Corporation",
-                "tenant_type": "PARISH",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_PARISH_TENANT, TEST_FFP_TENANT),
     )
     def test_cleanup_dry_run_reports_planned_revert(
         self,
@@ -101,20 +87,7 @@ class SeedReliefManagementHierarchyTestDataCommandTests(SimpleTestCase):
 class ApplyReliefManagementHierarchyTestDataCommandTests(TestCase):
     @patch(
         "operations.management.commands.seed_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 14,
-                "tenant_code": "PARISH-KN",
-                "tenant_name": "Kingston and St. Andrew Municipal Corporation",
-                "tenant_type": "PARISH",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_PARISH_TENANT, TEST_FFP_TENANT),
     )
     def test_apply_upserts_policy_scope_and_hierarchy(
         self,
@@ -157,20 +130,7 @@ class ApplyReliefManagementHierarchyTestDataCommandTests(TestCase):
 
     @patch(
         "operations.management.commands.seed_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 14,
-                "tenant_code": "PARISH-KN",
-                "tenant_name": "Kingston and St. Andrew Municipal Corporation",
-                "tenant_type": "PARISH",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_PARISH_TENANT, TEST_FFP_TENANT),
     )
     def test_apply_preserves_unrelated_policy_rows_and_inactive_history(
         self,
@@ -243,20 +203,7 @@ class ApplyReliefManagementHierarchyTestDataCommandTests(TestCase):
 
     @patch(
         "operations.management.commands.cleanup_relief_management_hierarchy_test_data.Command._resolve_tenant",
-        side_effect=[
-            {
-                "tenant_id": 14,
-                "tenant_code": "PARISH-KN",
-                "tenant_name": "Kingston and St. Andrew Municipal Corporation",
-                "tenant_type": "PARISH",
-            },
-            {
-                "tenant_id": 20,
-                "tenant_code": "FFP",
-                "tenant_name": "Food For The Poor",
-                "tenant_type": "EXTERNAL",
-            },
-        ],
+        side_effect=tenant_sequence(TEST_PARISH_TENANT, TEST_FFP_TENANT),
     )
     def test_cleanup_resets_policy_and_inactivates_scope_and_hierarchy(
         self,
