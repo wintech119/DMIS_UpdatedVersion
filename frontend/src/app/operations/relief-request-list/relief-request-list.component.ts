@@ -195,15 +195,22 @@ export class ReliefRequestListComponent implements OnInit {
   }
 
   private getStatusGroup(request: RequestSummary): RequestFilter {
-    if (request.status_code === 'DRAFT') {
-      return 'draft';
+    switch (request.status_code) {
+      case 'DRAFT':
+        return 'draft';
+      case 'SUBMITTED':
+      case 'UNDER_ELIGIBILITY_REVIEW':
+        return 'review';
+      case 'APPROVED_FOR_FULFILLMENT':
+      case 'PARTIALLY_FULFILLED':
+        return 'submitted';
+      case 'FULFILLED':
+      case 'CANCELLED':
+      case 'REJECTED':
+      case 'INELIGIBLE':
+        return 'closed';
+      default:
+        return 'submitted';
     }
-    if (request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT') {
-      return 'review';
-    }
-    if (request.status_code === 'CANCELLED' || request.status_code === 'REJECTED' || request.status_code === 'INELIGIBLE') {
-      return 'closed';
-    }
-    return 'submitted';
   }
 }

@@ -51,7 +51,7 @@ interface FulfillmentConfirmationState {
   ],
   providers: [OperationsWorkspaceStateService],
   templateUrl: './package-fulfillment-workspace.component.html',
-  styleUrl: './package-fulfillment-workspace.component.scss',
+  styleUrls: ['./package-fulfillment-workspace.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PackageFulfillmentWorkspaceComponent {
@@ -112,7 +112,7 @@ export class PackageFulfillmentWorkspaceComponent {
       if (this.isNoSelfApprovalBlocked()) {
         return 'This plan needs approval from a different authorised user. You cannot approve your own overrides.';
       }
-      if (!isOverrideApproverRole(this.auth.roles())) {
+      if (!this.hasOperationsAccess() || !isOverrideApproverRole(this.auth.roles())) {
         return 'Only logistics managers can approve overrides. You can review the plan but cannot approve it.';
       }
       return 'This plan is waiting for override approval. Review the details, then approve or return it.';

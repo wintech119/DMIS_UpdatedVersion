@@ -24,6 +24,7 @@ import {
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   OperationsTone,
+  extractOperationsErrorMessage,
   getOperationsPackageTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
@@ -216,12 +217,8 @@ export class ReliefRequestDetailComponent implements OnInit {
             },
             error: (err: HttpErrorResponse) => {
               this.submitting.set(false);
-              const errors = err.error?.errors;
-              const extracted = (typeof errors === 'object' && errors !== null)
-                ? Object.values(errors).find((v): v is string => typeof v === 'string') ?? null
-                : null;
               const fallback = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit request.';
-              this.notify.showError(extracted ?? fallback);
+              this.notify.showError(extractOperationsErrorMessage(err.error) ?? fallback);
             },
           });
       });

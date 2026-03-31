@@ -1,10 +1,41 @@
 :host {
   display: block;
 
-  // Operations primary buttons render as near-black per Architectural Minimalist guide
+  // ── Button tiers (WCAG AA verified) ─────────────────────────────────
+
+  // Primary: forward-workflow actions (Approve, Submit, Continue)
   [mat-flat-button][color="primary"] {
-    --mdc-filled-button-container-color: #37352F;
-    --mdc-filled-button-label-text-color: #ffffff;
+    --mat-button-filled-container-color: #37352F;
+    --mat-button-filled-label-text-color: #ffffff;
+    --mat-button-filled-state-layer-color: #ffffff;
+    --mat-button-filled-ripple-color: color-mix(in srgb, #ffffff 12%, transparent);
+  }
+
+  // Secondary: navigation & utility (Edit, Back, Refresh, Open)
+  [mat-stroked-button]:not([color]) {
+    --mat-button-outlined-label-text-color: #37352F;
+    --mat-button-outlined-outline-color: rgba(55, 53, 47, 0.28);
+    --mat-button-outlined-state-layer-color: #37352F;
+    --mat-button-outlined-ripple-color: color-mix(in srgb, #37352F 12%, transparent);
+    background-color: #f7f6f3;
+  }
+
+  // Destructive: reject, deny, ineligible (matches ops-chip--critical palette)
+  [mat-stroked-button][color="warn"] {
+    --mat-button-outlined-label-text-color: #8c1d13;
+    --mat-button-outlined-outline-color: rgba(140, 29, 19, 0.32);
+    --mat-button-outlined-state-layer-color: #8c1d13;
+    --mat-button-outlined-ripple-color: color-mix(in srgb, #8c1d13 12%, transparent);
+    background-color: #fdddd8;
+  }
+
+  // Outlined primary: higher-emphasis secondary (Open Dispatch)
+  [mat-stroked-button][color="primary"] {
+    --mat-button-outlined-label-text-color: #37352F;
+    --mat-button-outlined-outline-color: rgba(55, 53, 47, 0.40);
+    --mat-button-outlined-state-layer-color: #37352F;
+    --mat-button-outlined-ripple-color: color-mix(in srgb, #37352F 12%, transparent);
+    background-color: #e2dfd7;
   }
 
   // Surface container tokens for Stitch-style layered surfaces
@@ -122,12 +153,15 @@
 }
 
 // Interactive chips (filter buttons on queue pages) — pointer + hover
-button.ops-chip {
+button.ops-chip,
+.ops-filter-option .ops-chip {
   cursor: pointer;
 }
 
 button.ops-chip:hover,
-button.ops-chip:focus-visible {
+button.ops-chip:focus-visible,
+.ops-filter-option:hover .ops-chip,
+.ops-filter-option:focus-within .ops-chip {
   background: var(--color-surface-container-high);
   color: var(--color-text-primary);
 }

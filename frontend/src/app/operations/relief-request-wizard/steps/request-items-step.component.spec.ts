@@ -89,4 +89,13 @@ describe('RequestItemsStepComponent', () => {
     expect(itemGroup.get('item_id')?.touched).toBeTrue();
     expect(itemGroup.get('item_id')?.dirty).toBeTrue();
   });
+
+  it('shows dual-mode agency guidance when self and managed-entity submission are both allowed', () => {
+    component.submissionModeLabel = 'Your organisation or managed entity';
+    fixture.detectChanges();
+
+    expect(component.requestingAgencyTooltip).toBe(
+      'Choose whether this request is for your organisation or an agency you manage.',
+    );
+  });
 });

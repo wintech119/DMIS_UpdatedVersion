@@ -31,6 +31,7 @@ import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-ske
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { RequestItemsStepComponent } from './steps/request-items-step.component';
 import { RequestReviewStepComponent, ReviewFormValue } from './steps/request-review-step.component';
+import { extractOperationsErrorMessage } from '../operations-display.util';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -58,7 +59,7 @@ type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
     RequestReviewStepComponent,
   ],
   templateUrl: './relief-request-wizard.component.html',
-  styleUrl: './relief-request-wizard.component.scss',
+  styleUrls: ['./relief-request-wizard.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReliefRequestWizardComponent implements OnInit {
@@ -562,13 +563,9 @@ export class ReliefRequestWizardComponent implements OnInit {
             this.saving.set(false);
             this.savedRequest.set(saved);
             this.completed.set(true);
-            const errors = (err.error as Record<string, unknown>)?.['errors'];
-            const extracted = (typeof errors === 'object' && errors !== null)
-              ? Object.values(errors).find((v): v is string => typeof v === 'string') ?? null
-              : null;
             const detail = (err.error as Record<string, unknown>)?.['detail'];
             const fallback = typeof detail === 'string' ? detail : 'Request saved as draft, but submission failed.';
-            this.notify.showWarning(extracted ?? fallback);
+            this.notify.showWarning(extractOperationsErrorMessage(err.error) ?? fallback);
           },
         });
       return;
@@ -586,19 +583,19 @@ export class ReliefRequestWizardComponent implements OnInit {
       ? err.error['errors'] as Record<string, unknown>
       : null;
 
-    const agencyMessage = extractMessage(errors?.['agency_id']);
+    const agencyMessage = extractOperationsErrorMessage(errors?.['agency_id']);
     if (agencyMessage) {
       this.requestForm.get('agency_id')?.setErrors({ server: agencyMessage });
       this.requestForm.get('agency_id')?.markAsTouched();
     }
 
-    const eventMessage = extractMessage(errors?.['eligible_event_id']);
+    const eventMessage = extractOperationsErrorMessage(errors?.['eligible_event_id']);
     if (eventMessage) {
       this.requestForm.get('eligible_event_id')?.setErrors({ server: eventMessage });
       this.requestForm.get('eligible_event_id')?.markAsTouched();
     }
 
-    const message = extractMessage(err.error) ?? 'Failed to save request. Please try again.';
+    const message = extractOperationsErrorMessage(err.error) ?? 'Failed to save request. Please try again.';
     this.notify.showError(message);
   }
 
@@ -653,26 +650,6 @@ function clearServerError(control: FormGroup['controls'][string] | null | undefi
   const nextErrors = { ...(control.errors ?? {}) };
   delete nextErrors['server'];
   control.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
-}
-
-function extractMessage(value: unknown): string | null {
-  if (typeof value === 'string') {
-    return value.trim() || null;
-  }
-  if (Array.isArray(value)) {
-    const first = value.map(extractMessage).find(Boolean);
-    return first ?? null;
-  }
-  if (isRecord(value)) {
-    if (typeof value['message'] === 'string' && value['message'].trim()) {
-      return value['message'].trim();
-    }
-    if (isRecord(value['errors'])) {
-      const nested = Object.values(value['errors']).map(extractMessage).find(Boolean);
-      return nested ?? null;
-    }
-  }
-  return null;
 }
 
 function formatDisplayDate(value: string): string {

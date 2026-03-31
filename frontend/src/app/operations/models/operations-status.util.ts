@@ -7,7 +7,7 @@ const REQUEST_STATUS_LABELS: Record<string, string> = {
   SUBMITTED: 'Submitted',
   UNDER_ELIGIBILITY_REVIEW: 'Under Review',
   APPROVED_FOR_FULFILLMENT: 'Approved',
-  PARTIALLY_FULFILLED: 'Partially Filled',
+  PARTIALLY_FULFILLED: 'Partially Fulfilled',
   FULFILLED: 'Fulfilled',
   INELIGIBLE: 'Ineligible',
   REJECTED: 'Rejected',
@@ -72,18 +72,6 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'C': return 'status-filled';
     default: return 'status-unknown';
   }
-}
-
-// ── Item status ────────────────────────────────────────────────────
-
-const ITEM_STATUS_LABELS: Record<string, string> = {
-  R: 'Requested',
-  P: 'Partial',
-  F: 'Fulfilled',
-};
-
-export function formatItemStatus(code: string): string {
-  return ITEM_STATUS_LABELS[code] ?? 'Unknown';
 }
 
 // ── Urgency ────────────────────────────────────────────────────────

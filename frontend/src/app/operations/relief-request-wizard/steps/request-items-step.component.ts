@@ -77,6 +77,8 @@ export class RequestItemsStepComponent implements OnChanges {
 
   get requestingAgencyTooltip(): string {
     switch (this.submissionModeLabel) {
+      case 'Your organisation or managed entity':
+        return 'Choose whether this request is for your organisation or an agency you manage.';
       case 'Request on behalf of a managed entity':
         return 'Choose which agency under your authority needs supplies.';
       case 'ODPEM-assisted request':

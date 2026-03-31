@@ -120,6 +120,26 @@ export function formatOperationsAge(value: string | null | undefined): string {
   return days === 1 ? '1 day' : `${days} days`;
 }
 
+export function extractOperationsErrorMessage(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value.trim() || null;
+  }
+  if (Array.isArray(value)) {
+    const nested = value.map(extractOperationsErrorMessage).find(Boolean);
+    return nested ?? null;
+  }
+  if (isOperationsRecord(value)) {
+    if (typeof value['message'] === 'string' && value['message'].trim()) {
+      return value['message'].trim();
+    }
+    if (isOperationsRecord(value['errors'])) {
+      const nested = Object.values(value['errors']).map(extractOperationsErrorMessage).find(Boolean);
+      return nested ?? null;
+    }
+  }
+  return null;
+}
+
 export function formatOperationsLineCount(count: number): string {
   return count === 1 ? '1 item' : `${count} items`;
 }
@@ -238,4 +258,8 @@ export function mapOperationsToneToChipTone(
     default:
       return 'neutral';
   }
+}
+
+function isOperationsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
