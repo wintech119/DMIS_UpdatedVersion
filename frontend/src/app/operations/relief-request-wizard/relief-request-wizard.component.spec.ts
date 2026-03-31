@@ -10,174 +10,172 @@ import { OperationsService } from '../services/operations.service';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 
-describe('ReliefRequestWizardComponent', () => {
-  let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+function createOperationsServiceSpy(): jasmine.SpyObj<OperationsService> {
+  return jasmine.createSpyObj<OperationsService>('OperationsService', [
+    'getRequestReferenceData',
+    'getRequest',
+    'createRequest',
+    'updateRequest',
+    'submitRequest',
+  ]);
+}
 
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
-      providers: [
-        {
-          provide: OperationsService,
-          useValue: jasmine.createSpyObj<OperationsService>('OperationsService', [
-            'getRequestReferenceData',
-            'getRequest',
-            'createRequest',
-            'updateRequest',
-            'submitRequest',
-          ]),
-        },
-        {
-          provide: DmisNotificationService,
-          useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
-            'showError',
-            'showWarning',
-            'showSuccess',
-          ]),
-        },
-        {
-          provide: AuthRbacService,
-          useValue: {
-            load: jasmine.createSpy('load'),
-            loaded: () => true,
-            operationsCapabilities: () => ({
-              can_create_relief_request: true,
-              relief_request_submission_mode: 'self',
-              allowed_origin_modes: ['self'],
-            }),
+describe('ReliefRequestWizardComponent', () => {
+  describe('with self-only submission mode', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
+
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
           },
-        },
-        {
-          provide: ActivatedRoute,
-          useValue: {
-            snapshot: {
-              paramMap: convertToParamMap({}),
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: 'self',
+                allowed_origin_modes: ['self'],
+              }),
             },
           },
-        },
-        {
-          provide: Router,
-          useValue: jasmine.createSpyObj('Router', ['navigate']),
-        },
-      ],
-    }).compileComponents();
-
-    const operationsService = TestBed.inject(OperationsService) as jasmine.SpyObj<OperationsService>;
-    operationsService.getRequestReferenceData.and.returnValue(of({
-      agencies: [{ value: 12, label: 'St. Mary Parish Council' }],
-      events: [{ value: 44, label: 'Flood Response 2026' }],
-      items: [{ value: 88, label: 'Tarps' }],
-    }));
-
-    fixture = TestBed.createComponent(ReliefRequestWizardComponent);
-    fixture.detectChanges();
-  });
-
-  it('renders operations-specific header guidance instead of implementation-history copy', () => {
-    const compiled = fixture.nativeElement as HTMLElement;
-
-    expect(compiled.textContent).not.toContain('Stitch');
-    expect(compiled.textContent).toContain('Create or update a relief request by selecting the agency');
-  });
-
-  it('uses a destination-specific tooltip for the back button', () => {
-    const tooltip = fixture.debugElement.query(By.css('.request-wizard-header__back')).injector.get(MatTooltip);
-
-    expect(tooltip.message).toBe('Back to relief requests');
-  });
-
-  it('loads request reference data on init and applies the loaded options', () => {
-    const operationsService = TestBed.inject(OperationsService) as jasmine.SpyObj<OperationsService>;
-
-    expect(operationsService.getRequestReferenceData).toHaveBeenCalledTimes(1);
-    expect(fixture.componentInstance.referenceLoading()).toBeFalse();
-    expect(fixture.componentInstance.pageBusy()).toBeFalse();
-    expect(fixture.componentInstance.agencyOptions()).toEqual([
-      { value: 12, label: 'St. Mary Parish Council' },
-    ]);
-    expect(fixture.componentInstance.eventOptions()).toEqual([
-      { value: 44, label: 'Flood Response 2026' },
-    ]);
-    expect(fixture.componentInstance.itemOptions()).toEqual([
-      { value: 88, label: 'Tarps' },
-    ]);
-    expect(fixture.componentInstance.requestForm.get('agency_id')?.value).toBe(12);
-  });
-
-  it('shows dual-mode label when both self and for_subordinate modes are available', () => {
-    fixture.destroy();
-
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({
-      imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
-      providers: [
-        {
-          provide: OperationsService,
-          useValue: jasmine.createSpyObj<OperationsService>('OperationsService', [
-            'getRequestReferenceData',
-            'getRequest',
-            'createRequest',
-            'updateRequest',
-            'submitRequest',
-          ]),
-        },
-        {
-          provide: DmisNotificationService,
-          useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
-            'showError',
-            'showWarning',
-            'showSuccess',
-          ]),
-        },
-        {
-          provide: AuthRbacService,
-          useValue: {
-            load: jasmine.createSpy('load'),
-            loaded: () => true,
-            operationsCapabilities: () => ({
-              can_create_relief_request: true,
-              relief_request_submission_mode: 'self',
-              allowed_origin_modes: ['self', 'for_subordinate'],
-            }),
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: {
+                paramMap: convertToParamMap({}),
+              },
+            },
           },
-        },
-        {
-          provide: ActivatedRoute,
-          useValue: { snapshot: { paramMap: convertToParamMap({}) } },
-        },
-        {
-          provide: Router,
-          useValue: jasmine.createSpyObj('Router', ['navigate']),
-        },
-      ],
+          {
+            provide: Router,
+            useValue: jasmine.createSpyObj('Router', ['navigate']),
+          },
+        ],
+      }).compileComponents();
+
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [{ value: 12, label: 'St. Mary Parish Council' }],
+        events: [{ value: 44, label: 'Flood Response 2026' }],
+        items: [{ value: 88, label: 'Tarps' }],
+      }));
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
     });
 
-    const dualOpsService = TestBed.inject(OperationsService) as jasmine.SpyObj<OperationsService>;
-    dualOpsService.getRequestReferenceData.and.returnValue(of({
-      agencies: [
-        { value: 12, label: 'S07 TEST DISTRIBUTOR AGENCY - PARISH_KN' },
-        { value: 13, label: 'S07 TEST DISTRIBUTOR AGENCY - FFP' },
-      ],
-      events: [],
-      items: [],
-    }));
+    it('renders operations-specific header guidance instead of implementation-history copy', () => {
+      const compiled = fixture.nativeElement as HTMLElement;
 
-    const dualFixture = TestBed.createComponent(ReliefRequestWizardComponent);
-    dualFixture.detectChanges();
+      expect(compiled.textContent).not.toContain('Stitch');
+      expect(compiled.textContent).toContain('Create or update a relief request by selecting the agency');
+    });
 
-    expect(dualFixture.componentInstance.isDualMode()).toBeTrue();
-    expect(dualFixture.componentInstance.submissionModeLabel()).toBe('Your organisation or managed entity');
-    expect(dualFixture.componentInstance.workflowLabel()).toBe('New request');
+    it('uses a destination-specific tooltip for the back button', () => {
+      const tooltip = fixture.debugElement.query(By.css('.request-wizard-header__back')).injector.get(MatTooltip);
 
-    dualFixture.destroy();
+      expect(tooltip.message).toBe('Back to relief requests');
+    });
+
+    it('loads request reference data on init and applies the loaded options', () => {
+      expect(operationsService.getRequestReferenceData).toHaveBeenCalledTimes(1);
+      expect(fixture.componentInstance.referenceLoading()).toBeFalse();
+      expect(fixture.componentInstance.pageBusy()).toBeFalse();
+      expect(fixture.componentInstance.agencyOptions()).toEqual([
+        { value: 12, label: 'St. Mary Parish Council' },
+      ]);
+      expect(fixture.componentInstance.eventOptions()).toEqual([
+        { value: 44, label: 'Flood Response 2026' },
+      ]);
+      expect(fixture.componentInstance.itemOptions()).toEqual([
+        { value: 88, label: 'Tarps' },
+      ]);
+      expect(fixture.componentInstance.requestForm.get('agency_id')?.value).toBe(12);
+    });
+
+    it('updates the review snapshot with the selected event label', () => {
+      const component = fixture.componentInstance;
+
+      component.requestForm.get('eligible_event_id')?.setValue(44);
+      fixture.detectChanges();
+
+      expect(component.reviewFormValue().event_name).toBe('Flood Response 2026');
+    });
   });
 
-  it('updates the review snapshot with the selected event label', () => {
-    const component = fixture.componentInstance;
+  describe('when dual-mode is available', () => {
+    let fixture: ComponentFixture<ReliefRequestWizardComponent>;
+    let operationsService: jasmine.SpyObj<OperationsService>;
 
-    component.requestForm.get('eligible_event_id')?.setValue(44);
-    fixture.detectChanges();
+    beforeEach(async () => {
+      operationsService = createOperationsServiceSpy();
+      operationsService.getRequestReferenceData.and.returnValue(of({
+        agencies: [
+          { value: 12, label: 'S07 TEST DISTRIBUTOR AGENCY - PARISH_KN' },
+          { value: 13, label: 'S07 TEST DISTRIBUTOR AGENCY - FFP' },
+        ],
+        events: [],
+        items: [],
+      }));
 
-    expect(component.reviewFormValue().event_name).toBe('Flood Response 2026');
+      await TestBed.configureTestingModule({
+        imports: [NoopAnimationsModule, ReliefRequestWizardComponent],
+        providers: [
+          { provide: OperationsService, useValue: operationsService },
+          {
+            provide: DmisNotificationService,
+            useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+              'showError',
+              'showWarning',
+              'showSuccess',
+            ]),
+          },
+          {
+            provide: AuthRbacService,
+            useValue: {
+              load: jasmine.createSpy('load'),
+              loaded: () => true,
+              operationsCapabilities: () => ({
+                can_create_relief_request: true,
+                relief_request_submission_mode: 'self',
+                allowed_origin_modes: ['self', 'for_subordinate'],
+              }),
+            },
+          },
+          {
+            provide: ActivatedRoute,
+            useValue: {
+              snapshot: { paramMap: convertToParamMap({}) },
+            },
+          },
+          {
+            provide: Router,
+            useValue: jasmine.createSpyObj('Router', ['navigate']),
+          },
+        ],
+      }).compileComponents();
+
+      fixture = TestBed.createComponent(ReliefRequestWizardComponent);
+      fixture.detectChanges();
+    });
+
+    it('shows dual-mode label when both self and for_subordinate modes are available', () => {
+      expect(fixture.componentInstance.isDualMode()).toBeTrue();
+      expect(fixture.componentInstance.submissionModeLabel()).toBe('Your organisation or managed entity');
+      expect(fixture.componentInstance.workflowLabel()).toBe('New request');
+    });
   });
 });

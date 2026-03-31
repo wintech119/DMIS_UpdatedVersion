@@ -50,6 +50,9 @@ export class DmisStepTrackerComponent implements AfterViewInit, OnDestroy {
   /** When true, only completed and active steps are clickable. */
   linear = input(true);
 
+  /** Optional id base for WAI-ARIA tab/panel linkage when the tracker drives stepper panels. */
+  tabIdBase = input<string | null>(null);
+
   /** Emits the index of the step the user clicked. */
   stepClick = output<number>();
 
@@ -143,6 +146,16 @@ export class DmisStepTrackerComponent implements AfterViewInit, OnDestroy {
 
   isAriaDisabled(step: ResolvedStep): boolean {
     return !!step.disabled || (this.linear() && step.state === 'future');
+  }
+
+  getTabId(index: number): string | null {
+    const base = this.tabIdBase();
+    return base ? `${base}-${index}-tab` : null;
+  }
+
+  getPanelId(index: number): string | null {
+    const base = this.tabIdBase();
+    return base ? `${base}-${index}-panel` : null;
   }
 
   onKeydown(event: KeyboardEvent, index: number): void {

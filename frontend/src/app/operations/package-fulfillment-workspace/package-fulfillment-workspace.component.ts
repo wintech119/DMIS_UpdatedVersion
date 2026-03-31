@@ -112,8 +112,8 @@ export class PackageFulfillmentWorkspaceComponent {
       if (this.isNoSelfApprovalBlocked()) {
         return 'This plan needs approval from a different authorised user. You cannot approve your own overrides.';
       }
-      if (!this.hasOperationsAccess() || !isOverrideApproverRole(this.auth.roles())) {
-        return 'Only logistics managers can approve overrides. You can review the plan but cannot approve it.';
+      if (!this.canApprovePendingOverride()) {
+        return 'This plan is waiting for override approval. Review the details and request approval or return it through an authorised approver.';
       }
       return 'This plan is waiting for override approval. Review the details, then approve or return it.';
     }

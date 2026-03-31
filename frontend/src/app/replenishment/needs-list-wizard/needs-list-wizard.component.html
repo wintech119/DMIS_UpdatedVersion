@@ -15,6 +15,7 @@
   <dmis-step-tracker
     [steps]="trackerSteps()"
     [activeIndex]="currentStepIndex()"
+    tabIdBase="needs-list-step"
     [linear]="true"
     (stepClick)="onTrackerStepClick($event)" />
 
@@ -24,69 +25,77 @@
     <!-- Step 1: Review & Confirm Scope -->
     <mat-step [completed]="(isStep1Valid$ | async) || false">
       <ng-template matStepLabel>Review Scope</ng-template>
-      <app-scope-step (next)="stepper.next()"></app-scope-step>
+      <div id="needs-list-step-0-panel" role="tabpanel" aria-labelledby="needs-list-step-0-tab">
+        <app-scope-step (next)="stepper.next()"></app-scope-step>
+      </div>
     </mat-step>
 
     <!-- Step 2: Preview Results -->
     <mat-step [completed]="(isStep2Valid$ | async) || false">
       <ng-template matStepLabel>Preview Results</ng-template>
-      <app-preview-step
-        (back)="stepper.previous()"
-        (next)="stepper.next()"
-      ></app-preview-step>
+      <div id="needs-list-step-1-panel" role="tabpanel" aria-labelledby="needs-list-step-1-tab">
+        <app-preview-step
+          (back)="stepper.previous()"
+          (next)="stepper.next()"
+        ></app-preview-step>
+      </div>
     </mat-step>
 
     <!-- Step 3: Submit for Approval -->
     <mat-step [completed]="confirmationState() !== null">
       <ng-template matStepLabel>Submit</ng-template>
-      <app-submit-step
-        (back)="stepper.previous()"
-        (complete)="onComplete($event)"
-      ></app-submit-step>
+      <div id="needs-list-step-2-panel" role="tabpanel" aria-labelledby="needs-list-step-2-tab">
+        <app-submit-step
+          (back)="stepper.previous()"
+          (complete)="onComplete($event)"
+        ></app-submit-step>
+      </div>
     </mat-step>
 
     <!-- Step 4: Confirmation -->
     <mat-step [editable]="false">
       <ng-template matStepLabel>Confirmation</ng-template>
-      <div class="step-content confirmation-step">
-        @if (confirmationState(); as confirmation) {
-          <mat-card>
-            <mat-card-content>
-              <h2>
-                {{ confirmation.action === 'submitted_for_approval' ? 'Needs List Submitted' : 'Draft Saved' }}
-              </h2>
-              @if (confirmation.action === 'submitted_for_approval') {
-                <p>
-                  Your needs list with {{ confirmation.totalItems }} items has been submitted for approval.
-                </p>
-                @if (confirmation.approver) {
-                  <p><strong>Approver:</strong> {{ confirmation.approver }}</p>
+      <div id="needs-list-step-3-panel" role="tabpanel" aria-labelledby="needs-list-step-3-tab">
+        <div class="step-content confirmation-step">
+          @if (confirmationState(); as confirmation) {
+            <mat-card>
+              <mat-card-content>
+                <h2>
+                  {{ confirmation.action === 'submitted_for_approval' ? 'Needs List Submitted' : 'Draft Saved' }}
+                </h2>
+                @if (confirmation.action === 'submitted_for_approval') {
+                  <p>
+                    Your needs list with {{ confirmation.totalItems }} items has been submitted for approval.
+                  </p>
+                  @if (confirmation.approver) {
+                    <p><strong>Approver:</strong> {{ confirmation.approver }}</p>
+                  }
                 }
-              }
-              @if (confirmation.action === 'draft_saved') {
-                <p>
-                  Your draft with {{ confirmation.totalItems }} items has been saved successfully.
-                </p>
-                <p>You can return later to continue and submit for approval.</p>
-              }
-              <p><strong>Completed:</strong> {{ confirmation.completedAt | date : 'medium' }}</p>
-
-              <div class="step-actions">
                 @if (confirmation.action === 'draft_saved') {
-                  <button matButton="outlined" color="primary" (click)="returnToSubmitStepFromConfirmation()">
-                    Return to Submit Step
-                  </button>
+                  <p>
+                    Your draft with {{ confirmation.totalItems }} items has been saved successfully.
+                  </p>
+                  <p>You can return later to continue and submit for approval.</p>
                 }
-                <button matButton="outlined" color="primary" (click)="startNewNeedsList()">
-                  Start New Needs List
-                </button>
-                <button matButton="filled" color="primary" (click)="returnToDashboardFromConfirmation()">
-                  Return to Dashboard
-                </button>
-              </div>
-            </mat-card-content>
-          </mat-card>
-        }
+                <p><strong>Completed:</strong> {{ confirmation.completedAt | date : 'medium' }}</p>
+
+                <div class="step-actions">
+                  @if (confirmation.action === 'draft_saved') {
+                    <button matButton="outlined" color="primary" (click)="returnToSubmitStepFromConfirmation()">
+                      Return to Submit Step
+                    </button>
+                  }
+                  <button matButton="outlined" color="primary" (click)="startNewNeedsList()">
+                    Start New Needs List
+                  </button>
+                  <button matButton="filled" color="primary" (click)="returnToDashboardFromConfirmation()">
+                    Return to Dashboard
+                  </button>
+                </div>
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
       </div>
     </mat-step>
 

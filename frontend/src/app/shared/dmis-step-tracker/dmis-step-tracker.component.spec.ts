@@ -20,12 +20,14 @@ describe('DmisStepTrackerComponent', () => {
     steps: StepDefinition[],
     activeIndex: number,
     linear = true,
+    tabIdBase: string | null = null,
   ): void {
     fixture = TestBed.createComponent(DmisStepTrackerComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('steps', steps);
     fixture.componentRef.setInput('activeIndex', activeIndex);
     fixture.componentRef.setInput('linear', linear);
+    fixture.componentRef.setInput('tabIdBase', tabIdBase);
     fixture.detectChanges();
   }
 
@@ -398,6 +400,17 @@ describe('DmisStepTrackerComponent', () => {
       createComponent(threeSteps, 0);
       const container = fixture.debugElement.query(By.css('.tracker__pills'));
       expect(container.nativeElement.getAttribute('role')).toBe('tablist');
+    });
+
+    it('adds tab ids and panel linkage when a tab id base is provided', () => {
+      createComponent(threeSteps, 1, true, 'wizard-step');
+      const pills = fixture.debugElement.queryAll(By.css('.tracker__pill'));
+
+      expect(pills[0].nativeElement.getAttribute('role')).toBe('tab');
+      expect(pills[0].nativeElement.getAttribute('id')).toBe('wizard-step-0-tab');
+      expect(pills[0].nativeElement.getAttribute('aria-controls')).toBe('wizard-step-0-panel');
+      expect(pills[1].nativeElement.getAttribute('id')).toBe('wizard-step-1-tab');
+      expect(pills[1].nativeElement.getAttribute('aria-controls')).toBe('wizard-step-1-panel');
     });
   });
 });

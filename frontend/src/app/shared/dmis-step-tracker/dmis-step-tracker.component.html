@@ -18,6 +18,9 @@
       <button
         type="button"
         class="tracker__pill"
+        [attr.role]="tabIdBase() ? 'tab' : null"
+        [attr.id]="getTabId(step.index)"
+        [attr.aria-controls]="getPanelId(step.index)"
         [class.tracker__pill--active]="step.state === 'active'"
         [class.tracker__pill--completed]="step.state === 'completed'"
         [class.tracker__pill--future]="step.state === 'future'"
