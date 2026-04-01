@@ -16,7 +16,8 @@ export interface OpsMetricStripItem {
       @for (item of items(); track item.label) {
         <article
           class="ops-flow-strip__card"
-          role="listitem"
+          [class.ops-flow-strip__card--interactive]="item.interactive"
+          [attr.role]="item.interactive ? 'button' : 'listitem'"
           [attr.tabindex]="item.interactive ? 0 : null"
           (click)="onItemClick(item)"
           (keydown.enter)="onItemClick(item)"

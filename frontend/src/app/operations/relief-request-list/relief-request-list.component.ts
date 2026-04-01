@@ -173,11 +173,10 @@ export class ReliefRequestListComponent implements OnInit {
   }
 
   openMetric(metric: OpsMetricStripItem): void {
-    const filter = metric.token as RequestFilter | undefined;
-    if (!filter) {
+    if (!this.isRequestFilter(metric.token)) {
       return;
     }
-    this.setFilter(filter);
+    this.setFilter(metric.token);
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
@@ -226,5 +225,14 @@ export class ReliefRequestListComponent implements OnInit {
       default:
         return 'other';
     }
+  }
+
+  private isRequestFilter(value: string | undefined): value is RequestFilter {
+    return value === 'all'
+      || value === 'draft'
+      || value === 'review'
+      || value === 'approved'
+      || value === 'dispatched'
+      || value === 'closed';
   }
 }
