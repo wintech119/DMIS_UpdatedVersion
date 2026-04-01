@@ -8,6 +8,7 @@ from operations.views import (
     operations_eligibility_detail,
     operations_eligibility_decision,
     operations_eligibility_queue,
+    operations_item_allocation_options,
     operations_package_allocation_options,
     operations_package_commit_allocation,
     operations_package_current,
@@ -41,6 +42,11 @@ urlpatterns = [
         "packages/<int:reliefrqst_id>/allocation-options",
         operations_package_allocation_options,
         name="operations_package_allocation_options",
+    ),
+    path(
+        "packages/<int:reliefrqst_id>/allocation-options/<int:item_id>",
+        operations_item_allocation_options,
+        name="operations_item_allocation_options",
     ),
     path(
         "packages/<int:reliefrqst_id>/allocations/commit",

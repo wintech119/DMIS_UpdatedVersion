@@ -31,6 +31,7 @@ import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-ske
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { RequestItemsStepComponent } from './steps/request-items-step.component';
 import { RequestReviewStepComponent, ReviewFormValue } from './steps/request-review-step.component';
+import { extractOperationsErrorMessage } from '../operations-display.util';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -58,7 +59,7 @@ type RequestItemFormDefaults = Partial<CreateRequestItemPayload> & {
     RequestReviewStepComponent,
   ],
   templateUrl: './relief-request-wizard.component.html',
-  styleUrl: './relief-request-wizard.component.scss',
+  styleUrls: ['./relief-request-wizard.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReliefRequestWizardComponent implements OnInit {
@@ -110,6 +111,11 @@ export class ReliefRequestWizardComponent implements OnInit {
 
   readonly capabilities = computed<OperationsCapabilities | null>(() => this.auth.operationsCapabilities());
 
+  readonly isDualMode = computed(() => {
+    const modes = this.capabilities()?.allowed_origin_modes ?? [];
+    return modes.includes('self') && modes.includes('for_subordinate');
+  });
+
   readonly creationBlocked = computed(() =>
     !this.isEditMode()
     && this.auth.loaded()
@@ -157,54 +163,63 @@ export class ReliefRequestWizardComponent implements OnInit {
     if (requestDateIso) {
       return formatDisplayDate(requestDateIso);
     }
-    return this.isEditMode() ? 'Waiting for request record' : 'System stamped on first save';
+    return this.isEditMode() ? 'Will appear after saving' : 'Set automatically when saved';
   });
 
   readonly requestDateHint = computed(() =>
     this.requestDateIso()
-      ? 'Recorded by Operations when the request was first created.'
-      : 'The backend stamps the formal request date when the draft is first saved.'
+      ? 'Date this request was first saved.'
+      : 'This date is recorded automatically the first time you save the request.'
   );
 
   readonly submissionModeLabel = computed(() => {
+    if (this.isDualMode()) {
+      return 'Your organisation or managed entity';
+    }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'For subordinate entity';
+        return 'Request on behalf of a managed entity';
       case 'on_behalf_bridge':
-        return 'ODPEM bridge on behalf';
+        return 'ODPEM-assisted request';
       case 'self':
-        return 'Self request';
+        return 'Your organisation\'s request';
       default:
-        return this.isEditMode() ? 'Draft update' : 'Relief request unavailable';
+        return this.isEditMode() ? 'Editing draft request' : 'Request creation is not available';
     }
   });
 
   readonly submissionModeHint = computed(() => {
+    if (this.isDualMode()) {
+      return 'Choose the agency that needs supplies. You can select your own organisation or any entity you manage.';
+    }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'Select the subordinate agency or entity by name. This tenant is acting as the request authority for units under its control.';
+        return 'Choose which agency under your authority needs supplies. You are submitting on their behalf.';
       case 'on_behalf_bridge':
-        return 'Select the beneficiary agency by name. This is the transitional ODPEM bridge lane for on-behalf request entry.';
+        return 'Choose the agency that needs support. As ODPEM, you are entering this request on their behalf.';
       case 'self':
-        return 'Select the requesting agency by name. This lane is for the active operational tenant requesting assistance for itself.';
+        return 'Choose the agency that needs relief supplies. This request will be submitted under your organisation\'s authority.';
       default:
-        return 'This route reflects the backend capabilities advertised for the active tenant.';
+        return 'Your account does not have permission to create relief requests. Contact your administrator if you believe this is incorrect.';
     }
   });
 
   readonly workflowLabel = computed(() => {
     if (this.isEditMode()) {
-      return 'Draft revision';
+      return 'Editing draft';
+    }
+    if (this.isDualMode()) {
+      return 'New request';
     }
     switch (this.capabilities()?.relief_request_submission_mode) {
       case 'for_subordinate':
-        return 'Subordinate intake';
+        return 'New request (on behalf)';
       case 'on_behalf_bridge':
-        return 'ODPEM bridge intake';
+        return 'New request (ODPEM-assisted)';
       case 'self':
-        return 'Self intake';
+        return 'New request';
       default:
-        return 'Request entry';
+        return 'New request';
     }
   });
 
@@ -332,7 +347,7 @@ export class ReliefRequestWizardComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => {
-          if (data.status_code !== 0) {
+          if (data.status_code !== 'DRAFT') {
             this.error.set('Only draft requests can be edited in this workspace.');
             this.loading.set(false);
             return;
@@ -549,8 +564,8 @@ export class ReliefRequestWizardComponent implements OnInit {
             this.savedRequest.set(saved);
             this.completed.set(true);
             const detail = (err.error as Record<string, unknown>)?.['detail'];
-            const message = typeof detail === 'string' ? detail : 'Request saved as draft, but submission failed.';
-            this.notify.showWarning(message);
+            const fallback = typeof detail === 'string' ? detail : 'Request saved as draft, but submission failed.';
+            this.notify.showWarning(extractOperationsErrorMessage(err.error) ?? fallback);
           },
         });
       return;
@@ -567,20 +582,27 @@ export class ReliefRequestWizardComponent implements OnInit {
     const errors = isRecord(err.error) && isRecord(err.error['errors'])
       ? err.error['errors'] as Record<string, unknown>
       : null;
+    let shouldRefreshStepState = false;
 
-    const agencyMessage = extractMessage(errors?.['agency_id']);
+    const agencyMessage = extractOperationsErrorMessage(errors?.['agency_id']);
     if (agencyMessage) {
       this.requestForm.get('agency_id')?.setErrors({ server: agencyMessage });
       this.requestForm.get('agency_id')?.markAsTouched();
+      shouldRefreshStepState = true;
     }
 
-    const eventMessage = extractMessage(errors?.['eligible_event_id']);
+    const eventMessage = extractOperationsErrorMessage(errors?.['eligible_event_id']);
     if (eventMessage) {
       this.requestForm.get('eligible_event_id')?.setErrors({ server: eventMessage });
       this.requestForm.get('eligible_event_id')?.markAsTouched();
+      shouldRefreshStepState = true;
     }
 
-    const message = extractMessage(err.error) ?? 'Failed to save request. Please try again.';
+    if (shouldRefreshStepState) {
+      this.requestForm.updateValueAndValidity({ emitEvent: true });
+    }
+
+    const message = extractOperationsErrorMessage(err.error) ?? 'Failed to save request. Please try again.';
     this.notify.showError(message);
   }
 
@@ -635,26 +657,6 @@ function clearServerError(control: FormGroup['controls'][string] | null | undefi
   const nextErrors = { ...(control.errors ?? {}) };
   delete nextErrors['server'];
   control.setErrors(Object.keys(nextErrors).length ? nextErrors : null);
-}
-
-function extractMessage(value: unknown): string | null {
-  if (typeof value === 'string') {
-    return value.trim() || null;
-  }
-  if (Array.isArray(value)) {
-    const first = value.map(extractMessage).find(Boolean);
-    return first ?? null;
-  }
-  if (isRecord(value)) {
-    if (typeof value['message'] === 'string' && value['message'].trim()) {
-      return value['message'].trim();
-    }
-    if (isRecord(value['errors'])) {
-      const nested = Object.values(value['errors']).map(extractMessage).find(Boolean);
-      return nested ?? null;
-    }
-  }
-  return null;
 }
 
 function formatDisplayDate(value: string): string {

@@ -151,7 +151,7 @@ $collapsed-width: 56px;
   }
 
   &.active {
-    background: #f0fdf4;
+    background: var(--color-nav-active);
     color: var(--color-accent);
     font-weight: var(--weight-semibold);
 
@@ -213,7 +213,7 @@ $collapsed-width: 56px;
   }
 
   &.active-group::ng-deep .mat-expansion-panel-header {
-    background: rgba(15, 118, 110, 0.04) !important;
+    background: var(--color-nav-active) !important;
   }
 }
 
@@ -254,7 +254,7 @@ $collapsed-width: 56px;
   }
 
   &.active {
-    background: #f0fdf4;
+    background: var(--color-nav-active);
     color: var(--color-accent);
     font-weight: var(--weight-semibold);
 

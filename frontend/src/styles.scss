@@ -40,6 +40,7 @@
   --color-surface: #ffffff;
   --color-surface-muted: #F7F6F3;
   --color-hover: #F1F1EF;
+  --color-nav-active: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface-muted));
   --color-accent: #0f766e;
   --color-accent-shadow: color-mix(in srgb, var(--color-accent) 15%, transparent);
 
@@ -143,6 +144,27 @@ p, span, a, label, td, th, li {
     color: #ffffff;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+}
+
+// ===== COMPACT SELECT PANELS =====
+// Used by per-item warehouse override in fulfillment-item-detail
+.detail-warehouse-panel {
+  .mat-mdc-option {
+    font-size: 0.8rem;
+    min-height: 34px;
+    padding: 0 12px;
+    line-height: 1.35;
+  }
+
+  .mat-mdc-option .mdc-list-item__primary-text {
+    font-size: 0.8rem;
+  }
+
+  @media (pointer: coarse), (max-width: 768px) {
+    .mat-mdc-option {
+      min-height: 44px;
+    }
   }
 }
 

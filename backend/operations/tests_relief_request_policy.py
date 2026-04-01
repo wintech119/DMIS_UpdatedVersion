@@ -285,6 +285,27 @@ class TrackingNumberHelperTests(SimpleTestCase):
 
 
 class ReliefRequestServiceTests(TestCase):
+    @patch("operations.services.data_access.get_item_names", return_value=({101: {"name": "Water Tabs", "code": "WT-001"}}, []))
+    @patch(
+        "operations.services._fetch_rows",
+        return_value=[
+            {
+                "item_id": 101,
+                "request_qty": "2",
+                "issue_qty": "0",
+                "urgency_ind": "H",
+                "rqst_reason_desc": "Potable water",
+                "required_by_date": "2026-03-30",
+                "status_code": "R",
+            }
+        ],
+    )
+    def test_request_items_uses_item_name_lookup_name_and_code_keys(self, _fetch_rows_mock, _get_item_names_mock) -> None:
+        items = operations_service._request_items(95007)
+
+        self.assertEqual(items[0]["item_code"], "WT-001")
+        self.assertEqual(items[0]["item_name"], "Water Tabs")
+
     @patch("operations.services.get_request", return_value={"reliefrqst_id": 77, "tracking_no": "RQ00077"})
     @patch("operations.services._upsert_request_items")
     @patch("operations.services.ReliefRqst.objects.create")

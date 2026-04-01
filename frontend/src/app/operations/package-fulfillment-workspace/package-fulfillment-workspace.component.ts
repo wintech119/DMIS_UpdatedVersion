@@ -51,7 +51,7 @@ interface FulfillmentConfirmationState {
   ],
   providers: [OperationsWorkspaceStateService],
   templateUrl: './package-fulfillment-workspace.component.html',
-  styleUrl: './package-fulfillment-workspace.component.scss',
+  styleUrls: ['./package-fulfillment-workspace.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PackageFulfillmentWorkspaceComponent {
@@ -110,15 +110,15 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly overrideApprovalHint = computed(() => {
     if (this.store.hasPendingOverride()) {
       if (this.isNoSelfApprovalBlocked()) {
-        return 'You can view the pending override, but a different authorized approver must complete it. No self-approval is allowed for the request submitter or the user who routed the override.';
+        return 'This plan needs approval from a different authorised user. You cannot approve your own overrides.';
       }
-      if (!isOverrideApproverRole(this.auth.roles())) {
-        return 'Override approval is limited to logistics leadership roles. You can review the plan, but approval stays hidden.';
+      if (!this.canApprovePendingOverride()) {
+        return 'This plan is waiting for override approval. Review the details and request approval or return it through an authorised approver.';
       }
-      return 'The routed plan is locked while override approval is reviewed. Only authorized logistics approvers can approve it, and backend no-self-approval checks remain in force.';
+      return 'This plan is waiting for override approval. Review the details, then approve or return it.';
     }
     if (this.store.planRequiresOverride()) {
-      return 'This plan will be routed for narrow override approval before dispatch can continue.';
+      return 'This plan needs manager approval before it can be dispatched.';
     }
     return null;
   });

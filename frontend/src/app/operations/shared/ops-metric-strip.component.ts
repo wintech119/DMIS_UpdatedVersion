@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 export interface OpsMetricStripItem {
   label: string;
   value: string;
   hint?: string;
+  interactive?: boolean;
+  token?: string;
 }
 
 @Component({
@@ -12,7 +14,14 @@ export interface OpsMetricStripItem {
   template: `
     <div class="ops-flow-strip" role="list">
       @for (item of items(); track item.label) {
-        <article class="ops-flow-strip__card" role="listitem">
+        <article
+          class="ops-flow-strip__card"
+          [class.ops-flow-strip__card--interactive]="item.interactive"
+          [attr.role]="item.interactive ? 'button' : 'listitem'"
+          [attr.tabindex]="item.interactive ? 0 : null"
+          (click)="onItemClick(item)"
+          (keydown.enter)="onItemClick(item)"
+          (keydown.space)="onItemClick(item); $event.preventDefault()">
           <span class="ops-flow-strip__label">{{ item.label }}</span>
           <strong class="ops-flow-strip__value">{{ item.value }}</strong>
           @if (item.hint) {
@@ -26,4 +35,12 @@ export interface OpsMetricStripItem {
 })
 export class OpsMetricStripComponent {
   readonly items = input<readonly OpsMetricStripItem[]>([]);
+  readonly itemClick = output<OpsMetricStripItem>();
+
+  onItemClick(item: OpsMetricStripItem): void {
+    if (!item.interactive) {
+      return;
+    }
+    this.itemClick.emit(item);
+  }
 }

@@ -3,11 +3,10 @@
     <div class="request-panel__intro">
       <div>
         <p class="request-panel__eyebrow">Request header</p>
-        <h2 class="request-panel__title">Operational intake context</h2>
+        <h2 class="request-panel__title">Request details</h2>
       </div>
       <p class="request-panel__copy">
-        Capture the requesting entity and event by name, confirm the request authority in force, and set the urgency that
-        should guide review, packaging, and dispatch sequencing.
+        Select the requesting agency and any linked event, then set the urgency level for this request.
       </p>
     </div>
 
@@ -15,7 +14,7 @@
       <div class="request-step-alert" role="alert">
         <mat-icon aria-hidden="true">lock</mat-icon>
         <div>
-          <strong>Relief request entry is not available for this tenant.</strong>
+          <strong>Request creation is not available for your account.</strong>
           <p>{{ submissionModeHint }}</p>
         </div>
       </div>
@@ -66,38 +65,6 @@
           <mat-error>{{ message }}</mat-error>
         }
       </mat-form-field>
-
-      <article class="request-context-card">
-        <div class="request-context-card__label-row">
-          <span class="request-context-card__label">Request date</span>
-          <button
-            mat-icon-button
-            type="button"
-            class="field-help-button"
-            [matTooltip]="tooltips.requestDate"
-            aria-label="More information about Request date">
-            <mat-icon>help_outline</mat-icon>
-          </button>
-        </div>
-        <strong>{{ requestDateText }}</strong>
-        <p>{{ requestDateHint }}</p>
-      </article>
-
-      <article class="request-context-card">
-        <div class="request-context-card__label-row">
-          <span class="request-context-card__label">Submission mode</span>
-          <button
-            mat-icon-button
-            type="button"
-            class="field-help-button"
-            [matTooltip]="submissionModeTooltip"
-            aria-label="More information about Submission mode">
-            <mat-icon>help_outline</mat-icon>
-          </button>
-        </div>
-        <strong>{{ submissionModeLabel }}</strong>
-        <p>{{ submissionModeHint }}</p>
-      </article>
     </div>
 
     <div class="urgency-block" [class.urgency-block--invalid]="!!getControlError('urgency_ind')">

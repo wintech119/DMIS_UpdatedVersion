@@ -1,12 +1,23 @@
 import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
+import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { OVERRIDE_REASON_OPTIONS } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
+
+const TRANSPORT_MODE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'TRUCK', label: 'Truck' },
+  { value: 'VAN', label: 'Van' },
+  { value: 'AIR', label: 'Air' },
+  { value: 'BOAT', label: 'Boat' },
+  { value: 'MOTORCYCLE', label: 'Motorcycle' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 @Component({
   selector: 'app-fulfillment-details-step',
@@ -19,106 +30,88 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
     MatSelectModule,
   ],
   template: `
-    <div class="details-step">
-      <div class="details-step__intro">
+    <div class="ops-details">
+      <div class="ops-details__header">
         <h2>Operational Details</h2>
-        <p>
-          Capture the package context that becomes part of the formal reservation record. Stock is reserved only after
-          the allocation is committed. Physical deduction happens later on dispatch.
-        </p>
+        @if (lockOperationalFields) {
+          <span class="ops-details__badge ops-details__badge--lock" role="status">
+            <mat-icon aria-hidden="true">lock</mat-icon> Read-only
+          </span>
+        }
       </div>
 
-      @if (lockOperationalFields) {
-        <div class="details-alert details-alert--soft" role="status">
-          <mat-icon aria-hidden="true">lock</mat-icon>
-          <span>
-            This routed reservation is read-only during override approval review so the submitted plan stays intact for
-            approvers.
-          </span>
-        </div>
-      } @else {
-        <div class="details-alert details-alert--soft" role="status">
-          <mat-icon aria-hidden="true">info</mat-icon>
-          <span>
-            Set the destination warehouse and transport mode for this package. These values carry into the dispatch
-            workspace and waybill.
-          </span>
-        </div>
-      }
-
-      <div class="details-grid">
-        <mat-form-field appearance="outline" class="details-field">
-          <mat-label>Destination Warehouse ID</mat-label>
-          <input
-            matInput
-            type="number"
-            min="1"
+      <div class="ops-details__form">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Destination Warehouse</mat-label>
+          <mat-select
             [ngModel]="draft().to_inventory_id"
-            (ngModelChange)="store.patchDraft({ to_inventory_id: sanitizeInteger($event) })"
+            (ngModelChange)="store.patchDraft({ to_inventory_id: normalizeText($event) })"
             [disabled]="lockOperationalFields"
-          />
-          <mat-hint>Numeric warehouse / inventory identifier for the receiving site.</mat-hint>
+            aria-label="Select destination warehouse">
+            @for (wh of warehouseOptions(); track wh.value) {
+              <mat-option [value]="wh.value">{{ wh.label }}</mat-option>
+            }
+          </mat-select>
         </mat-form-field>
 
-        <mat-form-field appearance="outline" class="details-field">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>Transport Mode</mat-label>
-          <input
-            matInput
+          <mat-select
             [ngModel]="draft().transport_mode"
             (ngModelChange)="store.patchDraft({ transport_mode: normalizeText($event) })"
-            placeholder="TRUCK, VAN, AIR, etc."
             [disabled]="lockOperationalFields"
-          />
-          <mat-hint>Optional now, but shown again before dispatch.</mat-hint>
+            aria-label="Select transport mode">
+            @for (mode of transportModeOptions; track mode.value) {
+              <mat-option [value]="mode.value">{{ mode.label }}</mat-option>
+            }
+          </mat-select>
         </mat-form-field>
-      </div>
 
-      <div class="details-grid details-grid--notes">
-        <mat-form-field appearance="outline" class="details-field">
-          <mat-label>Package Comments</mat-label>
+        <mat-form-field appearance="outline" class="ops-details__field--span" subscriptSizing="dynamic">
+          <mat-label>Further Instructions</mat-label>
           <textarea
             matInput
-            rows="4"
+            rows="2"
             [ngModel]="draft().comments_text"
             (ngModelChange)="store.patchDraft({ comments_text: normalizeText($event) })"
-            placeholder="Notes for packaging, loading, or handoff preparation"
+            placeholder="For the inventory clerk (e.g., fragile, cold chain, priority)"
             [disabled]="lockOperationalFields"
           ></textarea>
         </mat-form-field>
       </div>
 
       @if (store.planRequiresOverride() || store.hasPendingOverride()) {
-        <div class="details-override">
-          <div class="details-override__header">
-            <h3>Rule Bypass Visibility</h3>
-            <p>
-              The current plan bypasses the recommended stock order. A supervisor must be able to see why this happened.
-            </p>
+        <div class="ops-details__override">
+          <div class="ops-details__override-header">
+            <mat-icon aria-hidden="true">warning_amber</mat-icon>
+            <div>
+              <strong>Rule Bypass</strong>
+              <span>Plan deviates from recommended stock order.</span>
+            </div>
           </div>
 
-          <div class="details-grid">
-            <mat-form-field appearance="outline" class="details-field">
+          <div class="ops-details__override-fields">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Override Reason</mat-label>
               <mat-select
                 [ngModel]="draft().override_reason_code"
                 (ngModelChange)="store.patchDraft({ override_reason_code: normalizeText($event) })"
                 [disabled]="lockOperationalFields"
-              >
+                aria-label="Select override reason">
                 @for (option of overrideOptions; track option.value) {
                   <mat-option [value]="option.value">{{ option.label }}</mat-option>
                 }
               </mat-select>
-              <mat-hint>Visible to supervisors when a FEFO/FIFO or source order bypass is submitted.</mat-hint>
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="details-field details-field--full">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Override Note</mat-label>
               <textarea
                 matInput
-                rows="4"
+                rows="2"
                 [ngModel]="draft().override_note"
                 (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
-                placeholder="Explain the operational reason for the rule bypass"
+                placeholder="Operational reason for the bypass"
                 [disabled]="lockOperationalFields"
               ></textarea>
             </mat-form-field>
@@ -130,82 +123,117 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
   styles: [`
     :host {
       display: block;
+      --mat-form-field-container-height: 40px;
     }
 
-    .details-step {
+    .ops-details {
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 10px;
     }
 
-    .details-step__intro h2 {
-      margin: 0 0 6px;
+    /* ── Header row ── */
+
+    .ops-details__header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ops-details__header h2 {
+      margin: 0;
       font-size: var(--text-lg);
       font-weight: var(--weight-semibold);
     }
 
-    .details-step__intro p,
-    .details-override__header p {
-      margin: 0;
-      color: var(--color-text-secondary);
+    .ops-details__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      line-height: 1;
     }
 
-    .details-alert {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 14px 16px;
-      border-radius: 12px;
-      background: var(--color-bg-info);
-      border-left: 4px solid var(--color-focus-ring);
-      color: var(--color-info);
+    .ops-details__badge mat-icon {
+      width: 14px;
+      height: 14px;
+      font-size: 14px;
     }
 
-    .details-alert--soft {
-      background: color-mix(in srgb, var(--color-accent) 8%, white);
-      border-left-color: var(--color-accent);
-      color: var(--color-accent);
+    .ops-details__badge--lock {
+      background: var(--color-bg-warning, #fde8b1);
+      color: var(--color-watch, #6e4200);
     }
 
-    .details-grid {
+    /* ── Form grid ── */
+
+    .ops-details__form {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
 
-    .details-grid--notes {
-      grid-template-columns: 1fr;
-    }
-
-    .details-field {
-      width: 100%;
-    }
-
-    .details-field--full {
+    .ops-details__field--span {
       grid-column: 1 / -1;
     }
 
-    .details-override {
-      padding: 18px;
-      border-radius: 14px;
+    /* ── Override section ── */
+
+    .ops-details__override {
+      padding: 12px 14px;
+      border-radius: 10px;
       border: 1px solid color-mix(in srgb, var(--color-warning) 30%, white);
       background: var(--color-bg-warning);
     }
 
-    .details-override__header {
-      margin-bottom: 14px;
+    .ops-details__override-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: var(--color-watch, #6e4200);
     }
 
-    .details-override__header h3 {
-      margin: 0 0 4px;
-      font-size: var(--text-md);
-      font-weight: var(--weight-semibold);
-      color: var(--color-watch);
+    .ops-details__override-header mat-icon {
+      width: 18px;
+      height: 18px;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .ops-details__override-header strong {
+      font-size: var(--text-sm);
+      display: block;
+    }
+
+    .ops-details__override-header span {
+      font-size: 0.78rem;
+      opacity: 0.8;
+    }
+
+    .ops-details__override-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
 
     @media (max-width: 960px) {
-      .details-grid {
+      .ops-details__form,
+      .ops-details__override-fields {
         grid-template-columns: 1fr;
+      }
+
+      .ops-details__field--span {
+        grid-column: auto;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ops-details__override {
+        transition: none;
       }
     }
   `],
@@ -214,14 +242,13 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
 export class FulfillmentDetailsStepComponent {
   @Input() lockOperationalFields = false;
 
+  private readonly masterData = inject(MasterDataService);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly draft = this.store.draft;
 
+  readonly warehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
+  readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
   readonly overrideOptions = OVERRIDE_REASON_OPTIONS;
-
-  sanitizeInteger(value: unknown): string {
-    return String(value ?? '').replace(/[^\d]/g, '');
-  }
 
   normalizeText(value: unknown): string {
     return String(value ?? '');

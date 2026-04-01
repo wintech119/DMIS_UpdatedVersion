@@ -100,7 +100,7 @@ export class OperationsDashboardComponent implements OnInit {
           new Date(left.create_dtime ?? left.request_date ?? 0).getTime(),
         );
 
-        const draftCount = requestRows.filter((row) => row.status_code === 0).length;
+        const draftCount = requestRows.filter((row) => row.status_code === 'DRAFT').length;
         const reviewCount = eligibility.results.length;
         const packageCount = packages.results.length;
         const dispatchCount = dispatch.results.length;
@@ -150,7 +150,7 @@ export class OperationsDashboardComponent implements OnInit {
         ]);
 
         const priorityRequests = requestRows
-          .filter((row) => row.status_code !== 7)
+          .filter((row) => row.status_code !== 'FULFILLED')
           .slice(0, 5)
           .map<DashboardQueueItem>((row) => ({
             title: row.tracking_no ?? `Request ${row.reliefrqst_id}`,
@@ -158,7 +158,7 @@ export class OperationsDashboardComponent implements OnInit {
               .filter(Boolean)
               .join(' | '),
             status: `${formatOperationsRequestStatus(row.status_code)} | ${formatOperationsUrgency(row.urgency_ind)}`,
-            tone: row.status_code === 0 ? 'draft' : getOperationsRequestTone(row.status_code),
+            tone: row.status_code === 'DRAFT' ? 'draft' : getOperationsRequestTone(row.status_code),
             age: formatOperationsAge(row.create_dtime ?? row.request_date),
             route: `/operations/relief-requests/${row.reliefrqst_id}`,
             icon: 'description',

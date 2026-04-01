@@ -24,6 +24,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
       reliefrqst_id: 12,
       agency_id: 8,
       eligible_event_id: 4,
+      source_warehouse_id: 1,
       to_inventory_id: 3,
       destination_warehouse_name: 'Kingston Warehouse',
       status_code: 'P',
@@ -44,7 +45,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
         eligible_event_id: 4,
         event_name: 'Flood Response',
         urgency_ind: 'H',
-        status_code: 3,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
         status_label: 'Approved',
         request_date: '2026-03-26',
         create_dtime: '2026-03-26T08:00:00Z',
@@ -63,6 +64,8 @@ describe('OpsDispatchWorkspaceComponent', () => {
         execution_status: 'READY_FOR_DISPATCH',
         needs_list_id: null,
         compatibility_bridge: false,
+        request_mode: null,
+        authority_context: null,
       },
       allocation: {
         allocation_lines: [

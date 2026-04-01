@@ -194,20 +194,23 @@ def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
     )
     item_ids = [int(row["item_id"]) for row in rows]
     item_names, _ = data_access.get_item_names(item_ids)
-    return [
-        {
-            "item_id": int(row["item_id"]),
-            "item_code": item_names.get(int(row["item_id"]), {}).get("item_code"),
-            "item_name": item_names.get(int(row["item_id"]), {}).get("item_name"),
-            "request_qty": str(_quantize_qty(row.get("request_qty"))),
-            "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
-            "urgency_ind": row.get("urgency_ind"),
-            "rqst_reason_desc": row.get("rqst_reason_desc"),
-            "required_by_date": _as_iso(row.get("required_by_date")),
-            "status_code": row.get("status_code"),
-        }
-        for row in rows
-    ]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        lookup = item_names.get(int(row["item_id"]), {})
+        result.append(
+            {
+                "item_id": int(row["item_id"]),
+                "item_code": lookup.get("item_code") or lookup.get("code"),
+                "item_name": lookup.get("item_name") or lookup.get("name"),
+                "request_qty": str(_quantize_qty(row.get("request_qty"))),
+                "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
+                "urgency_ind": row.get("urgency_ind"),
+                "rqst_reason_desc": row.get("rqst_reason_desc"),
+                "required_by_date": _as_iso(row.get("required_by_date")),
+                "status_code": row.get("status_code"),
+            }
+        )
+    return result
 
 
 def _ensure_request_in_fulfillment_state(request: ReliefRqst) -> None:
@@ -523,15 +526,11 @@ def update_request(
         "agency_id",
         "urgency_ind",
         "eligible_event_id",
-        "action_by_id",
-        "action_dtime",
         "version_nbr",
     ]
     if "rqst_notes_text" in normalized:
         request.rqst_notes_text = normalized["rqst_notes_text"]
         update_fields.append("rqst_notes_text")
-    request.action_by_id = actor_id
-    request.action_dtime = timezone.now()
     request.version_nbr = int(request.version_nbr or 0) + 1
     request.save(update_fields=update_fields)
     if normalized["items"]:
@@ -836,6 +835,62 @@ def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: i
             }
         )
     return {"request": _request_summary(_load_request(reliefrqst_id)), "items": results}
+
+
+def get_item_allocation_options(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+) -> dict[str, Any]:
+    """Return allocation candidates for a single item from a single warehouse.
+
+    Used when the operator overrides the source warehouse for one item without
+    reloading data for every other item in the request.
+    """
+    item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    row = next((r for r in item_rows if int(r["item_id"]) == item_id), None)
+    if row is None:
+        raise OperationValidationError(
+            {"item_id": f"Item {item_id} is not part of request {reliefrqst_id}."}
+        )
+
+    item = Item.objects.filter(item_id=item_id).first()
+    remaining_qty = max(
+        Decimal("0"),
+        _quantize_qty(row["request_qty"]) - _quantize_qty(row["issue_qty"]),
+    )
+    candidates = _fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=timezone.localdate())
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, candidates)
+    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
+        sorted_candidates, remaining_qty
+    )
+    return {
+        "item_id": item_id,
+        "item_code": getattr(item, "item_code", None),
+        "item_name": getattr(item, "item_name", None),
+        "request_qty": str(_quantize_qty(row["request_qty"])),
+        "issue_qty": str(_quantize_qty(row["issue_qty"])),
+        "remaining_qty": str(remaining_qty.quantize(Decimal("0.0001"))),
+        "urgency_ind": row.get("urgency_ind"),
+        "candidates": [
+            {
+                **candidate,
+                "available_qty": str(_quantize_qty(candidate["available_qty"])),
+                "usable_qty": str(_quantize_qty(candidate["usable_qty"])),
+                "reserved_qty": str(_quantize_qty(candidate["reserved_qty"])),
+                "batch_date": _as_iso(candidate.get("batch_date")),
+                "expiry_date": _as_iso(candidate.get("expiry_date")),
+            }
+            for candidate in sorted_candidates
+        ],
+        "suggested_allocations": [
+            {**candidate, "quantity": str(_quantize_qty(candidate["quantity"]))}
+            for candidate in suggested_allocations
+        ],
+        "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
+        "source_warehouse_id": source_warehouse_id,
+    }
 
 
 def _normalized_allocations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:

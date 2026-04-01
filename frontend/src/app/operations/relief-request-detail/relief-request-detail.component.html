@@ -15,40 +15,47 @@
 } @else if (request(); as rq) {
   <div class="ops-page-shell">
     <header class="ops-hero">
-      <div>
-        <p class="ops-hero__eyebrow">
-          <mat-icon aria-hidden="true">assignment</mat-icon>
-          Operations / Relief Requests
-        </p>
-        <h1 class="ops-hero__title">{{ rq.tracking_no ?? 'Request #' + rq.reliefrqst_id }}</h1>
-        <p class="ops-hero__copy">
-          {{ rq.agency_name ?? ('Agency ' + rq.agency_id) }} | {{ rq.event_name ?? 'No event linked' }}
-        </p>
+      <div class="ops-hero__lead">
+        <button
+          mat-icon-button
+          type="button"
+          class="ops-hero__back"
+          (click)="goBack()"
+          matTooltip="Back to relief requests"
+          aria-label="Back to relief requests">
+          <mat-icon>arrow_back</mat-icon>
+        </button>
+        <div>
+          <p class="ops-hero__eyebrow">
+            <mat-icon aria-hidden="true">assignment</mat-icon>
+            Operations / Relief Requests
+          </p>
+          <h1 class="ops-hero__title">{{ rq.tracking_no ?? 'Request #' + rq.reliefrqst_id }}</h1>
+          <p class="ops-hero__copy">
+            {{ rq.agency_name ?? ('Agency ' + rq.agency_id) }} | {{ rq.event_name ?? 'No event linked' }}
+          </p>
+        </div>
       </div>
 
-      <div class="ops-hero__actions">
-        <app-ops-status-chip [label]="formatOperationsRequestStatus(rq.status_code)" [tone]="chipTone(statusTone())"></app-ops-status-chip>
-        @if (rq.urgency_ind) {
-          <app-ops-status-chip [label]="formatOperationsUrgency(rq.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(rq.urgency_ind))"></app-ops-status-chip>
-        }
-        @if (rq.status_code === 0) {
-          <button mat-flat-button color="primary" type="button" (click)="openEdit()">
-            <mat-icon>edit</mat-icon>
-            Edit Draft
-          </button>
-        }
-        @if (rq.status_code === 0) {
-          <button mat-stroked-button type="button" (click)="submitForReview()" [disabled]="submitting()">
-            <mat-icon>send</mat-icon>
-            @if (submitting()) { Submitting... } @else { Submit for Review }
-          </button>
-        }
-        @if (rq.status_code !== 0) {
-          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="!(rq.reliefrqst_id)">
-            <mat-icon>inventory_2</mat-icon>
-            Open Fulfillment
-          </button>
-        }
+      <div class="ops-hero__trail">
+        <div class="ops-hero__status">
+          <app-ops-status-chip [label]="formatOperationsRequestStatus(rq.status_code)" [tone]="chipTone(statusTone())" [showDot]="true"></app-ops-status-chip>
+          @if (rq.urgency_ind) {
+            <app-ops-status-chip [label]="formatOperationsUrgency(rq.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(rq.urgency_ind))" [showDot]="true"></app-ops-status-chip>
+          }
+        </div>
+        <div class="ops-hero__actions">
+          @if (rq.status_code === 'DRAFT') {
+            <button mat-stroked-button type="button" (click)="openEdit()">
+              <mat-icon>edit</mat-icon>
+              Edit Draft
+            </button>
+            <button mat-flat-button color="primary" type="button" (click)="submitForReview()" [disabled]="submitting()">
+              <mat-icon>send</mat-icon>
+              @if (submitting()) { Submitting... } @else { Submit for Review }
+            </button>
+          }
+        </div>
       </div>
     </header>
 
@@ -154,7 +161,7 @@
                           <p class="ops-figure__value">{{ item.item_name ?? 'Unnamed item' }}</p>
                         </div>
                       </td>
-                      <td>{{ item.request_qty }}</td>
+                      <td>{{ item.request_qty | number:'1.0-0' }}</td>
                       <td>
                         @if (item.urgency_ind) {
                           <app-ops-status-chip [label]="formatOperationsUrgency(item.urgency_ind)" [tone]="chipTone(getOperationsUrgencyTone(item.urgency_ind))"></app-ops-status-chip>
@@ -179,10 +186,6 @@
                 <p class="ops-section__eyebrow">Packages</p>
                 <h2 class="ops-section__title">Fulfillment output</h2>
               </div>
-              <button mat-stroked-button type="button" (click)="openFulfillment()">
-                <mat-icon>inventory_2</mat-icon>
-                Open Fulfillment Workspace
-              </button>
             </div>
             <div class="ops-card__body">
               <table class="ops-table" aria-label="Request packages">

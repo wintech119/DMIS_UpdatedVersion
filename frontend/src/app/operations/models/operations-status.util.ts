@@ -2,48 +2,51 @@ import { PackageStatusCode, RequestStatusCode, UrgencyCode } from './operations.
 
 // ── Request status ─────────────────────────────────────────────────
 
-const REQUEST_STATUS_LABELS: Record<number, string> = {
-  0: 'Draft',
-  1: 'Under Review',
-  2: 'Cancelled',
-  3: 'Approved',
-  4: 'Rejected',
-  5: 'Partially Filled',
-  6: 'Closed',
-  7: 'Filled',
-  8: 'Ineligible',
+const REQUEST_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  SUBMITTED: 'Submitted',
+  UNDER_ELIGIBILITY_REVIEW: 'Under Review',
+  APPROVED_FOR_FULFILLMENT: 'Approved',
+  PARTIALLY_FULFILLED: 'Partially Fulfilled',
+  FULFILLED: 'Fulfilled',
+  INELIGIBLE: 'Ineligible',
+  REJECTED: 'Rejected',
+  CANCELLED: 'Cancelled',
 };
 
-export function formatRequestStatus(code: RequestStatusCode | number): string {
-  return REQUEST_STATUS_LABELS[code] ?? 'Unknown';
+export function formatRequestStatus(code: RequestStatusCode | string): string {
+  const key = String(code ?? '').toUpperCase();
+  return REQUEST_STATUS_LABELS[key] ?? 'Unknown';
 }
 
-export function getRequestStatusColor(code: RequestStatusCode | number): string {
-  switch (code) {
-    case 0: return 'var(--color-text-secondary)';
-    case 1: return 'var(--color-warning)';
-    case 2: return 'var(--color-text-tertiary)';
-    case 3: return 'var(--color-info)';
-    case 4: return 'var(--color-critical)';
-    case 5: return 'var(--color-warning)';
-    case 6: return 'var(--color-text-tertiary)';
-    case 7: return 'var(--color-success)';
-    case 8: return 'var(--color-critical)';
+export function getRequestStatusColor(code: RequestStatusCode | string): string {
+  const key = String(code ?? '').toUpperCase();
+  switch (key) {
+    case 'DRAFT': return 'var(--color-text-secondary)';
+    case 'SUBMITTED':
+    case 'UNDER_ELIGIBILITY_REVIEW': return 'var(--color-warning)';
+    case 'CANCELLED': return 'var(--color-text-tertiary)';
+    case 'APPROVED_FOR_FULFILLMENT': return 'var(--color-info)';
+    case 'REJECTED': return 'var(--color-critical)';
+    case 'PARTIALLY_FULFILLED': return 'var(--color-warning)';
+    case 'FULFILLED': return 'var(--color-success)';
+    case 'INELIGIBLE': return 'var(--color-critical)';
     default: return 'var(--color-text-secondary)';
   }
 }
 
-export function getRequestStatusCssClass(code: RequestStatusCode | number): string {
-  switch (code) {
-    case 0: return 'status-draft';
-    case 1: return 'status-awaiting';
-    case 2: return 'status-cancelled';
-    case 3: return 'status-submitted';
-    case 4: return 'status-denied';
-    case 5: return 'status-partial';
-    case 6: return 'status-closed';
-    case 7: return 'status-filled';
-    case 8: return 'status-ineligible';
+export function getRequestStatusCssClass(code: RequestStatusCode | string): string {
+  const key = String(code ?? '').toUpperCase();
+  switch (key) {
+    case 'DRAFT': return 'status-draft';
+    case 'SUBMITTED':
+    case 'UNDER_ELIGIBILITY_REVIEW': return 'status-awaiting';
+    case 'CANCELLED': return 'status-cancelled';
+    case 'APPROVED_FOR_FULFILLMENT': return 'status-submitted';
+    case 'REJECTED': return 'status-denied';
+    case 'PARTIALLY_FULFILLED': return 'status-partial';
+    case 'FULFILLED': return 'status-filled';
+    case 'INELIGIBLE': return 'status-ineligible';
     default: return 'status-unknown';
   }
 }
@@ -69,18 +72,6 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'C': return 'status-filled';
     default: return 'status-unknown';
   }
-}
-
-// ── Item status ────────────────────────────────────────────────────
-
-const ITEM_STATUS_LABELS: Record<string, string> = {
-  R: 'Requested',
-  P: 'Partial',
-  F: 'Fulfilled',
-};
-
-export function formatItemStatus(code: string): string {
-  return ITEM_STATUS_LABELS[code] ?? 'Unknown';
 }
 
 // ── Urgency ────────────────────────────────────────────────────────

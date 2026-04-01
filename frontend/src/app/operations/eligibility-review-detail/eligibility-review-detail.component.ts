@@ -23,6 +23,7 @@ import {
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   OperationsTone,
+  extractOperationsErrorMessage,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
   mapOperationsToneToChipTone,
@@ -84,10 +85,10 @@ export class EligibilityReviewDetailComponent implements OnInit {
     if (!detail.decision_made) {
       return 'Not decided';
     }
-    if (detail.status_code === 8) {
+    if (detail.status_code === 'INELIGIBLE') {
       return 'Ineligible';
     }
-    return detail.status_code === 4 ? 'Rejected' : 'Approved';
+    return detail.status_code === 'REJECTED' ? 'Rejected' : 'Approved';
   });
 
   readonly workflow = computed<WorkflowStep[]>(() => {
@@ -109,8 +110,12 @@ export class EligibilityReviewDetailComponent implements OnInit {
       },
       {
         label: 'Fulfillment',
-        detail: detail.status_code === 7 || detail.status_code === 5 ? 'Ready for packing' : 'Blocked until approval',
-        tone: detail.status_code === 7 || detail.status_code === 5 ? 'success' : 'muted',
+        detail: detail.status_code === 'APPROVED_FOR_FULFILLMENT' || detail.status_code === 'FULFILLED' || detail.status_code === 'PARTIALLY_FULFILLED'
+          ? 'Ready for packing'
+          : 'Blocked until approval',
+        tone: detail.status_code === 'APPROVED_FOR_FULFILLMENT' || detail.status_code === 'FULFILLED' || detail.status_code === 'PARTIALLY_FULFILLED'
+          ? 'success'
+          : 'muted',
       },
     ];
   });
@@ -170,7 +175,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
         if (!confirmed) {
           return;
         }
-        this.submitDecision({ decision: 'Y' }, 'Request approved.');
+        this.submitDecision({ decision: 'APPROVED' }, 'Request approved.');
       });
   }
 
@@ -193,7 +198,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: DmisReasonDialogResult | undefined) => {
         if (result?.reason) {
-          this.submitDecision({ decision: 'N', reason: result.reason }, 'Request rejected.');
+          this.submitDecision({ decision: 'REJECTED', reason: result.reason }, 'Request rejected.');
         }
       });
   }
@@ -217,7 +222,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result: DmisReasonDialogResult | undefined) => {
         if (result?.reason) {
-          this.submitDecision({ decision: 'N', reason: result.reason }, 'Request marked ineligible.');
+          this.submitDecision({ decision: 'INELIGIBLE', reason: result.reason }, 'Request marked ineligible.');
         }
       });
   }
@@ -255,8 +260,8 @@ export class EligibilityReviewDetailComponent implements OnInit {
         },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
-          const detailMessage = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit decision.';
-          this.notify.showError(detailMessage);
+          const fallback = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to submit decision.';
+          this.notify.showError(extractOperationsErrorMessage(err.error) ?? fallback);
         },
       });
   }

@@ -1,3 +1,28 @@
+// ── Hero layout ────────────────────────────────────────────────────────
+.ops-hero__lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ops-hero__back {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+}
+
+.ops-hero__trail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.ops-hero__status {
+  display: flex;
+  gap: 8px;
+}
+
+// ── Card overrides ─────────────────────────────────────────────────────
 .ops-card__header {
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   padding-bottom: 0.95rem;
@@ -12,6 +37,10 @@
 }
 
 @media (max-width: 768px) {
+  .ops-hero__trail {
+    align-items: flex-start;
+  }
+
   .ops-summary-grid {
     grid-template-columns: 1fr;
   }

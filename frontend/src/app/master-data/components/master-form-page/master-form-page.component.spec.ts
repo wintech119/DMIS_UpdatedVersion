@@ -929,7 +929,7 @@ describe('MasterFormPageComponent', () => {
 
     fixture.detectChanges();
 
-    const firstStepButton = fixture.nativeElement.querySelector('.wizard-step__pill') as HTMLButtonElement | null;
+    const firstStepButton = fixture.nativeElement.querySelector('.tracker__pill') as HTMLButtonElement | null;
 
     expect(firstStepButton?.getAttribute('aria-label')).toBe(`Step 1: ${component.wizardSteps()[0].label}`);
   });

@@ -40,7 +40,7 @@ describe('OperationsService', () => {
         agency_id: 8,
         agency_name: 'Parish Shelter',
         urgency_ind: 'H',
-        status_code: 3,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
         item_count: 2,
         total_requested_qty: '12.0000',
         total_issued_qty: '0.0000',
@@ -48,6 +48,7 @@ describe('OperationsService', () => {
       package: {
         reliefpkg_id: 44,
         reliefrqst_id: 12,
+        source_warehouse_id: 2,
         status_code: 'P',
         allocation: {
           allocation_lines: [
@@ -77,6 +78,7 @@ describe('OperationsService', () => {
       }),
       package: jasmine.objectContaining({
         reliefpkg_id: 44,
+        source_warehouse_id: 2,
         status_label: 'Ready for Dispatch',
       }),
       allocation: jasmine.objectContaining({
@@ -111,7 +113,7 @@ describe('OperationsService', () => {
             event_name: 'Flood Response',
             urgency_ind: 'H',
             request_date: '2026-03-24',
-            status_code: 3,
+            status_code: 'APPROVED_FOR_FULFILLMENT',
           },
           dispatch: {
             dispatch_id: 101,
@@ -171,7 +173,7 @@ describe('OperationsService', () => {
             tracking_no: 'RQ-00012',
             urgency_ind: 'C',
             request_date: '2026-03-24',
-            status_code: 3,
+            status_code: 'APPROVED_FOR_FULFILLMENT',
           },
         },
       ],
@@ -184,7 +186,7 @@ describe('OperationsService', () => {
         reliefrqst_id: 12,
         tracking_no: 'RQ-00012',
         urgency_ind: 'C',
-        status_code: 3,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
       },
       package: {
         reliefpkg_id: 44,
@@ -221,6 +223,61 @@ describe('OperationsService', () => {
       waybill: null,
       allocation: jasmine.objectContaining({
         allocation_lines: jasmine.any(Array),
+      }),
+    }));
+  });
+
+  it('posts source warehouse when saving a package draft', () => {
+    let result: unknown;
+
+    service.savePackageDraft(12, {
+      source_warehouse_id: 3,
+      to_inventory_id: 8,
+      transport_mode: 'TRUCK',
+      comments_text: 'Ready for loading.',
+    }).subscribe((value) => {
+      result = value;
+    });
+
+    const draftRequest = httpMock.expectOne('/api/v1/operations/packages/12/draft');
+    expect(draftRequest.request.method).toBe('POST');
+    expect(draftRequest.request.body).toEqual({
+      source_warehouse_id: 3,
+      to_inventory_id: 8,
+      transport_mode: 'TRUCK',
+      comments_text: 'Ready for loading.',
+    });
+    draftRequest.flush({ status: 'DRAFT', reliefrqst_id: 12, reliefpkg_id: 44 });
+
+    const packageRequest = httpMock.expectOne('/api/v1/operations/packages/12');
+    expect(packageRequest.request.method).toBe('GET');
+    packageRequest.flush({
+      request: {
+        reliefrqst_id: 12,
+        agency_id: 8,
+        agency_name: 'Parish Shelter',
+        urgency_ind: 'H',
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        source_warehouse_id: 3,
+        to_inventory_id: 8,
+        transport_mode: 'TRUCK',
+        comments_text: 'Ready for loading.',
+        status_code: 'D',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      package: jasmine.objectContaining({
+        source_warehouse_id: 3,
+        to_inventory_id: 8,
+        transport_mode: 'TRUCK',
+        comments_text: 'Ready for loading.',
       }),
     }));
   });

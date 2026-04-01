@@ -32,6 +32,12 @@ interface ReviewMetric {
   route: string;
 }
 
+interface ReviewSummary {
+  total: number;
+  oldest: RequestSummary | null;
+  newest: RequestSummary | null;
+}
+
 @Component({
   selector: 'app-eligibility-review-queue',
   standalone: true,
@@ -76,10 +82,10 @@ export class EligibilityReviewQueueComponent implements OnInit {
       if (filter === 'high' && String(request.urgency_ind ?? '').toUpperCase() !== 'H') {
         return false;
       }
-      if (filter === 'submitted' && !(request.status_code === 1 || request.status_code === 3)) {
+      if (filter === 'submitted' && !(request.status_code === 'SUBMITTED' || request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT')) {
         return false;
       }
-      if (filter === 'closed' && !(request.status_code === 2 || request.status_code === 4 || request.status_code === 8 || request.status_code === 7)) {
+      if (filter === 'closed' && !(request.status_code === 'CANCELLED' || request.status_code === 'REJECTED' || request.status_code === 'INELIGIBLE' || request.status_code === 'FULFILLED')) {
         return false;
       }
 
@@ -106,14 +112,14 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly metrics = computed<ReviewMetric[]>(() => {
     const rows = this.requests();
     return [
-      { label: 'Pending', value: rows.filter((row) => row.status_code === 3 || row.status_code === 1).length, note: 'Awaiting a decision', route: '/operations/eligibility-review' },
+      { label: 'Pending', value: rows.filter((row) => row.status_code === 'SUBMITTED' || row.status_code === 'UNDER_ELIGIBILITY_REVIEW' || row.status_code === 'APPROVED_FOR_FULFILLMENT').length, note: 'Awaiting a decision', route: '/operations/eligibility-review' },
       { label: 'Critical', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'C').length, note: 'Immediate attention', route: '/operations/eligibility-review' },
       { label: 'High', value: rows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'H').length, note: 'Priority review lane', route: '/operations/eligibility-review' },
-      { label: 'Closed', value: rows.filter((row) => row.status_code === 2 || row.status_code === 4 || row.status_code === 7 || row.status_code === 8).length, note: 'Finalized decisions', route: '/operations/eligibility-review' },
+      { label: 'Closed', value: rows.filter((row) => row.status_code === 'CANCELLED' || row.status_code === 'REJECTED' || row.status_code === 'FULFILLED' || row.status_code === 'INELIGIBLE').length, note: 'Finalized decisions', route: '/operations/eligibility-review' },
     ];
   });
 
-  readonly summary = computed(() => {
+  readonly summary = computed<ReviewSummary>(() => {
     const rows = this.filteredRequests();
     return {
       total: rows.length,

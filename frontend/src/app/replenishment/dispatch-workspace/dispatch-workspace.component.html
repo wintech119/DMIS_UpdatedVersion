@@ -121,73 +121,80 @@
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
+      tabIdBase="replenishment-dispatch-step"
       [linear]="true"
       (stepClick)="onTrackerStepClick($event)" />
 
     <mat-stepper linear #stepper class="wizard-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Readiness</ng-template>
-        <app-dispatch-readiness-step></app-dispatch-readiness-step>
+        <div id="replenishment-dispatch-step-0-panel" role="tabpanel" aria-labelledby="replenishment-dispatch-step-0-tab">
+          <app-dispatch-readiness-step></app-dispatch-readiness-step>
 
-        <div class="step-actions">
-          <button mat-stroked-button type="button" (click)="openAllocation()">Back to Allocation</button>
-          <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
+          <div class="step-actions">
+            <button mat-stroked-button type="button" (click)="openAllocation()">Back to Allocation</button>
+            <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step>
         <ng-template matStepLabel>Review & Dispatch</ng-template>
-        <app-dispatch-review-step></app-dispatch-review-step>
+        <div id="replenishment-dispatch-step-1-panel" role="tabpanel" aria-labelledby="replenishment-dispatch-step-1-tab">
+          <app-dispatch-review-step></app-dispatch-review-step>
 
-        <div class="step-actions">
-          <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
-          <button
-            mat-flat-button
-            color="primary"
-            type="button"
-            [disabled]="store.submitting() || store.startPreparationLoading()"
-            (click)="completeDispatchAction()">
-            <mat-icon>
-              {{ store.submitting() || store.startPreparationLoading() ? 'hourglass_top' : 'local_shipping' }}
-            </mat-icon>
-            {{
-              store.submitting() || store.startPreparationLoading()
-                ? 'Working...'
-                : primaryActionLabel()
-            }}
-          </button>
+          <div class="step-actions">
+            <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <button
+              mat-flat-button
+              color="primary"
+              type="button"
+              [disabled]="store.submitting() || store.startPreparationLoading()"
+              (click)="completeDispatchAction()">
+              <mat-icon>
+                {{ store.submitting() || store.startPreparationLoading() ? 'hourglass_top' : 'local_shipping' }}
+              </mat-icon>
+              {{
+                store.submitting() || store.startPreparationLoading()
+                  ? 'Working...'
+                  : primaryActionLabel()
+              }}
+            </button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step [editable]="false">
         <ng-template matStepLabel>Confirmation</ng-template>
 
-        <div class="confirmation-step">
-          @if (displayConfirmation(); as confirmation) {
-            <mat-card>
-              <mat-card-content>
-                <h2>{{ confirmation.title }}</h2>
-                <p>{{ confirmation.message }}</p>
-                <p class="confirmation-hint">{{ confirmation.hint }}</p>
+        <div id="replenishment-dispatch-step-2-panel" role="tabpanel" aria-labelledby="replenishment-dispatch-step-2-tab">
+          <div class="confirmation-step">
+            @if (displayConfirmation(); as confirmation) {
+              <mat-card>
+                <mat-card-content>
+                  <h2>{{ confirmation.title }}</h2>
+                  <p>{{ confirmation.message }}</p>
+                  <p class="confirmation-hint">{{ confirmation.hint }}</p>
 
-                <div class="confirmation-grid">
-                  <div class="confirmation-card">
-                    <span>Waybill Number</span>
-                    <strong>{{ currentRecord.waybill_no || 'Assigned on dispatch' }}</strong>
+                  <div class="confirmation-grid">
+                    <div class="confirmation-card">
+                      <span>Waybill Number</span>
+                      <strong>{{ currentRecord.waybill_no || 'Assigned on dispatch' }}</strong>
+                    </div>
+                    <div class="confirmation-card">
+                      <span>Dispatch Time</span>
+                      <strong>{{ currentRecord.dispatch_dtime || 'Pending refresh' }}</strong>
+                    </div>
                   </div>
-                  <div class="confirmation-card">
-                    <span>Dispatch Time</span>
-                    <strong>{{ currentRecord.dispatch_dtime || 'Pending refresh' }}</strong>
-                  </div>
-                </div>
 
-                <div class="step-actions">
-                  <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
-                  <button mat-flat-button color="primary" type="button" (click)="backToTracker()">Return to Tracker</button>
-                </div>
-              </mat-card-content>
-            </mat-card>
-          }
+                  <div class="step-actions">
+                    <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                    <button mat-flat-button color="primary" type="button" (click)="backToTracker()">Return to Tracker</button>
+                  </div>
+                </mat-card-content>
+              </mat-card>
+            }
+          </div>
         </div>
       </mat-step>
     </mat-stepper>

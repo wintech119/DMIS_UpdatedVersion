@@ -1,27 +1,27 @@
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
 
-const REQUEST_STATUS_LABELS: Record<number, string> = {
-  0: 'Draft',
-  1: 'Under Review',
-  2: 'Cancelled',
-  3: 'Submitted',
-  4: 'Rejected',
-  5: 'Partially Fulfilled',
-  6: 'Closed',
-  7: 'Fulfilled',
-  8: 'Ineligible',
+const REQUEST_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  SUBMITTED: 'Submitted',
+  UNDER_ELIGIBILITY_REVIEW: 'Under Review',
+  APPROVED_FOR_FULFILLMENT: 'Approved',
+  PARTIALLY_FULFILLED: 'Partially Fulfilled',
+  FULFILLED: 'Fulfilled',
+  INELIGIBLE: 'Ineligible',
+  REJECTED: 'Rejected',
+  CANCELLED: 'Cancelled',
 };
 
-const REQUEST_STATUS_TONES: Record<number, OperationsTone> = {
-  0: 'draft',
-  1: 'review',
-  2: 'muted',
-  3: 'review',
-  4: 'danger',
-  5: 'warning',
-  6: 'muted',
-  7: 'success',
-  8: 'danger',
+const REQUEST_STATUS_TONES: Record<string, OperationsTone> = {
+  DRAFT: 'draft',
+  SUBMITTED: 'review',
+  UNDER_ELIGIBILITY_REVIEW: 'review',
+  APPROVED_FOR_FULFILLMENT: 'review',
+  PARTIALLY_FULFILLED: 'warning',
+  FULFILLED: 'success',
+  INELIGIBLE: 'danger',
+  REJECTED: 'danger',
+  CANCELLED: 'muted',
 };
 
 const PACKAGE_STATUS_LABELS: Record<string, string> = {
@@ -53,12 +53,12 @@ const URGENCY_TONES: Record<string, OperationsTone> = {
 };
 
 export function formatOperationsRequestStatus(code: number | string | null | undefined): string {
-  const normalized = Number(code);
+  const normalized = String(code ?? '').trim().toUpperCase();
   return REQUEST_STATUS_LABELS[normalized] ?? 'Unknown';
 }
 
 export function getOperationsRequestTone(code: number | string | null | undefined): OperationsTone {
-  const normalized = Number(code);
+  const normalized = String(code ?? '').trim().toUpperCase();
   return REQUEST_STATUS_TONES[normalized] ?? 'muted';
 }
 
@@ -118,6 +118,35 @@ export function formatOperationsAge(value: string | null | undefined): string {
   }
   const days = Math.round(hours / 24);
   return days === 1 ? '1 day' : `${days} days`;
+}
+
+export function extractOperationsErrorMessage(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value.trim() || null;
+  }
+  if (Array.isArray(value)) {
+    const nested = value.map(extractOperationsErrorMessage).find(Boolean);
+    return nested ?? null;
+  }
+  if (isOperationsRecord(value)) {
+    if (typeof value['message'] === 'string' && value['message'].trim()) {
+      return value['message'].trim();
+    }
+    if (typeof value['detail'] === 'string' && value['detail'].trim()) {
+      return value['detail'].trim();
+    }
+    if (value['detail'] !== undefined) {
+      const nestedDetail = extractOperationsErrorMessage(value['detail']);
+      if (nestedDetail) {
+        return nestedDetail;
+      }
+    }
+    if (isOperationsRecord(value['errors'])) {
+      const nested = Object.values(value['errors']).map(extractOperationsErrorMessage).find(Boolean);
+      return nested ?? null;
+    }
+  }
+  return null;
 }
 
 export function formatOperationsLineCount(count: number): string {
@@ -238,4 +267,8 @@ export function mapOperationsToneToChipTone(
     default:
       return 'neutral';
   }
+}
+
+function isOperationsRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

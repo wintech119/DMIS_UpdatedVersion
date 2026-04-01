@@ -1,17 +1,20 @@
 // Status code types
-export type RequestStatusCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type RequestStatusCode =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'UNDER_ELIGIBILITY_REVIEW'
+  | 'APPROVED_FOR_FULFILLMENT'
+  | 'PARTIALLY_FULFILLED'
+  | 'FULFILLED'
+  | 'INELIGIBLE'
+  | 'REJECTED'
+  | 'CANCELLED';
 export type PackageStatusCode = 'A' | 'P' | 'D' | 'C';
 export type ItemStatusCode = 'R' | 'P' | 'F';
 export type UrgencyCode = 'C' | 'H' | 'M' | 'L';
-export type EligibilityDecision = 'Y' | 'N';
+export type EligibilityDecision = 'Y' | 'APPROVED' | 'REJECTED' | 'INELIGIBLE';
 export type AllocationSourceType = 'ON_HAND' | 'TRANSFER' | 'DONATION' | 'PROCUREMENT';
 export type AllocationMethod = 'FEFO' | 'FIFO' | 'MIXED' | 'MANUAL';
-export type AllocationItemStatus =
-  | 'not_started'
-  | 'partly_allocated'
-  | 'fully_allocated'
-  | 'unavailable'
-  | 'complete';
 export type OperationsEntityType = 'RELIEF_REQUEST' | 'REQUEST' | 'PACKAGE' | 'DISPATCH';
 
 export interface RequestReferenceOption {
@@ -44,6 +47,7 @@ export interface PackageSummary {
   reliefrqst_id: number;
   agency_id: number | null;
   eligible_event_id: number | null;
+  source_warehouse_id: number | null;
   to_inventory_id: number | null;
   destination_warehouse_name: string | null;
   status_code: PackageStatusCode;
@@ -225,6 +229,8 @@ export interface AllocationItemGroup {
   issuance_order: 'FEFO' | 'FIFO' | string;
   compliance_markers: string[];
   override_required: boolean;
+  /** Source warehouse for this item (set when using per-item warehouse override). */
+  source_warehouse_id?: number | null;
 }
 
 export interface AllocationOptionsResponse {
@@ -244,6 +250,7 @@ export interface AllocationSelectionPayload {
 }
 
 export interface AllocationCommitPayload {
+  source_warehouse_id?: number;
   to_inventory_id?: number;
   transport_mode?: string;
   comments_text?: string;

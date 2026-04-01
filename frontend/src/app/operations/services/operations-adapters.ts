@@ -92,6 +92,7 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
     reliefrqst_id: asNumber(source['reliefrqst_id']),
     agency_id: asNullableNumber(source['agency_id']),
     eligible_event_id: asNullableNumber(source['eligible_event_id']),
+    source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
     to_inventory_id: asNullableNumber(source['to_inventory_id']),
     destination_warehouse_name: asNullableString(source['destination_warehouse_name']),
     status_code: statusCode,
@@ -109,7 +110,12 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
 
 export function normalizeRequestSummary(raw: unknown): RequestSummary {
   const source = asRecord(raw);
-  const statusCode = asNumber(source['status_code']) as RequestSummary['status_code'];
+  const VALID_STATUS_CODES = new Set<string>([
+    'DRAFT', 'SUBMITTED', 'UNDER_ELIGIBILITY_REVIEW', 'APPROVED_FOR_FULFILLMENT',
+    'PARTIALLY_FULFILLED', 'FULFILLED', 'INELIGIBLE', 'REJECTED', 'CANCELLED',
+  ]);
+  const rawStatus = asString(source['status_code'], 'DRAFT').trim().toUpperCase();
+  const statusCode = (VALID_STATUS_CODES.has(rawStatus) ? rawStatus : 'DRAFT') as RequestSummary['status_code'];
   return {
     reliefrqst_id: asNumber(source['reliefrqst_id']),
     tracking_no: asNullableString(source['tracking_no']),
@@ -239,7 +245,7 @@ function normalizeAllocationCandidate(raw: unknown): AllocationCandidate {
   };
 }
 
-function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup {
+export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup {
   const source = asRecord(raw);
   const candidates = asArray(source['candidates']).map(normalizeAllocationCandidate);
   const candidateMarkers = candidates.flatMap((candidate) => candidate.compliance_markers ?? []);
@@ -265,6 +271,7 @@ function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup {
     issuance_order: issuanceOrder,
     compliance_markers: complianceMarkers,
     override_required: asBoolean(source['override_required']),
+    source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
   };
 }
 

@@ -25,12 +25,13 @@ import {
   mapOperationsToneToChipTone,
 } from '../operations-display.util';
 
-type RequestFilter = 'all' | 'draft' | 'review' | 'submitted' | 'closed';
+type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
+type RequestStatusGroup = RequestFilter | 'other';
 
 interface QueueMetric {
   label: string;
   value: number;
-  route: string;
+  filter: RequestFilter;
   tone: 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
   note: string;
 }
@@ -65,7 +66,8 @@ export class ReliefRequestListComponent implements OnInit {
     { label: 'All', value: 'all' },
     { label: 'Draft', value: 'draft' },
     { label: 'Review', value: 'review' },
-    { label: 'Submitted', value: 'submitted' },
+    { label: 'Approved', value: 'approved' },
+    { label: 'Dispatched', value: 'dispatched' },
     { label: 'Closed', value: 'closed' },
   ];
 
@@ -102,29 +104,36 @@ export class ReliefRequestListComponent implements OnInit {
 
   readonly metrics = computed<QueueMetric[]>(() => {
     const rows = this.requests();
-    const draft = rows.filter((row) => row.status_code === 0).length;
+    const draft = rows.filter((row) => row.status_code === 'DRAFT').length;
     const review = rows.filter((row) => this.getStatusGroup(row) === 'review').length;
-    const submitted = rows.filter((row) => this.getStatusGroup(row) === 'submitted').length;
-    const closed = rows.filter((row) => this.getStatusGroup(row) === 'closed').length;
+    const approved = rows.filter((row) => this.getStatusGroup(row) === 'approved').length;
+    const dispatched = rows.filter((row) => this.getStatusGroup(row) === 'dispatched').length;
 
     return [
-      { label: 'Drafts', value: draft, route: '/operations/relief-requests', tone: 'draft', note: 'Unsubmitted and editable' },
-      { label: 'In Review', value: review, route: '/operations/eligibility-review', tone: 'review', note: 'Queued for decision' },
-      { label: 'Submitted', value: submitted, route: '/operations/relief-requests', tone: 'warning', note: 'Waiting in the live queue' },
-      { label: 'Closed', value: closed, route: '/operations/relief-requests', tone: 'success', note: 'Fulfilled or completed' },
+      { label: 'Drafts', value: draft, filter: 'draft', tone: 'draft', note: 'Unsubmitted and editable' },
+      { label: 'In Review', value: review, filter: 'review', tone: 'review', note: 'Queued for decision' },
+      { label: 'Approved', value: approved, filter: 'approved', tone: 'warning', note: 'Awaiting fulfillment' },
+      { label: 'Dispatched', value: dispatched, filter: 'dispatched', tone: 'success', note: 'Packages on the road' },
     ];
   });
 
   readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
     const m = this.metrics();
-    return m.map(metric => ({
+    return m.map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
+      interactive: true,
+      token: metric.filter,
     }));
   });
 
-  readonly statusSummary = computed(() => {
+  readonly statusSummary = computed<{
+    total: number;
+    critical: number;
+    high: number;
+    newest: RequestSummary | null;
+  }>(() => {
     const rows = this.filteredRequests();
     return {
       total: rows.length,
@@ -163,8 +172,11 @@ export class ReliefRequestListComponent implements OnInit {
     this.router.navigate(['/operations/relief-requests', request.reliefrqst_id]);
   }
 
-  openMetric(metric: QueueMetric): void {
-    this.router.navigateByUrl(metric.route);
+  openMetric(metric: OpsMetricStripItem): void {
+    if (!this.isRequestFilter(metric.token)) {
+      return;
+    }
+    this.setFilter(metric.token);
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
@@ -194,16 +206,33 @@ export class ReliefRequestListComponent implements OnInit {
     });
   }
 
-  private getStatusGroup(request: RequestSummary): RequestFilter {
-    if (request.status_code === 0) {
-      return 'draft';
+  private getStatusGroup(request: RequestSummary): RequestStatusGroup {
+    switch (String(request.status_code ?? '').trim().toUpperCase()) {
+      case 'DRAFT':
+        return 'draft';
+      case 'SUBMITTED':
+      case 'UNDER_ELIGIBILITY_REVIEW':
+        return 'review';
+      case 'APPROVED_FOR_FULFILLMENT':
+        return 'approved';
+      case 'PARTIALLY_FULFILLED':
+      case 'FULFILLED':
+        return 'dispatched';
+      case 'CANCELLED':
+      case 'REJECTED':
+      case 'INELIGIBLE':
+        return 'closed';
+      default:
+        return 'other';
     }
-    if (request.status_code === 1 || request.status_code === 3) {
-      return 'review';
-    }
-    if (request.status_code === 2 || request.status_code === 4 || request.status_code === 8) {
-      return 'closed';
-    }
-    return 'submitted';
+  }
+
+  private isRequestFilter(value: string | undefined): value is RequestFilter {
+    return value === 'all'
+      || value === 'draft'
+      || value === 'review'
+      || value === 'approved'
+      || value === 'dispatched'
+      || value === 'closed';
   }
 }

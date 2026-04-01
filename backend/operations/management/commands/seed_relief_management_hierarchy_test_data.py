@@ -94,6 +94,7 @@ class Command(BaseCommand):
                     "update_dtime": now,
                 },
             )
+
             TenantHierarchy.objects.update_or_create(
                 parent_tenant_id=parish["tenant_id"],
                 child_tenant_id=subordinate["tenant_id"],

@@ -29,7 +29,7 @@ import { WaybillResponse } from '../models/operations.model';
     DmisSkeletonLoaderComponent,
   ],
   templateUrl: './dispatch-waybill.component.html',
-  styleUrl: './dispatch-waybill.component.scss',
+  styleUrls: ['./dispatch-waybill.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DispatchWaybillComponent implements OnInit {

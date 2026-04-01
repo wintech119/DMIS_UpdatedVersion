@@ -35,7 +35,7 @@ import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
     DmisSkeletonLoaderComponent,
   ],
   templateUrl: './receipt-confirmation.component.html',
-  styleUrl: './receipt-confirmation.component.scss',
+  styleUrls: ['./receipt-confirmation.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReceiptConfirmationComponent implements OnInit {

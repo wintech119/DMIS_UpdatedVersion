@@ -20,12 +20,14 @@ describe('DmisStepTrackerComponent', () => {
     steps: StepDefinition[],
     activeIndex: number,
     linear = true,
+    tabIdBase: string | null = null,
   ): void {
     fixture = TestBed.createComponent(DmisStepTrackerComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('steps', steps);
     fixture.componentRef.setInput('activeIndex', activeIndex);
     fixture.componentRef.setInput('linear', linear);
+    fixture.componentRef.setInput('tabIdBase', tabIdBase);
     fixture.detectChanges();
   }
 
@@ -363,13 +365,21 @@ describe('DmisStepTrackerComponent', () => {
       expect(pills[1].nativeElement.classList.contains('tracker__pill--disabled')).toBeTrue();
     });
 
-    it('sets aria-selected=true only on the active pill', () => {
-      createComponent(threeSteps, 1);
+    it('sets aria-selected=true only on the active pill when tabIdBase is set', () => {
+      createComponent(threeSteps, 1, true, 'test-step');
       const pills = fixture.debugElement.queryAll(By.css('.tracker__pill'));
 
       expect(pills[0].nativeElement.getAttribute('aria-selected')).toBe('false');
       expect(pills[1].nativeElement.getAttribute('aria-selected')).toBe('true');
       expect(pills[2].nativeElement.getAttribute('aria-selected')).toBe('false');
+    });
+
+    it('omits aria-selected when tabIdBase is not set', () => {
+      createComponent(threeSteps, 1);
+      const pills = fixture.debugElement.queryAll(By.css('.tracker__pill'));
+
+      expect(pills[0].nativeElement.getAttribute('aria-selected')).toBeNull();
+      expect(pills[1].nativeElement.getAttribute('aria-selected')).toBeNull();
     });
 
     it('sets tabindex=0 only on the active pill', () => {
@@ -394,10 +404,27 @@ describe('DmisStepTrackerComponent', () => {
       expect(nav.nativeElement.getAttribute('aria-label')).toBe('Wizard progress');
     });
 
-    it('renders role=tablist on the pills container', () => {
-      createComponent(threeSteps, 0);
+    it('renders role=tablist on the pills container when tabIdBase is set', () => {
+      createComponent(threeSteps, 0, true, 'test-step');
       const container = fixture.debugElement.query(By.css('.tracker__pills'));
       expect(container.nativeElement.getAttribute('role')).toBe('tablist');
+    });
+
+    it('omits role=tablist when tabIdBase is not set', () => {
+      createComponent(threeSteps, 0);
+      const container = fixture.debugElement.query(By.css('.tracker__pills'));
+      expect(container.nativeElement.getAttribute('role')).toBeNull();
+    });
+
+    it('adds tab ids and panel linkage when a tab id base is provided', () => {
+      createComponent(threeSteps, 1, true, 'wizard-step');
+      const pills = fixture.debugElement.queryAll(By.css('.tracker__pill'));
+
+      expect(pills[0].nativeElement.getAttribute('role')).toBe('tab');
+      expect(pills[0].nativeElement.getAttribute('id')).toBe('wizard-step-0-tab');
+      expect(pills[0].nativeElement.getAttribute('aria-controls')).toBe('wizard-step-0-panel');
+      expect(pills[1].nativeElement.getAttribute('id')).toBe('wizard-step-1-tab');
+      expect(pills[1].nativeElement.getAttribute('aria-controls')).toBe('wizard-step-1-panel');
     });
   });
 });

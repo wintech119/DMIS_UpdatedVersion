@@ -17,35 +17,26 @@
         </p>
         <h1 class="request-wizard-header__title">{{ pageTitle() }}</h1>
         <p class="request-wizard-header__description">
-          Create or update a relief request using the active request authority, name-first agency and event selection,
-          and the urgency needed to guide eligibility review, packaging, and dispatch.
+          Create or update a relief request by selecting the agency, event, and urgency level.
+          Submitted requests are routed for eligibility review, packaging, and dispatch.
         </p>
       </div>
     </div>
 
-    <div class="request-wizard-header__meta">
-      <article class="request-wizard-meta-card">
-        <span class="request-wizard-meta-card__label">Workflow</span>
-        <strong>{{ workflowLabel() }}</strong>
-        <p>{{ isEditMode() ? 'Only draft requests remain editable.' : 'Capture the request, then route it into eligibility review.' }}</p>
-      </article>
-      <article class="request-wizard-meta-card">
-        <span class="request-wizard-meta-card__label">Stage</span>
-        <strong>{{ currentStageLabel() }}</strong>
-        <p>{{ completed() ? 'Request saved successfully.' : ('Step ' + (currentStepIndex() + 1) + ' of 2') }}</p>
-      </article>
-    </div>
   </section>
 
-  <div class="request-wizard-authority-banner" role="status">
+  <div class="request-wizard-context-strip" role="status">
     <mat-icon aria-hidden="true">security</mat-icon>
-    <div>
+    <span class="request-wizard-context-strip__mode">
       <strong>{{ submissionModeLabel() }}</strong>
-      <p>{{ submissionModeHint() }}</p>
-      @if (requestDateText()) {
-        <p class="request-wizard-authority-banner__date">Request date: {{ requestDateText() }}</p>
-      }
-    </div>
+      <span>{{ submissionModeHint() }}</span>
+    </span>
+    @if (requestDateText()) {
+      <span class="request-wizard-context-strip__date">
+        <mat-icon aria-hidden="true">calendar_today</mat-icon>
+        {{ requestDateText() }}
+      </span>
+    }
   </div>
 
   @if (pageBusy()) {
@@ -65,7 +56,7 @@
       <div class="request-wizard-blocked__icon">
         <mat-icon aria-hidden="true">lock</mat-icon>
       </div>
-      <h2 class="request-wizard-blocked__title">Relief request entry is not available</h2>
+      <h2 class="request-wizard-blocked__title">You cannot create requests at this time</h2>
       <p class="request-wizard-blocked__message">
         {{ submissionModeHint() }}
       </p>
@@ -82,7 +73,7 @@
       @if (savedRequest(); as saved) {
         <p class="request-wizard-success__message">
           {{ saved.tracking_no ?? 'Request #' + saved.reliefrqst_id }} has been saved
-          @if (saved.status_code === 0) {
+          @if (saved.status_code === 'DRAFT') {
             as a draft.
           } @else {
             and submitted for review.
@@ -109,6 +100,7 @@
       <dmis-step-tracker
         [steps]="trackerSteps()"
         [activeIndex]="currentStepIndex()"
+        tabIdBase="ops-request-step"
         [linear]="true"
         (stepClick)="onTrackerStepClick($event)" />
 
@@ -118,64 +110,66 @@
         class="request-wizard-stepper"
         (selectionChange)="currentStepIndex.set($event.selectedIndex)">
         <mat-step label="Request Setup" [completed]="isStep1Valid()">
-          <app-request-items-step
-            [form]="requestForm"
-            [itemsArray]="itemsArray"
-            [onAddItem]="addItemFn"
-            [onRemoveItem]="removeItemFn"
-            [agencyOptions]="agencyOptions()"
-            [eventOptions]="eventOptions()"
-            [itemOptions]="itemOptions()"
-            [requestDateText]="requestDateText()"
-            [requestDateHint]="requestDateHint()"
-            [submissionModeLabel]="submissionModeLabel()"
-            [submissionModeHint]="submissionModeHint()"
-            [creationBlocked]="creationBlocked()" />
+          <div id="ops-request-step-0-panel" role="tabpanel" aria-labelledby="ops-request-step-0-tab">
+            <app-request-items-step
+              [form]="requestForm"
+              [itemsArray]="itemsArray"
+              [onAddItem]="addItemFn"
+              [onRemoveItem]="removeItemFn"
+              [agencyOptions]="agencyOptions()"
+              [eventOptions]="eventOptions()"
+              [itemOptions]="itemOptions()"
+              [submissionModeLabel]="submissionModeLabel()"
+              [submissionModeHint]="submissionModeHint()"
+              [creationBlocked]="creationBlocked()" />
 
-          <div class="request-wizard-actions">
-            <button mat-stroked-button type="button" (click)="goBack()">Cancel</button>
-            <button
-              mat-flat-button
-                color="primary"
-                type="button"
-                matStepperNext
-                [disabled]="!isStep1Valid()">
-              Next: Review & Route
-              <mat-icon iconPositionEnd>arrow_forward</mat-icon>
-            </button>
+            <div class="request-wizard-actions">
+              <button mat-stroked-button type="button" (click)="goBack()">Cancel</button>
+              <button
+                mat-flat-button
+                  color="primary"
+                  type="button"
+                  matStepperNext
+                  [disabled]="!isStep1Valid()">
+                Next: Review & Route
+                <mat-icon iconPositionEnd>arrow_forward</mat-icon>
+              </button>
+            </div>
           </div>
         </mat-step>
 
         <mat-step label="Review & Route">
-          <app-request-review-step [formValue]="reviewFormValue()" />
+          <div id="ops-request-step-1-panel" role="tabpanel" aria-labelledby="ops-request-step-1-tab">
+            <app-request-review-step [formValue]="reviewFormValue()" />
 
-          <div class="request-wizard-actions">
-            <button mat-stroked-button type="button" matStepperPrevious>
-              <mat-icon>arrow_back</mat-icon>
-              Back
-            </button>
-            <div class="request-wizard-actions__group">
-              <button
-                mat-stroked-button
-                type="button"
-                (click)="onSaveAsDraft()"
-                [disabled]="saving() || creationBlocked()">
-                <mat-icon>save</mat-icon>
-                Save as Draft
+            <div class="request-wizard-actions">
+              <button mat-stroked-button type="button" matStepperPrevious>
+                <mat-icon>arrow_back</mat-icon>
+                Back
               </button>
-              <button
-                mat-flat-button
-                color="primary"
-                type="button"
-                (click)="onSaveAndSubmit()"
-                [disabled]="saving() || creationBlocked()">
-                @if (saving()) {
-                  Saving...
-                } @else {
-                  <mat-icon>send</mat-icon>
-                  Save & Submit for Review
-                }
-              </button>
+              <div class="request-wizard-actions__group">
+                <button
+                  mat-stroked-button
+                  type="button"
+                  (click)="onSaveAsDraft()"
+                  [disabled]="saving() || creationBlocked()">
+                  <mat-icon>save</mat-icon>
+                  Save as Draft
+                </button>
+                <button
+                  mat-flat-button
+                  color="primary"
+                  type="button"
+                  (click)="onSaveAndSubmit()"
+                  [disabled]="saving() || creationBlocked()">
+                  @if (saving()) {
+                    Saving...
+                  } @else {
+                    <mat-icon>send</mat-icon>
+                    Save & Submit for Review
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </mat-step>

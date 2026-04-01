@@ -39,7 +39,7 @@ type DispatchFilter = 'all' | 'ready' | 'in_transit' | 'completed';
     DmisSkeletonLoaderComponent,
   ],
   templateUrl: './dispatch-queue.component.html',
-  styleUrl: './dispatch-queue.component.scss',
+  styleUrls: ['./dispatch-queue.component.scss', '../operations-shell.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DispatchQueueComponent implements OnInit {

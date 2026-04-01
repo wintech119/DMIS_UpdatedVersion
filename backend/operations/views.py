@@ -345,6 +345,31 @@ def operations_package_allocation_options(request, reliefrqst_id: int):
 operations_package_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int):
+    try:
+        source_warehouse_id = request.query_params.get("source_warehouse_id")
+        if source_warehouse_id in (None, ""):
+            raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        return Response(
+            operations_service.get_item_allocation_options(
+                reliefrqst_id,
+                item_id,
+                source_warehouse_id=_optional_positive_int_query_param(source_warehouse_id, "source_warehouse_id"),
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])

@@ -92,7 +92,7 @@
             </div>
             <div class="ops-doc-banner ops-doc-banner--success" role="status">
               <mat-icon aria-hidden="true">check_circle</mat-icon>
-              <span>This package has been confirmed as received. The receipt artifact is now part of the operations record.</span>
+              <span>Package received and confirmed. This receipt is saved to the operations record.</span>
             </div>
           </article>
         } @else if (isReady()) {
@@ -105,8 +105,8 @@
             </div>
 
             <p class="ops-doc-empty">
-              The current backend records this step as <strong>Received</strong>. Exception flows such as partial,
-              damaged, or rejected receipt are not live in this cutover pass and are not shown here.
+              Confirm that this package was received at the destination. Additional options for partial or
+              damaged receipt will be available in a future update.
             </p>
 
             @if (submitError(); as errMsg) {

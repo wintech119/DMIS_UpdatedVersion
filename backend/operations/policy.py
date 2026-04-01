@@ -341,7 +341,16 @@ def get_relief_request_capabilities(
             and active_policy.request_authority_tenant_id != tenant_context.active_tenant_id
         )
     )
-    can_subordinate_request = bool(has_subordinate_permission and active_membership_can_write and not active_is_odpem)
+    can_subordinate_request = bool(
+        has_subordinate_permission
+        and active_membership_can_write
+        and not active_is_odpem
+        and not (
+            active_policy is not None
+            and active_policy.request_authority_tenant_id
+            and active_policy.request_authority_tenant_id != tenant_context.active_tenant_id
+        )
+    )
     can_bridge_request = bool(has_bridge_permission and active_membership_can_write and active_is_odpem and tenant_context.can_act_cross_tenant)
 
     submission_mode: str | None = None

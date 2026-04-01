@@ -52,8 +52,6 @@ export class RequestItemsStepComponent implements OnChanges {
   @Input({ required: true }) agencyOptions: RequestReferenceOption[] = [];
   @Input({ required: true }) eventOptions: RequestReferenceOption[] = [];
   @Input({ required: true }) itemOptions: RequestReferenceOption[] = [];
-  @Input({ required: true }) requestDateText = '';
-  @Input({ required: true }) requestDateHint = '';
   @Input({ required: true }) submissionModeLabel = '';
   @Input({ required: true }) submissionModeHint = '';
   @Input({ required: true }) creationBlocked = false;
@@ -67,7 +65,6 @@ export class RequestItemsStepComponent implements OnChanges {
   readonly urgencyOptions = URGENCY_OPTIONS;
   readonly tooltips = {
     event: 'Link this request to the active event when the support is tied to a live incident. Leave it unlinked when the request is not event-specific.',
-    requestDate: 'This is the request intake date recorded for audit history and queue sequencing.',
     requestUrgency: 'Sets the baseline priority for review, packaging, and dispatch unless an item line is given a different urgency.',
     notes: 'Use notes for operational context, delivery constraints, or handling instructions that reviewers and downstream teams should see.',
     addItem: 'Add another requested relief item line to this request.',
@@ -80,19 +77,17 @@ export class RequestItemsStepComponent implements OnChanges {
 
   get requestingAgencyTooltip(): string {
     switch (this.submissionModeLabel) {
-      case 'For subordinate entity':
-        return 'Choose the subordinate agency or entity that needs support. The request is still saved against that agency ID even though the form shows names.';
-      case 'ODPEM bridge on behalf':
-        return 'Choose the beneficiary agency by name. This bridge lane is for transitional ODPEM-assisted request entry and still saves the agency ID underneath.';
-      case 'Self request':
-        return 'Choose the entity that is requesting relief in this transaction. In self mode this should be the active operational tenant.';
+      case 'Your organisation or managed entity':
+        return 'Choose whether this request is for your organisation or an agency you manage.';
+      case 'Request on behalf of a managed entity':
+        return 'Choose which agency under your authority needs supplies.';
+      case 'ODPEM-assisted request':
+        return 'Choose the agency you are entering this request for.';
+      case 'Your organisation\'s request':
+        return 'Choose your agency. In most cases there will be only one option.';
       default:
-        return 'Choose the entity that should appear as the requesting entity on this relief request.';
+        return 'Choose the agency requesting relief supplies.';
     }
-  }
-
-  get submissionModeTooltip(): string {
-    return `${this.submissionModeHint} This lane is controlled by the backend permissions advertised for the active tenant.`;
   }
 
   isReasonRequired(urgency: UrgencyCode | string | null): boolean {

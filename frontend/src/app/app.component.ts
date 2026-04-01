@@ -115,9 +115,9 @@ export class AppComponent implements OnInit, OnDestroy {
   private routerSub!: Subscription;
 
   title = 'dmis-frontend';
-  readonly currentUser = signal('Unknown');
-  readonly userRole = signal('');
-  readonly userRoles = signal<string[]>([]);
+  readonly currentUser = computed(() => this.authRbac.currentUserRef() ?? 'Unknown');
+  readonly userRoles = computed(() => this.authRbac.roles());
+  readonly userRole = computed(() => this.userRoles()[0] ?? '');
   readonly devUsers = signal<DevUser[]>([]);
   readonly selectedDevUser = signal('');
   readonly canSwitchDevUser = computed(() => this.devUsers().length > 0);
@@ -131,7 +131,6 @@ export class AppComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.authRbac.load();
-    this.loadWhoAmI();
     this.loadDevUsers();
 
     this.routerSub = this.router.events
@@ -167,25 +166,6 @@ export class AppComponent implements OnInit, OnDestroy {
     const identity = String(user.email ?? '').trim() || user.username;
     const primaryRole = user.roles[0];
     return primaryRole ? `${identity} (${primaryRole})` : identity;
-  }
-
-  private loadWhoAmI(): void {
-    this.http
-      .get<{ user_id?: string | null; username?: string | null; roles?: string[] }>('/api/v1/auth/whoami/')
-      .subscribe({
-        next: (data) => {
-          const display = String(data.username ?? data.user_id ?? '').trim();
-          this.currentUser.set(display || 'Unknown');
-          const roles = data.roles ?? [];
-          this.userRoles.set(roles);
-          this.userRole.set(roles[0] ?? '');
-        },
-        error: () => {
-          this.currentUser.set('Unknown');
-          this.userRoles.set([]);
-          this.userRole.set('');
-        }
-      });
   }
 
   private loadDevUsers(): void {

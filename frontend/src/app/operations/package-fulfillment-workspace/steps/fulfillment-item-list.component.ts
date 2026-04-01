@@ -35,6 +35,12 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
             <span>Req: {{ item.request_qty | number:'1.0-2' }}</span>
             <span>Rem: {{ item.remaining_qty | number:'1.0-2' }}</span>
           </div>
+          @if (isItemOverridden(item.item_id)) {
+            <span class="item-card__warehouse-override">
+              <mat-icon aria-hidden="true">swap_horiz</mat-icon>
+              Different warehouse
+            </span>
+          }
           @if (store().isRuleBypassedForItem(item.item_id)) {
             <span class="item-card__bypass">
               <mat-icon aria-hidden="true">policy</mat-icon>
@@ -148,6 +154,21 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
       width: 13px;
       height: 13px;
     }
+
+    .item-card__warehouse-override {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 1px;
+      font-size: 0.65rem;
+      color: var(--color-info, #17447f);
+    }
+
+    .item-card__warehouse-override mat-icon {
+      font-size: 13px;
+      width: 13px;
+      height: 13px;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -155,5 +176,12 @@ export class FulfillmentItemListComponent {
   readonly items = input.required<AllocationItemGroup[]>();
   readonly selectedItemId = input<number | null>(null);
   readonly store = input.required<OperationsWorkspaceStateService>();
+  readonly defaultWarehouseId = input<string>('');
   readonly itemSelected = output<number>();
+
+  isItemOverridden(itemId: number): boolean {
+    const defaultId = this.defaultWarehouseId();
+    if (!defaultId) return false;
+    return this.store().effectiveWarehouseForItem(itemId) !== defaultId;
+  }
 }

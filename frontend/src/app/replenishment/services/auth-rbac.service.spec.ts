@@ -72,6 +72,7 @@ describe('AuthRbacService', () => {
       can_create_relief_request_on_behalf: true,
       relief_request_submission_mode: 'on_behalf_bridge',
       default_requesting_tenant_id: null,
+      allowed_origin_modes: ['on_behalf_bridge'],
     });
     expect(service.loaded()).toBeTrue();
   });
@@ -94,6 +95,7 @@ describe('AuthRbacService', () => {
       can_create_relief_request_on_behalf: true,
       relief_request_submission_mode: 'for_subordinate',
       default_requesting_tenant_id: 42,
+      allowed_origin_modes: ['for_subordinate'],
     });
   });
 });

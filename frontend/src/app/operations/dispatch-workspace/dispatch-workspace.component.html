@@ -80,7 +80,7 @@
           <article class="ops-context-card">
             <span class="ops-context-card__label">Waybill State</span>
             <strong>{{ detail.waybill ? 'Available' : 'Pending' }}</strong>
-            <p>Deterministic rebuild contract.</p>
+            <p>Updated automatically from the dispatch record.</p>
           </article>
         </div>
 
@@ -140,90 +140,97 @@
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
+      tabIdBase="ops-dispatch-step"
       [linear]="true"
       (stepClick)="onTrackerStepClick($event)" />
 
     <mat-stepper linear #stepper class="ops-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Readiness</ng-template>
-        <app-ops-dispatch-readiness-step
-          [detail]="detail"
-          [transportMode]="transportMode()"
-          (transportModeChange)="transportMode.set($event)"
-          [driverName]="driverName()"
-          (driverNameChange)="driverName.set($event)"
-          [vehicleIdentifier]="vehicleIdentifier()"
-          (vehicleIdentifierChange)="vehicleIdentifier.set($event)"
-          [departureTime]="departureTime()"
-          (departureTimeChange)="departureTime.set($event)"
-          [estimatedArrival]="estimatedArrival()"
-          (estimatedArrivalChange)="estimatedArrival.set($event)"
-          [transportNotes]="transportNotes()"
-          (transportNotesChange)="transportNotes.set($event)" />
-        <div class="ops-step-actions">
-          <button mat-stroked-button type="button" (click)="openFulfillment()">Back to Fulfillment</button>
-          <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
+        <div id="ops-dispatch-step-0-panel" role="tabpanel" aria-labelledby="ops-dispatch-step-0-tab">
+          <app-ops-dispatch-readiness-step
+            [detail]="detail"
+            [transportMode]="transportMode()"
+            (transportModeChange)="transportMode.set($event)"
+            [driverName]="driverName()"
+            (driverNameChange)="driverName.set($event)"
+            [vehicleIdentifier]="vehicleIdentifier()"
+            (vehicleIdentifierChange)="vehicleIdentifier.set($event)"
+            [departureTime]="departureTime()"
+            (departureTimeChange)="departureTime.set($event)"
+            [estimatedArrival]="estimatedArrival()"
+            (estimatedArrivalChange)="estimatedArrival.set($event)"
+            [transportNotes]="transportNotes()"
+            (transportNotesChange)="transportNotes.set($event)" />
+          <div class="ops-step-actions">
+            <button mat-stroked-button type="button" (click)="openFulfillment()">Back to Fulfillment</button>
+            <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step>
         <ng-template matStepLabel>Review & Dispatch</ng-template>
-        <app-ops-dispatch-review-step
-          [detail]="detail"
-          [waybillReadback]="waybillReadback()"
-          [transportMode]="transportMode()"
-          [driverName]="driverName()"
-          [vehicleIdentifier]="vehicleIdentifier()"
-          [departureTime]="departureTime()"
-          [estimatedArrival]="estimatedArrival()"
-          [transportNotes]="transportNotes()" />
-        <div class="ops-step-actions">
-          <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
-          <button mat-flat-button color="primary" type="button" [disabled]="submitting()" (click)="completeDispatchAction()">
-            <mat-icon>{{ submitting() ? 'hourglass_top' : 'local_shipping' }}</mat-icon>
-            {{ submitting() ? 'Working...' : primaryActionLabel() }}
-          </button>
+        <div id="ops-dispatch-step-1-panel" role="tabpanel" aria-labelledby="ops-dispatch-step-1-tab">
+          <app-ops-dispatch-review-step
+            [detail]="detail"
+            [waybillReadback]="waybillReadback()"
+            [transportMode]="transportMode()"
+            [driverName]="driverName()"
+            [vehicleIdentifier]="vehicleIdentifier()"
+            [departureTime]="departureTime()"
+            [estimatedArrival]="estimatedArrival()"
+            [transportNotes]="transportNotes()" />
+          <div class="ops-step-actions">
+            <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <button mat-flat-button color="primary" type="button" [disabled]="submitting()" (click)="completeDispatchAction()">
+              <mat-icon>{{ submitting() ? 'hourglass_top' : 'local_shipping' }}</mat-icon>
+              {{ submitting() ? 'Working...' : primaryActionLabel() }}
+            </button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step [editable]="false">
         <ng-template matStepLabel>Confirmation</ng-template>
-        <div class="ops-confirmation">
-          @if (displayConfirmation(); as confirmation) {
-            <article class="ops-confirmation-card">
-              <h2>{{ confirmation.title }}</h2>
-              <p>{{ confirmation.message }}</p>
-              <p class="ops-confirmation-card__hint">{{ confirmation.hint }}</p>
+        <div id="ops-dispatch-step-2-panel" role="tabpanel" aria-labelledby="ops-dispatch-step-2-tab">
+          <div class="ops-confirmation">
+            @if (displayConfirmation(); as confirmation) {
+              <article class="ops-confirmation-card">
+                <h2>{{ confirmation.title }}</h2>
+                <p>{{ confirmation.message }}</p>
+                <p class="ops-confirmation-card__hint">{{ confirmation.hint }}</p>
 
-              <div class="ops-confirmation-grid">
-                <div>
-                  <span>Waybill Number</span>
-                  <strong>{{ waybillReadback()?.waybill_no || detail.waybill?.waybill_no || 'Assigned on dispatch' }}</strong>
+                <div class="ops-confirmation-grid">
+                  <div>
+                    <span>Waybill Number</span>
+                    <strong>{{ waybillReadback()?.waybill_no || detail.waybill?.waybill_no || 'Assigned on dispatch' }}</strong>
+                  </div>
+                  <div>
+                    <span>Dispatch Time</span>
+                    <strong>{{ detail.dispatch_dtime || 'Pending refresh' }}</strong>
+                  </div>
                 </div>
-                <div>
-                  <span>Dispatch Time</span>
-                  <strong>{{ detail.dispatch_dtime || 'Pending refresh' }}</strong>
-                </div>
-              </div>
 
-              @if (waybillReadback(); as wb) {
-                <div class="ops-callout" role="status">
-                  <mat-icon aria-hidden="true">info</mat-icon>
-                  <span>
-                    Waybill artifact mode: <strong>{{ wb.artifact_mode || 'deterministic rebuild' }}</strong>.
-                    @if (!wb.persisted) {
-                      This waybill is rebuilt from the dispatch record and is not persisted separately yet.
-                    }
-                  </span>
-                </div>
-              }
+                @if (waybillReadback(); as wb) {
+                  <div class="ops-callout" role="status">
+                    <mat-icon aria-hidden="true">info</mat-icon>
+                    <span>
+                      Waybill mode: <strong>{{ wb.artifact_mode || 'auto-generated' }}</strong>.
+                      @if (!wb.persisted) {
+                        This waybill updates automatically from the dispatch record.
+                      }
+                    </span>
+                  </div>
+                }
 
-              <div class="ops-step-actions">
-                <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
-                <button mat-flat-button color="primary" type="button" (click)="backToQueue()">Return to Dispatch Queue</button>
-              </div>
-            </article>
-          }
+                <div class="ops-step-actions">
+                  <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                  <button mat-flat-button color="primary" type="button" (click)="backToQueue()">Return to Dispatch Queue</button>
+                </div>
+              </article>
+            }
+          </div>
         </div>
       </mat-step>
     </mat-stepper>

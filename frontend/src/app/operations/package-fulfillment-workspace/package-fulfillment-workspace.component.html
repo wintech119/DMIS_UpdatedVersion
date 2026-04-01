@@ -141,74 +141,83 @@
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
+      tabIdBase="ops-fulfillment-step"
       [linear]="true"
       (stepClick)="onTrackerStepClick($event)" />
 
     <mat-stepper linear #stepper class="ops-stepper" (selectionChange)="currentStepIndex.set($event.selectedIndex)">
       <mat-step>
         <ng-template matStepLabel>Select Stock</ng-template>
-        <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />
-        <div class="ops-step-actions">
-          <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
-          <button mat-flat-button color="primary" type="button" (click)="goToDetails()">Continue</button>
+        <div id="ops-fulfillment-step-0-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-0-tab">
+          <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />
+          <div class="ops-step-actions">
+            <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
+            <button mat-flat-button color="primary" type="button" (click)="goToDetails()">Continue</button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step>
         <ng-template matStepLabel>Operational Details</ng-template>
-        <app-fulfillment-details-step [lockOperationalFields]="lockOperationalFields()" />
-        <div class="ops-step-actions">
-          <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
-          <button mat-flat-button color="primary" type="button" (click)="goToReview()">Review Reservation</button>
+        <div id="ops-fulfillment-step-1-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-1-tab">
+          <app-fulfillment-details-step [lockOperationalFields]="lockOperationalFields()" />
+          <div class="ops-step-actions">
+            <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <button mat-flat-button color="primary" type="button" (click)="goToReview()">Review Reservation</button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step>
         <ng-template matStepLabel>Review & Commit</ng-template>
-        <app-fulfillment-review-step
-          [submissionErrors]="submissionErrors()"
-          [overrideApprovalHint]="overrideApprovalHint()"
-          [canApproveOverride]="canApprovePendingOverride()" />
-        <div class="ops-step-actions">
-          <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
-          <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
-            <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
-            {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
-          </button>
+        <div id="ops-fulfillment-step-2-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-2-tab">
+          <app-fulfillment-review-step
+            [submissionErrors]="submissionErrors()"
+            [overrideApprovalHint]="overrideApprovalHint()"
+            [canApproveOverride]="canApprovePendingOverride()" />
+          <div class="ops-step-actions">
+            <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
+              <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
+              {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
+            </button>
+          </div>
         </div>
       </mat-step>
 
       <mat-step [editable]="false">
         <ng-template matStepLabel>Confirmation</ng-template>
-        <div class="ops-confirmation">
-          @if (confirmationState(); as confirmation) {
-            <article class="ops-confirmation-card">
-              <h2>{{ confirmation.title }}</h2>
-              <p>{{ confirmation.message }}</p>
-              <p class="ops-confirmation-card__hint">{{ confirmation.hint }}</p>
+        <div id="ops-fulfillment-step-3-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-3-tab">
+          <div class="ops-confirmation">
+            @if (confirmationState(); as confirmation) {
+              <article class="ops-confirmation-card">
+                <h2>{{ confirmation.title }}</h2>
+                <p>{{ confirmation.message }}</p>
+                <p class="ops-confirmation-card__hint">{{ confirmation.hint }}</p>
 
-              <div class="ops-confirmation-grid">
-                <div>
-                  <span>Request Tracking Number</span>
-                  <strong>{{ requestTrackingLabel() }}</strong>
+                <div class="ops-confirmation-grid">
+                  <div>
+                    <span>Request Tracking Number</span>
+                    <strong>{{ requestTrackingLabel() }}</strong>
+                  </div>
+                  <div>
+                    <span>Package Tracking Number</span>
+                    <strong>{{ packageTrackingLabel() }}</strong>
+                  </div>
                 </div>
-                <div>
-                  <span>Package Tracking Number</span>
-                  <strong>{{ packageTrackingLabel() }}</strong>
-                </div>
-              </div>
 
-              <div class="ops-step-actions">
-                <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
-                @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
-                  <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
-                    Open Dispatch Workspace
-                  </button>
-                }
-                <button mat-flat-button color="primary" type="button" (click)="backToRequest()">Return to Request</button>
-              </div>
-            </article>
-          }
+                <div class="ops-step-actions">
+                  <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                  @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
+                    <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
+                      Open Dispatch Workspace
+                    </button>
+                  }
+                  <button mat-flat-button color="primary" type="button" (click)="backToRequest()">Return to Request</button>
+                </div>
+              </article>
+            }
+          </div>
         </div>
       </mat-step>
     </mat-stepper>
