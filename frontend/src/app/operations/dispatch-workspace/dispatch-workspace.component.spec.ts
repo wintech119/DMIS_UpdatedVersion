@@ -129,12 +129,16 @@ describe('OpsDispatchWorkspaceComponent', () => {
   });
 
   it('submits the backend-aligned dispatch payload keys', () => {
-    component.transportMode.set('TRUCK');
-    component.driverName.set('Jane Driver');
-    component.vehicleIdentifier.set('1234AB');
-    component.departureTime.set('2026-03-26T10:00');
-    component.estimatedArrival.set('2026-03-26T13:00');
-    component.transportNotes.set('Route via Kingston.');
+    component.transportForm.patchValue({
+      transport_mode: 'TRUCK',
+      driver_name: 'Jane Driver',
+      vehicle_id: '1234AB',
+      departure_dtime: '2026-03-26T10:00',
+      estimated_arrival_dtime: '2026-03-26T13:00',
+      transport_notes: 'Route via Kingston.',
+    });
+
+    expect(component.primaryActionLabel()).toBe('Dispatch Now');
 
     component.completeDispatchAction();
 

@@ -440,6 +440,17 @@ export interface ReceiptConfirmationResponse {
   receipt: ReceiptArtifact;
 }
 
+export const TRANSPORT_MODE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'TRUCK', label: 'Truck' },
+  { value: 'VAN', label: 'Van' },
+  { value: 'AIR', label: 'Air' },
+  { value: 'BOAT', label: 'Boat' },
+  { value: 'ROAD', label: 'Road' },
+  { value: 'SEA', label: 'Sea' },
+  { value: 'MOTORCYCLE', label: 'Motorcycle' },
+  { value: 'OTHER', label: 'Other' },
+];
+
 export const OVERRIDE_REASON_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'FEFO_BYPASS', label: 'FEFO / FIFO bypass' },
   { value: 'SHORT_PICK', label: 'Short pick / limited compliant stock' },
