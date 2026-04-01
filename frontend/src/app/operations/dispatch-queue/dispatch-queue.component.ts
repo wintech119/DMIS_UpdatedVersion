@@ -88,13 +88,11 @@ export class DispatchQueueComponent implements OnInit {
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const ready = items.filter((item) => this.getDispatchStage(item) === 'ready').length;
-    const inTransit = items.filter((item) => this.getDispatchStage(item) === 'in_transit').length;
-    const completed = items.filter((item) => this.getDispatchStage(item) === 'completed').length;
+    const summary = this.summarizeDispatchStages(items);
     return [
-      { label: 'Ready', value: ready, note: 'Awaiting handoff' },
-      { label: 'In Transit', value: inTransit, note: 'Dispatched, receipt pending' },
-      { label: 'Completed', value: completed, note: 'Receipt confirmed' },
+      { label: 'Ready', value: summary.ready, note: 'Awaiting handoff' },
+      { label: 'In Transit', value: summary.inTransit, note: 'Dispatched, receipt pending' },
+      { label: 'Completed', value: summary.completed, note: 'Receipt confirmed' },
       { label: 'All Packages', value: items.length, note: 'Visible in the queue' },
     ];
   });
@@ -109,11 +107,12 @@ export class DispatchQueueComponent implements OnInit {
 
   readonly sidebarSummary = computed(() => {
     const rows = this.filteredItems();
+    const summary = this.summarizeDispatchStages(rows);
     return {
       total: rows.length,
-      ready: rows.filter((r) => this.getDispatchStage(r) === 'ready').length,
-      inTransit: rows.filter((r) => this.getDispatchStage(r) === 'in_transit').length,
-      completed: rows.filter((r) => this.getDispatchStage(r) === 'completed').length,
+      ready: summary.ready,
+      inTransit: summary.inTransit,
+      completed: summary.completed,
     };
   });
 
@@ -169,6 +168,34 @@ export class DispatchQueueComponent implements OnInit {
       return 'completed';
     }
     return 'unknown';
+  }
+
+  private summarizeDispatchStages(rows: readonly DispatchQueueItem[]): {
+    ready: number;
+    inTransit: number;
+    completed: number;
+  } {
+    let ready = 0;
+    let inTransit = 0;
+    let completed = 0;
+
+    for (const row of rows) {
+      switch (this.getDispatchStage(row)) {
+        case 'ready':
+          ready += 1;
+          break;
+        case 'in_transit':
+          inTransit += 1;
+          break;
+        case 'completed':
+          completed += 1;
+          break;
+        default:
+          break;
+      }
+    }
+
+    return { ready, inTransit, completed };
   }
 
   private loadQueue(): void {
