@@ -125,7 +125,12 @@ export class ReliefRequestListComponent implements OnInit {
     }));
   });
 
-  readonly statusSummary = computed(() => {
+  readonly statusSummary = computed<{
+    total: number;
+    critical: number;
+    high: number;
+    newest: RequestSummary | null;
+  }>(() => {
     const rows = this.filteredRequests();
     return {
       total: rows.length,
