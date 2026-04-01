@@ -164,6 +164,7 @@ export class OperationsWorkspaceStateService {
   load(reliefrqstId: number, loadOptions = true): void {
     const workspaceGeneration = this.beginWorkspaceGeneration();
     this.reliefrqstId.set(reliefrqstId);
+    this.reliefpkgId.set(0);
     this.loading.set(true);
     this.loadError.set(null);
     this.optionsError.set(null);
@@ -415,12 +416,28 @@ export class OperationsWorkspaceStateService {
   /** Clear all per-item warehouse overrides and reload with the default warehouse. */
   clearWarehouseOverrides(): void {
     const reliefrqstId = this.reliefrqstId();
-    const sourceWarehouseId = this.sourceWarehouseId();
-    if (reliefrqstId && sourceWarehouseId) {
-      this.updateSourceWarehouse(sourceWarehouseId);
-    } else {
+    const sourceWarehouseId = this.sanitizeInteger(this.sourceWarehouseId());
+
+    if (reliefrqstId) {
+      const workspaceGeneration = this.beginWorkspaceGeneration();
+      this.loading.set(true);
+      this.loadError.set(null);
+      this.optionsError.set(null);
       this.itemWarehouseOverrides.set({});
+      this.options.set(null);
+      this.selectedRowsByItem.set({});
+      this.loadAllocationOptions(
+        reliefrqstId,
+        sourceWarehouseId ? Number(sourceWarehouseId) : undefined,
+        this.packageDetail(),
+        workspaceGeneration,
+      );
+      return;
     }
+
+    this.itemWarehouseOverrides.set({});
+    this.options.set(null);
+    this.selectedRowsByItem.set({});
   }
 
   // ── Selection management ───────────────────────────────────────
@@ -664,7 +681,7 @@ export class OperationsWorkspaceStateService {
     }
     this.draft.update((d) => ({
       ...d,
-      source_warehouse_id: d.source_warehouse_id || (pkg.source_warehouse_id != null ? String(pkg.source_warehouse_id) : ''),
+      source_warehouse_id: pkg.source_warehouse_id != null ? String(pkg.source_warehouse_id) : (d.source_warehouse_id || ''),
       to_inventory_id: d.to_inventory_id || (pkg.to_inventory_id != null ? String(pkg.to_inventory_id) : ''),
       transport_mode: d.transport_mode || pkg.transport_mode || '',
       comments_text: d.comments_text || pkg.comments_text || '',
