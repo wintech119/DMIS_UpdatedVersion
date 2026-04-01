@@ -382,6 +382,7 @@ def _request_access_probe_from_legacy(request: ReliefRqst) -> OperationsReliefRe
         relief_request_id=int(request.reliefrqst_id),
         requesting_tenant_id=int(requesting_tenant_id or beneficiary_tenant_id or 0),
         beneficiary_tenant_id=beneficiary_tenant_id,
+        status_code=_request_status_from_legacy(request),
     )
 
 
@@ -1239,14 +1240,15 @@ def get_eligibility_request(reliefrqst_id: int, *, actor_id: str | None = None, 
     actor_id = _require_actor_id(actor_id)
     normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may review requests.")
     request = legacy_service._load_request(reliefrqst_id)
-    request_record = _sync_operations_request(request, actor_id=actor_id)
+    request_probe = _request_access_probe_from_legacy(request)
     if not _can_read_eligibility_request(
-        request_record,
+        request_probe,
         actor_id=actor_id,
         actor_roles=normalized_roles,
         tenant_context=tenant_context,
     ):
         raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+    request_record = _sync_operations_request(request, actor_id=actor_id)
 
     payload = legacy_service.get_request(reliefrqst_id, actor_id=actor_id)
     payload.update(_request_summary_payload(request, request_record))
@@ -1416,22 +1418,30 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
         .order_by("-request_date", "-relief_request_id")
         .values_list("relief_request_id", flat=True)[:200]
     )
-    request_ids = list(dict.fromkeys(status_list + queue_list))[:200]
+    request_ids: list[int] = []
+    seen_request_ids: set[int] = set()
+    for request_id in queue_list + status_list:
+        request_id = int(request_id)
+        if request_id in seen_request_ids:
+            continue
+        request_ids.append(request_id)
+        seen_request_ids.add(request_id)
+        if len(request_ids) >= 200:
+            break
     results: list[dict[str, Any]] = []
     for reliefrqst_id in request_ids:
         request = legacy_service._load_request(int(reliefrqst_id))
-        request_record = _sync_operations_request(request, actor_id=actor_id)
-        if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
-            continue
+        request_probe = _request_access_probe_from_legacy(request)
         try:
             _ensure_fulfillment_request_access(
-                request_record,
+                request_probe,
                 actor_id=actor_id,
                 actor_roles=actor_roles or (),
                 tenant_context=tenant_context,
             )
         except OperationValidationError:
             continue
+        request_record = _sync_operations_request(request, actor_id=actor_id)
         current_package = legacy_service._current_package_for_request(int(request.reliefrqst_id))
         row = _request_summary_payload(request, request_record)
         if current_package is not None:
@@ -1446,8 +1456,9 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
 def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id) if package is not None else None
     payload = {
@@ -1464,8 +1475,8 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
 def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
-    request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     return legacy_service.get_package_allocation_options(reliefrqst_id, source_warehouse_id=source_warehouse_id)
 
 
@@ -1481,9 +1492,9 @@ def get_item_allocation_options(
     """Return allocation candidates for a single item from a single warehouse."""
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
-    request_record = _sync_operations_request(request, actor_id=actor_id)
+    request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(
-        request_record,
+        request_probe,
         actor_id=actor_id,
         actor_roles=actor_roles or (),
         tenant_context=tenant_context,
@@ -1508,8 +1519,9 @@ def save_package(
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
     validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None
     if package_locked_before_save:
@@ -1634,8 +1646,9 @@ def approve_override(
 ) -> dict[str, Any]:
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
-    _ensure_fulfillment_request_access(request_record, actor_id=actor_id, actor_roles=normalized_roles, tenant_context=tenant_context, write=True)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is None:
         raise OperationValidationError({"override": "No package exists for this request."})

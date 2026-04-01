@@ -1693,12 +1693,14 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertFalse(payload["can_edit"])
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services._sync_operations_request")
     @patch("operations.contract_services.legacy_service.get_request")
     @patch("operations.contract_services.legacy_service._load_request")
     def test_get_eligibility_request_rejects_same_tenant_request_outside_visibility_statuses(
         self,
         load_request_mock,
         get_request_mock,
+        sync_request_mock,
         get_agency_scope_mock,
     ) -> None:
         load_request_mock.return_value = self._request_stub(
@@ -1717,6 +1719,7 @@ class OperationsWorkflowContractTests(TestCase):
             )
 
         get_request_mock.assert_not_called()
+        sync_request_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service.get_request")
@@ -2300,6 +2303,53 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
 
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
+    @patch(
+        "operations.contract_services._sync_operations_request",
+        side_effect=lambda request, actor_id: SimpleNamespace(
+            relief_request_id=int(request.reliefrqst_id),
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            requesting_tenant_id=20,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+        ),
+    )
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.actor_queue_queryset")
+    @patch("operations.contract_services.OperationsReliefRequest.objects.filter")
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_fulfillment_queue_prioritizes_actor_assigned_requests_before_status_fallback(
+        self,
+        load_request_mock,
+        _current_package_mock,
+        operations_request_filter_mock,
+        actor_queue_queryset_mock,
+        get_agency_scope_mock,
+        _sync_request_mock,
+        _request_summary_mock,
+    ) -> None:
+        actor_queue_queryset_mock.return_value.filter.return_value.values_list.return_value = [999]
+        operations_request_filter_mock.return_value.order_by.return_value.values_list.return_value = list(range(1, 205))
+        load_request_mock.side_effect = lambda reliefrqst_id: self._request_stub(
+            reliefrqst_id=int(reliefrqst_id),
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        result = contract_services.list_packages(
+            actor_id="logistics-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        request_ids = [row["reliefrqst_id"] for row in result["results"]]
+        self.assertEqual(request_ids[0], 999)
+        self.assertEqual(len(request_ids), 200)
+        self.assertIn(999, request_ids)
+        self.assertNotIn(204, request_ids)
+
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
@@ -2354,10 +2404,12 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._request_items", return_value=[])
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "status_code": request_record.status_code})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services._sync_operations_request")
     @patch("operations.contract_services.legacy_service._load_request")
     def test_get_package_rejects_unrelated_role_assignment_outside_tenant_scope(
         self,
         load_request_mock,
+        sync_request_mock,
         get_agency_scope_mock,
         _request_summary_mock,
         _request_items_mock,
@@ -2401,6 +2453,7 @@ class OperationsWorkflowContractTests(TestCase):
                     access_level="ADMIN",
                 ),
             )
+        sync_request_mock.assert_not_called()
 
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
     @patch("operations.contract_services.legacy_service._request_items", return_value=[])

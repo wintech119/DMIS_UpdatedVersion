@@ -224,8 +224,12 @@ export class OperationsWorkspaceStateService {
     if (!reliefrqstId) {
       return;
     }
+    const workspaceGeneration = this.latestWorkspaceGeneration;
     this.operationsService.getPackage(reliefrqstId).subscribe({
       next: (detail) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
         this.packageDetail.set(detail);
         this.hydrateDraft(detail);
         if (detail.package) {
@@ -233,6 +237,9 @@ export class OperationsWorkspaceStateService {
         }
       },
       error: (error: HttpErrorResponse) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
         this.loadError.set(this.extractError(error, 'Failed to refresh package status.'));
       },
     });
