@@ -47,6 +47,7 @@ const DEFAULT_DRAFT: WorkspaceDraft = {
 @Injectable()
 export class OperationsWorkspaceStateService {
   private readonly operationsService = inject(OperationsService);
+  private latestWorkspaceGeneration = 0;
   private latestSourceWarehouseRequestId = 0;
   private latestItemWarehouseRequestIds: Record<number, number> = {};
 
@@ -161,6 +162,7 @@ export class OperationsWorkspaceStateService {
   // ── Loading ────────────────────────────────────────────────────
 
   load(reliefrqstId: number, loadOptions = true): void {
+    const workspaceGeneration = this.beginWorkspaceGeneration();
     this.reliefrqstId.set(reliefrqstId);
     this.loading.set(true);
     this.loadError.set(null);
@@ -175,12 +177,18 @@ export class OperationsWorkspaceStateService {
 
     this.operationsService.getPackage(reliefrqstId).pipe(
       catchError((error: HttpErrorResponse) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return EMPTY;
+        }
         this.loadError.set(this.extractError(error, 'Failed to load package details.'));
         this.loading.set(false);
         return EMPTY;
       }),
     ).subscribe({
       next: (packageDetail) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
         this.packageDetail.set(packageDetail);
         if (packageDetail) {
           this.hydrateDraft(packageDetail);
@@ -197,9 +205,13 @@ export class OperationsWorkspaceStateService {
           reliefrqstId,
           packageDetail?.package?.source_warehouse_id ?? undefined,
           packageDetail,
+          workspaceGeneration,
         );
       },
       error: () => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
         this.loading.set(false);
         this.loadError.set('Failed to load fulfillment workspace.');
       },
@@ -276,6 +288,7 @@ export class OperationsWorkspaceStateService {
     this.optionsError.set(null);
     this.options.set(null);
     this.selectedRowsByItem.set({});
+    const workspaceGeneration = this.beginWorkspaceGeneration();
     const requestId = ++this.latestSourceWarehouseRequestId;
 
     const draft = this.draft();
@@ -286,7 +299,7 @@ export class OperationsWorkspaceStateService {
       comments_text: draft.comments_text.trim() || undefined,
     }).subscribe({
       next: (detail) => {
-        if (this.latestSourceWarehouseRequestId !== requestId) {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestSourceWarehouseRequestId !== requestId) {
           return;
         }
         this.packageDetail.set(detail);
@@ -298,11 +311,12 @@ export class OperationsWorkspaceStateService {
           reliefrqstId,
           detail.package?.source_warehouse_id ?? undefined,
           detail,
+          workspaceGeneration,
           requestId,
         );
       },
       error: (error: HttpErrorResponse) => {
-        if (this.latestSourceWarehouseRequestId !== requestId) {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestSourceWarehouseRequestId !== requestId) {
           return;
         }
         this.patchDraft({ source_warehouse_id: prevDraft.source_warehouse_id });
@@ -323,6 +337,7 @@ export class OperationsWorkspaceStateService {
     const normalizedWarehouseId = this.sanitizeInteger(warehouseId);
     const defaultWarehouseId = this.sourceWarehouseId();
     const reliefrqstId = this.reliefrqstId();
+    const workspaceGeneration = this.latestWorkspaceGeneration;
     if (!reliefrqstId || !normalizedWarehouseId) {
       return;
     }
@@ -340,7 +355,7 @@ export class OperationsWorkspaceStateService {
       Number(normalizedWarehouseId),
     ).subscribe({
       next: (itemGroup) => {
-        if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestItemWarehouseRequestIds[itemId] !== requestId) {
           return;
         }
         const currentOverrides = { ...this.itemWarehouseOverrides() };
@@ -374,7 +389,7 @@ export class OperationsWorkspaceStateService {
         this.switching.set(false);
       },
       error: (error: HttpErrorResponse) => {
-        if (this.latestItemWarehouseRequestIds[itemId] !== requestId) {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestItemWarehouseRequestIds[itemId] !== requestId) {
           return;
         }
         const rollbackOverrides = { ...this.itemWarehouseOverrides() };
@@ -660,11 +675,15 @@ export class OperationsWorkspaceStateService {
     reliefrqstId: number,
     sourceWarehouseId: number | undefined,
     packageDetail: PackageDetailResponse | null,
+    workspaceGeneration: number,
     sourceWarehouseRequestId?: number,
   ): void {
     this.operationsService.getAllocationOptions(reliefrqstId, sourceWarehouseId).pipe(
       catchError((error: HttpErrorResponse) => {
-        if (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId) {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId)
+        ) {
           return EMPTY;
         }
         this.optionsError.set(this.extractError(error, 'Failed to load allocation options.'));
@@ -672,7 +691,10 @@ export class OperationsWorkspaceStateService {
       }),
     ).subscribe({
       next: (options) => {
-        if (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId) {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId)
+        ) {
           return;
         }
         this.options.set(options);
@@ -682,13 +704,27 @@ export class OperationsWorkspaceStateService {
         this.loading.set(false);
       },
       error: () => {
-        if (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId) {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || (sourceWarehouseRequestId !== undefined && this.latestSourceWarehouseRequestId !== sourceWarehouseRequestId)
+        ) {
           return;
         }
         this.loading.set(false);
         this.loadError.set('Failed to load fulfillment workspace.');
       },
     });
+  }
+
+  private beginWorkspaceGeneration(): number {
+    this.latestWorkspaceGeneration += 1;
+    this.latestSourceWarehouseRequestId = 0;
+    this.latestItemWarehouseRequestIds = {};
+    return this.latestWorkspaceGeneration;
+  }
+
+  private isCurrentWorkspaceGeneration(generation: number): boolean {
+    return this.latestWorkspaceGeneration === generation;
   }
 
   private initializeSelections(
