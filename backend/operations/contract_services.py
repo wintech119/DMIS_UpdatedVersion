@@ -147,6 +147,7 @@ def _validate_allocation_rows(raw_allocations: object) -> list[dict[str, Any]]:
         raise OperationValidationError({"allocations": "allocations must be provided as a list."})
 
     validated_rows: list[dict[str, Any]] = []
+    seen_keys: set[tuple[int, int, int]] = set()
     for index, raw in enumerate(raw_allocations):
         if not isinstance(raw, Mapping):
             raise OperationValidationError({f"allocations[{index}]": "Each allocation row must be an object."})
@@ -171,6 +172,15 @@ def _validate_allocation_rows(raw_allocations: object) -> list[dict[str, Any]]:
             aliases=("source_warehouse_id",),
         )
         batch_id = _required_positive_int_from_allocation_row(raw, row_index=index, field_name="batch_id")
+        allocation_key = (source_warehouse_id, batch_id, item_id)
+        if allocation_key in seen_keys:
+            raise OperationValidationError(
+                {
+                    f"allocations[{index}]":
+                        "Duplicate allocation rows for the same item, warehouse, and batch are not allowed."
+                }
+            )
+        seen_keys.add(allocation_key)
 
         source_type = str(raw.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND"
         if source_type not in _VALID_ALLOCATION_SOURCE_TYPES:
@@ -736,17 +746,18 @@ def _can_read_eligibility_request(
     actor_roles: Iterable[str],
     tenant_context: TenantContext,
 ) -> bool:
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return True
+    if request_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
+        return False
+
     relevant_tenants = [request_record.requesting_tenant_id, request_record.beneficiary_tenant_id]
     for tenant_id in relevant_tenants:
         if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=False):
             return True
 
-    normalized_roles = normalize_role_codes(actor_roles)
-    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
-        return True
     if not any(role in set(ELIGIBILITY_ROLE_CODES) for role in normalized_roles):
-        return False
-    if request_record.status_code not in ELIGIBILITY_VISIBLE_REQUEST_STATUSES:
         return False
 
     request_pk = int(request_record.relief_request_id)
@@ -773,6 +784,14 @@ def _ensure_fulfillment_request_access(
     tenant_context: TenantContext,
     write: bool = False,
 ) -> None:
+    normalized_roles = normalize_role_codes(actor_roles)
+    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
+        return
+    if not any(role in set(FULFILLMENT_ROLE_CODES) for role in normalized_roles):
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+    if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
+        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+
     try:
         _ensure_request_access(
             request_record,
@@ -781,18 +800,9 @@ def _ensure_fulfillment_request_access(
             tenant_context=tenant_context,
             write=write,
         )
-        if not write:
-            return
+        return
     except OperationValidationError:
         pass
-
-    normalized_roles = normalize_role_codes(actor_roles)
-    if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
-        return
-    if not any(role in set(FULFILLMENT_ROLE_CODES) for role in normalized_roles):
-        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
-    if request_record.status_code not in FULFILLMENT_VISIBLE_REQUEST_STATUSES:
-        raise OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
 
     active_tenant_id = tenant_context.active_tenant_id
     if active_tenant_id is None:

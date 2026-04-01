@@ -1690,6 +1690,32 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service.get_request")
     @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_eligibility_request_rejects_same_tenant_request_outside_visibility_statuses(
+        self,
+        load_request_mock,
+        get_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self._request_stub(
+            reliefrqst_id=74,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_DRAFT,
+        )
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.get_eligibility_request(
+                74,
+                actor_id="eligibility-1",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        get_request_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service.get_request")
+    @patch("operations.contract_services.legacy_service._load_request")
     def test_get_eligibility_request_rejects_unrelated_assignment_outside_review_scope(
         self,
         load_request_mock,
@@ -2371,6 +2397,45 @@ class OperationsWorkflowContractTests(TestCase):
                 ),
             )
 
+    @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
+    @patch("operations.contract_services.legacy_service._request_items", return_value=[])
+    @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "status_code": request_record.status_code})
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_get_package_rejects_same_tenant_non_fulfillment_roles(
+        self,
+        load_request_mock,
+        get_agency_scope_mock,
+        _request_summary_mock,
+        _request_items_mock,
+        _current_package_mock,
+    ) -> None:
+        OperationsReliefRequest.objects.create(
+            relief_request_id=75,
+            request_no="RQ00075",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=75, agency_id=501, status_code=3)
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+
+        with self.assertRaises(OperationValidationError):
+            contract_services.get_package(
+                75,
+                actor_id="other-user",
+                actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
+                tenant_context=self.dispatch_ready_context,
+            )
+
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
@@ -3032,6 +3097,38 @@ class MultiWarehouseDualWriteTests(TestCase):
             )
 
         self.assertIn("allocations[0].quantity", raised.exception.errors)
+        save_package_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_dual_write_rejects_duplicate_allocation_rows_before_legacy_write(
+        self,
+        save_package_mock,
+        current_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        current_package_mock.return_value = self.package_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.save_package(
+                81,
+                payload={
+                    "allocations": [
+                        {"item_id": 101, "inventory_id": 1, "batch_id": 10, "quantity": "5.0000"},
+                        {"item_id": 101, "inventory_id": 1, "batch_id": 10, "quantity": "2.0000"},
+                    ],
+                },
+                actor_id="fulfiller-1",
+                actor_roles=["LOGISTICS_OFFICER"],
+                tenant_context=self.tenant_ctx,
+            )
+
+        self.assertIn("allocations[1]", raised.exception.errors)
         save_package_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
