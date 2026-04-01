@@ -83,11 +83,12 @@
                 role="button"
                 (click)="viewDispatch(row)"
                 (keydown.enter)="viewDispatch(row)"
-                (keydown.space)="viewDispatch(row); $event.preventDefault()">
+                (keydown.space)="$event.preventDefault()"
+                (keyup.space)="viewDispatch(row)">
                 <div class="ops-row__lead">
                   <div class="ops-row__header">
                     <p class="ops-row__title">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
-                    <app-ops-status-chip [label]="formatPackageStatus(row.status_code)" [tone]="chipTone(getPackageTone(row.status_code))" />
+                    <app-ops-status-chip [label]="formatPackageStatus(row.status_code, row.execution_status)" [tone]="chipTone(getPackageTone(row.status_code, row.execution_status))" />
                     @if (row.transport_mode) {
                       <app-ops-status-chip [label]="row.transport_mode" tone="soft" />
                     }

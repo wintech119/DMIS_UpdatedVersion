@@ -19,10 +19,11 @@ import {
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   formatRequestMode,
-  OperationsTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
+  handleRovingRadioKeydown,
   mapOperationsToneToChipTone,
+  OperationsTone,
 } from '../operations-display.util';
 
 type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
@@ -161,22 +162,7 @@ export class ReliefRequestListComponent implements OnInit {
   }
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
-    const targetIndex = this.getFilterTargetIndex(event.key, index);
-    if (targetIndex === null) {
-      return;
-    }
-
-    const target = this.filterOptions[targetIndex];
-    if (!target) {
-      return;
-    }
-
-    event.preventDefault();
-    this.setFilter(target.value);
-
-    const group = (event.currentTarget as HTMLElement | null)?.closest('[role="radiogroup"]');
-    const buttons = Array.from(group?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
-    requestAnimationFrame(() => buttons[targetIndex]?.focus());
+    handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
   onSearch(value: string): void {
@@ -243,28 +229,6 @@ export class ReliefRequestListComponent implements OnInit {
         return 'closed';
       default:
         return 'other';
-    }
-  }
-
-  private getFilterTargetIndex(key: string, currentIndex: number): number | null {
-    const lastIndex = this.filterOptions.length - 1;
-    if (lastIndex < 0) {
-      return null;
-    }
-
-    switch (key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        return currentIndex === lastIndex ? 0 : currentIndex + 1;
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        return currentIndex === 0 ? lastIndex : currentIndex - 1;
-      case 'Home':
-        return 0;
-      case 'End':
-        return lastIndex;
-      default:
-        return null;
     }
   }
 

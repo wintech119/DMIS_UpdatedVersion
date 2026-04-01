@@ -27,7 +27,7 @@ const REQUEST_STATUS_TONES: Record<string, OperationsTone> = {
 const PACKAGE_STATUS_LABELS: Record<string, string> = {
   // Legacy single-char codes
   A: 'Draft',
-  P: 'Ready for Dispatch',
+  P: 'Pending',
   D: 'Dispatched',
   C: 'Completed',
   // Operations-layer status codes
@@ -43,7 +43,7 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
   A: 'draft',
-  P: 'success',
+  P: 'review',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
@@ -80,13 +80,37 @@ export function getOperationsRequestTone(code: number | string | null | undefine
   return REQUEST_STATUS_TONES[normalized] ?? 'muted';
 }
 
-export function formatOperationsPackageStatus(code: string | null | undefined): string {
-  const normalized = String(code ?? '').trim().toUpperCase();
+function normalizeOperationsPackageStatus(
+  code: string | null | undefined,
+  executionStatus: string | null | undefined,
+): string {
+  const normalizedExecutionStatus = String(executionStatus ?? '').trim().toUpperCase();
+  switch (normalizedExecutionStatus) {
+    case 'PENDING_OVERRIDE_APPROVAL':
+    case 'COMMITTED':
+    case 'READY_FOR_DISPATCH':
+    case 'DISPATCHED':
+      return normalizedExecutionStatus;
+    case 'OVERRIDE_APPROVED':
+      return 'READY_FOR_DISPATCH';
+    default:
+      return String(code ?? '').trim().toUpperCase();
+  }
+}
+
+export function formatOperationsPackageStatus(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): string {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
   return PACKAGE_STATUS_LABELS[normalized] ?? 'Unknown';
 }
 
-export function getOperationsPackageTone(code: string | null | undefined): OperationsTone {
-  const normalized = String(code ?? '').trim().toUpperCase();
+export function getOperationsPackageTone(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): OperationsTone {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
   return PACKAGE_STATUS_TONES[normalized] ?? 'muted';
 }
 
@@ -285,6 +309,56 @@ export function mapOperationsToneToChipTone(
     default:
       return 'neutral';
   }
+}
+
+function getRovingRadioTargetIndex(
+  key: string,
+  currentIndex: number,
+  optionCount: number,
+): number | null {
+  const lastIndex = optionCount - 1;
+  if (lastIndex < 0) {
+    return null;
+  }
+
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return currentIndex === lastIndex ? 0 : currentIndex + 1;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return currentIndex === 0 ? lastIndex : currentIndex - 1;
+    case 'Home':
+      return 0;
+    case 'End':
+      return lastIndex;
+    default:
+      return null;
+  }
+}
+
+export function handleRovingRadioKeydown<T extends string>(
+  event: KeyboardEvent,
+  currentIndex: number,
+  options: readonly { value: T }[],
+  setValue: (value: T) => void,
+): void {
+  const targetIndex = getRovingRadioTargetIndex(event.key, currentIndex, options.length);
+  if (targetIndex === null) {
+    return;
+  }
+
+  const target = options[targetIndex];
+  if (!target) {
+    return;
+  }
+
+  event.preventDefault();
+  setValue(target.value);
+
+  const group = (event.currentTarget as HTMLElement | null)?.closest('[role="radiogroup"]');
+  const buttons = Array.from(group?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
+  requestAnimationFrame(() => buttons[targetIndex]?.focus());
 }
 
 function isOperationsRecord(value: unknown): value is Record<string, unknown> {

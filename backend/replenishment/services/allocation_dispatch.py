@@ -28,6 +28,7 @@ _ALLOCATION_OVERRIDE_SUPERVISOR_ROLES = (
 )
 
 STATUS_APPROVED = 2
+STATUS_SUBMITTED = 3
 STATUS_PART_FILLED = 5
 STATUS_FILLED = 7
 _INT_ID_SEQUENCE_TABLE = "legacy_int_id_sequence"
@@ -1235,7 +1236,7 @@ def _request_header_update_values(
 
     if package_status in {"A", "P", "C", "V"}:
         return {
-            "status_code": 3,  # STATUS_SUBMITTED — keeps request in fulfillment state
+            "status_code": STATUS_SUBMITTED,
             "review_by_id": review_by_id,
             "review_dtime": review_dtime,
             "action_by_id": None,
@@ -1244,7 +1245,7 @@ def _request_header_update_values(
         }
     if package_status == "D":
         return {
-            "status_code": 5,
+            "status_code": STATUS_PART_FILLED,
             "review_by_id": review_by_id,
             "review_dtime": review_dtime,
             "action_by_id": actor_user_id,
