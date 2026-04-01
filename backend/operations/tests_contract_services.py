@@ -28,6 +28,7 @@ from operations.constants import (
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_FULFILLED,
+    REQUEST_STATUS_PARTIALLY_FULFILLED,
     REQUEST_STATUS_REJECTED,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
 )
@@ -378,6 +379,43 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(record.version_nbr, 7)
         self.assertEqual(record.update_by_id, "seed-user")
         self.assertEqual(record.update_dtime, original_updated_at)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    def test_request_sync_preserves_fulfilled_status_when_legacy_maps_back_to_approved(
+        self,
+        get_agency_scope_mock,
+    ) -> None:
+        get_agency_scope_mock.return_value = self.agency_scope
+        original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 30, 0))
+        legacy_request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_CANCELLED,
+        )
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            notes_text="Need shelter kits",
+            status_code=REQUEST_STATUS_FULFILLED,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+            update_dtime=original_updated_at,
+            version_nbr=4,
+        )
+
+        record = contract_services._sync_operations_request(legacy_request, actor_id="sync-1")
+        record.refresh_from_db()
+
+        self.assertEqual(record.status_code, REQUEST_STATUS_FULFILLED)
+        self.assertEqual(record.version_nbr, 4)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     def test_request_sync_uses_decision_requesting_agency_when_payload_omitted(self, get_agency_scope_mock) -> None:
@@ -967,7 +1005,59 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).exists()
         )
-        load_request_mock.assert_called_once_with(70, for_update=True)
+        # First call loads for update, second re-syncs request status after legacy save
+        self.assertEqual(load_request_mock.call_count, 2)
+        load_request_mock.assert_any_call(70, for_update=True)
+        load_request_mock.assert_any_call(70)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_save_package_preserves_completed_request_status_when_legacy_reloads_as_approved(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        preserved_request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_CANCELLED,
+        )
+        load_request_mock.side_effect = [preserved_request, preserved_request]
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            notes_text="Need shelter kits",
+            status_code=REQUEST_STATUS_PARTIALLY_FULFILLED,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
+
+        contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        request_record.refresh_from_db()
+        self.assertEqual(request_record.status_code, REQUEST_STATUS_PARTIALLY_FULFILLED)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")

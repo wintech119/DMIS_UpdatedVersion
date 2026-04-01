@@ -9,9 +9,14 @@
       <p class="ops-hero__copy">
         Prioritized worklist for stock reservation, packing, and dispatch preparation.
       </p>
+      <app-ops-status-chip label="Dispatch Prep Active" tone="warning" />
     </div>
 
     <div class="ops-hero__actions">
+      <button mat-flat-button color="primary" type="button" (click)="setFilter('preparing')">
+        <mat-icon>inventory</mat-icon>
+        Show Preparing
+      </button>
       <button mat-stroked-button type="button" (click)="refreshQueue()">
         <mat-icon>refresh</mat-icon>
         Refresh Queue
@@ -52,7 +57,9 @@
                 type="button"
                 role="radio"
                 [attr.aria-checked]="activeFilter() === filter.value"
-                (click)="setFilter(filter.value)">
+                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+                (click)="setFilter(filter.value)"
+                (keydown)="onFilterKeydown($event, $index)">
                 {{ filter.label }}
               </button>
             }
@@ -83,7 +90,7 @@
                     <app-ops-status-chip [label]="formatRequestStatus(row.status_code)" [tone]="chipTone(getRequestTone(row.status_code))" />
                     <app-ops-status-chip [label]="formatUrgency(row.urgency_ind)" [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
                     @if (row.package_status) {
-                      <app-ops-status-chip [label]="formatPackageStatus(row.package_status)" [tone]="chipTone(getPackageTone(row.package_status))" />
+                      <app-ops-status-chip [label]="formatPackageStatus(row.package_status, row.current_package?.execution_status ?? row.execution_status)" [tone]="chipTone(getPackageTone(row.package_status, row.current_package?.execution_status ?? row.execution_status))" />
                     }
                     @if (isLocked(row)) {
                       <app-ops-status-chip label="Locked" tone="success" />

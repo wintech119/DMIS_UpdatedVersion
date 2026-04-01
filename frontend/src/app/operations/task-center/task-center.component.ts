@@ -14,6 +14,7 @@ import {
   formatOperationsAge,
   formatOperationsUrgency,
   formatTaskType,
+  handleRovingRadioKeydown,
   getOperationsUrgencyTone,
   getTaskEntityRoute,
   getTaskTone,
@@ -122,6 +123,10 @@ export class TaskCenterComponent implements OnInit {
 
   setFilter(filter: TaskFilter): void {
     this.activeFilter.set(filter);
+  }
+
+  onFilterKeydown(event: KeyboardEvent, index: number): void {
+    handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
   onSearch(value: string): void {

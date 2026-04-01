@@ -41,6 +41,7 @@ from operations.constants import (
     QUEUE_CODE_OVERRIDE,
     QUEUE_CODE_RECEIPT,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    REQUEST_STATUS_CANCELLED,
     REQUEST_STATUS_DRAFT,
     REQUEST_STATUS_FULFILLED,
     REQUEST_STATUS_INELIGIBLE,
@@ -256,6 +257,34 @@ FULFILLMENT_VISIBLE_REQUEST_STATUSES = frozenset(
     }
 )
 
+# Statuses that indicate an active workflow beyond initial submission.
+# Used to prevent legacy re-derivation from downgrading these to CANCELLED.
+_ACTIVE_REQUEST_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+        REQUEST_STATUS_PARTIALLY_FULFILLED,
+        REQUEST_STATUS_FULFILLED,
+    }
+)
+
+_FULFILLMENT_COMPLETION_REQUEST_STATUSES = frozenset(
+    {
+        REQUEST_STATUS_PARTIALLY_FULFILLED,
+        REQUEST_STATUS_FULFILLED,
+    }
+)
+
+
+def _preserve_request_status(current_status: str, next_status: str) -> str:
+    if next_status == REQUEST_STATUS_CANCELLED and current_status in _ACTIVE_REQUEST_STATUSES:
+        return current_status
+    if (
+        next_status == REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
+        and current_status in _FULFILLMENT_COMPLETION_REQUEST_STATUSES
+    ):
+        return current_status
+    return next_status
+
 
 def _lookup_reference_options(table_key: str) -> list[dict[str, Any]]:
     items, _warnings = get_lookup(table_key, active_only=True)
@@ -305,7 +334,12 @@ def _request_status_from_legacy(request: ReliefRqst) -> str:
         legacy_service.STATUS_CLOSED: REQUEST_STATUS_FULFILLED,
         legacy_service.STATUS_INELIGIBLE: REQUEST_STATUS_INELIGIBLE,
         legacy_service.STATUS_DENIED: REQUEST_STATUS_REJECTED,
-        legacy_service.STATUS_CANCELLED: "CANCELLED",
+        # Legacy status 2 is named STATUS_CANCELLED in services.py but
+        # allocation_dispatch.py names it STATUS_APPROVED.  The allocation
+        # commit flow (_request_header_update_values) sets requests to 2
+        # while packages are being processed.  There is no cancel-request
+        # endpoint, so status 2 always means "approved / in processing".
+        legacy_service.STATUS_CANCELLED: REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     }
     return mapping.get(int(request.status_code or legacy_service.STATUS_DRAFT), REQUEST_STATUS_DRAFT)
 
@@ -432,6 +466,7 @@ def _sync_operations_request(
 ) -> OperationsReliefRequest:
     record = _ops_request_from_legacy(request, actor_id=actor_id)
     original_status = record.status_code
+    resolved_status_code: str | None = None
     changed_fields: list[str] = []
     if decision is not None:
         _assign_if_changed(record, "requesting_tenant_id", int(decision.requesting_tenant_id), changed_fields)
@@ -462,24 +497,28 @@ def _sync_operations_request(
     _assign_if_changed(record, "reviewed_by_id", request.review_by_id, changed_fields)
     _assign_if_changed(record, "reviewed_at", request.review_dtime, changed_fields)
     if status_code:
-        _assign_if_changed(record, "status_code", status_code, changed_fields)
+        resolved_status_code = _preserve_request_status(record.status_code, status_code)
+        _assign_if_changed(record, "status_code", resolved_status_code, changed_fields)
     else:
         # Issue #14: Sync status from legacy record on read paths when no explicit
         # status override is provided.
-        legacy_derived_status = _request_status_from_legacy(request)
-        _assign_if_changed(record, "status_code", legacy_derived_status, changed_fields)
+        resolved_status_code = _preserve_request_status(
+            record.status_code,
+            _request_status_from_legacy(request),
+        )
+        _assign_if_changed(record, "status_code", resolved_status_code, changed_fields)
     if changed_fields:
         record.update_by_id = actor_id
         record.update_dtime = timezone.now()
         record.version_nbr = int(record.version_nbr or 0) + 1
         changed_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
         record.save(update_fields=changed_fields)
-    if status_code and status_code != original_status:
+    if status_code and resolved_status_code and resolved_status_code != original_status:
         record_status_transition(
             entity_type=ENTITY_REQUEST,
             entity_id=int(request.reliefrqst_id),
             from_status=original_status,
-            to_status=status_code,
+            to_status=resolved_status_code,
             actor_id=actor_id,
         )
     return record
@@ -1534,6 +1573,11 @@ def save_package(
         # No package yet - acquire lock immediately after save creates one.
         pass
     result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
+    # Re-sync request after legacy save to keep the operations status at
+    # APPROVED_FOR_FULFILLMENT (the legacy save sets status_code=2 which
+    # the mapping interprets as CANCELLED).
+    request = legacy_service._load_request(reliefrqst_id)
+    request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if not package_locked_before_save and package is not None:
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())

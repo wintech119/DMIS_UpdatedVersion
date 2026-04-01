@@ -170,7 +170,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             event_time=datetime(2026, 3, 24, 10, 0, 0),
         )
 
-        self.assertEqual(values["status_code"], 2)
+        self.assertEqual(values["status_code"], 3)
         self.assertEqual(values["review_by_id"], "planner")
         self.assertEqual(values["action_by_id"], None)
         self.assertEqual(values["action_dtime"], None)
@@ -210,7 +210,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             event_time=datetime(2026, 3, 25, 11, 0, 0),
         )
 
-        self.assertEqual(values["status_code"], 2)
+        self.assertEqual(values["status_code"], 3)
         self.assertEqual(values["review_by_id"], "reviewer")
         self.assertEqual(values["review_dtime"], datetime(2026, 3, 24, 10, 0, 0))
         self.assertEqual(values["action_by_id"], None)

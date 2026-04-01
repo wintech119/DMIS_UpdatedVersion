@@ -17,10 +17,11 @@ import {
   formatOperationsLineCount,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
-  OperationsTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
+  handleRovingRadioKeydown,
   mapOperationsToneToChipTone,
+  OperationsTone,
 } from '../operations-display.util';
 
 type ReviewFilter = 'all' | 'critical' | 'high' | 'submitted' | 'closed';
@@ -144,6 +145,10 @@ export class EligibilityReviewQueueComponent implements OnInit {
     this.activeFilter.set(filter);
   }
 
+  onFilterKeydown(event: KeyboardEvent, index: number): void {
+    handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
   onSearch(value: string): void {
     this.searchTerm.set(value);
   }
@@ -163,6 +168,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
   trackByRequestId(_index: number, request: RequestSummary): number {
     return request.reliefrqst_id;
   }
+
 
   private loadQueue(): void {
     this.loading.set(true);

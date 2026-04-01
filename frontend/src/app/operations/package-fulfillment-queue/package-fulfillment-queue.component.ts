@@ -27,6 +27,7 @@ import {
   getOperationsPackageTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
+  handleRovingRadioKeydown,
   mapOperationsToneToChipTone,
   OperationsTone,
 } from '../operations-display.util';
@@ -178,6 +179,10 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   setFilter(filter: FulfillmentFilter): void {
     this.activeFilter.set(filter);
+  }
+
+  onFilterKeydown(event: KeyboardEvent, index: number): void {
+    handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
   getFulfillmentStage(row: PackageQueueItem): FulfillmentFilter {

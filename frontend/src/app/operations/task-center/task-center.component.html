@@ -60,7 +60,9 @@
                 type="button"
                 role="radio"
                 [attr.aria-checked]="activeFilter() === filter.value"
-                (click)="setFilter(filter.value)">
+                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+                (click)="setFilter(filter.value)"
+                (keydown)="onFilterKeydown($event, $index)">
                 {{ filter.label }}
               </button>
             }

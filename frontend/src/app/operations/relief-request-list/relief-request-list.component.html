@@ -9,12 +9,17 @@
       <p class="ops-hero__copy">
         Queue, create, and follow each operational request from draft through eligibility and fulfillment.
       </p>
+      <app-ops-status-chip label="Operational Demand Queue" tone="info" />
     </div>
 
     <div class="ops-hero__actions">
       <button mat-flat-button color="primary" type="button" (click)="newRequest()">
         <mat-icon>add</mat-icon>
         New Request
+      </button>
+      <button mat-stroked-button type="button" (click)="setFilter('review')">
+        <mat-icon>rule</mat-icon>
+        In Review
       </button>
     </div>
   </header>
@@ -55,7 +60,9 @@
                 type="button"
                 role="radio"
                 [attr.aria-checked]="activeFilter() === filter.value"
-                (click)="setFilter(filter.value)">
+                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+                (click)="setFilter(filter.value)"
+                (keydown)="onFilterKeydown($event, $index)">
                 {{ filter.label }}
               </button>
             }

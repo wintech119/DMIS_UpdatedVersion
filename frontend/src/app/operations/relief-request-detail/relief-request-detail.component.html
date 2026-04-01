@@ -207,7 +207,7 @@
                         </div>
                       </td>
                       <td>
-                        <app-ops-status-chip [label]="formatOperationsPackageStatus(pkg.status_code)" [tone]="chipTone(getOperationsPackageTone(pkg.status_code))"></app-ops-status-chip>
+                        <app-ops-status-chip [label]="formatOperationsPackageStatus(pkg.status_code, pkg.execution_status)" [tone]="chipTone(getOperationsPackageTone(pkg.status_code, pkg.execution_status))"></app-ops-status-chip>
                       </td>
                       <td>{{ pkg.dispatch_dtime ? formatOperationsDateTime(pkg.dispatch_dtime) : 'Pending' }}</td>
                       <td>

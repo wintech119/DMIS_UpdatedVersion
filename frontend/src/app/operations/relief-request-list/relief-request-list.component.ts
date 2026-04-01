@@ -19,10 +19,11 @@ import {
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   formatRequestMode,
-  OperationsTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
+  handleRovingRadioKeydown,
   mapOperationsToneToChipTone,
+  OperationsTone,
 } from '../operations-display.util';
 
 type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
@@ -158,6 +159,10 @@ export class ReliefRequestListComponent implements OnInit {
 
   setFilter(filter: RequestFilter): void {
     this.activeFilter.set(filter);
+  }
+
+  onFilterKeydown(event: KeyboardEvent, index: number): void {
+    handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
   onSearch(value: string): void {
