@@ -736,16 +736,10 @@ def _can_read_eligibility_request(
     actor_roles: Iterable[str],
     tenant_context: TenantContext,
 ) -> bool:
-    try:
-        _ensure_request_access(
-            request_record,
-            actor_id=actor_id,
-            actor_roles=actor_roles,
-            tenant_context=tenant_context,
-        )
-        return True
-    except OperationValidationError:
-        pass
+    relevant_tenants = [request_record.requesting_tenant_id, request_record.beneficiary_tenant_id]
+    for tenant_id in relevant_tenants:
+        if tenant_id and can_access_tenant(tenant_context, int(tenant_id), write=False):
+            return True
 
     normalized_roles = normalize_role_codes(actor_roles)
     if ROLE_SYSTEM_ADMINISTRATOR in normalized_roles:
@@ -756,15 +750,19 @@ def _can_read_eligibility_request(
         return False
 
     request_pk = int(request_record.relief_request_id)
-    return (
-        OperationsEligibilityDecision.objects.filter(relief_request_id=request_pk).exists()
-        or OperationsQueueAssignment.objects.filter(
-            Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
-            queue_code=QUEUE_CODE_ELIGIBILITY,
-            entity_type=ENTITY_REQUEST,
-            entity_id=request_pk,
-        ).exists()
+    active_tenant_id = tenant_context.active_tenant_id
+    assignment_filters = OperationsQueueAssignment.objects.filter(
+        Q(assigned_user_id=actor_id) | Q(assigned_role_code__in=normalized_roles),
+        queue_code=QUEUE_CODE_ELIGIBILITY,
+        entity_type=ENTITY_REQUEST,
+        entity_id=request_pk,
+        assignment_status__in=["OPEN", "COMPLETED"],
     )
+    if active_tenant_id is not None:
+        assignment_filters = assignment_filters.filter(
+            Q(assigned_tenant_id=active_tenant_id) | Q(assigned_tenant_id__isnull=True)
+        )
+    return assignment_filters.exists()
 
 
 def _ensure_fulfillment_request_access(
