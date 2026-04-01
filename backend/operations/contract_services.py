@@ -1430,7 +1430,10 @@ def list_packages(*, actor_id: str | None = None, actor_roles: Iterable[str] | N
             break
     results: list[dict[str, Any]] = []
     for reliefrqst_id in request_ids:
-        request = legacy_service._load_request(int(reliefrqst_id))
+        try:
+            request = legacy_service._load_request(int(reliefrqst_id))
+        except ReliefRqst.DoesNotExist:
+            continue
         request_probe = _request_access_probe_from_legacy(request)
         try:
             _ensure_fulfillment_request_access(
