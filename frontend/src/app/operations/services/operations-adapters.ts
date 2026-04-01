@@ -183,6 +183,8 @@ function normalizeAllocationLine(raw: unknown): AllocationLine {
     rule_bypass_flag: asBoolean(source['rule_bypass_flag']),
     supervisor_approved_by: asNullableString(source['supervisor_approved_by']),
     supervisor_approved_at: asNullableString(source['supervisor_approved_at']),
+    item_code: asNullableString(source['item_code']),
+    item_name: asNullableString(source['item_name']),
   };
 }
 
@@ -363,15 +365,18 @@ function normalizeDispatchRecord(raw: unknown): DispatchRecordSummary | null {
 
 export function normalizeDispatchDetail(raw: unknown): DispatchDetailResponse {
   const source = asRecord(raw);
-  const packageSummary = normalizePackageSummary(source);
+  const packageSource = source['package'] ? asRecord(source['package']) : source;
+  const packageSummary = normalizePackageSummary(packageSource);
   const dispatch = normalizeDispatchRecord(source['dispatch']);
+  const allocationSource = packageSource['allocation'] ?? source['allocation'];
   return {
     ...packageSummary,
     dispatch,
     dispatch_dtime: dispatch?.dispatch_at ?? packageSummary.dispatch_dtime,
     transport_mode: dispatch?.transport?.transport_mode ?? packageSummary.transport_mode,
     request: normalizeRequestSummary(source['request']),
-    allocation: source['allocation'] ? normalizeAllocationSummary(source['allocation']) : undefined,
+    items: asArray(source['items']).map(normalizeRequestItem),
+    allocation: allocationSource ? normalizeAllocationSummary(allocationSource) : undefined,
     waybill: source['waybill'] ? normalizeWaybill(source['waybill']) : null,
   };
 }

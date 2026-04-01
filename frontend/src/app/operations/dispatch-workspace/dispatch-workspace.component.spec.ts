@@ -31,7 +31,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
       status_label: 'Ready for Dispatch',
       dispatch_dtime: null,
       received_dtime: null,
-      transport_mode: null,
+      transport_mode: 'TRUCK',
       comments_text: null,
       version_nbr: 1,
       execution_status: 'READY_FOR_DISPATCH',
@@ -73,13 +73,13 @@ describe('OpsDispatchWorkspaceComponent', () => {
             item_id: 101,
             inventory_id: 11,
             batch_id: 5,
-            quantity: '4.0000',
+            quantity: '1.2345',
             source_type: 'ON_HAND',
           },
         ],
         reserved_stock_summary: {
           line_count: 1,
-          total_qty: '4.0000',
+          total_qty: '1.2345',
         },
         waybill_no: null,
       },
@@ -126,6 +126,18 @@ describe('OpsDispatchWorkspaceComponent', () => {
     fixture = TestBed.createComponent(OpsDispatchWorkspaceComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('preloads the transport mode captured during package fulfillment', () => {
+    expect(component.transportForm.getRawValue().transport_mode).toBe('TRUCK');
+  });
+
+  it('keeps the desktop table gated and preserves four-decimal reservation quantities', () => {
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('.ops-readiness__table-wrap.desktop-only')).not.toBeNull();
+    expect(host.querySelector('.ops-stock-strip__value')?.textContent).toContain('1.2345');
+    expect(host.querySelector('tbody .ops-readiness__table-num')?.textContent).toContain('1.2345');
   });
 
   it('submits the backend-aligned dispatch payload keys', () => {

@@ -155,33 +155,36 @@ import { formatSourceType } from '../../models/operations-status.util';
         </div>
 
         @if (lines().length) {
-          <div class="ops-summary-grid">
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Reserved Quantity</span>
-              <p class="ops-summary-card__value">{{ reservedQuantity() | number:'1.0-4' }}</p>
+          <div class="ops-stock-strip" role="status" aria-label="Stock reservation summary">
+            <div class="ops-stock-strip__stat">
+              <span class="ops-stock-strip__value">{{ reservedQuantity() | number:'1.0-4' }}</span>
+              <span class="ops-stock-strip__label">qty reserved</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Reserved Lines</span>
-              <p class="ops-summary-card__value">{{ lines().length }}</p>
+            <span class="ops-stock-strip__sep" aria-hidden="true"></span>
+            <div class="ops-stock-strip__stat">
+              <span class="ops-stock-strip__value">{{ lines().length }}</span>
+              <span class="ops-stock-strip__label">{{ lines().length === 1 ? 'line' : 'lines' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Dispatch Reference</span>
-              <p class="ops-summary-card__value">{{ detail()?.waybill?.waybill_no || detail()?.allocation?.waybill_no || 'Assigned on dispatch' }}</p>
+            <span class="ops-stock-strip__sep" aria-hidden="true"></span>
+            <div class="ops-stock-strip__stat">
+              <mat-icon class="ops-stock-strip__icon" aria-hidden="true">description</mat-icon>
+              <span class="ops-stock-strip__label">{{ detail()?.waybill?.waybill_no || detail()?.allocation?.waybill_no || 'Ref assigned on dispatch' }}</span>
             </div>
-            <div class="ops-summary-card">
-              <span class="ops-summary-card__label">Deduction Rule</span>
-              <p class="ops-summary-card__value">Deduct on dispatch</p>
+            <span class="ops-stock-strip__sep" aria-hidden="true"></span>
+            <div class="ops-stock-strip__stat">
+              <mat-icon class="ops-stock-strip__icon" aria-hidden="true">swap_vert</mat-icon>
+              <span class="ops-stock-strip__label">Deduct on dispatch</span>
             </div>
           </div>
 
-          <div class="ops-readiness__table-wrap desktop-only" role="table" aria-label="Reserved stock lines">
-            <table class="ops-table">
+          <div class="ops-readiness__table-wrap desktop-only" aria-label="Reserved stock lines">
+            <table class="ops-readiness__table">
               <thead>
                 <tr>
                   <th>Item</th>
                   <th>Batch / Lot</th>
                   <th>Source</th>
-                  <th>Qty</th>
+                  <th class="ops-readiness__table-num">Qty</th>
                 </tr>
               </thead>
               <tbody>
@@ -190,7 +193,7 @@ import { formatSourceType } from '../../models/operations-status.util';
                     <td>{{ itemLabel(line) }}</td>
                     <td>{{ line.batch_no || ('Batch ' + line.batch_id) }}</td>
                     <td>{{ formatSource(line.source_type) }}</td>
-                    <td>{{ line.quantity | number:'1.0-4' }}</td>
+                    <td class="ops-readiness__table-num">{{ line.quantity | number:'1.0-4' }}</td>
                   </tr>
                 }
               </tbody>
@@ -200,18 +203,24 @@ import { formatSourceType } from '../../models/operations-status.util';
           <div class="mobile-only ops-readiness__mobile-list" role="list" aria-label="Reserved stock lines">
             @for (line of lines(); track line.inventory_id + '-' + line.batch_id + '-' + line.item_id) {
               <div class="ops-readiness__mobile-card" role="listitem">
-                <strong>{{ itemLabel(line) }}</strong>
-                <span>{{ line.batch_no || ('Batch ' + line.batch_id) }}</span>
-                <span>{{ formatSource(line.source_type) }}</span>
-                <strong>{{ line.quantity | number:'1.0-4' }}</strong>
+                <div class="ops-readiness__mobile-card-header">
+                  <strong>{{ itemLabel(line) }}</strong>
+                  <strong>{{ line.quantity | number:'1.0-4' }}</strong>
+                </div>
+                <div class="ops-readiness__mobile-card-meta">
+                  <span>{{ line.batch_no || ('Batch ' + line.batch_id) }}</span>
+                  <span>{{ formatSource(line.source_type) }}</span>
+                </div>
               </div>
             }
           </div>
         } @else {
-          <div class="ops-empty">
+          <div class="ops-readiness__empty" role="status">
             <mat-icon aria-hidden="true">inventory_2</mat-icon>
-            <p class="ops-empty__title">No reserved stock lines</p>
-            <p class="ops-empty__copy">Reserve stock in the fulfillment workspace before moving to dispatch.</p>
+            <div>
+              <p class="ops-readiness__empty-title">No reserved stock lines</p>
+              <p class="ops-readiness__empty-copy">Reserve stock in the fulfillment workspace before moving to dispatch.</p>
+            </div>
           </div>
         }
       </section>
@@ -270,25 +279,152 @@ import { formatSourceType } from '../../models/operations-status.util';
       grid-column: 1 / -1;
     }
 
+    /* ── Stock summary strip ─────────────────────────────────── */
+    .ops-stock-strip {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 0.65rem;
+      background: var(--color-surface-container-low, #f3f3f4);
+      flex-wrap: wrap;
+    }
+
+    .ops-stock-strip__stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .ops-stock-strip__value {
+      font-size: 1.1rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+      letter-spacing: -0.02em;
+    }
+
+    .ops-stock-strip__label {
+      font-size: 0.78rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .ops-stock-strip__icon {
+      font-size: 0.95rem;
+      width: 0.95rem;
+      height: 0.95rem;
+      color: var(--color-text-tertiary, #908d87);
+    }
+
+    .ops-stock-strip__sep {
+      width: 1px;
+      height: 1.1rem;
+      background: var(--ops-outline, rgba(55, 53, 47, 0.12));
+      flex-shrink: 0;
+    }
+
+    /* ── Table ────────────────────────────────────────────────── */
     .ops-readiness__table-wrap {
       overflow-x: auto;
       border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.08));
-      border-radius: 10px;
+      border-radius: 0.6rem;
     }
 
+    .ops-readiness__table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .ops-readiness__table th,
+    .ops-readiness__table td {
+      padding: 0.55rem 0.7rem;
+      text-align: left;
+      border-bottom: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.06));
+      vertical-align: middle;
+    }
+
+    .ops-readiness__table th {
+      font-size: 0.68rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-text-secondary, #787774);
+      background: var(--color-surface-container-low, #f3f3f4);
+      font-weight: var(--weight-semibold, 600);
+    }
+
+    .ops-readiness__table td {
+      font-size: 0.86rem;
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .ops-readiness__table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .ops-readiness__table-num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Mobile cards ─────────────────────────────────────────── */
     .ops-readiness__mobile-list {
       display: none;
-      gap: 10px;
+      gap: 6px;
     }
 
     .ops-readiness__mobile-card {
-      display: grid;
-      gap: 4px;
-      padding: 12px;
-      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0.65rem 0.75rem;
+      border-radius: 0.5rem;
       background: var(--color-surface, #ffffff);
       border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.08));
-      box-shadow: 0 1px 3px rgba(55, 53, 47, 0.06);
+    }
+
+    .ops-readiness__mobile-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.88rem;
+      font-weight: var(--weight-semibold, 600);
+    }
+
+    .ops-readiness__mobile-card-meta {
+      display: flex;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    /* ── Empty state ──────────────────────────────────────────── */
+    .ops-readiness__empty {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      padding: 1rem;
+      border-radius: 0.65rem;
+      background: var(--color-surface-container-low, #f3f3f4);
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .ops-readiness__empty mat-icon {
+      font-size: 1.25rem;
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-top: 0.1rem;
+      color: var(--color-text-tertiary, #908d87);
+    }
+
+    .ops-readiness__empty-title {
+      margin: 0;
+      font-size: 0.88rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .ops-readiness__empty-copy {
+      margin: 0.15rem 0 0;
+      font-size: 0.82rem;
     }
 
     .desktop-only {
@@ -299,30 +435,28 @@ import { formatSourceType } from '../../models/operations-status.util';
       display: none;
     }
 
-    @media (max-width: 960px) {
-      .ops-summary-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
     @media (max-width: 768px) {
       .desktop-only {
         display: none;
       }
 
       .mobile-only {
-        display: grid;
+        display: flex;
+        flex-direction: column;
       }
     }
 
     @media (max-width: 520px) {
-      .ops-summary-grid,
       .ops-readiness__form-grid {
         grid-template-columns: 1fr;
       }
 
       .ops-readiness__form-grid--full {
         grid-column: auto;
+      }
+
+      .ops-stock-strip {
+        gap: 0.5rem 0.6rem;
       }
     }
 
