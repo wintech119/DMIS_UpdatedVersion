@@ -163,6 +163,11 @@ class OperationsWorkflowContractTests(TestCase):
             review_dtime=None,
             status_code=1,
         )
+        self.fulfillment_request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
         self.package = SimpleNamespace(
             reliefpkg_id=90,
             tracking_no="PK00090",
@@ -942,7 +947,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -975,7 +980,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -1003,7 +1008,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -1043,7 +1048,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -1151,7 +1156,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -1204,7 +1209,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "DRAFT", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
@@ -1233,7 +1238,7 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_agency_scope_mock,
     ) -> None:
-        load_request_mock.return_value = self.request
+        load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         get_agency_scope_mock.return_value = self.agency_scope
         self._create_operations_request_record()
