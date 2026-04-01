@@ -26,11 +26,12 @@ import {
 } from '../operations-display.util';
 
 type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
+type RequestStatusGroup = RequestFilter | 'other';
 
 interface QueueMetric {
   label: string;
   value: number;
-  route: string;
+  filter: RequestFilter;
   tone: 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
   note: string;
 }
@@ -109,19 +110,21 @@ export class ReliefRequestListComponent implements OnInit {
     const dispatched = rows.filter((row) => this.getStatusGroup(row) === 'dispatched').length;
 
     return [
-      { label: 'Drafts', value: draft, route: '/operations/relief-requests', tone: 'draft', note: 'Unsubmitted and editable' },
-      { label: 'In Review', value: review, route: '/operations/eligibility-review', tone: 'review', note: 'Queued for decision' },
-      { label: 'Approved', value: approved, route: '/operations/relief-requests', tone: 'warning', note: 'Awaiting fulfillment' },
-      { label: 'Dispatched', value: dispatched, route: '/operations/relief-requests', tone: 'success', note: 'Packages on the road' },
+      { label: 'Drafts', value: draft, filter: 'draft', tone: 'draft', note: 'Unsubmitted and editable' },
+      { label: 'In Review', value: review, filter: 'review', tone: 'review', note: 'Queued for decision' },
+      { label: 'Approved', value: approved, filter: 'approved', tone: 'warning', note: 'Awaiting fulfillment' },
+      { label: 'Dispatched', value: dispatched, filter: 'dispatched', tone: 'success', note: 'Packages on the road' },
     ];
   });
 
   readonly metricStrip = computed<OpsMetricStripItem[]>(() => {
     const m = this.metrics();
-    return m.map(metric => ({
+    return m.map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       hint: metric.note,
+      interactive: true,
+      token: metric.filter,
     }));
   });
 
@@ -169,8 +172,12 @@ export class ReliefRequestListComponent implements OnInit {
     this.router.navigate(['/operations/relief-requests', request.reliefrqst_id]);
   }
 
-  openMetric(metric: QueueMetric): void {
-    this.router.navigateByUrl(metric.route);
+  openMetric(metric: OpsMetricStripItem): void {
+    const filter = metric.token as RequestFilter | undefined;
+    if (!filter) {
+      return;
+    }
+    this.setFilter(filter);
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
@@ -200,8 +207,8 @@ export class ReliefRequestListComponent implements OnInit {
     });
   }
 
-  private getStatusGroup(request: RequestSummary): RequestFilter {
-    switch (request.status_code) {
+  private getStatusGroup(request: RequestSummary): RequestStatusGroup {
+    switch (String(request.status_code ?? '').trim().toUpperCase()) {
       case 'DRAFT':
         return 'draft';
       case 'SUBMITTED':
@@ -217,7 +224,7 @@ export class ReliefRequestListComponent implements OnInit {
       case 'INELIGIBLE':
         return 'closed';
       default:
-        return 'approved';
+        return 'other';
     }
   }
 }

@@ -1842,8 +1842,8 @@ class OperationsWorkflowContractTests(TestCase):
         self,
         load_request_mock,
         get_agency_scope_mock,
-        _request_summary_payload_mock,
         relief_request_filter_mock,
+        _request_summary_payload_mock,
     ) -> None:
         awaiting_request = self._request_stub(
             reliefrqst_id=70,

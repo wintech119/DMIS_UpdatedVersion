@@ -19,7 +19,7 @@
     </div>
   </header>
 
-  <app-ops-metric-strip [items]="metricStrip()" />
+  <app-ops-metric-strip [items]="metricStrip()" (itemClick)="openMetric($event)" />
 
   <div class="ops-grid ops-grid--split">
     <section class="ops-panel">
