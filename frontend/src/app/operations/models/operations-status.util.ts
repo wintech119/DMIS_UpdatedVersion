@@ -54,22 +54,40 @@ export function getRequestStatusCssClass(code: RequestStatusCode | string): stri
 // ── Package status ─────────────────────────────────────────────────
 
 const PKG_STATUS_LABELS: Record<string, string> = {
+  // Legacy single-char codes
   A: 'Draft',
   P: 'Ready for Dispatch',
   D: 'Dispatched',
   C: 'Completed',
+  // Operations-layer status codes
+  DRAFT: 'Draft',
+  PENDING_OVERRIDE_APPROVAL: 'Override Pending',
+  COMMITTED: 'Ready for Dispatch',
+  READY_FOR_DISPATCH: 'Ready for Dispatch',
+  DISPATCHED: 'Dispatched',
+  RECEIVED: 'Received',
+  CANCELLED: 'Cancelled',
 };
 
 export function formatPackageStatus(code: PackageStatusCode | string): string {
-  return PKG_STATUS_LABELS[code] ?? 'Unknown';
+  const key = String(code ?? '').trim().toUpperCase();
+  return PKG_STATUS_LABELS[key] ?? PKG_STATUS_LABELS[code] ?? 'Unknown';
 }
 
 export function getPackageStatusCssClass(code: PackageStatusCode | string): string {
-  switch (code) {
-    case 'A': return 'status-draft';
-    case 'P': return 'status-awaiting';
-    case 'D': return 'status-submitted';
-    case 'C': return 'status-filled';
+  const key = String(code ?? '').trim().toUpperCase();
+  switch (key) {
+    case 'A':
+    case 'DRAFT': return 'status-draft';
+    case 'P':
+    case 'COMMITTED':
+    case 'READY_FOR_DISPATCH':
+    case 'PENDING_OVERRIDE_APPROVAL': return 'status-awaiting';
+    case 'D':
+    case 'DISPATCHED': return 'status-submitted';
+    case 'C':
+    case 'RECEIVED': return 'status-filled';
+    case 'CANCELLED': return 'status-cancelled';
     default: return 'status-unknown';
   }
 }

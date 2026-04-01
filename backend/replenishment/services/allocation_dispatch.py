@@ -1235,7 +1235,7 @@ def _request_header_update_values(
 
     if package_status in {"A", "P", "C", "V"}:
         return {
-            "status_code": 2,
+            "status_code": 3,  # STATUS_SUBMITTED — keeps request in fulfillment state
             "review_by_id": review_by_id,
             "review_dtime": review_dtime,
             "action_by_id": None,

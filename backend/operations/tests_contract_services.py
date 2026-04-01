@@ -967,7 +967,10 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).exists()
         )
-        load_request_mock.assert_called_once_with(70, for_update=True)
+        # First call loads for update, second re-syncs request status after legacy save
+        self.assertEqual(load_request_mock.call_count, 2)
+        load_request_mock.assert_any_call(70, for_update=True)
+        load_request_mock.assert_any_call(70)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")

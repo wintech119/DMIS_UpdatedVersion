@@ -60,13 +60,23 @@ export class DispatchQueueComponent implements OnInit {
   readonly filteredItems = computed(() => {
     const filter = this.activeFilter();
     const allItems = this.items();
+    const norm = (code: string | undefined) => String(code ?? '').trim().toUpperCase();
     switch (filter) {
       case 'ready':
-        return allItems.filter((item) => item.status_code === 'P');
+        return allItems.filter((item) => {
+          const s = norm(item.status_code);
+          return s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH';
+        });
       case 'in_transit':
-        return allItems.filter((item) => item.status_code === 'D' && !item.received_dtime);
+        return allItems.filter((item) => {
+          const s = norm(item.status_code);
+          return (s === 'D' || s === 'DISPATCHED') && !item.received_dtime;
+        });
       case 'completed':
-        return allItems.filter((item) => item.status_code === 'C');
+        return allItems.filter((item) => {
+          const s = norm(item.status_code);
+          return s === 'C' || s === 'RECEIVED';
+        });
       default:
         return allItems;
     }
@@ -74,17 +84,28 @@ export class DispatchQueueComponent implements OnInit {
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const ready = items.filter((item) => item.status_code === 'P').length;
-    const inTransit = items.filter((item) => item.status_code === 'D' && !item.received_dtime).length;
+    const norm = (code: string | undefined) => String(code ?? '').trim().toUpperCase();
+    const ready = items.filter((item) => {
+      const s = norm(item.status_code);
+      return s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH';
+    }).length;
+    const inTransit = items.filter((item) => {
+      const s = norm(item.status_code);
+      return (s === 'D' || s === 'DISPATCHED') && !item.received_dtime;
+    }).length;
     const recentlyDispatched = items.filter((item) => {
-      if (item.status_code !== 'C' || !item.received_dtime) {
+      const s = norm(item.status_code);
+      if ((s !== 'C' && s !== 'RECEIVED') || !item.received_dtime) {
         return false;
       }
       const receivedDate = new Date(item.received_dtime);
       const ageMs = Date.now() - receivedDate.getTime();
       return ageMs >= 0 && ageMs < 48 * 60 * 60 * 1000;
     }).length;
-    const completed = items.filter((item) => item.status_code === 'C').length;
+    const completed = items.filter((item) => {
+      const s = norm(item.status_code);
+      return s === 'C' || s === 'RECEIVED';
+    }).length;
     return [
       { label: 'Ready', value: ready, note: 'Awaiting handoff' },
       { label: 'In Transit', value: inTransit, note: 'Dispatched, receipt pending' },
@@ -135,13 +156,22 @@ export class DispatchQueueComponent implements OnInit {
   statusTone(code: string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
     switch (String(code ?? '').trim().toUpperCase()) {
       case 'C':
+      case 'RECEIVED':
         return 'success';
       case 'D':
+      case 'DISPATCHED':
         return 'info';
       case 'P':
+      case 'COMMITTED':
+      case 'READY_FOR_DISPATCH':
         return 'warning';
       case 'A':
+      case 'DRAFT':
         return 'soft';
+      case 'PENDING_OVERRIDE_APPROVAL':
+        return 'warning';
+      case 'CANCELLED':
+        return 'neutral';
       default:
         return 'neutral';
     }
