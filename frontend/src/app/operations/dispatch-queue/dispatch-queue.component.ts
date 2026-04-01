@@ -7,12 +7,9 @@ import {
   OnInit,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { DatePipe } from '@angular/common';
 
-import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatTableModule } from '@angular/material/table';
 
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
@@ -20,19 +17,24 @@ import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metri
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { DispatchQueueItem } from '../models/operations.model';
-import { formatPackageStatus } from '../models/operations-status.util';
+import {
+  formatOperationsPackageStatus,
+  formatOperationsAge,
+  formatOperationsDateTime,
+  getOperationsPackageTone,
+  mapOperationsToneToChipTone,
+  OperationsTone,
+} from '../operations-display.util';
 
 type DispatchFilter = 'all' | 'ready' | 'in_transit' | 'completed';
+type DispatchStage = DispatchFilter | 'unknown';
 
 @Component({
   selector: 'app-dispatch-queue',
   standalone: true,
   imports: [
-    DatePipe,
-    MatCardModule,
     MatButtonModule,
     MatIconModule,
-    MatTableModule,
     OpsMetricStripComponent,
     OpsStatusChipComponent,
     DmisEmptyStateComponent,
@@ -48,6 +50,7 @@ export class DispatchQueueComponent implements OnInit {
 
   readonly loading = signal(true);
   readonly items = signal<DispatchQueueItem[]>([]);
+  readonly searchTerm = signal('');
   readonly activeFilter = signal<DispatchFilter>('all');
 
   readonly filterOptions: readonly { label: string; value: DispatchFilter }[] = [
@@ -58,59 +61,40 @@ export class DispatchQueueComponent implements OnInit {
   ];
 
   readonly filteredItems = computed(() => {
+    const term = this.searchTerm().trim().toLowerCase();
     const filter = this.activeFilter();
-    const allItems = this.items();
-    const norm = (code: string | undefined) => String(code ?? '').trim().toUpperCase();
-    switch (filter) {
-      case 'ready':
-        return allItems.filter((item) => {
-          const s = norm(item.status_code);
-          return s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH';
-        });
-      case 'in_transit':
-        return allItems.filter((item) => {
-          const s = norm(item.status_code);
-          return (s === 'D' || s === 'DISPATCHED') && !item.received_dtime;
-        });
-      case 'completed':
-        return allItems.filter((item) => {
-          const s = norm(item.status_code);
-          return s === 'C' || s === 'RECEIVED';
-        });
-      default:
-        return allItems;
-    }
+
+    return this.items().filter((row) => {
+      if (filter !== 'all' && this.getDispatchStage(row) !== filter) {
+        return false;
+      }
+      if (!term) {
+        return true;
+      }
+      const haystack = [
+        row.tracking_no ?? `PKG-${row.reliefpkg_id}`,
+        row.request_tracking_no,
+        row.agency_name,
+        row.event_name,
+        row.transport_mode,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    });
   });
 
   readonly queueStats = computed(() => {
     const items = this.items();
-    const norm = (code: string | undefined) => String(code ?? '').trim().toUpperCase();
-    const ready = items.filter((item) => {
-      const s = norm(item.status_code);
-      return s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH';
-    }).length;
-    const inTransit = items.filter((item) => {
-      const s = norm(item.status_code);
-      return (s === 'D' || s === 'DISPATCHED') && !item.received_dtime;
-    }).length;
-    const recentlyDispatched = items.filter((item) => {
-      const s = norm(item.status_code);
-      if ((s !== 'C' && s !== 'RECEIVED') || !item.received_dtime) {
-        return false;
-      }
-      const receivedDate = new Date(item.received_dtime);
-      const ageMs = Date.now() - receivedDate.getTime();
-      return ageMs >= 0 && ageMs < 48 * 60 * 60 * 1000;
-    }).length;
-    const completed = items.filter((item) => {
-      const s = norm(item.status_code);
-      return s === 'C' || s === 'RECEIVED';
-    }).length;
+    const ready = items.filter((item) => this.getDispatchStage(item) === 'ready').length;
+    const inTransit = items.filter((item) => this.getDispatchStage(item) === 'in_transit').length;
+    const completed = items.filter((item) => this.getDispatchStage(item) === 'completed').length;
     return [
       { label: 'Ready', value: ready, note: 'Awaiting handoff' },
       { label: 'In Transit', value: inTransit, note: 'Dispatched, receipt pending' },
-      { label: 'Recently Dispatched', value: recentlyDispatched, note: 'Received within 48h' },
       { label: 'Completed', value: completed, note: 'Receipt confirmed' },
+      { label: 'All Packages', value: items.length, note: 'Visible in the queue' },
     ];
   });
 
@@ -122,16 +106,20 @@ export class DispatchQueueComponent implements OnInit {
     })),
   );
 
-  readonly displayedColumns = [
-    'package_tracking_no',
-    'request',
-    'agency',
-    'status',
-    'dispatch_date',
-    'actions',
-  ];
+  readonly sidebarSummary = computed(() => {
+    const rows = this.filteredItems();
+    return {
+      total: rows.length,
+      ready: rows.filter((r) => this.getDispatchStage(r) === 'ready').length,
+      inTransit: rows.filter((r) => this.getDispatchStage(r) === 'in_transit').length,
+      completed: rows.filter((r) => this.getDispatchStage(r) === 'completed').length,
+    };
+  });
 
-  readonly formatPackageStatus = formatPackageStatus;
+  readonly formatPackageStatus = formatOperationsPackageStatus;
+  readonly formatAge = formatOperationsAge;
+  readonly formatDateTime = formatOperationsDateTime;
+  readonly getPackageTone = getOperationsPackageTone;
 
   ngOnInit(): void {
     this.refreshQueue();
@@ -145,6 +133,29 @@ export class DispatchQueueComponent implements OnInit {
     this.activeFilter.set(filter);
   }
 
+  onFilterKeydown(event: KeyboardEvent, index: number): void {
+    const targetIndex = this.getFilterTargetIndex(event.key, index);
+    if (targetIndex === null) {
+      return;
+    }
+
+    const target = this.filterOptions[targetIndex];
+    if (!target) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setFilter(target.value);
+
+    const group = (event.currentTarget as HTMLElement | null)?.closest('[role="radiogroup"]');
+    const buttons = Array.from(group?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
+    requestAnimationFrame(() => buttons[targetIndex]?.focus());
+  }
+
+  onSearch(value: string): void {
+    this.searchTerm.set(value);
+  }
+
   viewDispatch(item: DispatchQueueItem): void {
     this.router.navigate(['/operations/dispatch', item.reliefpkg_id]);
   }
@@ -153,32 +164,44 @@ export class DispatchQueueComponent implements OnInit {
     return item.reliefpkg_id;
   }
 
-  statusTone(code: string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
-    switch (String(code ?? '').trim().toUpperCase()) {
-      case 'C':
-      case 'RECEIVED':
-        return 'success';
-      case 'D':
-      case 'DISPATCHED':
-        return 'info';
-      case 'P':
-      case 'COMMITTED':
-      case 'READY_FOR_DISPATCH':
-        return 'warning';
-      case 'A':
-      case 'DRAFT':
-        return 'soft';
-      case 'PENDING_OVERRIDE_APPROVAL':
-        return 'warning';
-      case 'CANCELLED':
-        return 'neutral';
-      default:
-        return 'neutral';
-    }
+  chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
+    return mapOperationsToneToChipTone(tone);
   }
 
-  transportTone(value: string | null | undefined): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {
-    return String(value ?? '').trim() ? 'soft' : 'neutral';
+  private getDispatchStage(row: DispatchQueueItem): DispatchStage {
+    const s = String(row.status_code ?? '').trim().toUpperCase();
+    if (s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH') {
+      return 'ready';
+    }
+    if ((s === 'D' || s === 'DISPATCHED') && !row.received_dtime) {
+      return 'in_transit';
+    }
+    if (s === 'C' || s === 'RECEIVED') {
+      return 'completed';
+    }
+    return 'unknown';
+  }
+
+  private getFilterTargetIndex(key: string, currentIndex: number): number | null {
+    const lastIndex = this.filterOptions.length - 1;
+    if (lastIndex < 0) {
+      return null;
+    }
+
+    switch (key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        return currentIndex === lastIndex ? 0 : currentIndex + 1;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        return currentIndex === 0 ? lastIndex : currentIndex - 1;
+      case 'Home':
+        return 0;
+      case 'End':
+        return lastIndex;
+      default:
+        return null;
+    }
   }
 
   private loadQueue(): void {

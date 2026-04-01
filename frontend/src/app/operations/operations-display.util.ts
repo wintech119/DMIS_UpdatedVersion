@@ -27,14 +27,14 @@ const REQUEST_STATUS_TONES: Record<string, OperationsTone> = {
 const PACKAGE_STATUS_LABELS: Record<string, string> = {
   // Legacy single-char codes
   A: 'Draft',
-  P: 'Pending',
+  P: 'Ready for Dispatch',
   D: 'Dispatched',
   C: 'Completed',
   // Operations-layer status codes
   DRAFT: 'Draft',
   PENDING_OVERRIDE_APPROVAL: 'Override Pending',
-  COMMITTED: 'Committed',
-  READY_FOR_DISPATCH: 'Ready',
+  COMMITTED: 'Ready for Dispatch',
+  READY_FOR_DISPATCH: 'Ready for Dispatch',
   DISPATCHED: 'Dispatched',
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled',
@@ -43,14 +43,14 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
   A: 'draft',
-  P: 'review',
+  P: 'success',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
   DRAFT: 'draft',
   PENDING_OVERRIDE_APPROVAL: 'warning',
-  COMMITTED: 'review',
-  READY_FOR_DISPATCH: 'review',
+  COMMITTED: 'success',
+  READY_FOR_DISPATCH: 'success',
   DISPATCHED: 'warning',
   RECEIVED: 'success',
   CANCELLED: 'muted',
