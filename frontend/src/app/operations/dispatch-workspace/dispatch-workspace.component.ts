@@ -96,6 +96,7 @@ export class OpsDispatchWorkspaceComponent {
     { initialValue: this.transportForm.getRawValue() },
   );
 
+  readonly contextExpanded = signal(false);
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
     {
