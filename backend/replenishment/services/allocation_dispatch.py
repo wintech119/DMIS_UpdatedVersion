@@ -1152,13 +1152,17 @@ def _load_package_plan_with_source_info(package_id: int) -> list[dict[str, Any]]
         )
         batch_rows = _fetch_rows(
             f"""
-            SELECT batch_no
-            FROM {_qualified_table("itembatch")}
-            WHERE batch_id = %s
+            SELECT ib.batch_no, i.item_code, i.item_name
+            FROM {_qualified_table("itembatch")} ib
+            LEFT JOIN {_qualified_table("item")} i ON i.item_id = ib.item_id
+            WHERE ib.batch_id = %s
             """,
             [row["batch_id"]],
         )
-        batch_no = str(batch_rows[0].get("batch_no") or "") if batch_rows else ""
+        batch_info = batch_rows[0] if batch_rows else {}
+        batch_no = str(batch_info.get("batch_no") or "") if batch_info else ""
+        item_code = str(batch_info.get("item_code") or "") if batch_info else ""
+        item_name = str(batch_info.get("item_name") or "") if batch_info else ""
         if batch_no and (int(row["fr_inventory_id"]), int(row["item_id"]), batch_no) in donation_map:
             source_type = "DONATION"
             source_record_id = donation_map[(int(row["fr_inventory_id"]), int(row["item_id"]), batch_no)]
@@ -1177,6 +1181,8 @@ def _load_package_plan_with_source_info(package_id: int) -> list[dict[str, Any]]
                 "inventory_id": int(row["fr_inventory_id"]),
                 "batch_id": int(row["batch_id"]),
                 "batch_no": batch_no or None,
+                "item_code": item_code or None,
+                "item_name": item_name or None,
                 "quantity": _quantize_qty(row["item_qty"]),
                 "uom_code": row.get("uom_code"),
                 "source_type": source_type,

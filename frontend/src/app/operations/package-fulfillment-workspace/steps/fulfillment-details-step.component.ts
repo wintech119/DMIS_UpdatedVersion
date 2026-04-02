@@ -7,17 +7,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
 import { MasterDataService } from '../../../master-data/services/master-data.service';
-import { OVERRIDE_REASON_OPTIONS } from '../../models/operations.model';
+import { OVERRIDE_REASON_OPTIONS, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
-
-const TRANSPORT_MODE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: 'TRUCK', label: 'Truck' },
-  { value: 'VAN', label: 'Van' },
-  { value: 'AIR', label: 'Air' },
-  { value: 'BOAT', label: 'Boat' },
-  { value: 'MOTORCYCLE', label: 'Motorcycle' },
-  { value: 'OTHER', label: 'Other' },
-];
 
 @Component({
   selector: 'app-fulfillment-details-step',

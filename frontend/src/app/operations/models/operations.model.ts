@@ -154,6 +154,8 @@ export interface AllocationLine {
   rule_bypass_flag?: boolean;
   supervisor_approved_by?: string | null;
   supervisor_approved_at?: string | null;
+  item_code?: string | null;
+  item_name?: string | null;
 }
 
 export interface AllocationSummary {
@@ -315,6 +317,7 @@ export interface DispatchQueueResponse {
 
 export interface DispatchDetailResponse extends PackageSummary {
   request: RequestSummary;
+  items?: RequestItem[];
   dispatch?: DispatchRecordSummary | null;
   allocation?: AllocationSummary;
   waybill: WaybillResponse | null;
@@ -439,6 +442,17 @@ export interface ReceiptConfirmationResponse {
   package_tracking_no: string | null;
   receipt: ReceiptArtifact;
 }
+
+export const TRANSPORT_MODE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'TRUCK', label: 'Truck' },
+  { value: 'VAN', label: 'Van' },
+  { value: 'AIR', label: 'Air' },
+  { value: 'BOAT', label: 'Boat' },
+  { value: 'ROAD', label: 'Road' },
+  { value: 'SEA', label: 'Sea' },
+  { value: 'MOTORCYCLE', label: 'Motorcycle' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 export const OVERRIDE_REASON_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'FEFO_BYPASS', label: 'FEFO / FIFO bypass' },

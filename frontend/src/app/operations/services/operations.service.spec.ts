@@ -227,6 +227,75 @@ describe('OperationsService', () => {
     }));
   });
 
+  it('normalizes dispatch detail responses with nested package transport data', () => {
+    let result: unknown;
+
+    service.getDispatchDetail(44).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/dispatch/44');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      request: {
+        reliefrqst_id: 12,
+        tracking_no: 'RQ-00012',
+        agency_id: 8,
+        agency_name: 'Parish Shelter',
+        urgency_ind: 'H',
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        tracking_no: 'PKG-00044',
+        source_warehouse_id: 2,
+        to_inventory_id: 8,
+        destination_warehouse_name: 'Kingston Warehouse',
+        status_code: 'P',
+        transport_mode: 'TRUCK',
+        allocation: {
+          allocation_lines: [
+            {
+              item_id: 101,
+              inventory_id: 11,
+              batch_id: 5,
+              quantity: '4.0000',
+              source_type: 'ON_HAND',
+            },
+          ],
+          reserved_stock_summary: {
+            line_count: 1,
+            total_qty: '4.0000',
+          },
+          waybill_no: null,
+        },
+      },
+      dispatch: {
+        dispatch_id: 101,
+        dispatch_no: 'DSP-00001',
+        status_code: 'READY',
+        dispatch_at: null,
+        transport: null,
+      },
+      waybill: null,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      reliefpkg_id: 44,
+      tracking_no: 'PKG-00044',
+      source_warehouse_id: 2,
+      to_inventory_id: 8,
+      transport_mode: 'TRUCK',
+      allocation: jasmine.objectContaining({
+        allocation_lines: jasmine.any(Array),
+      }),
+      dispatch: jasmine.objectContaining({
+        dispatch_id: 101,
+      }),
+    }));
+  });
+
   it('posts source warehouse when saving a package draft', () => {
     let result: unknown;
 

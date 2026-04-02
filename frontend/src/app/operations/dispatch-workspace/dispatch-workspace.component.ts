@@ -1,12 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ViewChild, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
+import { map, merge, startWith } from 'rxjs';
 
 import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
@@ -27,6 +28,15 @@ import {
   formatPackageStatus,
 } from '../models/operations-status.util';
 
+function arrivalAfterDepartureValidator(group: AbstractControl): ValidationErrors | null {
+  const departure = group.get('departure_dtime')?.value;
+  const arrival = group.get('estimated_arrival_dtime')?.value;
+  if (departure && arrival && new Date(arrival) < new Date(departure)) {
+    return { arrivalBeforeDeparture: true };
+  }
+  return null;
+}
+
 interface DispatchConfirmationState {
   title: string;
   message: string;
@@ -45,8 +55,8 @@ interface DispatchStateSummary {
   standalone: true,
   imports: [
     DatePipe,
+    ReactiveFormsModule,
     MatButtonModule,
-    MatCardModule,
     MatIconModule,
     MatStepperModule,
     OpsMetricStripComponent,
@@ -66,8 +76,25 @@ export class OpsDispatchWorkspaceComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly fb = inject(FormBuilder);
   private readonly operationsService = inject(OperationsService);
   private readonly notifications = inject(DmisNotificationService);
+
+  readonly transportForm = this.fb.nonNullable.group({
+    transport_mode: [''],
+    driver_name: ['', [Validators.required, Validators.maxLength(100)]],
+    vehicle_id: ['', [Validators.maxLength(50)]],
+    departure_dtime: [''],
+    estimated_arrival_dtime: [''],
+    transport_notes: ['', [Validators.maxLength(500)]],
+  }, { validators: arrivalAfterDepartureValidator });
+  readonly transportFormValue = toSignal(
+    merge(this.transportForm.valueChanges, this.transportForm.statusChanges).pipe(
+      startWith(null),
+      map(() => this.transportForm.getRawValue()),
+    ),
+    { initialValue: this.transportForm.getRawValue() },
+  );
 
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
@@ -89,15 +116,35 @@ export class OpsDispatchWorkspaceComponent {
   readonly loading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly submitting = signal(false);
-  readonly transportMode = signal('');
-  readonly driverName = signal('');
-  readonly vehicleIdentifier = signal('');
-  readonly departureTime = signal('');
-  readonly estimatedArrival = signal('');
-  readonly transportNotes = signal('');
   readonly dispatchDetail = signal<DispatchDetailResponse | null>(null);
   readonly waybillReadback = signal<WaybillResponse | null>(null);
   readonly confirmationState = signal<DispatchConfirmationState | null>(null);
+
+  readonly itemNameMap = computed<ReadonlyMap<number, string>>(() => {
+    const detail = this.dispatchDetail();
+    const map = new Map<number, string>();
+    // Primary source: top-level items array from dispatch detail response
+    const items = detail?.items ?? [];
+    for (const item of items) {
+      if (item.item_name && !map.has(item.item_id)) {
+        const label = item.item_code
+          ? `${item.item_name} (${item.item_code})`
+          : item.item_name;
+        map.set(item.item_id, label);
+      }
+    }
+    // Supplement from allocation lines (backend returns item_code/item_name)
+    const lines = detail?.allocation?.allocation_lines ?? [];
+    for (const line of lines) {
+      if (line.item_name && !map.has(line.item_id)) {
+        const label = line.item_code
+          ? `${line.item_name} (${line.item_code})`
+          : line.item_name;
+        map.set(line.item_id, label);
+      }
+    }
+    return map;
+  });
 
   readonly hasCommittedAllocation = computed(() => {
     const alloc = this.dispatchDetail()?.allocation;
@@ -122,7 +169,7 @@ export class OpsDispatchWorkspaceComponent {
     && this.hasCommittedAllocation()
     && !this.hasPendingOverride()
     && !this.alreadyDispatched()
-    && this.driverName().trim().length > 0
+    && this.transportFormValue().driver_name.trim().length > 0
   );
 
   readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
@@ -276,6 +323,7 @@ export class OpsDispatchWorkspaceComponent {
   }
 
   goToDispatchReview(): void {
+    this.transportForm.markAllAsTouched();
     this.navigateToStep(1, true);
   }
 
@@ -295,8 +343,13 @@ export class OpsDispatchWorkspaceComponent {
       this.notifications.showWarning('Dispatch stays blocked while override approval is pending.');
       return;
     }
-    if (this.canDispatchNow()) {
+    this.transportForm.markAllAsTouched();
+    if (this.canDispatchNow() && this.transportForm.valid) {
       this.dispatchNow();
+      return;
+    }
+    if (!this.transportForm.valid) {
+      this.notifications.showWarning('Please complete all required transport fields before dispatching.');
       return;
     }
     this.notifications.showWarning('Dispatch is not ready yet.');
@@ -329,16 +382,21 @@ export class OpsDispatchWorkspaceComponent {
       .subscribe({
         next: (detail: DispatchDetailResponse) => {
           this.dispatchDetail.set(detail);
-          this.transportMode.set(detail.dispatch?.transport?.transport_mode || detail.transport_mode || '');
-          this.driverName.set(detail.dispatch?.transport?.driver_name || '');
-          this.vehicleIdentifier.set(
-            detail.dispatch?.transport?.vehicle_registration
-            || detail.dispatch?.transport?.vehicle_id
-            || '',
-          );
-          this.departureTime.set(this.toDateTimeLocalValue(detail.dispatch?.transport?.departure_dtime));
-          this.estimatedArrival.set(this.toDateTimeLocalValue(detail.dispatch?.transport?.estimated_arrival_dtime));
-          this.transportNotes.set(detail.dispatch?.transport?.transport_notes || '');
+          const transport = detail.dispatch?.transport;
+          this.transportForm.patchValue({
+            transport_mode: transport?.transport_mode || detail.transport_mode || '',
+            driver_name: transport?.driver_name || '',
+            vehicle_id: transport?.vehicle_registration || transport?.vehicle_id || '',
+            departure_dtime: this.toDateTimeLocalValue(transport?.departure_dtime),
+            estimated_arrival_dtime: this.toDateTimeLocalValue(transport?.estimated_arrival_dtime),
+            transport_notes: transport?.transport_notes || '',
+          });
+          const isDispatched = detail.status_code === 'D' || !!detail.dispatch_dtime || !!detail.waybill;
+          if (isDispatched) {
+            this.transportForm.disable();
+          } else {
+            this.transportForm.enable();
+          }
           if (detail.waybill) {
             this.waybillReadback.set(detail.waybill);
           }
@@ -353,13 +411,14 @@ export class OpsDispatchWorkspaceComponent {
 
   private dispatchNow(): void {
     this.submitting.set(true);
+    const formValue = this.transportForm.getRawValue();
     const payload: DispatchHandoffPayload = {
-      transport_mode: this.transportMode().trim() || undefined,
-      driver_name: this.driverName().trim() || undefined,
-      vehicle_registration: this.vehicleIdentifier().trim() || undefined,
-      departure_dtime: this.departureTime().trim() || undefined,
-      estimated_arrival_dtime: this.estimatedArrival().trim() || undefined,
-      transport_notes: this.transportNotes().trim() || undefined,
+      transport_mode: formValue.transport_mode.trim() || undefined,
+      driver_name: formValue.driver_name.trim() || undefined,
+      vehicle_registration: formValue.vehicle_id.trim() || undefined,
+      departure_dtime: formValue.departure_dtime.trim() || undefined,
+      estimated_arrival_dtime: formValue.estimated_arrival_dtime.trim() || undefined,
+      transport_notes: formValue.transport_notes.trim() || undefined,
     };
     this.operationsService.submitDispatchHandoff(
       this.reliefpkgId(),
