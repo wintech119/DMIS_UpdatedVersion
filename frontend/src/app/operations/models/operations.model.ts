@@ -154,6 +154,8 @@ export interface AllocationLine {
   rule_bypass_flag?: boolean;
   supervisor_approved_by?: string | null;
   supervisor_approved_at?: string | null;
+  item_code?: string | null;
+  item_name?: string | null;
 }
 
 export interface AllocationSummary {
@@ -315,6 +317,7 @@ export interface DispatchQueueResponse {
 
 export interface DispatchDetailResponse extends PackageSummary {
   request: RequestSummary;
+  items?: RequestItem[];
   dispatch?: DispatchRecordSummary | null;
   allocation?: AllocationSummary;
   waybill: WaybillResponse | null;

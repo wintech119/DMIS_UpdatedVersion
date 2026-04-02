@@ -123,17 +123,24 @@ export class OpsDispatchWorkspaceComponent {
   readonly itemNameMap = computed<ReadonlyMap<number, string>>(() => {
     const detail = this.dispatchDetail();
     const map = new Map<number, string>();
-    // Extract item names from request items if available in the response
-    const request = detail?.request;
-    if (request) {
-      const items = (request as unknown as Record<string, unknown>)['items'] as
-        { item_id: number; item_name?: string | null }[] | undefined;
-      if (items) {
-        for (const item of items) {
-          if (item.item_name && !map.has(item.item_id)) {
-            map.set(item.item_id, item.item_name);
-          }
-        }
+    // Primary source: top-level items array from dispatch detail response
+    const items = detail?.items ?? [];
+    for (const item of items) {
+      if (item.item_name && !map.has(item.item_id)) {
+        const label = item.item_code
+          ? `${item.item_name} (${item.item_code})`
+          : item.item_name;
+        map.set(item.item_id, label);
+      }
+    }
+    // Supplement from allocation lines (backend returns item_code/item_name)
+    const lines = detail?.allocation?.allocation_lines ?? [];
+    for (const line of lines) {
+      if (line.item_name && !map.has(line.item_id)) {
+        const label = line.item_code
+          ? `${line.item_name} (${line.item_code})`
+          : line.item_name;
+        map.set(line.item_id, label);
       }
     }
     return map;
