@@ -7,7 +7,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
-import { map, merge, startWith } from 'rxjs';
+import { startWith } from 'rxjs';
 
 import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
@@ -133,19 +133,16 @@ export class OpsDispatchWorkspaceComponent {
   readonly transportForm = this.fb.nonNullable.group({
     transport_mode: [''],
     driver_name: ['', [Validators.required, Validators.maxLength(100)]],
-    vehicle_id: ['', [Validators.maxLength(50)]],
-    departure_date: [null as Date | null],
-    departure_time: [''],
-    arrival_date: [null as Date | null],
-    arrival_time: [''],
+    vehicle_id: ['', [Validators.required, Validators.maxLength(50)]],
+    departure_date: [null as Date | null, [Validators.required]],
+    departure_time: ['', [Validators.required]],
+    arrival_date: [null as Date | null, [Validators.required]],
+    arrival_time: ['', [Validators.required]],
     transport_notes: ['', [Validators.maxLength(500)]],
   }, { validators: arrivalAfterDepartureValidator });
-  readonly transportFormValue = toSignal(
-    merge(this.transportForm.valueChanges, this.transportForm.statusChanges).pipe(
-      startWith(null),
-      map(() => this.transportForm.getRawValue()),
-    ),
-    { initialValue: this.transportForm.getRawValue() },
+  readonly transportFormStatus = toSignal(
+    this.transportForm.statusChanges.pipe(startWith(this.transportForm.status)),
+    { initialValue: this.transportForm.status },
   );
 
   readonly contextExpanded = signal(false);
@@ -222,8 +219,7 @@ export class OpsDispatchWorkspaceComponent {
     && this.hasCommittedAllocation()
     && !this.hasPendingOverride()
     && !this.alreadyDispatched()
-    && this.transportForm.valid
-    && this.transportFormValue().driver_name.trim().length > 0
+    && this.transportFormStatus() === 'VALID'
   );
 
   readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
@@ -439,7 +435,7 @@ export class OpsDispatchWorkspaceComponent {
           const transport = detail.dispatch?.transport;
           const depParts = this.splitDateTime(transport?.departure_dtime);
           const arrParts = this.splitDateTime(transport?.estimated_arrival_dtime);
-          this.transportForm.patchValue({
+          const transportValues = {
             transport_mode: transport?.transport_mode || detail.transport_mode || '',
             driver_name: transport?.driver_name || '',
             vehicle_id: transport?.vehicle_registration || transport?.vehicle_id || '',
@@ -448,13 +444,16 @@ export class OpsDispatchWorkspaceComponent {
             arrival_date: arrParts.date,
             arrival_time: arrParts.time,
             transport_notes: transport?.transport_notes || '',
-          });
+          };
+          this.transportForm.reset(transportValues);
           const isDispatched = detail.status_code === 'D' || !!detail.dispatch_dtime || !!detail.waybill;
           if (isDispatched) {
             this.transportForm.disable();
           } else {
             this.transportForm.enable();
           }
+          this.transportForm.markAsPristine();
+          this.transportForm.markAsUntouched();
           if (detail.waybill) {
             this.waybillReadback.set(detail.waybill);
           }
@@ -619,6 +618,12 @@ export class OpsDispatchWorkspaceComponent {
       return {
         message: 'Dispatch stays blocked while override approval is pending.',
         tone: 'warning',
+      };
+    }
+    if (!this.alreadyDispatched() && this.transportFormStatus() !== 'VALID') {
+      return {
+        message: 'Complete the required transport details before continuing to review.',
+        tone: 'error',
       };
     }
     return null;

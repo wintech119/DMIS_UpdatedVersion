@@ -19,7 +19,7 @@ function hasGroupError(control: AbstractControl | null | undefined, errorKeys: s
 
 const DEPARTURE_ERROR_MATCHER: ErrorStateMatcher = {
   isErrorState(control): boolean {
-    if (!control || !hasGroupError(control, ['departureIncomplete'])) {
+    if (!control || !(control.invalid || hasGroupError(control, ['departureIncomplete']))) {
       return false;
     }
     return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
@@ -28,7 +28,7 @@ const DEPARTURE_ERROR_MATCHER: ErrorStateMatcher = {
 
 const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
   isErrorState(control): boolean {
-    if (!control || !hasGroupError(control, ['arrivalIncomplete', 'arrivalBeforeDeparture'])) {
+    if (!control || !(control.invalid || hasGroupError(control, ['arrivalIncomplete', 'arrivalBeforeDeparture']))) {
       return false;
     }
     return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
@@ -102,7 +102,7 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
         } @else if (hasAllocation() && !isPendingOverride()) {
           <div class="ops-callout ops-callout--warning" role="status">
             <mat-icon aria-hidden="true">edit_note</mat-icon>
-            <span>Complete transport details before dispatching. Driver name is required.</span>
+            <span>Complete driver, vehicle, departure, and estimated arrival details before dispatching.</span>
           </div>
         }
 
@@ -136,6 +136,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
               <mat-label>Vehicle ID</mat-label>
               <input matInput formControlName="vehicle_id"
                      placeholder="Plate or fleet no." />
+              @if (showRequiredError('vehicle_id')) {
+                <mat-error>Vehicle ID is required.</mat-error>
+              }
               @if (transportForm().get('vehicle_id')?.hasError('maxlength')) {
                 <mat-error>Max 50 characters.</mat-error>
               }
@@ -153,6 +156,12 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                          [errorStateMatcher]="departureErrorMatcher" />
                   <mat-datepicker-toggle matIconSuffix [for]="depPicker" />
                   <mat-datepicker #depPicker />
+                  @if (showDepartureIncompleteError()) {
+                    <mat-error>Complete both departure date and time.</mat-error>
+                  }
+                  @if (showRequiredError('departure_date', ['departureIncomplete'])) {
+                    <mat-error>Departure date is required.</mat-error>
+                  }
                 </mat-form-field>
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Time</mat-label>
@@ -170,6 +179,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                   @if (showDepartureIncompleteError()) {
                     <mat-error>Complete both departure date and time.</mat-error>
                   }
+                  @if (showRequiredError('departure_time', ['departureIncomplete'])) {
+                    <mat-error>Departure time is required.</mat-error>
+                  }
                 </mat-form-field>
               </div>
             </fieldset>
@@ -184,8 +196,14 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                          [errorStateMatcher]="estimatedArrivalErrorMatcher" />
                   <mat-datepicker-toggle matIconSuffix [for]="arrPicker" />
                   <mat-datepicker #arrPicker />
+                  @if (showArrivalIncompleteError()) {
+                    <mat-error>Complete both arrival date and time.</mat-error>
+                  }
                   @if (showArrivalBeforeDepartureError()) {
                     <mat-error>Must be after departure.</mat-error>
+                  }
+                  @if (showRequiredError('arrival_date', ['arrivalIncomplete'])) {
+                    <mat-error>Estimated arrival date is required.</mat-error>
                   }
                 </mat-form-field>
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -206,6 +224,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                   }
                   @if (showArrivalBeforeDepartureError()) {
                     <mat-error>Must be after departure.</mat-error>
+                  }
+                  @if (showRequiredError('arrival_time', ['arrivalIncomplete'])) {
+                    <mat-error>Estimated arrival time is required.</mat-error>
                   }
                 </mat-form-field>
               </div>
@@ -640,6 +661,18 @@ export class OpsDispatchReadinessStepComponent {
     return this.showGroupError('arrivalBeforeDeparture', ['arrival_date', 'arrival_time']);
   }
 
+  showRequiredError(controlName: string, suppressedByGroupErrors: string[] = []): boolean {
+    const form = this.transportForm();
+    if (suppressedByGroupErrors.some((errorKey) => form.hasError(errorKey))) {
+      return false;
+    }
+    const control = form.get(controlName);
+    if (!control?.hasError('required')) {
+      return false;
+    }
+    return this.hasInteracted(control);
+  }
+
   openTimePicker(input: HTMLInputElement, control: AbstractControl | null): void {
     if (input.disabled || control?.disabled) {
       return;
@@ -659,8 +692,12 @@ export class OpsDispatchReadinessStepComponent {
     }
     return controlNames.some((controlName) => {
       const control = form.get(controlName);
-      return !!(control?.touched || control?.dirty);
+      return this.hasInteracted(control);
     }) || form.touched || form.dirty;
+  }
+
+  private hasInteracted(control: AbstractControl | null): boolean {
+    return !!(control?.touched || control?.dirty || control?.parent?.touched || control?.parent?.dirty);
   }
 
   private toNumber(value: string | number | null | undefined): number {
