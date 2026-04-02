@@ -7,7 +7,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
-import { map, merge, startWith } from 'rxjs';
+import { startWith } from 'rxjs';
 
 import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
@@ -28,10 +28,60 @@ import {
   formatPackageStatus,
 } from '../models/operations-status.util';
 
+function combineDateAndTime(date: Date | string | null, time: string | null): Date | null {
+  const normalizedTime = time?.trim() ?? '';
+  if (!date || !normalizedTime) {
+    return null;
+  }
+  const d = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  const [hours, minutes] = normalizedTime.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+    return null;
+  }
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
+function hasDateValue(value: Date | string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function hasTimeValue(value: string | null | undefined): boolean {
+  return !!value?.trim();
+}
+
 function arrivalAfterDepartureValidator(group: AbstractControl): ValidationErrors | null {
-  const departure = group.get('departure_dtime')?.value;
-  const arrival = group.get('estimated_arrival_dtime')?.value;
-  if (departure && arrival && new Date(arrival) < new Date(departure)) {
+  const depDate = group.get('departure_date')?.value;
+  const depTime = group.get('departure_time')?.value;
+  const arrDate = group.get('arrival_date')?.value;
+  const arrTime = group.get('arrival_time')?.value;
+
+  const depDatePresent = hasDateValue(depDate);
+  const depTimePresent = hasTimeValue(depTime);
+  const arrDatePresent = hasDateValue(arrDate);
+  const arrTimePresent = hasTimeValue(arrTime);
+
+  const errors: ValidationErrors = {};
+  if (depDatePresent !== depTimePresent) {
+    errors['departureIncomplete'] = true;
+  }
+  if (arrDatePresent !== arrTimePresent) {
+    errors['arrivalIncomplete'] = true;
+  }
+  if (Object.keys(errors).length > 0) {
+    return errors;
+  }
+
+  const departure = combineDateAndTime(depDate, depTime);
+  const arrival = combineDateAndTime(arrDate, arrTime);
+  if (departure && arrival && arrival < departure) {
     return { arrivalBeforeDeparture: true };
   }
   return null;
@@ -83,19 +133,19 @@ export class OpsDispatchWorkspaceComponent {
   readonly transportForm = this.fb.nonNullable.group({
     transport_mode: [''],
     driver_name: ['', [Validators.required, Validators.maxLength(100)]],
-    vehicle_id: ['', [Validators.maxLength(50)]],
-    departure_dtime: [''],
-    estimated_arrival_dtime: [''],
+    vehicle_id: ['', [Validators.required, Validators.maxLength(50)]],
+    departure_date: [null as Date | null, [Validators.required]],
+    departure_time: ['', [Validators.required]],
+    arrival_date: [null as Date | null, [Validators.required]],
+    arrival_time: ['', [Validators.required]],
     transport_notes: ['', [Validators.maxLength(500)]],
   }, { validators: arrivalAfterDepartureValidator });
-  readonly transportFormValue = toSignal(
-    merge(this.transportForm.valueChanges, this.transportForm.statusChanges).pipe(
-      startWith(null),
-      map(() => this.transportForm.getRawValue()),
-    ),
-    { initialValue: this.transportForm.getRawValue() },
+  readonly transportFormStatus = toSignal(
+    this.transportForm.statusChanges.pipe(startWith(this.transportForm.status)),
+    { initialValue: this.transportForm.status },
   );
 
+  readonly contextExpanded = signal(false);
   readonly currentStepIndex = signal(0);
   readonly trackerSteps = computed<StepDefinition[]>(() => [
     {
@@ -169,7 +219,7 @@ export class OpsDispatchWorkspaceComponent {
     && this.hasCommittedAllocation()
     && !this.hasPendingOverride()
     && !this.alreadyDispatched()
-    && this.transportFormValue().driver_name.trim().length > 0
+    && this.transportFormStatus() === 'VALID'
   );
 
   readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
@@ -383,20 +433,27 @@ export class OpsDispatchWorkspaceComponent {
         next: (detail: DispatchDetailResponse) => {
           this.dispatchDetail.set(detail);
           const transport = detail.dispatch?.transport;
-          this.transportForm.patchValue({
+          const depParts = this.splitDateTime(transport?.departure_dtime);
+          const arrParts = this.splitDateTime(transport?.estimated_arrival_dtime);
+          const transportValues = {
             transport_mode: transport?.transport_mode || detail.transport_mode || '',
             driver_name: transport?.driver_name || '',
             vehicle_id: transport?.vehicle_registration || transport?.vehicle_id || '',
-            departure_dtime: this.toDateTimeLocalValue(transport?.departure_dtime),
-            estimated_arrival_dtime: this.toDateTimeLocalValue(transport?.estimated_arrival_dtime),
+            departure_date: depParts.date,
+            departure_time: depParts.time,
+            arrival_date: arrParts.date,
+            arrival_time: arrParts.time,
             transport_notes: transport?.transport_notes || '',
-          });
+          };
+          this.transportForm.reset(transportValues);
           const isDispatched = detail.status_code === 'D' || !!detail.dispatch_dtime || !!detail.waybill;
           if (isDispatched) {
             this.transportForm.disable();
           } else {
             this.transportForm.enable();
           }
+          this.transportForm.markAsPristine();
+          this.transportForm.markAsUntouched();
           if (detail.waybill) {
             this.waybillReadback.set(detail.waybill);
           }
@@ -412,12 +469,14 @@ export class OpsDispatchWorkspaceComponent {
   private dispatchNow(): void {
     this.submitting.set(true);
     const formValue = this.transportForm.getRawValue();
+    const departure = combineDateAndTime(formValue.departure_date, formValue.departure_time);
+    const arrival = combineDateAndTime(formValue.arrival_date, formValue.arrival_time);
     const payload: DispatchHandoffPayload = {
       transport_mode: formValue.transport_mode.trim() || undefined,
       driver_name: formValue.driver_name.trim() || undefined,
       vehicle_registration: formValue.vehicle_id.trim() || undefined,
-      departure_dtime: formValue.departure_dtime.trim() || undefined,
-      estimated_arrival_dtime: formValue.estimated_arrival_dtime.trim() || undefined,
+      departure_dtime: departure?.toISOString() || undefined,
+      estimated_arrival_dtime: arrival?.toISOString() || undefined,
       transport_notes: formValue.transport_notes.trim() || undefined,
     };
     this.operationsService.submitDispatchHandoff(
@@ -471,16 +530,17 @@ export class OpsDispatchWorkspaceComponent {
     return directMessage || detail || fallback;
   }
 
-  private toDateTimeLocalValue(value: string | null | undefined): string {
+  private splitDateTime(value: string | null | undefined): { date: Date | null; time: string } {
     if (!value) {
-      return '';
+      return { date: null, time: '' };
     }
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
-      return '';
+      return { date: null, time: '' };
     }
-    const localOffsetMs = parsed.getTimezoneOffset() * 60000;
-    return new Date(parsed.getTime() - localOffsetMs).toISOString().slice(0, 16);
+    const hh = String(parsed.getHours()).padStart(2, '0');
+    const mm = String(parsed.getMinutes()).padStart(2, '0');
+    return { date: parsed, time: `${hh}:${mm}` };
   }
 
   private navigateToStep(index: number, showValidationMessages = false): void {
@@ -558,6 +618,12 @@ export class OpsDispatchWorkspaceComponent {
       return {
         message: 'Dispatch stays blocked while override approval is pending.',
         tone: 'warning',
+      };
+    }
+    if (!this.alreadyDispatched() && this.transportFormStatus() !== 'VALID') {
+      return {
+        message: 'Complete the required transport details before continuing to review.',
+        tone: 'error',
       };
     }
     return null;

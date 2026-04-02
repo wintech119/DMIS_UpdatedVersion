@@ -1,22 +1,37 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatOptionModule, ErrorStateMatcher } from '@angular/material/core';
+import { MatOptionModule, MatNativeDateModule, ErrorStateMatcher } from '@angular/material/core';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 
 import { AllocationLine, DispatchDetailResponse, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
 import { formatSourceType } from '../../models/operations-status.util';
 
-const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
+function hasGroupError(control: AbstractControl | null | undefined, errorKeys: string[]): boolean {
+  const parent = control?.parent;
+  return !!parent && errorKeys.some((errorKey) => parent.hasError(errorKey));
+}
+
+const DEPARTURE_ERROR_MATCHER: ErrorStateMatcher = {
   isErrorState(control): boolean {
-    const parent = control?.parent;
-    if (!control || !parent?.hasError('arrivalBeforeDeparture')) {
+    if (!control || !(control.invalid || hasGroupError(control, ['departureIncomplete']))) {
       return false;
     }
-    return !!(control.touched || control.dirty || parent.touched || parent.dirty);
+    return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
+  },
+};
+
+const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
+  isErrorState(control): boolean {
+    if (!control || !(control.invalid || hasGroupError(control, ['arrivalIncomplete', 'arrivalBeforeDeparture']))) {
+      return false;
+    }
+    return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
   },
 };
 
@@ -26,11 +41,14 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
   imports: [
     DecimalPipe,
     ReactiveFormsModule,
+    MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
     MatOptionModule,
+    MatNativeDateModule,
     MatSelectModule,
+    MatDatepickerModule,
   ],
   template: `
     <div class="ops-readiness">
@@ -84,73 +102,144 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
         } @else if (hasAllocation() && !isPendingOverride()) {
           <div class="ops-callout ops-callout--warning" role="status">
             <mat-icon aria-hidden="true">edit_note</mat-icon>
-            <span>Complete transport details before dispatching. Driver name is required.</span>
+            <span>Complete driver, vehicle, departure, and estimated arrival details before dispatching.</span>
           </div>
         }
 
         <form [formGroup]="transportForm()" role="form" aria-label="Transport handoff details"
-              class="ops-readiness__form-grid">
-          <mat-form-field appearance="outline">
-            <mat-label>Transport Mode</mat-label>
-            <mat-select formControlName="transport_mode"
-                        aria-label="Select transport mode for this dispatch">
-              <mat-option value="">-- Select --</mat-option>
-              @for (opt of transportModeOptions; track opt.value) {
-                <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+              class="ops-handoff">
+          <div class="ops-handoff__row ops-handoff__row--3col">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Transport Mode</mat-label>
+              <mat-select formControlName="transport_mode"
+                          aria-label="Select transport mode for this dispatch">
+                <mat-option value="">-- Select --</mat-option>
+                @for (opt of transportModeOptions; track opt.value) {
+                  <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Driver Name</mat-label>
+              <input matInput formControlName="driver_name"
+                     placeholder="Full name of the driver" />
+              @if (transportForm().get('driver_name')?.hasError('required') && transportForm().get('driver_name')?.touched) {
+                <mat-error>Driver name is required.</mat-error>
               }
-            </mat-select>
-            <mat-hint>How the goods will be transported.</mat-hint>
-          </mat-form-field>
+              @if (transportForm().get('driver_name')?.hasError('maxlength')) {
+                <mat-error>Max 100 characters.</mat-error>
+              }
+            </mat-form-field>
 
-          <mat-form-field appearance="outline">
-            <mat-label>Driver Name</mat-label>
-            <input matInput formControlName="driver_name"
-                   placeholder="Full name of the driver" />
-            <mat-hint>The driver responsible for this delivery.</mat-hint>
-            @if (transportForm().get('driver_name')?.hasError('required') && transportForm().get('driver_name')?.touched) {
-              <mat-error>Driver name is required to record dispatch.</mat-error>
-            }
-            @if (transportForm().get('driver_name')?.hasError('maxlength')) {
-              <mat-error>Driver name cannot exceed 100 characters.</mat-error>
-            }
-          </mat-form-field>
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>Vehicle ID</mat-label>
+              <input matInput formControlName="vehicle_id"
+                     placeholder="Plate or fleet no." />
+              @if (showRequiredError('vehicle_id')) {
+                <mat-error>Vehicle ID is required.</mat-error>
+              }
+              @if (transportForm().get('vehicle_id')?.hasError('maxlength')) {
+                <mat-error>Max 50 characters.</mat-error>
+              }
+            </mat-form-field>
+          </div>
 
-          <mat-form-field appearance="outline">
-            <mat-label>Vehicle Identifier</mat-label>
-            <input matInput formControlName="vehicle_id"
-                   placeholder="License plate or fleet number" />
-            <mat-hint>License plate or fleet number for the transport vehicle.</mat-hint>
-            @if (transportForm().get('vehicle_id')?.hasError('maxlength')) {
-              <mat-error>Vehicle identifier cannot exceed 50 characters.</mat-error>
-            }
-          </mat-form-field>
+          <div class="ops-handoff__row ops-handoff__row--schedule">
+            <fieldset class="ops-handoff__datetime-group">
+              <legend class="ops-handoff__group-label">Departure</legend>
+              <div class="ops-handoff__datetime-pair">
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Date</mat-label>
+                  <input matInput [matDatepicker]="depPicker" formControlName="departure_date"
+                         placeholder="Pick date"
+                         [errorStateMatcher]="departureErrorMatcher" />
+                  <mat-datepicker-toggle matIconSuffix [for]="depPicker" />
+                  <mat-datepicker #depPicker />
+                  @if (showDepartureIncompleteError()) {
+                    <mat-error>Complete both departure date and time.</mat-error>
+                  }
+                  @if (showRequiredError('departure_date', ['departureIncomplete'])) {
+                    <mat-error>Departure date is required.</mat-error>
+                  }
+                </mat-form-field>
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Time</mat-label>
+                  <input #depTimeInput matInput type="time" step="60"
+                         formControlName="departure_time"
+                         aria-label="Departure time (24-hour)"
+                         [errorStateMatcher]="departureErrorMatcher" />
+                  <button mat-icon-button matSuffix type="button"
+                          aria-label="Open departure time picker"
+                          [disabled]="departureTimeControl()?.disabled"
+                          [attr.tabindex]="departureTimeControl()?.disabled ? -1 : null"
+                          (click)="openTimePicker(depTimeInput, departureTimeControl())">
+                    <mat-icon>schedule</mat-icon>
+                  </button>
+                  @if (showDepartureIncompleteError()) {
+                    <mat-error>Complete both departure date and time.</mat-error>
+                  }
+                  @if (showRequiredError('departure_time', ['departureIncomplete'])) {
+                    <mat-error>Departure time is required.</mat-error>
+                  }
+                </mat-form-field>
+              </div>
+            </fieldset>
 
-          <mat-form-field appearance="outline">
-            <mat-label>Departure Time</mat-label>
-            <input matInput type="datetime-local"
-                   formControlName="departure_dtime" />
-            <mat-hint>When the vehicle will leave the warehouse.</mat-hint>
-          </mat-form-field>
+            <fieldset class="ops-handoff__datetime-group">
+              <legend class="ops-handoff__group-label">Estimated Arrival</legend>
+              <div class="ops-handoff__datetime-pair">
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Date</mat-label>
+                  <input matInput [matDatepicker]="arrPicker" formControlName="arrival_date"
+                         placeholder="Pick date"
+                         [errorStateMatcher]="estimatedArrivalErrorMatcher" />
+                  <mat-datepicker-toggle matIconSuffix [for]="arrPicker" />
+                  <mat-datepicker #arrPicker />
+                  @if (showArrivalIncompleteError()) {
+                    <mat-error>Complete both arrival date and time.</mat-error>
+                  }
+                  @if (showArrivalBeforeDepartureError()) {
+                    <mat-error>Must be after departure.</mat-error>
+                  }
+                  @if (showRequiredError('arrival_date', ['arrivalIncomplete'])) {
+                    <mat-error>Estimated arrival date is required.</mat-error>
+                  }
+                </mat-form-field>
+                <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                  <mat-label>Time</mat-label>
+                  <input #arrTimeInput matInput type="time" step="60"
+                         formControlName="arrival_time"
+                         aria-label="Estimated arrival time (24-hour)"
+                         [errorStateMatcher]="estimatedArrivalErrorMatcher" />
+                  <button mat-icon-button matSuffix type="button"
+                          aria-label="Open estimated arrival time picker"
+                          [disabled]="arrivalTimeControl()?.disabled"
+                          [attr.tabindex]="arrivalTimeControl()?.disabled ? -1 : null"
+                          (click)="openTimePicker(arrTimeInput, arrivalTimeControl())">
+                    <mat-icon>schedule</mat-icon>
+                  </button>
+                  @if (showArrivalIncompleteError()) {
+                    <mat-error>Complete both arrival date and time.</mat-error>
+                  }
+                  @if (showArrivalBeforeDepartureError()) {
+                    <mat-error>Must be after departure.</mat-error>
+                  }
+                  @if (showRequiredError('arrival_time', ['arrivalIncomplete'])) {
+                    <mat-error>Estimated arrival time is required.</mat-error>
+                  }
+                </mat-form-field>
+              </div>
+            </fieldset>
+          </div>
 
-          <mat-form-field appearance="outline">
-            <mat-label>Estimated Arrival</mat-label>
-            <input matInput type="datetime-local"
-                   formControlName="estimated_arrival_dtime"
-                   [errorStateMatcher]="estimatedArrivalErrorMatcher" />
-            <mat-hint>Expected arrival at the receiving destination.</mat-hint>
-            @if (showArrivalBeforeDepartureError()) {
-              <mat-error>Arrival time must be after departure time.</mat-error>
-            }
-          </mat-form-field>
-
-          <mat-form-field appearance="outline" class="ops-readiness__form-grid--full">
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="ops-handoff__notes">
             <mat-label>Transport Notes</mat-label>
             <textarea matInput formControlName="transport_notes"
-                      placeholder="Route details, special handling instructions, etc."
-                      rows="3"></textarea>
-            <mat-hint>Route details, special handling instructions, or delivery constraints.</mat-hint>
+                      placeholder="Route details, special handling, etc."
+                      rows="2"></textarea>
             @if (transportForm().get('transport_notes')?.hasError('maxlength')) {
-              <mat-error>Transport notes cannot exceed 500 characters.</mat-error>
+              <mat-error>Max 500 characters.</mat-error>
             }
           </mat-form-field>
         </form>
@@ -277,14 +366,51 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
       color: var(--color-text-secondary);
     }
 
-    .ops-readiness__form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1rem;
+    /* ── Condensed handoff form ────────────────────────────── */
+    .ops-handoff {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
     }
 
-    .ops-readiness__form-grid--full {
-      grid-column: 1 / -1;
+    .ops-handoff__row {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .ops-handoff__row--3col {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.8fr);
+    }
+
+    .ops-handoff__row--schedule {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ops-handoff__datetime-group {
+      border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.10));
+      border-radius: 10px;
+      padding: 0.65rem 0.75rem 0.5rem;
+      margin: 0;
+    }
+
+    .ops-handoff__group-label {
+      font-size: 0.7rem;
+      font-weight: var(--weight-semibold, 600);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--color-text-secondary, #787774);
+      padding: 0 4px;
+    }
+
+    .ops-handoff__datetime-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+
+    .ops-handoff__notes {
+      width: 100%;
     }
 
     /* ── Stock summary strip ─────────────────────────────────── */
@@ -454,13 +580,19 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
       }
     }
 
-    @media (max-width: 520px) {
-      .ops-readiness__form-grid {
-        grid-template-columns: 1fr;
+    @media (max-width: 768px) {
+      .ops-handoff__row--3col {
+        grid-template-columns: 1fr 1fr;
       }
 
-      .ops-readiness__form-grid--full {
-        grid-column: auto;
+      .ops-handoff__row--schedule {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .ops-handoff__row--3col {
+        grid-template-columns: 1fr;
       }
 
       .ops-stock-strip {
@@ -482,7 +614,10 @@ export class OpsDispatchReadinessStepComponent {
   readonly itemNameMap = input<ReadonlyMap<number, string>>(new Map());
 
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
+  readonly departureErrorMatcher = DEPARTURE_ERROR_MATCHER;
   readonly estimatedArrivalErrorMatcher = ARRIVAL_ERROR_MATCHER;
+  readonly departureTimeControl = computed(() => this.transportForm().get('departure_time'));
+  readonly arrivalTimeControl = computed(() => this.transportForm().get('arrival_time'));
 
   readonly lines = computed(() => this.detail()?.allocation?.allocation_lines ?? []);
 
@@ -514,11 +649,55 @@ export class OpsDispatchReadinessStepComponent {
     return formatSourceType(sourceType);
   }
 
+  showDepartureIncompleteError(): boolean {
+    return this.showGroupError('departureIncomplete', ['departure_date', 'departure_time']);
+  }
+
+  showArrivalIncompleteError(): boolean {
+    return this.showGroupError('arrivalIncomplete', ['arrival_date', 'arrival_time']);
+  }
+
   showArrivalBeforeDepartureError(): boolean {
+    return this.showGroupError('arrivalBeforeDeparture', ['arrival_date', 'arrival_time']);
+  }
+
+  showRequiredError(controlName: string, suppressedByGroupErrors: string[] = []): boolean {
     const form = this.transportForm();
-    const arrivalControl = form.get('estimated_arrival_dtime');
-    return form.hasError('arrivalBeforeDeparture')
-      && !!(arrivalControl?.touched || arrivalControl?.dirty || form.touched || form.dirty);
+    if (suppressedByGroupErrors.some((errorKey) => form.hasError(errorKey))) {
+      return false;
+    }
+    const control = form.get(controlName);
+    if (!control?.hasError('required')) {
+      return false;
+    }
+    return this.hasInteracted(control);
+  }
+
+  openTimePicker(input: HTMLInputElement, control: AbstractControl | null): void {
+    if (input.disabled || control?.disabled) {
+      return;
+    }
+    input.focus();
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+    input.click();
+  }
+
+  private showGroupError(errorKey: string, controlNames: string[]): boolean {
+    const form = this.transportForm();
+    if (!form.hasError(errorKey)) {
+      return false;
+    }
+    return controlNames.some((controlName) => {
+      const control = form.get(controlName);
+      return this.hasInteracted(control);
+    }) || form.touched || form.dirty;
+  }
+
+  private hasInteracted(control: AbstractControl | null): boolean {
+    return !!(control?.touched || control?.dirty || control?.parent?.touched || control?.parent?.dirty);
   }
 
   private toNumber(value: string | number | null | undefined): number {

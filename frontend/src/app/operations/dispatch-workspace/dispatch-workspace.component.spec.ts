@@ -13,6 +13,7 @@ describe('OpsDispatchWorkspaceComponent', () => {
   let fixture: ComponentFixture<OpsDispatchWorkspaceComponent>;
   let component: OpsDispatchWorkspaceComponent;
   let operationsService: jasmine.SpyObj<OperationsService>;
+  let notifications: jasmine.SpyObj<DmisNotificationService>;
 
   beforeEach(async () => {
     operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
@@ -99,19 +100,17 @@ describe('OpsDispatchWorkspaceComponent', () => {
       },
       dispatched_rows: [],
     }));
+    notifications = jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
+      'showError',
+      'showWarning',
+      'showSuccess',
+    ]);
 
     await TestBed.configureTestingModule({
       imports: [NoopAnimationsModule, OpsDispatchWorkspaceComponent],
       providers: [
         { provide: OperationsService, useValue: operationsService },
-        {
-          provide: DmisNotificationService,
-          useValue: jasmine.createSpyObj<DmisNotificationService>('DmisNotificationService', [
-            'showError',
-            'showWarning',
-            'showSuccess',
-          ]),
-        },
+        { provide: DmisNotificationService, useValue: notifications },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -142,26 +141,34 @@ describe('OpsDispatchWorkspaceComponent', () => {
     expect(host.querySelector('tbody .ops-readiness__table-num')?.textContent).toContain('1.2345');
   });
 
-  it('submits the backend-aligned dispatch payload keys', () => {
+  it('submits the backend-aligned dispatch payload keys', async () => {
+    const departureDate = new Date(2026, 2, 26);
+    const arrivalDate = new Date(2026, 2, 26);
     component.transportForm.patchValue({
       transport_mode: 'TRUCK',
       driver_name: 'Jane Driver',
       vehicle_id: '1234AB',
-      departure_dtime: '2026-03-26T10:00',
-      estimated_arrival_dtime: '2026-03-26T13:00',
+      departure_date: departureDate,
+      departure_time: '10:00',
+      arrival_date: arrivalDate,
+      arrival_time: '13:00',
       transport_notes: 'Route via Kingston.',
     });
+    fixture.detectChanges();
+    await fixture.whenStable();
 
     expect(component.primaryActionLabel()).toBe('Dispatch Now');
 
     component.completeDispatchAction();
+    fixture.detectChanges();
+    await fixture.whenStable();
 
     expect(operationsService.submitDispatchHandoff).toHaveBeenCalledWith(90, {
       transport_mode: 'TRUCK',
       driver_name: 'Jane Driver',
       vehicle_registration: '1234AB',
-      departure_dtime: '2026-03-26T10:00',
-      estimated_arrival_dtime: '2026-03-26T13:00',
+      departure_dtime: new Date(2026, 2, 26, 10, 0, 0, 0).toISOString(),
+      estimated_arrival_dtime: new Date(2026, 2, 26, 13, 0, 0, 0).toISOString(),
       transport_notes: 'Route via Kingston.',
     });
   });
@@ -170,9 +177,9 @@ describe('OpsDispatchWorkspaceComponent', () => {
     const host: HTMLElement = fixture.nativeElement;
 
     expect(host.querySelector('input[placeholder="Full name of the driver"]')?.getAttribute('maxlength')).toBeNull();
-    expect(host.querySelector('input[placeholder="License plate or fleet number"]')?.getAttribute('maxlength')).toBeNull();
+    expect(host.querySelector('input[placeholder="Plate or fleet no."]')?.getAttribute('maxlength')).toBeNull();
     expect(
-      host.querySelector('textarea[placeholder="Route details, special handling instructions, etc."]')
+      host.querySelector('textarea[placeholder="Route details, special handling, etc."]')
         ?.getAttribute('maxlength'),
     ).toBeNull();
 
@@ -186,17 +193,48 @@ describe('OpsDispatchWorkspaceComponent', () => {
     component.transportForm.get('transport_notes')?.markAsTouched();
     fixture.detectChanges();
 
-    expect(host.textContent).toContain('Driver name cannot exceed 100 characters.');
-    expect(host.textContent).toContain('Vehicle identifier cannot exceed 50 characters.');
-    expect(host.textContent).toContain('Transport notes cannot exceed 500 characters.');
+    expect(host.textContent).toContain('Max 100 characters.');
+    expect(host.textContent).toContain('Max 50 characters.');
+    expect(host.textContent).toContain('Max 500 characters.');
+  });
+
+  it('surfaces control-level required errors in the custom date/time matchers', () => {
+    const departureDateControl = component.transportForm.get('departure_date');
+    const arrivalTimeControl = component.transportForm.get('arrival_time');
+    departureDateControl?.markAsTouched();
+    arrivalTimeControl?.markAsTouched();
+    fixture.detectChanges();
+
+    const readinessStep = fixture.debugElement.query(By.directive(OpsDispatchReadinessStepComponent))
+      .componentInstance as OpsDispatchReadinessStepComponent;
+
+    expect(readinessStep.departureErrorMatcher.isErrorState(departureDateControl ?? null, null)).toBeTrue();
+    expect(readinessStep.estimatedArrivalErrorMatcher.isErrorState(arrivalTimeControl ?? null, null)).toBeTrue();
+  });
+
+  it('keeps the readiness step active and shows required transport errors until mandatory fields are complete', () => {
+    component.goToDispatchReview();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(component.currentStepIndex()).toBe(0);
+    expect(notifications.showError).toHaveBeenCalledWith('Complete the required transport details before continuing to review.');
+    expect(host.textContent).toContain('Vehicle ID is required.');
+    expect(host.textContent).toContain('Departure date is required.');
+    expect(host.textContent).toContain('Departure time is required.');
+    expect(host.textContent).toContain('Estimated arrival date is required.');
+    expect(host.textContent).toContain('Estimated arrival time is required.');
   });
 
   it('marks estimated arrival in error state when it precedes departure', () => {
     component.transportForm.patchValue({
-      departure_dtime: '2026-03-26T13:00',
-      estimated_arrival_dtime: '2026-03-26T10:00',
+      vehicle_id: '1234AB',
+      departure_date: new Date(2026, 2, 26),
+      departure_time: '13:00',
+      arrival_date: new Date(2026, 2, 26),
+      arrival_time: '10:00',
     });
-    const arrivalControl = component.transportForm.get('estimated_arrival_dtime');
+    const arrivalControl = component.transportForm.get('arrival_time');
     arrivalControl?.markAsTouched();
     fixture.detectChanges();
 
@@ -206,6 +244,20 @@ describe('OpsDispatchWorkspaceComponent', () => {
     expect(component.transportForm.hasError('arrivalBeforeDeparture')).toBeTrue();
     expect(readinessStep.showArrivalBeforeDepartureError()).toBeTrue();
     expect(readinessStep.estimatedArrivalErrorMatcher.isErrorState(arrivalControl ?? null, null)).toBeTrue();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Arrival time must be after departure time.');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Must be after departure.');
+  });
+
+  it('resets form interaction state when loading a new package', () => {
+    component.transportForm.markAllAsTouched();
+    component.transportForm.markAsDirty();
+    component.transportForm.get('vehicle_id')?.markAsDirty();
+    component.transportForm.get('vehicle_id')?.markAsTouched();
+
+    component.refresh();
+    fixture.detectChanges();
+
+    expect(component.transportForm.pristine).toBeTrue();
+    expect(component.transportForm.untouched).toBeTrue();
+    expect(component.transportForm.get('vehicle_id')?.untouched).toBeTrue();
   });
 });
