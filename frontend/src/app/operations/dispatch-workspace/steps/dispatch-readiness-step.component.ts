@@ -3,12 +3,22 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatOptionModule, ErrorStateMatcher } from '@angular/material/core';
 import { MatInputModule } from '@angular/material/input';
-import { MatOptionModule } from '@angular/material/core';
 import { MatSelectModule } from '@angular/material/select';
 
 import { AllocationLine, DispatchDetailResponse, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
 import { formatSourceType } from '../../models/operations-status.util';
+
+const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
+  isErrorState(control): boolean {
+    const parent = control?.parent;
+    if (!control || !parent?.hasError('arrivalBeforeDeparture')) {
+      return false;
+    }
+    return !!(control.touched || control.dirty || parent.touched || parent.dirty);
+  },
+};
 
 @Component({
   selector: 'app-ops-dispatch-readiness-step',
@@ -95,8 +105,7 @@ import { formatSourceType } from '../../models/operations-status.util';
           <mat-form-field appearance="outline">
             <mat-label>Driver Name</mat-label>
             <input matInput formControlName="driver_name"
-                   placeholder="Full name of the driver"
-                   maxlength="100" />
+                   placeholder="Full name of the driver" />
             <mat-hint>The driver responsible for this delivery.</mat-hint>
             @if (transportForm().get('driver_name')?.hasError('required') && transportForm().get('driver_name')?.touched) {
               <mat-error>Driver name is required to record dispatch.</mat-error>
@@ -109,8 +118,7 @@ import { formatSourceType } from '../../models/operations-status.util';
           <mat-form-field appearance="outline">
             <mat-label>Vehicle Identifier</mat-label>
             <input matInput formControlName="vehicle_id"
-                   placeholder="License plate or fleet number"
-                   maxlength="50" />
+                   placeholder="License plate or fleet number" />
             <mat-hint>License plate or fleet number for the transport vehicle.</mat-hint>
             @if (transportForm().get('vehicle_id')?.hasError('maxlength')) {
               <mat-error>Vehicle identifier cannot exceed 50 characters.</mat-error>
@@ -127,9 +135,10 @@ import { formatSourceType } from '../../models/operations-status.util';
           <mat-form-field appearance="outline">
             <mat-label>Estimated Arrival</mat-label>
             <input matInput type="datetime-local"
-                   formControlName="estimated_arrival_dtime" />
+                   formControlName="estimated_arrival_dtime"
+                   [errorStateMatcher]="estimatedArrivalErrorMatcher" />
             <mat-hint>Expected arrival at the receiving destination.</mat-hint>
-            @if (transportForm().hasError('arrivalBeforeDeparture')) {
+            @if (showArrivalBeforeDepartureError()) {
               <mat-error>Arrival time must be after departure time.</mat-error>
             }
           </mat-form-field>
@@ -138,7 +147,6 @@ import { formatSourceType } from '../../models/operations-status.util';
             <mat-label>Transport Notes</mat-label>
             <textarea matInput formControlName="transport_notes"
                       placeholder="Route details, special handling instructions, etc."
-                      maxlength="500"
                       rows="3"></textarea>
             <mat-hint>Route details, special handling instructions, or delivery constraints.</mat-hint>
             @if (transportForm().get('transport_notes')?.hasError('maxlength')) {
@@ -474,10 +482,11 @@ export class OpsDispatchReadinessStepComponent {
   readonly itemNameMap = input<ReadonlyMap<number, string>>(new Map());
 
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
+  readonly estimatedArrivalErrorMatcher = ARRIVAL_ERROR_MATCHER;
 
   readonly lines = computed(() => this.detail()?.allocation?.allocation_lines ?? []);
 
-  readonly hasAllocation = computed(() => (this.lines().length ?? 0) > 0);
+  readonly hasAllocation = computed(() => this.lines().length > 0);
 
   readonly isPendingOverride = computed(() => {
     const status = String(this.detail()?.execution_status ?? '').trim().toUpperCase();
@@ -503,6 +512,13 @@ export class OpsDispatchReadinessStepComponent {
 
   formatSource(sourceType: string): string {
     return formatSourceType(sourceType);
+  }
+
+  showArrivalBeforeDepartureError(): boolean {
+    const form = this.transportForm();
+    const arrivalControl = form.get('estimated_arrival_dtime');
+    return form.hasError('arrivalBeforeDeparture')
+      && !!(arrivalControl?.touched || arrivalControl?.dirty || form.touched || form.dirty);
   }
 
   private toNumber(value: string | number | null | undefined): number {

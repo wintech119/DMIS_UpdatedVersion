@@ -1,11 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { OperationsService } from '../services/operations.service';
 import { OpsDispatchWorkspaceComponent } from './dispatch-workspace.component';
+import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 
 describe('OpsDispatchWorkspaceComponent', () => {
   let fixture: ComponentFixture<OpsDispatchWorkspaceComponent>;
@@ -162,5 +164,48 @@ describe('OpsDispatchWorkspaceComponent', () => {
       estimated_arrival_dtime: '2026-03-26T13:00',
       transport_notes: 'Route via Kingston.',
     });
+  });
+
+  it('surfaces maxlength validation errors without native truncation attributes', () => {
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(host.querySelector('input[placeholder="Full name of the driver"]')?.getAttribute('maxlength')).toBeNull();
+    expect(host.querySelector('input[placeholder="License plate or fleet number"]')?.getAttribute('maxlength')).toBeNull();
+    expect(
+      host.querySelector('textarea[placeholder="Route details, special handling instructions, etc."]')
+        ?.getAttribute('maxlength'),
+    ).toBeNull();
+
+    component.transportForm.patchValue({
+      driver_name: 'D'.repeat(101),
+      vehicle_id: 'V'.repeat(51),
+      transport_notes: 'N'.repeat(501),
+    });
+    component.transportForm.get('driver_name')?.markAsTouched();
+    component.transportForm.get('vehicle_id')?.markAsTouched();
+    component.transportForm.get('transport_notes')?.markAsTouched();
+    fixture.detectChanges();
+
+    expect(host.textContent).toContain('Driver name cannot exceed 100 characters.');
+    expect(host.textContent).toContain('Vehicle identifier cannot exceed 50 characters.');
+    expect(host.textContent).toContain('Transport notes cannot exceed 500 characters.');
+  });
+
+  it('marks estimated arrival in error state when it precedes departure', () => {
+    component.transportForm.patchValue({
+      departure_dtime: '2026-03-26T13:00',
+      estimated_arrival_dtime: '2026-03-26T10:00',
+    });
+    const arrivalControl = component.transportForm.get('estimated_arrival_dtime');
+    arrivalControl?.markAsTouched();
+    fixture.detectChanges();
+
+    const readinessStep = fixture.debugElement.query(By.directive(OpsDispatchReadinessStepComponent))
+      .componentInstance as OpsDispatchReadinessStepComponent;
+
+    expect(component.transportForm.hasError('arrivalBeforeDeparture')).toBeTrue();
+    expect(readinessStep.showArrivalBeforeDepartureError()).toBeTrue();
+    expect(readinessStep.estimatedArrivalErrorMatcher.isErrorState(arrivalControl ?? null, null)).toBeTrue();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Arrival time must be after departure time.');
   });
 });
