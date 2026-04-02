@@ -28,10 +28,31 @@ import {
   formatPackageStatus,
 } from '../models/operations-status.util';
 
+function combineDateAndTime(date: Date | string | null, time: string | null): Date | null {
+  const normalizedTime = time?.trim() ?? '';
+  if (!date || !normalizedTime) {
+    return null;
+  }
+  const d = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  const [hours, minutes] = normalizedTime.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
+    return null;
+  }
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
 function arrivalAfterDepartureValidator(group: AbstractControl): ValidationErrors | null {
-  const departure = group.get('departure_dtime')?.value;
-  const arrival = group.get('estimated_arrival_dtime')?.value;
-  if (departure && arrival && new Date(arrival) < new Date(departure)) {
+  const depDate = group.get('departure_date')?.value;
+  const depTime = group.get('departure_time')?.value;
+  const arrDate = group.get('arrival_date')?.value;
+  const arrTime = group.get('arrival_time')?.value;
+  const departure = combineDateAndTime(depDate, depTime);
+  const arrival = combineDateAndTime(arrDate, arrTime);
+  if (departure && arrival && arrival < departure) {
     return { arrivalBeforeDeparture: true };
   }
   return null;
@@ -84,8 +105,10 @@ export class OpsDispatchWorkspaceComponent {
     transport_mode: [''],
     driver_name: ['', [Validators.required, Validators.maxLength(100)]],
     vehicle_id: ['', [Validators.maxLength(50)]],
-    departure_dtime: [''],
-    estimated_arrival_dtime: [''],
+    departure_date: [null as Date | null],
+    departure_time: [''],
+    arrival_date: [null as Date | null],
+    arrival_time: [''],
     transport_notes: ['', [Validators.maxLength(500)]],
   }, { validators: arrivalAfterDepartureValidator });
   readonly transportFormValue = toSignal(
@@ -384,12 +407,16 @@ export class OpsDispatchWorkspaceComponent {
         next: (detail: DispatchDetailResponse) => {
           this.dispatchDetail.set(detail);
           const transport = detail.dispatch?.transport;
+          const depParts = this.splitDateTime(transport?.departure_dtime);
+          const arrParts = this.splitDateTime(transport?.estimated_arrival_dtime);
           this.transportForm.patchValue({
             transport_mode: transport?.transport_mode || detail.transport_mode || '',
             driver_name: transport?.driver_name || '',
             vehicle_id: transport?.vehicle_registration || transport?.vehicle_id || '',
-            departure_dtime: this.toDateTimeLocalValue(transport?.departure_dtime),
-            estimated_arrival_dtime: this.toDateTimeLocalValue(transport?.estimated_arrival_dtime),
+            departure_date: depParts.date,
+            departure_time: depParts.time,
+            arrival_date: arrParts.date,
+            arrival_time: arrParts.time,
             transport_notes: transport?.transport_notes || '',
           });
           const isDispatched = detail.status_code === 'D' || !!detail.dispatch_dtime || !!detail.waybill;
@@ -413,12 +440,14 @@ export class OpsDispatchWorkspaceComponent {
   private dispatchNow(): void {
     this.submitting.set(true);
     const formValue = this.transportForm.getRawValue();
+    const departure = combineDateAndTime(formValue.departure_date, formValue.departure_time);
+    const arrival = combineDateAndTime(formValue.arrival_date, formValue.arrival_time);
     const payload: DispatchHandoffPayload = {
       transport_mode: formValue.transport_mode.trim() || undefined,
       driver_name: formValue.driver_name.trim() || undefined,
       vehicle_registration: formValue.vehicle_id.trim() || undefined,
-      departure_dtime: formValue.departure_dtime.trim() || undefined,
-      estimated_arrival_dtime: formValue.estimated_arrival_dtime.trim() || undefined,
+      departure_dtime: departure?.toISOString() || undefined,
+      estimated_arrival_dtime: arrival?.toISOString() || undefined,
       transport_notes: formValue.transport_notes.trim() || undefined,
     };
     this.operationsService.submitDispatchHandoff(
@@ -472,16 +501,17 @@ export class OpsDispatchWorkspaceComponent {
     return directMessage || detail || fallback;
   }
 
-  private toDateTimeLocalValue(value: string | null | undefined): string {
+  private splitDateTime(value: string | null | undefined): { date: Date | null; time: string } {
     if (!value) {
-      return '';
+      return { date: null, time: '' };
     }
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
-      return '';
+      return { date: null, time: '' };
     }
-    const localOffsetMs = parsed.getTimezoneOffset() * 60000;
-    return new Date(parsed.getTime() - localOffsetMs).toISOString().slice(0, 16);
+    const hh = String(parsed.getHours()).padStart(2, '0');
+    const mm = String(parsed.getMinutes()).padStart(2, '0');
+    return { date: parsed, time: `${hh}:${mm}` };
   }
 
   private navigateToStep(index: number, showValidationMessages = false): void {

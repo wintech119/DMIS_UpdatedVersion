@@ -20,8 +20,10 @@ interface DispatchTransportFormValue {
   transport_mode: string;
   driver_name: string;
   vehicle_id: string;
-  departure_dtime: string;
-  estimated_arrival_dtime: string;
+  departure_date: Date | null;
+  departure_time: string;
+  arrival_date: Date | null;
+  arrival_time: string;
   transport_notes: string;
 }
 
@@ -29,8 +31,10 @@ const EMPTY_TRANSPORT_FORM_VALUE: DispatchTransportFormValue = {
   transport_mode: '',
   driver_name: '',
   vehicle_id: '',
-  departure_dtime: '',
-  estimated_arrival_dtime: '',
+  departure_date: null,
+  departure_time: '',
+  arrival_date: null,
+  arrival_time: '',
   transport_notes: '',
 };
 
@@ -323,9 +327,32 @@ export class OpsDispatchReviewStepComponent implements OnInit {
 
   readonly formDriverName = computed(() => this.transportFormValue().driver_name);
   readonly formVehicleId = computed(() => this.transportFormValue().vehicle_id);
-  readonly formDepartureTime = computed(() => this.transportFormValue().departure_dtime);
-  readonly formEstimatedArrival = computed(() => this.transportFormValue().estimated_arrival_dtime);
+  readonly formDepartureTime = computed(() => {
+    const v = this.transportFormValue();
+    return this.recombineDateTime(v.departure_date, v.departure_time);
+  });
+  readonly formEstimatedArrival = computed(() => {
+    const v = this.transportFormValue();
+    return this.recombineDateTime(v.arrival_date, v.arrival_time);
+  });
   readonly formTransportNotes = computed(() => this.transportFormValue().transport_notes);
+
+  private recombineDateTime(date: Date | null, time: string): Date | null {
+    const normalizedTime = time.trim();
+    if (!date || !normalizedTime) {
+      return null;
+    }
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) {
+      return null;
+    }
+    const [h, m] = normalizedTime.split(':').map(Number);
+    if (!Number.isInteger(h) || !Number.isInteger(m)) {
+      return null;
+    }
+    d.setHours(h, m, 0, 0);
+    return d;
+  }
 
   ngOnInit(): void {
     const form = this.transportForm();
