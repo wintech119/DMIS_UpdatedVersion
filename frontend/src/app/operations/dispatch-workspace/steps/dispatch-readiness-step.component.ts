@@ -162,7 +162,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                          [errorStateMatcher]="departureErrorMatcher" />
                   <button mat-icon-button matSuffix type="button"
                           aria-label="Open departure time picker"
-                          (click)="openTimePicker(depTimeInput)">
+                          [disabled]="departureTimeControl()?.disabled"
+                          [attr.tabindex]="departureTimeControl()?.disabled ? -1 : null"
+                          (click)="openTimePicker(depTimeInput, departureTimeControl())">
                     <mat-icon>schedule</mat-icon>
                   </button>
                   @if (showDepartureIncompleteError()) {
@@ -182,6 +184,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                          [errorStateMatcher]="estimatedArrivalErrorMatcher" />
                   <mat-datepicker-toggle matIconSuffix [for]="arrPicker" />
                   <mat-datepicker #arrPicker />
+                  @if (showArrivalBeforeDepartureError()) {
+                    <mat-error>Must be after departure.</mat-error>
+                  }
                 </mat-form-field>
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Time</mat-label>
@@ -191,7 +196,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                          [errorStateMatcher]="estimatedArrivalErrorMatcher" />
                   <button mat-icon-button matSuffix type="button"
                           aria-label="Open estimated arrival time picker"
-                          (click)="openTimePicker(arrTimeInput)">
+                          [disabled]="arrivalTimeControl()?.disabled"
+                          [attr.tabindex]="arrivalTimeControl()?.disabled ? -1 : null"
+                          (click)="openTimePicker(arrTimeInput, arrivalTimeControl())">
                     <mat-icon>schedule</mat-icon>
                   </button>
                   @if (showArrivalIncompleteError()) {
@@ -588,6 +595,8 @@ export class OpsDispatchReadinessStepComponent {
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
   readonly departureErrorMatcher = DEPARTURE_ERROR_MATCHER;
   readonly estimatedArrivalErrorMatcher = ARRIVAL_ERROR_MATCHER;
+  readonly departureTimeControl = computed(() => this.transportForm().get('departure_time'));
+  readonly arrivalTimeControl = computed(() => this.transportForm().get('arrival_time'));
 
   readonly lines = computed(() => this.detail()?.allocation?.allocation_lines ?? []);
 
@@ -631,7 +640,10 @@ export class OpsDispatchReadinessStepComponent {
     return this.showGroupError('arrivalBeforeDeparture', ['arrival_date', 'arrival_time']);
   }
 
-  openTimePicker(input: HTMLInputElement): void {
+  openTimePicker(input: HTMLInputElement, control: AbstractControl | null): void {
+    if (input.disabled || control?.disabled) {
+      return;
+    }
     input.focus();
     if (typeof input.showPicker === 'function') {
       input.showPicker();
