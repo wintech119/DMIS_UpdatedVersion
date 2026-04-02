@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Iterable
 
+from django.conf import settings
 from django.db import DatabaseError, connection, models
 from django.utils import timezone
 
@@ -44,7 +46,7 @@ class AgencyScope:
 
     @property
     def is_odpem_tenant(self) -> bool:
-        return _is_odpem_tenant_code(self.tenant_code)
+        return _is_odpem_tenant(self.tenant_id, self.tenant_code)
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,47 @@ def _normalize_token(value: object) -> str:
 def _is_odpem_tenant_code(value: object) -> bool:
     code = _normalize_token(value)
     return bool(code) and (code in _ODPEM_TENANT_CODES or code.startswith("ODPEM"))
+
+
+@lru_cache(maxsize=1)
+def resolve_odpem_tenant_id() -> int | None:
+    configured = getattr(settings, "ODPEM_TENANT_ID", None)
+    if configured:
+        return int(configured)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT tenant_id
+                FROM tenant
+                WHERE tenant_code IS NOT NULL
+                ORDER BY
+                    CASE
+                        WHEN UPPER(REPLACE(REPLACE(tenant_code, '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P'
+                        THEN 0
+                        WHEN UPPER(tenant_code) LIKE 'ODPEM%%'
+                        THEN 1
+                        ELSE 2
+                    END,
+                    tenant_id
+                LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+    except DatabaseError:
+        return None
+
+    if not row or row[0] in (None, ""):
+        return None
+    return int(row[0])
+
+
+def _is_odpem_tenant(tenant_id: object, tenant_code: object) -> bool:
+    parsed_tenant_id = _parse_int(tenant_id)
+    resolved_tenant_id = resolve_odpem_tenant_id()
+    if parsed_tenant_id is not None and resolved_tenant_id is not None:
+        return parsed_tenant_id == resolved_tenant_id
+    return _is_odpem_tenant_code(tenant_code)
 
 
 def _permission_set(permissions: Iterable[str]) -> set[str]:
@@ -313,7 +356,7 @@ def get_agency_scope(agency_id: int) -> AgencyScope | None:
 
 
 def is_odpem_tenant_context(context: TenantContext) -> bool:
-    return _is_odpem_tenant_code(context.active_tenant_code)
+    return _is_odpem_tenant(context.active_tenant_id, context.active_tenant_code)
 
 
 def get_relief_request_capabilities(

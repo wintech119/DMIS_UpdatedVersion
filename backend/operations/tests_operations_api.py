@@ -137,6 +137,7 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.cancel_package", return_value={"status": "CANCELLED"})
     @patch("operations.views.operations_service.list_tasks", return_value={"queue_assignments": [], "notifications": []})
     @patch("operations.views.operations_service.confirm_receipt", return_value={"status": "RECEIVED", "reliefpkg_id": 90})
     @patch("operations.views.operations_service.get_waybill", return_value={"waybill_no": "WB-PK00090"})
@@ -161,6 +162,7 @@ class OperationsApiTests(SimpleTestCase):
         mock_waybill,
         mock_receipt,
         mock_tasks,
+        mock_cancel_package,
         _mock_roles,
         _mock_permission,
         mock_tenant_context,
@@ -194,6 +196,7 @@ class OperationsApiTests(SimpleTestCase):
         )
         waybill_response = self.client.get("/api/v1/operations/dispatch/90/waybill")
         receipt_response = self.client.post("/api/v1/operations/receipt-confirmation/90", {"received_by_name": "Receiver"}, format="json")
+        cancel_response = self.client.post("/api/v1/operations/packages/90/cancel", {}, format="json")
         tasks_response = self.client.get("/api/v1/operations/tasks")
 
         self.assertEqual(packages_response.status_code, 200)
@@ -207,6 +210,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(dispatch_submit_response.status_code, 200)
         self.assertEqual(waybill_response.status_code, 200)
         self.assertEqual(receipt_response.status_code, 200)
+        self.assertEqual(cancel_response.status_code, 200)
         self.assertEqual(tasks_response.status_code, 200)
         self.assertEqual(mock_list_packages.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_list_packages.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
@@ -219,6 +223,8 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_save.call_args_list[0].kwargs["payload"]["comments_text"], "Prep")
         self.assertEqual(mock_save.call_args_list[1].kwargs["payload"]["allocations"][0]["item_id"], 101)
         self.assertEqual(mock_save.call_args_list[0].kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_save.call_args_list[0].kwargs["permissions"], [])
+        self.assertEqual(mock_save.call_args_list[1].kwargs["permissions"], [])
         self.assertEqual(mock_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_dispatch_queue.call_args.kwargs["actor_id"], "ops-dev")
@@ -234,7 +240,86 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_waybill.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_receipt.call_args.kwargs["payload"]["received_by_name"], "Receiver")
         self.assertEqual(mock_receipt.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_cancel_package.call_args.args[0], 90)
+        self.assertEqual(mock_cancel_package.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_cancel_package.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_tasks.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.pickup_release", return_value={"status": "RECEIVED"})
+    @patch("operations.views.operations_service.approve_partial_release", return_value={"status": "APPROVED"})
+    @patch("operations.views.operations_service.request_partial_release", return_value={"status": "PARTIAL_RELEASE_REQUESTED"})
+    @patch("operations.views.operations_service.get_consolidation_leg_waybill", return_value={"waybill_no": "PK00090-L01"})
+    @patch("operations.views.operations_service.receive_consolidation_leg", return_value={"status": "RECEIVED_AT_STAGING"})
+    @patch("operations.views.operations_service.dispatch_consolidation_leg", return_value={"status": "IN_TRANSIT"})
+    @patch("operations.views.operations_service.list_consolidation_legs", return_value={"results": [{"leg_id": 301}]})
+    @patch("operations.views.operations_service.get_staging_recommendation", return_value={"recommended_staging_warehouse_id": 55})
+    def test_staged_fulfillment_contracts_forward_ids_and_payloads(
+        self,
+        mock_staging_recommendation,
+        mock_list_legs,
+        mock_dispatch_leg,
+        mock_receive_leg,
+        mock_leg_waybill,
+        mock_partial_request,
+        mock_partial_approve,
+        mock_pickup_release,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        recommendation_response = self.client.get("/api/v1/operations/packages/70/staging-recommendation")
+        legs_response = self.client.get("/api/v1/operations/packages/90/consolidation-legs")
+        dispatch_leg_response = self.client.post(
+            "/api/v1/operations/packages/90/consolidation-legs/301/dispatch",
+            {"driver_name": "Jane Driver", "vehicle_registration": "1234AB"},
+            format="json",
+        )
+        receive_leg_response = self.client.post(
+            "/api/v1/operations/packages/90/consolidation-legs/301/receive",
+            {"received_by_name": "Receiver"},
+            format="json",
+        )
+        leg_waybill_response = self.client.get("/api/v1/operations/packages/90/consolidation-legs/301/waybill")
+        partial_request_response = self.client.post(
+            "/api/v1/operations/packages/90/partial-release/request",
+            {"reason": "Release received legs now"},
+            format="json",
+        )
+        partial_approve_response = self.client.post(
+            "/api/v1/operations/packages/90/partial-release/approve",
+            {"approval_reason": "Approved"},
+            format="json",
+        )
+        pickup_release_response = self.client.post(
+            "/api/v1/operations/packages/90/pickup-release",
+            {"released_by_name": "Receiver"},
+            format="json",
+        )
+
+        self.assertEqual(recommendation_response.status_code, 200)
+        self.assertEqual(legs_response.status_code, 200)
+        self.assertEqual(dispatch_leg_response.status_code, 200)
+        self.assertEqual(receive_leg_response.status_code, 200)
+        self.assertEqual(leg_waybill_response.status_code, 200)
+        self.assertEqual(partial_request_response.status_code, 200)
+        self.assertEqual(partial_approve_response.status_code, 200)
+        self.assertEqual(pickup_release_response.status_code, 200)
+
+        self.assertEqual(mock_staging_recommendation.call_args.args[0], 70)
+        self.assertEqual(mock_list_legs.call_args.args[0], 90)
+        self.assertEqual(mock_dispatch_leg.call_args.args[:2], (90, 301))
+        self.assertEqual(mock_dispatch_leg.call_args.kwargs["payload"]["driver_name"], "Jane Driver")
+        self.assertEqual(mock_receive_leg.call_args.args[:2], (90, 301))
+        self.assertEqual(mock_receive_leg.call_args.kwargs["payload"]["received_by_name"], "Receiver")
+        self.assertEqual(mock_leg_waybill.call_args.args[:2], (90, 301))
+        self.assertEqual(mock_partial_request.call_args.args[0], 90)
+        self.assertEqual(mock_partial_request.call_args.kwargs["payload"]["reason"], "Release received legs now")
+        self.assertEqual(mock_partial_approve.call_args.args[0], 90)
+        self.assertEqual(mock_pickup_release.call_args.args[0], 90)
+        self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["released_by_name"], "Receiver")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)

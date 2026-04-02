@@ -350,6 +350,7 @@ NEEDS_STRICT_INBOUND_TRANSFER_STATUSES = _get_csv_env(
 NEEDS_INVENTORY_ACTIVE_STATUS = os.getenv("NEEDS_INVENTORY_ACTIVE_STATUS", "A")
 NEEDS_BURN_SOURCE = os.getenv("NEEDS_BURN_SOURCE", "reliefpkg")
 NEEDS_BURN_FALLBACK = os.getenv("NEEDS_BURN_FALLBACK", "reliefrqst")
+ODPEM_TENANT_ID = _get_int_env("ODPEM_TENANT_ID", None)
 
 
 # IFRC Item Code Assistant configuration.

@@ -12,19 +12,32 @@ from api.tenancy import TenantContext, TenantMembership
 from operations import contract_services
 from operations import policy as operations_policy
 from operations.constants import (
+    CONSOLIDATION_LEG_STATUS_CANCELLED,
+    CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+    CONSOLIDATION_LEG_STATUS_PLANNED,
+    CONSOLIDATION_STATUS_AWAITING_LEGS,
     DISPATCH_STATUS_IN_TRANSIT,
+    FULFILLMENT_MODE_PICKUP_AT_STAGING,
     ELIGIBILITY_ROLE_CODES,
+    FULFILLMENT_MODE_DELIVER_FROM_STAGING,
     ORIGIN_MODE_FOR_SUBORDINATE,
     ORIGIN_MODE_SELF,
+    PACKAGE_STATUS_CANCELLED,
     PACKAGE_STATUS_COMMITTED,
+    PACKAGE_STATUS_CONSOLIDATING,
     PACKAGE_STATUS_DISPATCHED,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_READY_FOR_PICKUP,
     PACKAGE_STATUS_RECEIVED,
+    PACKAGE_STATUS_SPLIT,
+    QUEUE_CODE_CONSOLIDATION_DISPATCH,
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_FULFILLMENT,
     QUEUE_CODE_OVERRIDE,
+    QUEUE_CODE_PICKUP_RELEASE,
     QUEUE_CODE_RECEIPT,
+    QUEUE_CODE_STAGING_RECEIPT,
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_FULFILLED,
@@ -34,6 +47,7 @@ from operations.constants import (
 )
 from operations.exceptions import OperationValidationError
 from operations.models import (
+    OperationsConsolidationLeg,
     OperationsDispatch,
     OperationsDispatchTransport,
     OperationsEligibilityDecision,
@@ -47,7 +61,11 @@ from operations.models import (
     TenantControlScope,
     TenantRequestPolicy,
 )
-from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF
+from api.rbac import (
+    PERM_OPERATIONS_FULFILLMENT_MODE_SET,
+    PERM_OPERATIONS_REQUEST_CREATE_SELF,
+    PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
+)
 from replenishment.legacy_models import ReliefRqst
 
 
@@ -250,6 +268,23 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_code=tenant_code,
             tenant_name=f"Tenant {tenant_id}",
             tenant_type="EXTERNAL",
+        )
+
+    def _create_operations_request_record(self, request_id: int = 70) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=request_id,
+            request_no=f"RQ{request_id:05d}",
+            requesting_tenant_id=20,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode=ORIGIN_MODE_SELF,
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
         )
 
     @patch("operations.contract_services.get_lookup")
@@ -867,7 +902,7 @@ class OperationsWorkflowContractTests(TestCase):
                 "operations.contract_services._sync_operations_request",
                 return_value=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
             ),
-            patch("operations.contract_services._ensure_request_access"),
+            patch("operations.contract_services._ensure_fulfillment_request_access"),
             patch(
                 "operations.contract_services.legacy_service._current_package_for_request",
                 return_value=self.package,
@@ -1009,6 +1044,423 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(load_request_mock.call_count, 2)
         load_request_mock.assert_any_call(70, for_update=True)
         load_request_mock.assert_any_call(70)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.get_staging_hub_details")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_creates_consolidation_legs_and_skips_final_dispatch(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_staging_hub_details_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+        get_staging_hub_details_mock.return_value = {
+            "warehouse_id": 55,
+            "warehouse_name": "ODPEM Hub 55",
+            "parish_code": "01",
+        }
+
+        contract_services.save_package(
+            70,
+            payload={
+                "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                "staging_warehouse_id": 55,
+                "allocations": [
+                    {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                    {"item_id": 102, "inventory_id": 9, "batch_id": 1002, "quantity": "1"},
+                ],
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+        )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(package_record.fulfillment_mode, FULFILLMENT_MODE_DELIVER_FROM_STAGING)
+        self.assertEqual(package_record.staging_warehouse_id, 55)
+        self.assertEqual(package_record.consolidation_status, CONSOLIDATION_STATUS_AWAITING_LEGS)
+        self.assertFalse(OperationsDispatch.objects.filter(package_id=90).exists())
+        self.assertEqual(OperationsConsolidationLeg.objects.filter(package_id=90).count(), 2)
+        self.assertEqual(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            entity_type="CONSOLIDATION_LEG",
+        ).count(),
+        6,
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_rejects_invalid_staging_hub_before_legacy_save(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with patch("operations.contract_services.get_staging_hub_details", return_value=None):
+            with self.assertRaises(OperationValidationError) as raised:
+                contract_services.save_package(
+                    70,
+                    payload={
+                        "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                        "staging_warehouse_id": 999,
+                        "staging_override_reason": "Closer road access",
+                        "allocations": [
+                            {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                        ],
+                    },
+                    actor_id="logistics-manager-1",
+                    actor_roles=self.dispatch_roles,
+                    tenant_context=self.dispatch_ready_context,
+                    permissions=[
+                        PERM_OPERATIONS_FULFILLMENT_MODE_SET,
+                        PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
+                    ],
+                )
+
+        self.assertIn("staging_warehouse_id", raised.exception.errors)
+        save_package_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_requires_fulfillment_mode_permission(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with patch(
+            "operations.contract_services.get_staging_hub_details",
+            return_value={"warehouse_id": 55, "warehouse_name": "ODPEM Hub 55", "parish_code": "01"},
+        ):
+            with self.assertRaises(OperationValidationError) as raised:
+                contract_services.save_package(
+                    70,
+                    payload={
+                        "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                        "staging_warehouse_id": 55,
+                        "allocations": [
+                            {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                        ],
+                    },
+                    actor_id="logistics-manager-1",
+                    actor_roles=self.dispatch_roles,
+                    tenant_context=self.dispatch_ready_context,
+                    permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+                )
+
+        self.assertEqual(raised.exception.errors["fulfillment_mode"]["required_permission"], PERM_OPERATIONS_FULFILLMENT_MODE_SET)
+        save_package_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_requires_override_permission_for_non_recommended_hub(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        recommend_staging_hub_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+        )
+
+        with patch(
+            "operations.contract_services.get_staging_hub_details",
+            return_value={"warehouse_id": 77, "warehouse_name": "ODPEM Hub 77", "parish_code": "02"},
+        ):
+            with self.assertRaises(OperationValidationError) as raised:
+                contract_services.save_package(
+                    70,
+                    payload={
+                        "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                        "staging_warehouse_id": 77,
+                        "staging_override_reason": "Road closure detour",
+                        "allocations": [
+                            {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                        ],
+                    },
+                    actor_id="logistics-manager-1",
+                    actor_roles=self.dispatch_roles,
+                    tenant_context=self.dispatch_ready_context,
+                    permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+                )
+
+        self.assertEqual(
+            raised.exception.errors["staging_warehouse_id"]["required_permission"],
+            PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
+        )
+        save_package_mock.assert_not_called()
+
+    def test_sync_package_preserves_operations_only_statuses_when_legacy_is_still_pending(self) -> None:
+        request_record = self._create_operations_request_record()
+        for index, status_code in enumerate(
+            (
+                PACKAGE_STATUS_CONSOLIDATING,
+                PACKAGE_STATUS_READY_FOR_PICKUP,
+                PACKAGE_STATUS_SPLIT,
+                PACKAGE_STATUS_CANCELLED,
+            ),
+            start=1,
+        ):
+            with self.subTest(status_code=status_code):
+                package_record = OperationsPackage.objects.create(
+                    package_id=900 + index,
+                    package_no=f"PK{900 + index:05d}",
+                    relief_request=request_record,
+                    source_warehouse_id=4,
+                    staging_warehouse_id=55,
+                    fulfillment_mode=FULFILLMENT_MODE_PICKUP_AT_STAGING,
+                    status_code=status_code,
+                    create_by_id="tester",
+                    update_by_id="tester",
+                )
+                synced = contract_services._sync_operations_package(
+                    self._package_stub(
+                        reliefpkg_id=900 + index,
+                        reliefrqst_id=70,
+                        agency_id=501,
+                        status_code="P",
+                    ),
+                    request_record=request_record,
+                    actor_id="tester",
+                )
+                self.assertEqual(synced.status_code, status_code)
+                package_record.delete()
+
+    @patch("operations.contract_services.assign_user_to_queue")
+    @patch("operations.contract_services._assign_pickup_release_queue")
+    @patch("operations.contract_services._receive_leg_stock_into_staging")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_receive_consolidation_leg_assigns_pickup_release_to_role_queue(
+        self,
+        package_context_mock,
+        _receive_stock_mock,
+        assign_pickup_release_queue_mock,
+        assign_user_to_queue_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        request_record.submitted_by_id = "requester-1"
+        request_record.save(update_fields=["submitted_by_id"])
+        package_record = OperationsPackage.objects.create(
+            package_id=190,
+            package_no="PK00190",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_PICKUP_AT_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_STAGING_RECEIPT,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            assigned_role_code="LOGISTICS_MANAGER",
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package = self._package_stub(reliefpkg_id=190, reliefrqst_id=70, agency_id=501, status_code="P")
+        request = self._request_stub(reliefrqst_id=70, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        package_context_mock.return_value = (package, request, request_record, package_record)
+
+        def _sync_side_effect(*args, **kwargs):
+            if "status_code" in kwargs and kwargs["status_code"]:
+                package_record.status_code = kwargs["status_code"]
+                package_record.save(update_fields=["status_code"])
+            return package_record
+
+        with patch("operations.contract_services._sync_operations_package", side_effect=_sync_side_effect):
+            result = contract_services.receive_consolidation_leg(
+                190,
+                int(leg.leg_id),
+                payload={"received_by_name": "Receiver"},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_READY_FOR_PICKUP)
+        assign_pickup_release_queue_mock.assert_called_once_with(
+            package_record=package_record,
+            tenant_id=request_record.beneficiary_tenant_id,
+        )
+        assign_user_to_queue_mock.assert_not_called()
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_cancel_package_blocks_in_transit_consolidation_legs(
+        self,
+        package_context_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=290,
+            package_no="PK00290",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=290, reliefrqst_id=70, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=70, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.cancel_package(
+                290,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["cancel"],
+            "Packages with in-transit consolidation legs cannot be cancelled.",
+        )
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    @patch("operations.contract_services.legacy_service._apply_stock_delta_for_rows")
+    @patch("operations.contract_services.legacy_service._selected_plan_for_package")
+    @patch("operations.contract_services._request_summary_payload", return_value={"reliefrqst_id": 70})
+    @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 291})
+    def test_cancel_package_releases_reserved_stock_and_cancels_planned_legs(
+        self,
+        _package_summary_mock,
+        _request_summary_mock,
+        selected_plan_mock,
+        apply_stock_delta_mock,
+        package_context_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=291,
+            package_no="PK00291",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            assigned_role_code="LOGISTICS_MANAGER",
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="logistics-manager-1",
+            lock_owner_role_code="LOGISTICS_MANAGER",
+            lock_status="ACTIVE",
+        )
+        package = self._package_stub(reliefpkg_id=291, reliefrqst_id=70, agency_id=501, status_code="P")
+        package.save = Mock()
+        package_context_mock.return_value = (
+            package,
+            self._request_stub(reliefrqst_id=70, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+        selected_plan_mock.return_value = [
+            {"inventory_id": 4, "batch_id": 1001, "item_id": 101, "quantity": "2", "uom_code": "EA"}
+        ]
+
+        result = contract_services.cancel_package(
+            291,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        package_record.refresh_from_db()
+        leg.refresh_from_db()
+        self.assertEqual(result["status"], PACKAGE_STATUS_CANCELLED)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_CANCELLED)
+        self.assertEqual(leg.status_code, CONSOLIDATION_LEG_STATUS_CANCELLED)
+        apply_stock_delta_mock.assert_called_once()
+        self.assertEqual(apply_stock_delta_mock.call_args.kwargs["delta_sign"], -1)
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                entity_type="CONSOLIDATION_LEG",
+                entity_id=int(leg.leg_id),
+                assignment_status="OPEN",
+            ).exists()
+        )
+        self.assertEqual(
+            OperationsPackageLock.objects.get(package_id=int(package_record.package_id)).lock_status,
+            "RELEASED",
+        )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")

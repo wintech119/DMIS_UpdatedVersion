@@ -7,11 +7,16 @@ from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
 from api.rbac import (
+    PERM_OPERATIONS_CONSOLIDATION_DISPATCH,
+    PERM_OPERATIONS_CONSOLIDATION_RECEIVE,
     PERM_OPERATIONS_DISPATCH_EXECUTE,
     PERM_OPERATIONS_DISPATCH_PREPARE,
     PERM_OPERATIONS_ELIGIBILITY_APPROVE,
     PERM_OPERATIONS_ELIGIBILITY_REJECT,
     PERM_OPERATIONS_ELIGIBILITY_REVIEW,
+    PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE,
+    PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST,
+    PERM_OPERATIONS_PICKUP_RELEASE,
     PERM_OPERATIONS_NOTIFICATION_RECEIVE,
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
     PERM_OPERATIONS_PACKAGE_CREATE,
@@ -302,6 +307,29 @@ def operations_package_current(request, reliefrqst_id: int):
 operations_package_current.required_permission = [PERM_OPERATIONS_PACKAGE_CREATE, PERM_OPERATIONS_PACKAGE_ALLOCATE, PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE]
 
 
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_package_staging_recommendation(request, reliefrqst_id: int):
+    try:
+        return Response(
+            operations_service.get_staging_recommendation(
+                reliefrqst_id,
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_package_staging_recommendation.required_permission = [
+    PERM_OPERATIONS_PACKAGE_CREATE,
+    PERM_OPERATIONS_PACKAGE_ALLOCATE,
+]
+
+
 @api_view(["POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
@@ -314,6 +342,7 @@ def operations_package_draft(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                permissions=_permissions(request),
             )
         )
     except Exception as exc:
@@ -382,6 +411,7 @@ def operations_package_commit_allocation(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                permissions=_permissions(request),
             )
         )
     except Exception as exc:
@@ -410,6 +440,178 @@ def operations_package_override_approve(request, reliefrqst_id: int):
 
 
 operations_package_override_approve.required_permission = PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_consolidation_legs(request, reliefpkg_id: int):
+    try:
+        return Response(
+            operations_service.list_consolidation_legs(
+                reliefpkg_id,
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_consolidation_legs.required_permission = [
+    PERM_OPERATIONS_CONSOLIDATION_DISPATCH,
+    PERM_OPERATIONS_CONSOLIDATION_RECEIVE,
+]
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: int):
+    try:
+        return Response(
+            operations_service.dispatch_consolidation_leg(
+                reliefpkg_id,
+                leg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_consolidation_leg_dispatch.required_permission = PERM_OPERATIONS_CONSOLIDATION_DISPATCH
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int):
+    try:
+        return Response(
+            operations_service.receive_consolidation_leg(
+                reliefpkg_id,
+                leg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_consolidation_leg_receive.required_permission = PERM_OPERATIONS_CONSOLIDATION_RECEIVE
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_consolidation_leg_waybill(request, reliefpkg_id: int, leg_id: int):
+    try:
+        return Response(
+            operations_service.get_consolidation_leg_waybill(
+                reliefpkg_id,
+                leg_id,
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_consolidation_leg_waybill.required_permission = PERM_OPERATIONS_WAYBILL_VIEW
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_partial_release_request(request, reliefpkg_id: int):
+    try:
+        return Response(
+            operations_service.request_partial_release(
+                reliefpkg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_partial_release_request.required_permission = PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_partial_release_approve(request, reliefpkg_id: int):
+    try:
+        return Response(
+            operations_service.approve_partial_release(
+                reliefpkg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_partial_release_approve.required_permission = PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_pickup_release(request, reliefpkg_id: int):
+    try:
+        return Response(
+            operations_service.pickup_release(
+                reliefpkg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_pickup_release.required_permission = PERM_OPERATIONS_PICKUP_RELEASE
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_package_cancel(request, reliefpkg_id: int):
+    try:
+        return Response(
+            operations_service.cancel_package(
+                reliefpkg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_package_cancel.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
 
 
 @api_view(["GET"])

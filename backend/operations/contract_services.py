@@ -5,41 +5,76 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
+from api.rbac import (
+    PERM_OPERATIONS_FULFILLMENT_MODE_SET,
+    PERM_OPERATIONS_PACKAGE_ALLOCATE,
+    PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
+)
 from api.tenancy import TenantContext, can_access_tenant
 from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
+    CONSOLIDATION_LEG_STATUS_CANCELLED,
+    CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+    CONSOLIDATION_LEG_STATUS_PLANNED,
+    CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+    CONSOLIDATION_STATUS_ALL_RECEIVED,
+    CONSOLIDATION_STATUS_AWAITING_LEGS,
+    CONSOLIDATION_STATUS_LEGS_IN_TRANSIT,
+    CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+    CONSOLIDATION_STATUS_PARTIALLY_RECEIVED,
     DISPATCH_ROLE_CODES,
     DISPATCH_STATUS_IN_TRANSIT,
     DISPATCH_STATUS_READY,
     DISPATCH_STATUS_RECEIVED,
     ELIGIBILITY_ROLE_CODES,
+    EVENT_CONSOLIDATION_DISPATCHED,
+    EVENT_CONSOLIDATION_PLANNED,
     EVENT_DISPATCH_COMPLETED,
     EVENT_OVERRIDE_APPROVED,
     EVENT_OVERRIDE_REQUESTED,
+    EVENT_PACKAGE_CANCELLED,
     EVENT_PACKAGE_COMMITTED,
     EVENT_PACKAGE_LOCKED,
+    EVENT_PACKAGE_SPLIT,
+    EVENT_PARTIAL_RELEASE_APPROVED,
+    EVENT_PARTIAL_RELEASE_REQUESTED,
+    EVENT_PICKUP_RELEASED,
     EVENT_RECEIPT_CONFIRMED,
     EVENT_REQUEST_APPROVED,
     EVENT_REQUEST_INELIGIBLE,
     EVENT_REQUEST_REJECTED,
     EVENT_REQUEST_SUBMITTED,
+    EVENT_STAGED_DELIVERY_READY,
+    EVENT_STAGING_RECEIPT_RECORDED,
+    FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+    FULFILLMENT_MODE_DIRECT,
+    FULFILLMENT_MODE_PICKUP_AT_STAGING,
     FULFILLMENT_ROLE_CODES,
     ORIGIN_MODE_SELF,
     PACKAGE_STATUS_COMMITTED,
+    PACKAGE_STATUS_CONSOLIDATING,
+    PACKAGE_STATUS_CANCELLED,
     PACKAGE_STATUS_DRAFT,
-    PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
-    PACKAGE_STATUS_RECEIVED,
     PACKAGE_STATUS_DISPATCHED,
+    PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_READY_FOR_DISPATCH,
+    PACKAGE_STATUS_READY_FOR_PICKUP,
+    PACKAGE_STATUS_RECEIVED,
+    PACKAGE_STATUS_SPLIT,
     QUEUE_CODE_DISPATCH,
+    QUEUE_CODE_CONSOLIDATION_DISPATCH,
     QUEUE_CODE_ELIGIBILITY,
     QUEUE_CODE_FULFILLMENT,
     QUEUE_CODE_OVERRIDE,
+    QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+    QUEUE_CODE_PICKUP_RELEASE,
     QUEUE_CODE_RECEIPT,
+    QUEUE_CODE_STAGING_RECEIPT,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_CANCELLED,
     REQUEST_STATUS_DRAFT,
@@ -51,17 +86,23 @@ from operations.constants import (
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
     ROLE_LOGISTICS_MANAGER,
     ROLE_SYSTEM_ADMINISTRATOR,
+    STAGING_SELECTION_BASIS_MANUAL_OVERRIDE,
     STATUS_LABELS,
     normalize_role_codes,
 )
 from operations.exceptions import OperationValidationError
 from operations.models import (
     OperationsAllocationLine,
+    OperationsConsolidationLeg,
+    OperationsConsolidationLegItem,
+    OperationsConsolidationReceipt,
+    OperationsConsolidationWaybill,
     OperationsDispatch,
     OperationsDispatchTransport,
     OperationsEligibilityDecision,
     OperationsPackage,
     OperationsPackageLock,
+    OperationsPickupRelease,
     OperationsQueueAssignment,
     OperationsReceipt,
     OperationsReliefRequest,
@@ -78,14 +119,39 @@ from operations.workflow import (
     record_status_transition,
 )
 from operations import services as legacy_service
-from replenishment.legacy_models import ReliefPkg, ReliefRqst
+from operations.staging_selection import (
+    beneficiary_parish_code_for_request,
+    get_staging_hub_details,
+    recommend_staging_hub,
+)
+from replenishment.legacy_models import (
+    Inventory,
+    ItemBatch,
+    ReliefPkg,
+    ReliefPkgItem,
+    ReliefRqst,
+    Transfer,
+    TransferItem,
+)
 
 _UNSET = object()
 
 ENTITY_REQUEST = "RELIEF_REQUEST"
 ENTITY_PACKAGE = "PACKAGE"
 ENTITY_DISPATCH = "DISPATCH"
+ENTITY_CONSOLIDATION_LEG = "CONSOLIDATION_LEG"
+ENTITY_PICKUP_RELEASE = "PICKUP_RELEASE"
 _VALID_ALLOCATION_SOURCE_TYPES = {"ON_HAND", "TRANSFER", "DONATION", "PROCUREMENT"}
+_OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
+    {
+        PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+        PACKAGE_STATUS_CONSOLIDATING,
+        PACKAGE_STATUS_READY_FOR_DISPATCH,
+        PACKAGE_STATUS_READY_FOR_PICKUP,
+        PACKAGE_STATUS_SPLIT,
+        PACKAGE_STATUS_CANCELLED,
+    }
+)
 
 
 def _require_actor_id(actor_id: str | None) -> str:
@@ -564,15 +630,15 @@ def _sync_operations_package(
     else:
         # Issue #14: Sync status from legacy record on read paths.
         legacy_derived_status = _package_status_from_legacy(package)
-        if (
-            record.status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
-            and legacy_derived_status == PACKAGE_STATUS_DRAFT
-        ):
+        if record.status_code in _OPERATIONS_NATIVE_PACKAGE_STATUSES and legacy_derived_status in {
+            PACKAGE_STATUS_DRAFT,
+            PACKAGE_STATUS_COMMITTED,
+        }:
             legacy_derived_status = record.status_code
         _assign_if_changed(record, "status_code", legacy_derived_status, changed_fields)
     if override_status_code is not _UNSET:
         _assign_if_changed(record, "override_status_code", override_status_code, changed_fields)
-    if record.status_code == PACKAGE_STATUS_COMMITTED and record.committed_at is None:
+    if record.status_code in {PACKAGE_STATUS_COMMITTED, PACKAGE_STATUS_CONSOLIDATING} and record.committed_at is None:
         record.committed_at = getattr(package, "committed_dtime", None) or timezone.now()
         changed_fields.append("committed_at")
     if record.status_code == PACKAGE_STATUS_DISPATCHED and record.dispatched_at is None:
@@ -612,6 +678,27 @@ def _ensure_dispatch_record(
     package_record: OperationsPackage,
     actor_id: str,
 ) -> OperationsDispatch:
+    fulfillment_mode = getattr(package_record, "fulfillment_mode", FULFILLMENT_MODE_DIRECT)
+    effective_source_warehouse_id = getattr(
+        package_record,
+        "effective_dispatch_source_warehouse_id",
+        getattr(package_record, "source_warehouse_id", None),
+    )
+    if fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING:
+        raise OperationValidationError(
+            {"dispatch": "Pickup-at-staging packages do not create a final dispatch record."}
+        )
+    if (
+        fulfillment_mode == FULFILLMENT_MODE_DELIVER_FROM_STAGING
+        and package_record.status_code not in {
+            PACKAGE_STATUS_READY_FOR_DISPATCH,
+            PACKAGE_STATUS_DISPATCHED,
+            PACKAGE_STATUS_RECEIVED,
+        }
+    ):
+        raise OperationValidationError(
+            {"dispatch": "Final dispatch is not available until all consolidation legs are received."}
+        )
     dispatch_status = _dispatch_status_from_package_status(package_record.status_code)
     dispatch_at = package_record.dispatched_at
     dispatch, created = OperationsDispatch.objects.get_or_create(
@@ -620,7 +707,7 @@ def _ensure_dispatch_record(
             "dispatch_no": legacy_service._tracking_no("DP", int(package.reliefpkg_id)),
             "status_code": dispatch_status,
             "dispatch_at": dispatch_at,
-            "source_warehouse_id": package_record.source_warehouse_id,
+            "source_warehouse_id": effective_source_warehouse_id,
             "destination_tenant_id": package_record.destination_tenant_id,
             "destination_agency_id": package_record.destination_agency_id,
             "create_by_id": actor_id,
@@ -639,7 +726,12 @@ def _ensure_dispatch_record(
         changed_fields: list[str] = []
         _assign_if_changed(dispatch, "status_code", dispatch_status, changed_fields)
         _assign_if_changed(dispatch, "dispatch_at", dispatch_at, changed_fields)
-        _assign_if_changed(dispatch, "source_warehouse_id", package_record.source_warehouse_id, changed_fields)
+        _assign_if_changed(
+            dispatch,
+            "source_warehouse_id",
+            effective_source_warehouse_id,
+            changed_fields,
+        )
         _assign_if_changed(dispatch, "destination_tenant_id", package_record.destination_tenant_id, changed_fields)
         _assign_if_changed(dispatch, "destination_agency_id", package_record.destination_agency_id, changed_fields)
         if changed_fields:
@@ -659,6 +751,34 @@ def _require_roles(actor_roles: Iterable[str] | None, allowed_roles: Iterable[st
     if not any(role in allowed for role in normalized_roles):
         raise OperationValidationError({"roles": message})
     return normalized_roles
+
+
+def _permission_set(permissions: Iterable[str] | None) -> set[str]:
+    return {
+        str(permission or "").strip().lower()
+        for permission in permissions or ()
+        if str(permission or "").strip()
+    }
+
+
+def _require_permission(
+    permissions: Iterable[str] | None,
+    required_permission: str,
+    *,
+    field_name: str,
+    message: str,
+) -> None:
+    if required_permission.lower() in _permission_set(permissions):
+        return
+    raise OperationValidationError(
+        {
+            field_name: {
+                "code": "permission_denied",
+                "message": message,
+                "required_permission": required_permission,
+            }
+        }
+    )
 
 
 def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterable[str]) -> OperationsPackageLock:
@@ -915,6 +1035,20 @@ def _ensure_actor_assigned_to_queue(
     raise OperationValidationError({"authorization": error_message})
 
 
+def _assign_pickup_release_queue(
+    *,
+    package_record: OperationsPackage,
+    tenant_id: int | None,
+) -> None:
+    assign_roles_to_queue(
+        queue_code=QUEUE_CODE_PICKUP_RELEASE,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        role_codes=DISPATCH_ROLE_CODES,
+        tenant_id=tenant_id,
+    )
+
+
 def _package_lock_payload(package_id: int) -> dict[str, Any] | None:
     lock = OperationsPackageLock.objects.filter(package_id=int(package_id)).first()
     if lock is None:
@@ -925,6 +1059,287 @@ def _package_lock_payload(package_id: int) -> dict[str, Any] | None:
         "lock_started_at": legacy_service._as_iso(lock.lock_started_at),
         "lock_expires_at": legacy_service._as_iso(lock.lock_expires_at),
         "lock_status": lock.lock_status,
+    }
+
+
+def _normalized_fulfillment_mode(value: object, *, default: str = FULFILLMENT_MODE_DIRECT) -> str:
+    normalized = str(value or default).strip().upper() or default
+    allowed = {
+        FULFILLMENT_MODE_DIRECT,
+        FULFILLMENT_MODE_PICKUP_AT_STAGING,
+        FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+    }
+    if normalized not in allowed:
+        raise OperationValidationError(
+            {
+                "fulfillment_mode": (
+                    "fulfillment_mode must be DIRECT, PICKUP_AT_STAGING, "
+                    "or DELIVER_FROM_STAGING."
+                )
+            }
+        )
+    return normalized
+
+
+def _is_staged_fulfillment_mode(value: object) -> bool:
+    return _normalized_fulfillment_mode(value) in {
+        FULFILLMENT_MODE_PICKUP_AT_STAGING,
+        FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+    }
+
+
+def _package_leg_summary(package_record: OperationsPackage) -> dict[str, Any]:
+    legs = list(
+        OperationsConsolidationLeg.objects.filter(package_id=int(package_record.package_id)).only(
+            "leg_id",
+            "status_code",
+        )
+    )
+    by_status: dict[str, int] = {}
+    for leg in legs:
+        by_status[leg.status_code] = by_status.get(leg.status_code, 0) + 1
+    received_count = by_status.get(CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING, 0)
+    return {
+        "total_legs": len(legs),
+        "planned_legs": by_status.get(CONSOLIDATION_LEG_STATUS_PLANNED, 0),
+        "in_transit_legs": by_status.get(CONSOLIDATION_LEG_STATUS_IN_TRANSIT, 0),
+        "received_legs": received_count,
+        "cancelled_legs": by_status.get(CONSOLIDATION_LEG_STATUS_CANCELLED, 0),
+        "all_received": bool(legs) and received_count == len(legs),
+    }
+
+
+def _package_split_references(package_record: OperationsPackage) -> dict[str, Any]:
+    split_from = package_record.split_from_package
+    children = list(
+        package_record.split_children.order_by("package_no").values("package_id", "package_no", "status_code")
+    )
+    return {
+        "split_from_package_id": int(split_from.package_id) if split_from is not None else None,
+        "split_from_package_no": split_from.package_no if split_from is not None else None,
+        "split_children": [
+            {
+                "package_id": int(child["package_id"]),
+                "package_no": child["package_no"],
+                "status_code": child["status_code"],
+            }
+            for child in children
+        ],
+    }
+
+
+def _update_package_workflow_fields(
+    package_record: OperationsPackage,
+    *,
+    actor_id: str,
+    fulfillment_mode: str | object = _UNSET,
+    staging_warehouse_id: int | None | object = _UNSET,
+    recommended_staging_warehouse_id: int | None | object = _UNSET,
+    staging_selection_basis: str | None | object = _UNSET,
+    staging_override_reason: str | None | object = _UNSET,
+    consolidation_status: str | None | object = _UNSET,
+    partial_release_requested_by_id: str | None | object = _UNSET,
+    partial_release_requested_at: datetime | None | object = _UNSET,
+    partial_release_request_reason: str | None | object = _UNSET,
+    partial_release_approved_by_id: str | None | object = _UNSET,
+    partial_release_approved_at: datetime | None | object = _UNSET,
+    partial_release_approval_reason: str | None | object = _UNSET,
+    split_from_package_id: int | None | object = _UNSET,
+    split_reason: str | None | object = _UNSET,
+    split_at: datetime | None | object = _UNSET,
+) -> OperationsPackage:
+    changed_fields: list[str] = []
+
+    if fulfillment_mode is not _UNSET:
+        _assign_if_changed(package_record, "fulfillment_mode", fulfillment_mode, changed_fields)
+    if staging_warehouse_id is not _UNSET:
+        _assign_if_changed(package_record, "staging_warehouse_id", staging_warehouse_id, changed_fields)
+    if recommended_staging_warehouse_id is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "recommended_staging_warehouse_id",
+            recommended_staging_warehouse_id,
+            changed_fields,
+        )
+    if staging_selection_basis is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "staging_selection_basis",
+            staging_selection_basis,
+            changed_fields,
+        )
+    if staging_override_reason is not _UNSET:
+        _assign_if_changed(package_record, "staging_override_reason", staging_override_reason, changed_fields)
+    if consolidation_status is not _UNSET:
+        _assign_if_changed(package_record, "consolidation_status", consolidation_status, changed_fields)
+    if partial_release_requested_by_id is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_requested_by_id",
+            partial_release_requested_by_id,
+            changed_fields,
+        )
+    if partial_release_requested_at is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_requested_at",
+            partial_release_requested_at,
+            changed_fields,
+        )
+    if partial_release_request_reason is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_request_reason",
+            partial_release_request_reason,
+            changed_fields,
+        )
+    if partial_release_approved_by_id is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_approved_by_id",
+            partial_release_approved_by_id,
+            changed_fields,
+        )
+    if partial_release_approved_at is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_approved_at",
+            partial_release_approved_at,
+            changed_fields,
+        )
+    if partial_release_approval_reason is not _UNSET:
+        _assign_if_changed(
+            package_record,
+            "partial_release_approval_reason",
+            partial_release_approval_reason,
+            changed_fields,
+        )
+    if split_from_package_id is not _UNSET:
+        _assign_if_changed(package_record, "split_from_package_id", split_from_package_id, changed_fields)
+    if split_reason is not _UNSET:
+        _assign_if_changed(package_record, "split_reason", split_reason, changed_fields)
+    if split_at is not _UNSET:
+        _assign_if_changed(package_record, "split_at", split_at, changed_fields)
+
+    if changed_fields:
+        package_record.update_by_id = actor_id
+        package_record.update_dtime = timezone.now()
+        package_record.version_nbr = int(package_record.version_nbr or 0) + 1
+        changed_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+        package_record.save(update_fields=changed_fields)
+    return package_record
+
+
+def _resolved_staging_configuration(
+    *,
+    reliefrqst_id: int,
+    payload: Mapping[str, Any],
+    existing_package_record: OperationsPackage | None,
+    permissions: Iterable[str] | None,
+) -> dict[str, Any]:
+    existing_mode = (
+        existing_package_record.fulfillment_mode
+        if existing_package_record is not None
+        else FULFILLMENT_MODE_DIRECT
+    )
+    fulfillment_mode = _normalized_fulfillment_mode(
+        payload.get("fulfillment_mode"),
+        default=existing_mode,
+    )
+    if "fulfillment_mode" in payload:
+        _require_permission(
+            permissions,
+            PERM_OPERATIONS_FULFILLMENT_MODE_SET,
+            field_name="fulfillment_mode",
+            message="Setting the fulfillment mode requires operations.fulfillment_mode.set.",
+        )
+    existing_staging_id = (
+        existing_package_record.staging_warehouse_id if existing_package_record is not None else None
+    )
+    requested_staging_id = _optional_positive_int_payload_value(payload, "staging_warehouse_id")
+    should_resolve_recommendation = bool(
+        _is_staged_fulfillment_mode(fulfillment_mode)
+        or existing_staging_id not in (None, "")
+        or requested_staging_id is not _UNSET
+        or payload.get("staging_override_reason")
+    )
+    if should_resolve_recommendation:
+        parish_code = beneficiary_parish_code_for_request(int(reliefrqst_id))
+        recommendation = recommend_staging_hub(beneficiary_parish_code=parish_code)
+        recommended_id = recommendation.recommended_staging_warehouse_id
+        recommendation_basis = recommendation.staging_selection_basis
+    else:
+        recommended_id = None
+        recommendation_basis = None
+    staging_override_reason = str(
+        payload.get("staging_override_reason")
+        or (existing_package_record.staging_override_reason if existing_package_record is not None else "")
+        or ""
+    ).strip() or None
+    staging_warehouse_id = existing_staging_id
+    if requested_staging_id is not _UNSET:
+        staging_warehouse_id = requested_staging_id
+    elif staging_warehouse_id in (None, ""):
+        staging_warehouse_id = recommended_id
+
+    staging_selection_basis = (
+        recommendation_basis
+        or (
+            existing_package_record.staging_selection_basis
+            if existing_package_record is not None
+            else None
+        )
+    )
+
+    if _is_staged_fulfillment_mode(fulfillment_mode):
+        if staging_warehouse_id is None:
+            raise OperationValidationError(
+                {"staging_warehouse_id": "A staging warehouse is required for staged fulfillment."}
+            )
+        staging_hub = get_staging_hub_details(int(staging_warehouse_id))
+        if staging_hub is None:
+            raise OperationValidationError(
+                {
+                    "staging_warehouse_id": (
+                        "Selected staging warehouse must be an active ODPEM-owned SUB-HUB."
+                    )
+                }
+            )
+        if recommended_id is not None and int(staging_warehouse_id) != int(recommended_id):
+            _require_permission(
+                permissions,
+                PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
+                field_name="staging_warehouse_id",
+                message=(
+                    "Selecting a non-recommended staging warehouse requires "
+                    "operations.staging_warehouse.override."
+                ),
+            )
+            if not staging_override_reason:
+                raise OperationValidationError(
+                    {
+                        "staging_override_reason": (
+                            "A manual override reason is required when the selected staging "
+                            "warehouse differs from the recommendation."
+                        )
+                    }
+                )
+            staging_selection_basis = STAGING_SELECTION_BASIS_MANUAL_OVERRIDE
+    else:
+        staging_warehouse_id = None
+        staging_selection_basis = None
+        staging_override_reason = None
+
+    return {
+        "fulfillment_mode": fulfillment_mode,
+        "recommended_staging_warehouse_id": recommended_id,
+        "staging_warehouse_id": staging_warehouse_id,
+        "staging_selection_basis": staging_selection_basis,
+        "staging_override_reason": staging_override_reason,
+        "recommendation": {
+            "recommended_staging_warehouse_id": recommended_id,
+            "staging_selection_basis": recommendation_basis,
+        },
     }
 
 
@@ -954,9 +1369,26 @@ def _package_summary_payload(package: ReliefPkg, package_record: OperationsPacka
     payload["status_label"] = STATUS_LABELS.get(payload["status_code"], payload["status_code"].title())
     payload["override_status_code"] = package_record.override_status_code if package_record else None
     payload["source_warehouse_id"] = package_record.source_warehouse_id if package_record else None
+    payload["effective_dispatch_source_warehouse_id"] = (
+        package_record.effective_dispatch_source_warehouse_id if package_record else None
+    )
+    payload["fulfillment_mode"] = package_record.fulfillment_mode if package_record else FULFILLMENT_MODE_DIRECT
+    payload["staging_warehouse_id"] = package_record.staging_warehouse_id if package_record else None
+    payload["recommended_staging_warehouse_id"] = (
+        package_record.recommended_staging_warehouse_id if package_record else None
+    )
+    payload["staging_selection_basis"] = package_record.staging_selection_basis if package_record else None
+    payload["staging_override_reason"] = package_record.staging_override_reason if package_record else None
+    payload["consolidation_status"] = package_record.consolidation_status if package_record else None
     payload["destination_tenant_id"] = package_record.destination_tenant_id if package_record else None
     payload["destination_agency_id"] = package_record.destination_agency_id if package_record else None
     payload["lock"] = _package_lock_payload(int(package.reliefpkg_id))
+    if package_record is not None:
+        payload["leg_summary"] = _package_leg_summary(package_record)
+        payload["split"] = _package_split_references(package_record)
+    else:
+        payload["leg_summary"] = None
+        payload["split"] = None
     dispatch = OperationsDispatch.objects.filter(package_id=int(package.reliefpkg_id)).first()
     if dispatch is not None:
         payload["dispatch_status_code"] = dispatch.status_code
@@ -992,6 +1424,462 @@ def _dispatch_payload(package: ReliefPkg, dispatch: OperationsDispatch) -> dict[
             "route_override_reason": transport.route_override_reason,
         }
     return payload
+
+
+def _consolidation_leg_payload(leg: OperationsConsolidationLeg) -> dict[str, Any]:
+    waybill = (
+        OperationsConsolidationWaybill.objects.filter(leg_id=int(leg.leg_id))
+        .order_by("-generated_at", "-waybill_id")
+        .first()
+    )
+    return {
+        "leg_id": int(leg.leg_id),
+        "package_id": int(leg.package_id),
+        "leg_sequence": leg.leg_sequence,
+        "source_warehouse_id": leg.source_warehouse_id,
+        "staging_warehouse_id": leg.staging_warehouse_id,
+        "status_code": leg.status_code,
+        "status_label": STATUS_LABELS.get(leg.status_code, leg.status_code.title()),
+        "shadow_transfer_id": leg.shadow_transfer_id,
+        "driver_name": leg.driver_name,
+        "driver_license_no": _mask_sensitive_value(leg.driver_license_no),
+        "vehicle_id": leg.vehicle_id,
+        "vehicle_registration": leg.vehicle_registration,
+        "vehicle_type": leg.vehicle_type,
+        "transport_mode": leg.transport_mode,
+        "transport_notes": leg.transport_notes,
+        "dispatched_by_id": leg.dispatched_by_id,
+        "dispatched_at": legacy_service._as_iso(leg.dispatched_at),
+        "expected_arrival_at": legacy_service._as_iso(leg.expected_arrival_at),
+        "received_by_user_id": leg.received_by_user_id,
+        "received_at": legacy_service._as_iso(leg.received_at),
+        "items": [
+            {
+                "leg_item_id": int(item.leg_item_id),
+                "item_id": item.item_id,
+                "batch_id": item.batch_id,
+                "quantity": str(item.quantity),
+                "source_type": item.source_type,
+                "source_record_id": item.source_record_id,
+                "staging_batch_id": item.staging_batch_id,
+                "uom_code": item.uom_code,
+            }
+            for item in leg.items.order_by("item_id", "batch_id", "leg_item_id")
+        ],
+        "waybill_no": waybill.waybill_no if waybill is not None else None,
+    }
+
+
+def _leg_dispatch_rows(leg: OperationsConsolidationLeg) -> list[dict[str, Any]]:
+    return [
+        {
+            "item_id": int(item.item_id),
+            "quantity": item.quantity,
+            "inventory_id": int(leg.source_warehouse_id),
+            "batch_id": int(item.batch_id),
+            "source_type": item.source_type,
+        }
+        for item in leg.items.order_by("leg_item_id")
+    ]
+
+
+def _pickup_release_rows(package_record: OperationsPackage) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for leg in package_record.consolidation_legs.filter(
+        status_code=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+    ).order_by("leg_sequence"):
+        for item in leg.items.order_by("leg_item_id"):
+            if item.staging_batch_id is None:
+                raise OperationValidationError(
+                    {
+                        "pickup_release": (
+                            f"Leg item {item.leg_item_id} is missing its staging batch mapping."
+                        )
+                    }
+                )
+            rows.append(
+                {
+                    "item_id": int(item.item_id),
+                    "quantity": item.quantity,
+                    "inventory_id": int(leg.staging_warehouse_id),
+                    "batch_id": int(item.staging_batch_id),
+                    "source_type": "ON_HAND",
+                }
+            )
+    return rows
+
+
+def _materialized_leg_item_mapping(
+    package_record: OperationsPackage,
+) -> dict[tuple[int, int, int], OperationsConsolidationLegItem]:
+    mapping: dict[tuple[int, int, int], OperationsConsolidationLegItem] = {}
+    for leg in package_record.consolidation_legs.filter(
+        status_code=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+    ).order_by("leg_sequence"):
+        for item in leg.items.order_by("leg_item_id"):
+            mapping[(int(leg.source_warehouse_id), int(item.batch_id), int(item.item_id))] = item
+    return mapping
+
+
+def _staging_delivery_ready(package_record: OperationsPackage) -> bool:
+    return (
+        package_record.fulfillment_mode == FULFILLMENT_MODE_DELIVER_FROM_STAGING
+        and package_record.status_code == PACKAGE_STATUS_READY_FOR_DISPATCH
+    )
+
+
+def _create_consolidation_legs(
+    *,
+    package_record: OperationsPackage,
+    actor_id: str,
+) -> list[OperationsConsolidationLeg]:
+    if package_record.staging_warehouse_id in (None, ""):
+        raise OperationValidationError(
+            {"staging_warehouse_id": "A staging warehouse is required before consolidation legs can be created."}
+        )
+    existing_legs = list(
+        package_record.consolidation_legs.select_for_update().order_by("leg_sequence")
+    )
+    if existing_legs and any(
+        leg.status_code != CONSOLIDATION_LEG_STATUS_PLANNED for leg in existing_legs
+    ):
+        raise OperationValidationError(
+            {
+                "consolidation": (
+                    "Consolidation legs cannot be rebuilt after dispatch or receipt activity has started."
+                )
+            }
+        )
+    if existing_legs:
+        OperationsConsolidationLegItem.objects.filter(
+            leg_id__in=[int(leg.leg_id) for leg in existing_legs]
+        ).delete()
+        OperationsConsolidationLeg.objects.filter(
+            leg_id__in=[int(leg.leg_id) for leg in existing_legs]
+        ).delete()
+
+    allocation_lines = list(
+        OperationsAllocationLine.objects.filter(package=package_record).order_by(
+            "source_warehouse_id",
+            "item_id",
+            "batch_id",
+        )
+    )
+    grouped_lines: dict[int, list[OperationsAllocationLine]] = {}
+    for line in allocation_lines:
+        grouped_lines.setdefault(int(line.source_warehouse_id), []).append(line)
+    now = timezone.now()
+    created_legs: list[OperationsConsolidationLeg] = []
+    for leg_sequence, source_warehouse_id in enumerate(sorted(grouped_lines), start=1):
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=leg_sequence,
+            source_warehouse_id=source_warehouse_id,
+            staging_warehouse_id=int(package_record.staging_warehouse_id),
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id=actor_id,
+            create_dtime=now,
+            update_by_id=actor_id,
+            update_dtime=now,
+        )
+        leg_items = [
+            OperationsConsolidationLegItem(
+                leg=leg,
+                item_id=int(line.item_id),
+                batch_id=int(line.batch_id),
+                quantity=line.quantity,
+                source_type=line.source_type,
+                source_record_id=line.source_record_id,
+                uom_code=line.uom_code,
+                create_by_id=actor_id,
+                create_dtime=now,
+                update_by_id=actor_id,
+                update_dtime=now,
+            )
+            for line in grouped_lines[source_warehouse_id]
+        ]
+        OperationsConsolidationLegItem.objects.bulk_create(leg_items)
+        record_status_transition(
+            entity_type=ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(leg.leg_id),
+            from_status=None,
+            to_status=leg.status_code,
+            actor_id=actor_id,
+        )
+        created_legs.append(leg)
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+    )
+    return created_legs
+
+
+def _update_package_consolidation_status(
+    *,
+    package_record: OperationsPackage,
+    actor_id: str,
+) -> str | None:
+    summary = _package_leg_summary(package_record)
+    if summary["total_legs"] == 0:
+        status = None
+    elif summary["received_legs"] == summary["total_legs"]:
+        status = CONSOLIDATION_STATUS_ALL_RECEIVED
+    elif summary["received_legs"] > 0:
+        status = CONSOLIDATION_STATUS_PARTIALLY_RECEIVED
+    elif summary["in_transit_legs"] > 0:
+        status = CONSOLIDATION_STATUS_LEGS_IN_TRANSIT
+    else:
+        status = CONSOLIDATION_STATUS_AWAITING_LEGS
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        consolidation_status=status,
+    )
+    return status
+
+
+def _create_leg_shadow_transfer(
+    *,
+    leg: OperationsConsolidationLeg,
+    package_record: OperationsPackage,
+    actor_id: str,
+    request: ReliefRqst,
+    dispatched_at: datetime,
+) -> int:
+    transfer_id = int(legacy_service._next_int_id("transfer", "transfer_id"))
+    reason_text = (
+        f"Consolidation leg for package {package_record.package_no} "
+        f"(leg {leg.leg_sequence})"
+    )
+    Transfer.objects.create(
+        transfer_id=transfer_id,
+        fr_inventory_id=int(leg.source_warehouse_id),
+        to_inventory_id=int(leg.staging_warehouse_id),
+        eligible_event_id=request.eligible_event_id,
+        needs_list_id=None,
+        transfer_date=dispatched_at.date(),
+        reason_text=reason_text,
+        transfer_context="CONSOLIDATION",
+        status_code="D",
+        create_by_id=actor_id,
+        create_dtime=dispatched_at,
+        update_by_id=actor_id,
+        update_dtime=dispatched_at,
+        verify_by_id=actor_id,
+        verify_dtime=dispatched_at,
+        dispatched_at=dispatched_at,
+        dispatched_by=actor_id,
+        expected_arrival=leg.expected_arrival_at,
+        version_nbr=1,
+    )
+    TransferItem.objects.bulk_create(
+        [
+            TransferItem(
+                transfer_id=transfer_id,
+                item_id=int(item.item_id),
+                batch_id=int(item.batch_id),
+                inventory_id=int(leg.source_warehouse_id),
+                item_qty=item.quantity,
+                uom_code=item.uom_code,
+                reason_text=reason_text,
+                create_by_id=actor_id,
+                create_dtime=dispatched_at,
+                update_by_id=actor_id,
+                update_dtime=dispatched_at,
+                version_nbr=1,
+            )
+            for item in leg.items.order_by("leg_item_id")
+        ]
+    )
+    leg.shadow_transfer_id = transfer_id
+    leg.update_by_id = actor_id
+    leg.update_dtime = dispatched_at
+    leg.version_nbr = int(leg.version_nbr or 0) + 1
+    leg.save(update_fields=["shadow_transfer_id", "update_by_id", "update_dtime", "version_nbr"])
+    return transfer_id
+
+
+def _create_consolidation_waybill(
+    *,
+    leg: OperationsConsolidationLeg,
+    package: ReliefPkg,
+    request: ReliefRqst,
+    actor_id: str,
+) -> OperationsConsolidationWaybill:
+    artifact_payload = {
+        "package_id": int(package.reliefpkg_id),
+        "package_tracking_no": package.tracking_no,
+        "request_id": int(request.reliefrqst_id),
+        "request_tracking_no": request.tracking_no,
+        "leg_id": int(leg.leg_id),
+        "leg_sequence": leg.leg_sequence,
+        "source_warehouse_id": leg.source_warehouse_id,
+        "staging_warehouse_id": leg.staging_warehouse_id,
+        "driver_name": leg.driver_name,
+        "vehicle_id": leg.vehicle_id,
+        "vehicle_registration": leg.vehicle_registration,
+        "vehicle_type": leg.vehicle_type,
+        "transport_mode": leg.transport_mode,
+        "departure_dtime": legacy_service._as_iso(leg.dispatched_at),
+        "expected_arrival_dtime": legacy_service._as_iso(leg.expected_arrival_at),
+        "line_items": [
+            {
+                "item_id": int(item.item_id),
+                "batch_id": int(item.batch_id),
+                "quantity": str(item.quantity),
+                "uom_code": item.uom_code,
+            }
+            for item in leg.items.order_by("item_id", "batch_id")
+        ],
+    }
+    return OperationsConsolidationWaybill.objects.create(
+        leg=leg,
+        waybill_no=f"{package.tracking_no}-L{leg.leg_sequence:02d}",
+        artifact_payload_json=artifact_payload,
+        artifact_version=1,
+        generated_by_id=actor_id,
+    )
+
+
+def _receive_leg_stock_into_staging(
+    *,
+    leg: OperationsConsolidationLeg,
+    actor_id: str,
+) -> None:
+    now = timezone.now()
+    for item in leg.items.select_for_update().order_by("leg_item_id"):
+        source_batch = ItemBatch.objects.select_for_update().get(batch_id=int(item.batch_id))
+        inventory = (
+            Inventory.objects.select_for_update()
+            .filter(inventory_id=int(leg.staging_warehouse_id), item_id=int(item.item_id))
+            .first()
+        )
+        if inventory is None:
+            inventory = Inventory.objects.create(
+                inventory_id=int(leg.staging_warehouse_id),
+                item_id=int(item.item_id),
+                usable_qty=legacy_service._quantize_qty(0),
+                reserved_qty=legacy_service._quantize_qty(0),
+                defective_qty=legacy_service._quantize_qty(0),
+                expired_qty=legacy_service._quantize_qty(0),
+                uom_code=item.uom_code or source_batch.uom_code,
+                status_code="A",
+                update_by_id=actor_id,
+                update_dtime=now,
+                version_nbr=1,
+            )
+        inventory.usable_qty = legacy_service._quantize_qty(inventory.usable_qty) + item.quantity
+        inventory.update_by_id = actor_id
+        inventory.update_dtime = now
+        inventory.version_nbr = int(inventory.version_nbr or 0) + 1
+        inventory.save(update_fields=["usable_qty", "update_by_id", "update_dtime", "version_nbr"])
+
+        staging_batch_id = int(legacy_service._next_int_id("itembatch", "batch_id"))
+        ItemBatch.objects.create(
+            batch_id=staging_batch_id,
+            inventory_id=int(leg.staging_warehouse_id),
+            item_id=int(item.item_id),
+            batch_no=source_batch.batch_no,
+            batch_date=source_batch.batch_date,
+            expiry_date=source_batch.expiry_date,
+            usable_qty=item.quantity,
+            reserved_qty=legacy_service._quantize_qty(0),
+            defective_qty=legacy_service._quantize_qty(0),
+            expired_qty=legacy_service._quantize_qty(0),
+            uom_code=item.uom_code or source_batch.uom_code,
+            status_code=source_batch.status_code or "A",
+            update_by_id=actor_id,
+            update_dtime=now,
+            version_nbr=1,
+        )
+        item.staging_batch_id = staging_batch_id
+        item.update_by_id = actor_id
+        item.update_dtime = now
+        item.version_nbr = int(item.version_nbr or 0) + 1
+        item.save(update_fields=["staging_batch_id", "update_by_id", "update_dtime", "version_nbr"])
+
+
+def _materialize_staged_dispatch_sources(
+    *,
+    package_record: OperationsPackage,
+    actor_id: str,
+) -> None:
+    mapping = _materialized_leg_item_mapping(package_record)
+    if not mapping:
+        raise OperationValidationError(
+            {"dispatch": "No received consolidation leg stock is available at staging."}
+        )
+    line_items = list(
+        OperationsAllocationLine.objects.select_for_update().filter(package=package_record).order_by("line_id")
+    )
+    for line in line_items:
+        key = (int(line.source_warehouse_id), int(line.batch_id), int(line.item_id))
+        leg_item = mapping.get(key)
+        if leg_item is None or leg_item.staging_batch_id is None:
+            raise OperationValidationError(
+                {
+                    "dispatch": (
+                        f"Package allocation line {line.line_id} is missing a staging stock mapping."
+                    )
+                }
+            )
+        line.source_warehouse_id = int(package_record.staging_warehouse_id or 0)
+        line.batch_id = int(leg_item.staging_batch_id)
+        line.source_type = "ON_HAND"
+        line.source_record_id = None
+        line.update_by_id = actor_id
+        line.update_dtime = timezone.now()
+        line.version_nbr = int(line.version_nbr or 0) + 1
+        line.save(
+            update_fields=[
+                "source_warehouse_id",
+                "batch_id",
+                "source_type",
+                "source_record_id",
+                "update_by_id",
+                "update_dtime",
+                "version_nbr",
+            ]
+        )
+
+    ReliefPkgItem.objects.filter(reliefpkg_id=int(package_record.package_id)).delete()
+    now = timezone.now()
+    relief_pkg_items = [
+        ReliefPkgItem(
+            reliefpkg_id=int(package_record.package_id),
+            fr_inventory_id=int(line.source_warehouse_id),
+            batch_id=int(line.batch_id),
+            item_id=int(line.item_id),
+            item_qty=line.quantity,
+            uom_code=line.uom_code,
+            reason_text=line.reason_text,
+            create_by_id=actor_id,
+            create_dtime=now,
+            update_by_id=actor_id,
+            update_dtime=now,
+            version_nbr=1,
+        )
+        for line in line_items
+    ]
+    ReliefPkgItem.objects.bulk_create(relief_pkg_items)
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+    )
+    if package_record.source_warehouse_id != package_record.staging_warehouse_id:
+        package_record.source_warehouse_id = package_record.staging_warehouse_id
+        package_record.update_by_id = actor_id
+        package_record.update_dtime = now
+        package_record.version_nbr = int(package_record.version_nbr or 0) + 1
+        package_record.save(
+            update_fields=[
+                "source_warehouse_id",
+                "update_by_id",
+                "update_dtime",
+                "version_nbr",
+            ]
+        )
 
 
 def _request_fully_dispatched(reliefrqst_id: int) -> bool:
@@ -1401,6 +2289,7 @@ def submit_eligibility_decision(
             entity_type=ENTITY_REQUEST,
             entity_id=reliefrqst_id,
             role_codes=FULFILLMENT_ROLE_CODES,
+            tenant_id=request_record.beneficiary_tenant_id,
         )
         create_role_notifications(
             event_code=EVENT_REQUEST_APPROVED,
@@ -1514,6 +2403,83 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
     return payload
 
 
+def get_staging_recommendation(
+    reliefrqst_id: int,
+    *,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(
+        request_probe,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+    )
+    recommendation = recommend_staging_hub(
+        beneficiary_parish_code=beneficiary_parish_code_for_request(reliefrqst_id)
+    )
+    return {
+        "reliefrqst_id": int(reliefrqst_id),
+        "recommended_staging_warehouse_id": recommendation.recommended_staging_warehouse_id,
+        "recommended_staging_warehouse_name": recommendation.recommended_staging_warehouse_name,
+        "recommended_staging_parish_code": recommendation.recommended_staging_parish_code,
+        "staging_selection_basis": recommendation.staging_selection_basis,
+    }
+
+
+def _package_context_by_package_id(
+    reliefpkg_id: int,
+    *,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+    write: bool = False,
+):
+    package = legacy_service._load_package(reliefpkg_id, for_update=write)
+    request = legacy_service._load_request(int(package.reliefrqst_id), for_update=write)
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+    _ensure_package_access(
+        package_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        write=write,
+    )
+    return package, request, request_record, package_record
+
+
+def list_consolidation_legs(
+    reliefpkg_id: int,
+    *,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+    )
+    del package, request, request_record
+    return {
+        "package": _package_summary_payload(
+            legacy_service._load_package(reliefpkg_id),
+            package_record,
+        ),
+        "results": [
+            _consolidation_leg_payload(leg)
+            for leg in package_record.consolidation_legs.order_by("leg_sequence").prefetch_related("items")
+        ],
+    }
+
+
 def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     request = legacy_service._load_request(reliefrqst_id)
@@ -1556,6 +2522,7 @@ def save_package(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
@@ -1567,11 +2534,18 @@ def save_package(
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None
     if package_locked_before_save:
-        _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+        package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     else:
+        package_record = None
         # No package yet - acquire lock immediately after save creates one.
         pass
+    staging_config = _resolved_staging_configuration(
+        reliefrqst_id=reliefrqst_id,
+        payload=payload,
+        existing_package_record=package_record,
+        permissions=permissions,
+    )
     result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
     # Re-sync request after legacy save to keep the operations status at
     # APPROVED_FOR_FULFILLMENT (the legacy save sets status_code=2 which
@@ -1602,6 +2576,18 @@ def save_package(
         status_code=status_code,
         override_status_code=override_status,
         source_warehouse_id=first_inventory_id,
+    )
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        fulfillment_mode=staging_config["fulfillment_mode"],
+        staging_warehouse_id=staging_config["staging_warehouse_id"],
+        recommended_staging_warehouse_id=staging_config["recommended_staging_warehouse_id"],
+        staging_selection_basis=staging_config["staging_selection_basis"],
+        staging_override_reason=staging_config["staging_override_reason"],
+        consolidation_status=None
+        if staging_config["fulfillment_mode"] == FULFILLMENT_MODE_DIRECT
+        else package_record.consolidation_status,
     )
     # ── Dual-write: sync allocation lines to new operations table ──
     if validated_allocations is not None:
@@ -1645,33 +2631,73 @@ def save_package(
             queue_code=QUEUE_CODE_OVERRIDE,
         )
     elif status_code == PACKAGE_STATUS_COMMITTED:
-        dispatch = _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
-        assign_roles_to_queue(
-            queue_code=QUEUE_CODE_DISPATCH,
-            entity_type=ENTITY_PACKAGE,
-            entity_id=int(package.reliefpkg_id),
-            role_codes=DISPATCH_ROLE_CODES,
-            tenant_id=request_record.beneficiary_tenant_id,
-        )
-        create_role_notifications(
-            event_code=EVENT_PACKAGE_COMMITTED,
-            entity_type=ENTITY_PACKAGE,
-            entity_id=int(package.reliefpkg_id),
-            message_text=f"Package {package.tracking_no} is committed and ready for dispatch preparation.",
-            role_codes=DISPATCH_ROLE_CODES,
-            tenant_id=request_record.beneficiary_tenant_id,
-            queue_code=QUEUE_CODE_DISPATCH,
-        )
-        if dispatch.status_code != DISPATCH_STATUS_READY:
-            record_status_transition(
-                entity_type=ENTITY_DISPATCH,
-                entity_id=int(dispatch.dispatch_id),
-                from_status=dispatch.status_code,
-                to_status=DISPATCH_STATUS_READY,
+        if _is_staged_fulfillment_mode(staging_config["fulfillment_mode"]):
+            package_record = _sync_operations_package(
+                package,
+                request_record=request_record,
                 actor_id=actor_id,
+                status_code=PACKAGE_STATUS_CONSOLIDATING,
+                source_warehouse_id=first_inventory_id,
             )
-            dispatch.status_code = DISPATCH_STATUS_READY
-            dispatch.save(update_fields=["status_code"])
+            _update_package_workflow_fields(
+                package_record,
+                actor_id=actor_id,
+                fulfillment_mode=staging_config["fulfillment_mode"],
+                staging_warehouse_id=staging_config["staging_warehouse_id"],
+                recommended_staging_warehouse_id=staging_config["recommended_staging_warehouse_id"],
+                staging_selection_basis=staging_config["staging_selection_basis"],
+                staging_override_reason=staging_config["staging_override_reason"],
+                consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+            )
+            legs = _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
+            for leg in legs:
+                assign_roles_to_queue(
+                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    entity_type=ENTITY_CONSOLIDATION_LEG,
+                    entity_id=int(leg.leg_id),
+                    role_codes=DISPATCH_ROLE_CODES,
+                    tenant_id=request_record.beneficiary_tenant_id,
+                )
+            create_role_notifications(
+                event_code=EVENT_CONSOLIDATION_PLANNED,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                message_text=(
+                    f"Package {package.tracking_no} is committed for staged fulfillment "
+                    "and awaiting consolidation leg dispatch."
+                ),
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            )
+        else:
+            dispatch = _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
+            assign_roles_to_queue(
+                queue_code=QUEUE_CODE_DISPATCH,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+            )
+            create_role_notifications(
+                event_code=EVENT_PACKAGE_COMMITTED,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                message_text=f"Package {package.tracking_no} is committed and ready for dispatch preparation.",
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+                queue_code=QUEUE_CODE_DISPATCH,
+            )
+            if dispatch.status_code != DISPATCH_STATUS_READY:
+                record_status_transition(
+                    entity_type=ENTITY_DISPATCH,
+                    entity_id=int(dispatch.dispatch_id),
+                    from_status=dispatch.status_code,
+                    to_status=DISPATCH_STATUS_READY,
+                    actor_id=actor_id,
+                )
+                dispatch.status_code = DISPATCH_STATUS_READY
+                dispatch.save(update_fields=["status_code"])
     if not payload.get("allocations"):
         return get_package(reliefrqst_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
     return {
@@ -1706,25 +2732,939 @@ def approve_override(
     package = legacy_service._current_package_for_request(reliefrqst_id)
     if package is not None:
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id, status_code=PACKAGE_STATUS_COMMITTED, override_status_code=None)
-        _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
         complete_queue_assignments(entity_type=ENTITY_REQUEST, entity_id=reliefrqst_id, queue_code=QUEUE_CODE_OVERRIDE, actor_id=actor_id)
+        if _is_staged_fulfillment_mode(package_record.fulfillment_mode):
+            _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
+            _sync_operations_package(
+                package,
+                request_record=request_record,
+                actor_id=actor_id,
+                status_code=PACKAGE_STATUS_CONSOLIDATING,
+                override_status_code=None,
+            )
+            _update_package_workflow_fields(
+                package_record,
+                actor_id=actor_id,
+                consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+            )
+            for leg in package_record.consolidation_legs.order_by("leg_sequence"):
+                assign_roles_to_queue(
+                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    entity_type=ENTITY_CONSOLIDATION_LEG,
+                    entity_id=int(leg.leg_id),
+                    role_codes=DISPATCH_ROLE_CODES,
+                    tenant_id=request_record.beneficiary_tenant_id,
+                )
+            create_role_notifications(
+                event_code=EVENT_OVERRIDE_APPROVED,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                message_text=f"Override approved for staged package {package.tracking_no}.",
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            )
+        else:
+            _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
+            assign_roles_to_queue(
+                queue_code=QUEUE_CODE_DISPATCH,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+            )
+            create_role_notifications(
+                event_code=EVENT_OVERRIDE_APPROVED,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package.reliefpkg_id),
+                message_text=f"Override approved for package {package.tracking_no}.",
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+                queue_code=QUEUE_CODE_DISPATCH,
+            )
+    return result
+
+
+@transaction.atomic
+def dispatch_consolidation_leg(
+    reliefpkg_id: int,
+    leg_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off consolidation legs.")
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    if not _is_staged_fulfillment_mode(package_record.fulfillment_mode):
+        raise OperationValidationError({"consolidation": "This package does not use staged fulfillment."})
+    leg = package_record.consolidation_legs.select_for_update().filter(leg_id=int(leg_id)).first()
+    if leg is None:
+        raise OperationValidationError({"leg_id": "Consolidation leg not found for this package."})
+    if leg.status_code != CONSOLIDATION_LEG_STATUS_PLANNED:
+        raise OperationValidationError({"dispatch": "Only planned consolidation legs can be dispatched."})
+    _ensure_actor_assigned_to_queue(
+        queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        error_message="You are not assigned to dispatch this consolidation leg.",
+    )
+    transport_payload = _validated_transport_payload(payload)
+    now = timezone.now()
+    leg.driver_name = transport_payload["driver_name"]
+    leg.driver_license_no = transport_payload["driver_license_no"]
+    leg.vehicle_id = transport_payload["vehicle_id"]
+    leg.vehicle_registration = transport_payload["vehicle_registration"]
+    leg.vehicle_type = transport_payload["vehicle_type"]
+    leg.transport_mode = transport_payload["transport_mode"]
+    leg.transport_notes = transport_payload["transport_notes"]
+    leg.dispatched_by_id = actor_id
+    leg.dispatched_at = transport_payload["departure_dtime"] or now
+    leg.expected_arrival_at = transport_payload["estimated_arrival_dtime"]
+    _create_leg_shadow_transfer(
+        leg=leg,
+        package_record=package_record,
+        actor_id=actor_id,
+        request=request,
+        dispatched_at=leg.dispatched_at or now,
+    )
+    legacy_service._apply_stock_delta_for_rows(
+        _leg_dispatch_rows(leg),
+        actor_user_id=actor_id,
+        delta_sign=1,
+        update_needs_list=False,
+        consume_stock=True,
+    )
+    record_status_transition(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        from_status=leg.status_code,
+        to_status=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+        actor_id=actor_id,
+    )
+    leg.status_code = CONSOLIDATION_LEG_STATUS_IN_TRANSIT
+    leg.update_by_id = actor_id
+    leg.update_dtime = now
+    leg.version_nbr = int(leg.version_nbr or 0) + 1
+    leg.save()
+    _create_consolidation_waybill(leg=leg, package=package, request=request, actor_id=actor_id)
+    _update_package_consolidation_status(package_record=package_record, actor_id=actor_id)
+    complete_queue_assignments(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+        actor_id=actor_id,
+    )
+    assign_roles_to_queue(
+        queue_code=QUEUE_CODE_STAGING_RECEIPT,
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        role_codes=DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    create_role_notifications(
+        event_code=EVENT_CONSOLIDATION_DISPATCHED,
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        message_text=(
+            f"Consolidation leg {leg.leg_sequence} for package {package.tracking_no} "
+            "is in transit to staging."
+        ),
+        role_codes=DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+        queue_code=QUEUE_CODE_STAGING_RECEIPT,
+    )
+    return {
+        "status": CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+        "package": _package_summary_payload(package, package_record),
+        "leg": _consolidation_leg_payload(leg),
+    }
+
+
+@transaction.atomic
+def receive_consolidation_leg(
+    reliefpkg_id: int,
+    leg_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may receive consolidation legs.")
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    leg = package_record.consolidation_legs.select_for_update().filter(leg_id=int(leg_id)).first()
+    if leg is None:
+        raise OperationValidationError({"leg_id": "Consolidation leg not found for this package."})
+    if leg.status_code != CONSOLIDATION_LEG_STATUS_IN_TRANSIT:
+        raise OperationValidationError({"receive": "Only in-transit consolidation legs can be received."})
+    _ensure_actor_assigned_to_queue(
+        queue_code=QUEUE_CODE_STAGING_RECEIPT,
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        error_message="You are not assigned to receive this consolidation leg.",
+    )
+    now = timezone.now()
+    _receive_leg_stock_into_staging(leg=leg, actor_id=actor_id)
+    OperationsConsolidationReceipt.objects.update_or_create(
+        leg=leg,
+        defaults={
+            "received_by_user_id": actor_id,
+            "received_by_name": str(payload.get("received_by_name") or actor_id).strip(),
+            "received_at": now,
+            "receipt_notes": str(payload.get("receipt_notes") or "").strip() or None,
+            "receipt_artifact_json": {
+                "received_by_user_id": actor_id,
+                "received_by_name": str(payload.get("received_by_name") or actor_id).strip(),
+                "received_at": now.isoformat(),
+                "receipt_notes": str(payload.get("receipt_notes") or "").strip() or None,
+            },
+        },
+    )
+    record_status_transition(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        from_status=leg.status_code,
+        to_status=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+        actor_id=actor_id,
+    )
+    leg.status_code = CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+    leg.received_by_user_id = actor_id
+    leg.received_at = now
+    leg.update_by_id = actor_id
+    leg.update_dtime = now
+    leg.version_nbr = int(leg.version_nbr or 0) + 1
+    leg.save()
+    if leg.shadow_transfer_id:
+        Transfer.objects.filter(transfer_id=int(leg.shadow_transfer_id)).update(
+            received_at=now,
+            received_by=actor_id,
+            update_by_id=actor_id,
+            update_dtime=now,
+            version_nbr=F("version_nbr") + 1,
+        )
+    complete_queue_assignments(
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        queue_code=QUEUE_CODE_STAGING_RECEIPT,
+        actor_id=actor_id,
+    )
+    consolidation_status = _update_package_consolidation_status(
+        package_record=package_record,
+        actor_id=actor_id,
+    )
+    if consolidation_status == CONSOLIDATION_STATUS_ALL_RECEIVED:
+        if package_record.fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING:
+            package_record = _sync_operations_package(
+                package,
+                request_record=request_record,
+                actor_id=actor_id,
+                status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
+            )
+            _assign_pickup_release_queue(
+                package_record=package_record,
+                tenant_id=request_record.beneficiary_tenant_id,
+            )
+        else:
+            _materialize_staged_dispatch_sources(package_record=package_record, actor_id=actor_id)
+            package_record = _sync_operations_package(
+                package,
+                request_record=request_record,
+                actor_id=actor_id,
+                status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
+                source_warehouse_id=package_record.staging_warehouse_id,
+            )
+            _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
+            assign_roles_to_queue(
+                queue_code=QUEUE_CODE_DISPATCH,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package_record.package_id),
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+            )
+            create_role_notifications(
+                event_code=EVENT_STAGED_DELIVERY_READY,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package_record.package_id),
+                message_text=(
+                    f"Package {package_record.package_no} is fully consolidated and ready "
+                    "for final dispatch from staging."
+                ),
+                role_codes=DISPATCH_ROLE_CODES,
+                tenant_id=request_record.beneficiary_tenant_id,
+                queue_code=QUEUE_CODE_DISPATCH,
+            )
+    create_role_notifications(
+        event_code=EVENT_STAGING_RECEIPT_RECORDED,
+        entity_type=ENTITY_CONSOLIDATION_LEG,
+        entity_id=int(leg.leg_id),
+        message_text=(
+            f"Consolidation leg {leg.leg_sequence} for package {package.tracking_no} "
+            "has been received at staging."
+        ),
+        role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    return {
+        "status": leg.status_code,
+        "package": _package_summary_payload(package, package_record),
+        "leg": _consolidation_leg_payload(leg),
+    }
+
+
+def get_consolidation_leg_waybill(
+    reliefpkg_id: int,
+    leg_id: int,
+    *,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    _, _, _, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+    )
+    leg = package_record.consolidation_legs.filter(leg_id=int(leg_id)).first()
+    if leg is None:
+        raise OperationValidationError({"leg_id": "Consolidation leg not found for this package."})
+    waybill = (
+        OperationsConsolidationWaybill.objects.filter(leg_id=int(leg.leg_id))
+        .order_by("-generated_at", "-waybill_id")
+        .first()
+    )
+    if waybill is None:
+        raise OperationValidationError({"waybill": "No leg waybill has been generated yet."})
+    return {
+        "waybill_no": waybill.waybill_no,
+        "waybill_payload": waybill.artifact_payload_json,
+        "persisted": True,
+    }
+
+
+@transaction.atomic
+def pickup_release(
+    reliefpkg_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    if package_record.fulfillment_mode != FULFILLMENT_MODE_PICKUP_AT_STAGING:
+        raise OperationValidationError({"pickup_release": "This package is not configured for pickup at staging."})
+    if package_record.status_code != PACKAGE_STATUS_READY_FOR_PICKUP:
+        raise OperationValidationError({"pickup_release": "Package is not ready for pickup release."})
+    if OperationsPickupRelease.objects.filter(package_id=int(package_record.package_id)).exists():
+        raise OperationValidationError({"pickup_release": "Pickup release has already been recorded."})
+    _ensure_actor_assigned_to_queue(
+        queue_code=QUEUE_CODE_PICKUP_RELEASE,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        error_message="You are not assigned to complete pickup release for this package.",
+    )
+    legacy_service._apply_stock_delta_for_rows(
+        _pickup_release_rows(package_record),
+        actor_user_id=actor_id,
+        delta_sign=1,
+        update_needs_list=False,
+        consume_stock=True,
+    )
+    now = timezone.now()
+    package.received_by_id = actor_id
+    package.received_dtime = now
+    package.status_code = legacy_service.PKG_STATUS_COMPLETED
+    package.update_by_id = actor_id
+    package.update_dtime = now
+    package.version_nbr = int(package.version_nbr or 0) + 1
+    package.save()
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_RECEIVED,
+    )
+    OperationsPickupRelease.objects.create(
+        package=package_record,
+        released_by_user_id=actor_id,
+        released_by_name=str(payload.get("released_by_name") or actor_id).strip(),
+        released_at=now,
+        release_notes=str(payload.get("release_notes") or "").strip() or None,
+        release_artifact_json={
+            "released_by_user_id": actor_id,
+            "released_by_name": str(payload.get("released_by_name") or actor_id).strip(),
+            "released_at": now.isoformat(),
+            "release_notes": str(payload.get("release_notes") or "").strip() or None,
+        },
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        queue_code=QUEUE_CODE_PICKUP_RELEASE,
+        actor_id=actor_id,
+    )
+    create_role_notifications(
+        event_code=EVENT_PICKUP_RELEASED,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        message_text=f"Pickup release completed for package {package_record.package_no}.",
+        role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    next_request_status = (
+        REQUEST_STATUS_FULFILLED
+        if _request_fully_dispatched(int(request.reliefrqst_id))
+        else REQUEST_STATUS_PARTIALLY_FULFILLED
+    )
+    _sync_operations_request(request, actor_id=actor_id, status_code=next_request_status)
+    return {
+        "status": "RECEIVED",
+        "package": _package_summary_payload(package, package_record),
+    }
+
+
+def request_partial_release(
+    reliefpkg_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may request partial release.")
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    del package
+    if not _is_staged_fulfillment_mode(package_record.fulfillment_mode):
+        raise OperationValidationError({"partial_release": "Partial release is only supported for staged packages."})
+    if package_record.status_code != PACKAGE_STATUS_CONSOLIDATING:
+        raise OperationValidationError({"partial_release": "Package is not currently consolidating."})
+    summary = _package_leg_summary(package_record)
+    if summary["received_legs"] <= 0 or summary["received_legs"] >= summary["total_legs"]:
+        raise OperationValidationError(
+            {"partial_release": "Partial release requires some, but not all, consolidation legs to be received."}
+        )
+    reason = str(payload.get("reason") or payload.get("partial_release_reason") or "").strip()
+    if not reason:
+        raise OperationValidationError({"reason": "A partial release reason is required."})
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        partial_release_requested_by_id=actor_id,
+        partial_release_requested_at=timezone.now(),
+        partial_release_request_reason=reason,
+        consolidation_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+    )
+    assign_roles_to_queue(
+        queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        role_codes=[ROLE_LOGISTICS_MANAGER],
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    create_role_notifications(
+        event_code=EVENT_PARTIAL_RELEASE_REQUESTED,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        message_text=f"Partial release approval requested for package {package_record.package_no}.",
+        role_codes=[ROLE_LOGISTICS_MANAGER],
+        tenant_id=request_record.beneficiary_tenant_id,
+        queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+    )
+    return {
+        "status": "PARTIAL_RELEASE_REQUESTED",
+        "package": _package_summary_payload(
+            legacy_service._load_package(reliefpkg_id),
+            package_record,
+        ),
+    }
+
+
+def split_package(
+    *,
+    package: ReliefPkg,
+    request_record: OperationsReliefRequest,
+    package_record: OperationsPackage,
+    actor_id: str,
+) -> dict[str, Any]:
+    if package_record.split_from_package_id is not None or package_record.status_code == PACKAGE_STATUS_SPLIT:
+        raise OperationValidationError({"split": "This package has already been split."})
+    legs = list(
+        package_record.consolidation_legs.select_for_update().prefetch_related("items").order_by("leg_sequence")
+    )
+    received_legs = [leg for leg in legs if leg.status_code == CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING]
+    residual_legs = [leg for leg in legs if leg.status_code != CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING]
+    if not received_legs or not residual_legs:
+        raise OperationValidationError(
+            {"split": "Partial release split requires both received and outstanding consolidation legs."}
+        )
+    now = timezone.now()
+    split_reason = package_record.partial_release_request_reason or "Partial release"
+    residual_package_id = int(legacy_service._next_int_id("reliefpkg", "reliefpkg_id"))
+    released_package_id = int(legacy_service._next_int_id("reliefpkg", "reliefpkg_id"))
+    residual_package = ReliefPkg.objects.create(
+        reliefpkg_id=residual_package_id,
+        agency_id=package.agency_id,
+        tracking_no=f"{package.tracking_no}-R2",
+        eligible_event_id=package.eligible_event_id,
+        to_inventory_id=package.to_inventory_id,
+        reliefrqst_id=package.reliefrqst_id,
+        start_date=package.start_date,
+        dispatch_dtime=None,
+        transport_mode=package.transport_mode,
+        comments_text=f"{package.comments_text or ''} [Split residual]".strip(),
+        status_code=legacy_service.PKG_STATUS_PENDING,
+        create_by_id=actor_id,
+        create_dtime=now,
+        update_by_id=actor_id,
+        update_dtime=now,
+        version_nbr=1,
+    )
+    released_package = ReliefPkg.objects.create(
+        reliefpkg_id=released_package_id,
+        agency_id=package.agency_id,
+        tracking_no=f"{package.tracking_no}-R1",
+        eligible_event_id=package.eligible_event_id,
+        to_inventory_id=package.to_inventory_id,
+        reliefrqst_id=package.reliefrqst_id,
+        start_date=package.start_date,
+        dispatch_dtime=None,
+        transport_mode=package.transport_mode,
+        comments_text=f"{package.comments_text or ''} [Split release]".strip(),
+        status_code=legacy_service.PKG_STATUS_PENDING,
+        create_by_id=actor_id,
+        create_dtime=now,
+        update_by_id=actor_id,
+        update_dtime=now,
+        version_nbr=1,
+    )
+
+    mapping = _materialized_leg_item_mapping(package_record)
+    parent_lines = list(
+        OperationsAllocationLine.objects.select_for_update().filter(package=package_record).order_by("line_id")
+    )
+    released_line_specs: list[dict[str, Any]] = []
+    residual_line_specs: list[dict[str, Any]] = []
+    for line in parent_lines:
+        key = (int(line.source_warehouse_id), int(line.batch_id), int(line.item_id))
+        mapped_leg_item = mapping.get(key)
+        line_payload = {
+            "item_id": int(line.item_id),
+            "quantity": line.quantity,
+            "uom_code": line.uom_code,
+            "reason_text": line.reason_text,
+        }
+        if mapped_leg_item is not None and mapped_leg_item.staging_batch_id is not None:
+            released_line_specs.append(
+                {
+                    **line_payload,
+                    "source_warehouse_id": int(package_record.staging_warehouse_id or 0),
+                    "batch_id": int(mapped_leg_item.staging_batch_id),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                }
+            )
+        else:
+            residual_line_specs.append(
+                {
+                    **line_payload,
+                    "source_warehouse_id": int(line.source_warehouse_id),
+                    "batch_id": int(line.batch_id),
+                    "source_type": line.source_type,
+                    "source_record_id": line.source_record_id,
+                }
+            )
+    if not released_line_specs or not residual_line_specs:
+        raise OperationValidationError({"split": "Split allocation partitioning failed."})
+
+    OperationsAllocationLine.objects.filter(package=package_record).delete()
+    ReliefPkgItem.objects.filter(reliefpkg_id=int(package_record.package_id)).delete()
+
+    def _build_ops_lines(child_package_id: int, line_specs: list[dict[str, Any]]) -> list[OperationsAllocationLine]:
+        return [
+            OperationsAllocationLine(
+                package_id=child_package_id,
+                item_id=line["item_id"],
+                source_warehouse_id=line["source_warehouse_id"],
+                batch_id=line["batch_id"],
+                quantity=line["quantity"],
+                source_type=line["source_type"],
+                source_record_id=line["source_record_id"],
+                uom_code=line["uom_code"],
+                reason_text=line["reason_text"],
+                create_by_id=actor_id,
+                create_dtime=now,
+                update_by_id=actor_id,
+                update_dtime=now,
+                version_nbr=1,
+            )
+            for line in line_specs
+        ]
+
+    OperationsAllocationLine.objects.bulk_create(
+        _build_ops_lines(residual_package_id, residual_line_specs)
+        + _build_ops_lines(released_package_id, released_line_specs)
+    )
+    ReliefPkgItem.objects.bulk_create(
+        [
+            ReliefPkgItem(
+                reliefpkg_id=residual_package_id,
+                fr_inventory_id=line["source_warehouse_id"],
+                batch_id=line["batch_id"],
+                item_id=line["item_id"],
+                item_qty=line["quantity"],
+                uom_code=line["uom_code"],
+                reason_text=line["reason_text"],
+                create_by_id=actor_id,
+                create_dtime=now,
+                update_by_id=actor_id,
+                update_dtime=now,
+                version_nbr=1,
+            )
+            for line in residual_line_specs
+        ]
+        + [
+            ReliefPkgItem(
+                reliefpkg_id=released_package_id,
+                fr_inventory_id=line["source_warehouse_id"],
+                batch_id=line["batch_id"],
+                item_id=line["item_id"],
+                item_qty=line["quantity"],
+                uom_code=line["uom_code"],
+                reason_text=line["reason_text"],
+                create_by_id=actor_id,
+                create_dtime=now,
+                update_by_id=actor_id,
+                update_dtime=now,
+                version_nbr=1,
+            )
+            for line in released_line_specs
+        ]
+    )
+
+    for leg in received_legs:
+        leg.package_id = released_package_id
+        leg.update_by_id = actor_id
+        leg.update_dtime = now
+        leg.version_nbr = int(leg.version_nbr or 0) + 1
+        leg.save(update_fields=["package_id", "update_by_id", "update_dtime", "version_nbr"])
+    for leg in residual_legs:
+        leg.package_id = residual_package_id
+        leg.update_by_id = actor_id
+        leg.update_dtime = now
+        leg.version_nbr = int(leg.version_nbr or 0) + 1
+        leg.save(update_fields=["package_id", "update_by_id", "update_dtime", "version_nbr"])
+
+    parent_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_SPLIT,
+    )
+    _update_package_workflow_fields(
+        parent_record,
+        actor_id=actor_id,
+        split_reason=split_reason,
+        split_at=now,
+    )
+
+    residual_record = _sync_operations_package(
+        residual_package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_CONSOLIDATING,
+        source_warehouse_id=residual_line_specs[0]["source_warehouse_id"],
+    )
+    _update_package_workflow_fields(
+        residual_record,
+        actor_id=actor_id,
+        fulfillment_mode=package_record.fulfillment_mode,
+        staging_warehouse_id=package_record.staging_warehouse_id,
+        recommended_staging_warehouse_id=package_record.recommended_staging_warehouse_id,
+        staging_selection_basis=package_record.staging_selection_basis,
+        staging_override_reason=package_record.staging_override_reason,
+        consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+        split_from_package_id=int(parent_record.package_id),
+        split_reason=split_reason,
+        split_at=now,
+    )
+    residual_status = _update_package_consolidation_status(
+        package_record=residual_record,
+        actor_id=actor_id,
+    )
+
+    released_status = (
+        PACKAGE_STATUS_READY_FOR_PICKUP
+        if package_record.fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING
+        else PACKAGE_STATUS_READY_FOR_DISPATCH
+    )
+    released_record = _sync_operations_package(
+        released_package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=released_status,
+        source_warehouse_id=int(package_record.staging_warehouse_id or 0),
+    )
+    _update_package_workflow_fields(
+        released_record,
+        actor_id=actor_id,
+        fulfillment_mode=package_record.fulfillment_mode,
+        staging_warehouse_id=package_record.staging_warehouse_id,
+        recommended_staging_warehouse_id=package_record.recommended_staging_warehouse_id,
+        staging_selection_basis=package_record.staging_selection_basis,
+        staging_override_reason=package_record.staging_override_reason,
+        consolidation_status=CONSOLIDATION_STATUS_ALL_RECEIVED,
+        split_from_package_id=int(parent_record.package_id),
+        split_reason=split_reason,
+        split_at=now,
+    )
+
+    if released_status == PACKAGE_STATUS_READY_FOR_DISPATCH:
+        _ensure_dispatch_record(package=released_package, package_record=released_record, actor_id=actor_id)
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_DISPATCH,
             entity_type=ENTITY_PACKAGE,
-            entity_id=int(package.reliefpkg_id),
+            entity_id=int(released_record.package_id),
             role_codes=DISPATCH_ROLE_CODES,
             tenant_id=request_record.beneficiary_tenant_id,
         )
-        create_role_notifications(
-            event_code=EVENT_OVERRIDE_APPROVED,
-            entity_type=ENTITY_PACKAGE,
-            entity_id=int(package.reliefpkg_id),
-            message_text=f"Override approved for package {package.tracking_no}.",
-            role_codes=DISPATCH_ROLE_CODES,
+    else:
+        _assign_pickup_release_queue(
+            package_record=released_record,
             tenant_id=request_record.beneficiary_tenant_id,
-            queue_code=QUEUE_CODE_DISPATCH,
         )
-    return result
+
+    create_role_notifications(
+        event_code=EVENT_PACKAGE_SPLIT,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(parent_record.package_id),
+        message_text=f"Package {parent_record.package_no} was split into released and residual children.",
+        role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    return {
+        "parent": _package_summary_payload(package, parent_record),
+        "released_child": _package_summary_payload(released_package, released_record),
+        "residual_child": _package_summary_payload(residual_package, residual_record),
+        "residual_consolidation_status": residual_status,
+    }
+
+
+@transaction.atomic
+def approve_partial_release(
+    reliefpkg_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    normalized_roles = _require_roles(
+        actor_roles,
+        [ROLE_LOGISTICS_MANAGER],
+        message="Only Logistics Managers may approve partial release.",
+    )
+    del normalized_roles
+    package, _, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    _ensure_actor_assigned_to_queue(
+        queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        error_message="You are not assigned to approve partial release for this package.",
+    )
+    if not package_record.partial_release_requested_at:
+        raise OperationValidationError({"partial_release": "No partial release request is pending."})
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        partial_release_approved_by_id=actor_id,
+        partial_release_approved_at=timezone.now(),
+        partial_release_approval_reason=str(payload.get("approval_reason") or "").strip() or None,
+    )
+    split_result = split_package(
+        package=package,
+        request_record=request_record,
+        package_record=package_record,
+        actor_id=actor_id,
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
+        actor_id=actor_id,
+    )
+    create_role_notifications(
+        event_code=EVENT_PARTIAL_RELEASE_APPROVED,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        message_text=f"Partial release approved for package {package_record.package_no}.",
+        role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    return split_result
+
+
+@transaction.atomic
+def cancel_package(
+    reliefpkg_id: int,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    del payload
+    _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may cancel packages.")
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    if package_record.status_code in {
+        PACKAGE_STATUS_DISPATCHED,
+        PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_SPLIT,
+        PACKAGE_STATUS_CANCELLED,
+    }:
+        raise OperationValidationError({"cancel": "This package can no longer be cancelled."})
+
+    legs = list(
+        package_record.consolidation_legs.select_for_update().order_by("leg_sequence")
+    )
+    if legs:
+        if any(leg.status_code == CONSOLIDATION_LEG_STATUS_IN_TRANSIT for leg in legs):
+            raise OperationValidationError(
+                {"cancel": "Packages with in-transit consolidation legs cannot be cancelled."}
+            )
+        if any(leg.status_code != CONSOLIDATION_LEG_STATUS_PLANNED for leg in legs):
+            raise OperationValidationError(
+                {"cancel": "Only packages whose consolidation legs are still planned can be cancelled."}
+            )
+
+    legacy_status = legacy_service._current_package_status(package)
+    if legacy_status in {legacy_service.PKG_STATUS_PENDING, "C", "V"}:
+        old_rows = legacy_service._selected_plan_for_package(int(package.reliefpkg_id))
+        if old_rows:
+            legacy_service._apply_stock_delta_for_rows(
+                old_rows,
+                actor_user_id=actor_id,
+                delta_sign=-1,
+                update_needs_list=False,
+            )
+
+    now = timezone.now()
+    for leg in legs:
+        record_status_transition(
+            entity_type=ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(leg.leg_id),
+            from_status=leg.status_code,
+            to_status=CONSOLIDATION_LEG_STATUS_CANCELLED,
+            actor_id=actor_id,
+        )
+        leg.status_code = CONSOLIDATION_LEG_STATUS_CANCELLED
+        leg.update_by_id = actor_id
+        leg.update_dtime = now
+        leg.version_nbr = int(leg.version_nbr or 0) + 1
+        leg.save(update_fields=["status_code", "update_by_id", "update_dtime", "version_nbr"])
+        complete_queue_assignments(
+            entity_type=ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(leg.leg_id),
+            actor_id=actor_id,
+            completion_status="CANCELLED",
+        )
+
+    package.status_code = legacy_service.PKG_STATUS_DRAFT
+    package.update_by_id = actor_id
+    package.update_dtime = now
+    package.version_nbr = int(package.version_nbr or 0) + 1
+    if hasattr(package, "save"):
+        package.save()
+
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_CANCELLED,
+        source_warehouse_id=package_record.source_warehouse_id,
+    )
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        consolidation_status=None,
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        actor_id=actor_id,
+        completion_status="CANCELLED",
+    )
+    OperationsPackageLock.objects.filter(
+        package_id=int(package_record.package_id),
+        lock_status="ACTIVE",
+    ).update(
+        lock_status="RELEASED",
+        lock_expires_at=now,
+    )
+    create_role_notifications(
+        event_code=EVENT_PACKAGE_CANCELLED,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        message_text=f"Package {package_record.package_no} was cancelled before dispatch.",
+        role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    return {
+        "status": PACKAGE_STATUS_CANCELLED,
+        "package": _package_summary_payload(package, package_record),
+        "request": _request_summary_payload(request, request_record),
+    }
 
 
 def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
@@ -1738,7 +3678,9 @@ def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[st
     results = []
     if not package_ids:
         package_ids = list(
-            OperationsPackage.objects.filter(status_code=PACKAGE_STATUS_COMMITTED)
+            OperationsPackage.objects.filter(
+                status_code__in=[PACKAGE_STATUS_COMMITTED, PACKAGE_STATUS_READY_FOR_DISPATCH]
+            )
             .order_by("-committed_at", "-package_id")
             .values_list("package_id", flat=True)[:200]
         )
@@ -1747,7 +3689,7 @@ def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[st
         request = legacy_service._load_request(int(package.reliefrqst_id))
         request_record = _sync_operations_request(request, actor_id=actor_id)
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
-        if package_record.status_code != PACKAGE_STATUS_COMMITTED:
+        if package_record.status_code not in {PACKAGE_STATUS_COMMITTED, PACKAGE_STATUS_READY_FOR_DISPATCH}:
             continue
         try:
             _ensure_package_access(
