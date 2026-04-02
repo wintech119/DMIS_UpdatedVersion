@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatOptionModule, MatNativeDateModule, ErrorStateMatcher } from '@angular/material/core';
@@ -27,6 +28,7 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
   imports: [
     DecimalPipe,
     ReactiveFormsModule,
+    MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -140,9 +142,14 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                 </mat-form-field>
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Time</mat-label>
-                  <input matInput type="time" step="60"
+                  <input #depTimeInput matInput type="time" step="60"
                          formControlName="departure_time"
                          aria-label="Departure time (24-hour)" />
+                  <button mat-icon-button matSuffix type="button"
+                          aria-label="Open departure time picker"
+                          (click)="openTimePicker(depTimeInput)">
+                    <mat-icon>schedule</mat-icon>
+                  </button>
                 </mat-form-field>
               </div>
             </fieldset>
@@ -160,10 +167,15 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                 </mat-form-field>
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Time</mat-label>
-                  <input matInput type="time" step="60"
+                  <input #arrTimeInput matInput type="time" step="60"
                          formControlName="arrival_time"
                          aria-label="Estimated arrival time (24-hour)"
                          [errorStateMatcher]="estimatedArrivalErrorMatcher" />
+                  <button mat-icon-button matSuffix type="button"
+                          aria-label="Open estimated arrival time picker"
+                          (click)="openTimePicker(arrTimeInput)">
+                    <mat-icon>schedule</mat-icon>
+                  </button>
                   @if (showArrivalBeforeDepartureError()) {
                     <mat-error>Must be after departure.</mat-error>
                   }
@@ -598,6 +610,15 @@ export class OpsDispatchReadinessStepComponent {
         || form.touched
         || form.dirty
       );
+  }
+
+  openTimePicker(input: HTMLInputElement): void {
+    input.focus();
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+    input.click();
   }
 
   private toNumber(value: string | number | null | undefined): number {
