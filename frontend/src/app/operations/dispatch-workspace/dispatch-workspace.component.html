@@ -52,7 +52,11 @@
       {{ contextExpanded() ? 'Hide dispatch context' : 'Show dispatch context & transport state' }}
     </button>
 
-    <div class="ops-context-collapse" [class.ops-context-collapse--open]="contextExpanded()">
+    <div
+      class="ops-context-collapse"
+      [class.ops-context-collapse--open]="contextExpanded()"
+      [attr.aria-hidden]="contextExpanded() ? null : 'true'"
+      [attr.inert]="contextExpanded() ? null : ''">
       <div class="ops-context-collapse__inner">
         <div class="ops-split">
           <section class="ops-pane ops-pane--wide" aria-labelledby="dispatch-context-title">

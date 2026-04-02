@@ -1,6 +1,6 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -12,13 +12,26 @@ import { MatDatepickerModule } from '@angular/material/datepicker';
 import { AllocationLine, DispatchDetailResponse, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
 import { formatSourceType } from '../../models/operations-status.util';
 
-const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
+function hasGroupError(control: AbstractControl | null | undefined, errorKeys: string[]): boolean {
+  const parent = control?.parent;
+  return !!parent && errorKeys.some((errorKey) => parent.hasError(errorKey));
+}
+
+const DEPARTURE_ERROR_MATCHER: ErrorStateMatcher = {
   isErrorState(control): boolean {
-    const parent = control?.parent;
-    if (!control || !parent?.hasError('arrivalBeforeDeparture')) {
+    if (!control || !hasGroupError(control, ['departureIncomplete'])) {
       return false;
     }
-    return !!(control.touched || control.dirty || parent.touched || parent.dirty);
+    return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
+  },
+};
+
+const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
+  isErrorState(control): boolean {
+    if (!control || !hasGroupError(control, ['arrivalIncomplete', 'arrivalBeforeDeparture'])) {
+      return false;
+    }
+    return !!(control.touched || control.dirty || control.parent?.touched || control.parent?.dirty);
   },
 };
 
@@ -136,7 +149,8 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Date</mat-label>
                   <input matInput [matDatepicker]="depPicker" formControlName="departure_date"
-                         placeholder="Pick date" />
+                         placeholder="Pick date"
+                         [errorStateMatcher]="departureErrorMatcher" />
                   <mat-datepicker-toggle matIconSuffix [for]="depPicker" />
                   <mat-datepicker #depPicker />
                 </mat-form-field>
@@ -144,12 +158,16 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                   <mat-label>Time</mat-label>
                   <input #depTimeInput matInput type="time" step="60"
                          formControlName="departure_time"
-                         aria-label="Departure time (24-hour)" />
+                         aria-label="Departure time (24-hour)"
+                         [errorStateMatcher]="departureErrorMatcher" />
                   <button mat-icon-button matSuffix type="button"
                           aria-label="Open departure time picker"
                           (click)="openTimePicker(depTimeInput)">
                     <mat-icon>schedule</mat-icon>
                   </button>
+                  @if (showDepartureIncompleteError()) {
+                    <mat-error>Complete both departure date and time.</mat-error>
+                  }
                 </mat-form-field>
               </div>
             </fieldset>
@@ -176,6 +194,9 @@ const ARRIVAL_ERROR_MATCHER: ErrorStateMatcher = {
                           (click)="openTimePicker(arrTimeInput)">
                     <mat-icon>schedule</mat-icon>
                   </button>
+                  @if (showArrivalIncompleteError()) {
+                    <mat-error>Complete both arrival date and time.</mat-error>
+                  }
                   @if (showArrivalBeforeDepartureError()) {
                     <mat-error>Must be after departure.</mat-error>
                   }
@@ -565,6 +586,7 @@ export class OpsDispatchReadinessStepComponent {
   readonly itemNameMap = input<ReadonlyMap<number, string>>(new Map());
 
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
+  readonly departureErrorMatcher = DEPARTURE_ERROR_MATCHER;
   readonly estimatedArrivalErrorMatcher = ARRIVAL_ERROR_MATCHER;
 
   readonly lines = computed(() => this.detail()?.allocation?.allocation_lines ?? []);
@@ -597,19 +619,16 @@ export class OpsDispatchReadinessStepComponent {
     return formatSourceType(sourceType);
   }
 
+  showDepartureIncompleteError(): boolean {
+    return this.showGroupError('departureIncomplete', ['departure_date', 'departure_time']);
+  }
+
+  showArrivalIncompleteError(): boolean {
+    return this.showGroupError('arrivalIncomplete', ['arrival_date', 'arrival_time']);
+  }
+
   showArrivalBeforeDepartureError(): boolean {
-    const form = this.transportForm();
-    const arrDateControl = form.get('arrival_date');
-    const arrTimeControl = form.get('arrival_time');
-    return form.hasError('arrivalBeforeDeparture')
-      && !!(
-        arrDateControl?.touched
-        || arrDateControl?.dirty
-        || arrTimeControl?.touched
-        || arrTimeControl?.dirty
-        || form.touched
-        || form.dirty
-      );
+    return this.showGroupError('arrivalBeforeDeparture', ['arrival_date', 'arrival_time']);
   }
 
   openTimePicker(input: HTMLInputElement): void {
@@ -619,6 +638,17 @@ export class OpsDispatchReadinessStepComponent {
       return;
     }
     input.click();
+  }
+
+  private showGroupError(errorKey: string, controlNames: string[]): boolean {
+    const form = this.transportForm();
+    if (!form.hasError(errorKey)) {
+      return false;
+    }
+    return controlNames.some((controlName) => {
+      const control = form.get(controlName);
+      return !!(control?.touched || control?.dirty);
+    }) || form.touched || form.dirty;
   }
 
   private toNumber(value: string | number | null | undefined): number {

@@ -45,11 +45,40 @@ function combineDateAndTime(date: Date | string | null, time: string | null): Da
   return d;
 }
 
+function hasDateValue(value: Date | string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function hasTimeValue(value: string | null | undefined): boolean {
+  return !!value?.trim();
+}
+
 function arrivalAfterDepartureValidator(group: AbstractControl): ValidationErrors | null {
   const depDate = group.get('departure_date')?.value;
   const depTime = group.get('departure_time')?.value;
   const arrDate = group.get('arrival_date')?.value;
   const arrTime = group.get('arrival_time')?.value;
+
+  const depDatePresent = hasDateValue(depDate);
+  const depTimePresent = hasTimeValue(depTime);
+  const arrDatePresent = hasDateValue(arrDate);
+  const arrTimePresent = hasTimeValue(arrTime);
+
+  const errors: ValidationErrors = {};
+  if (depDatePresent !== depTimePresent) {
+    errors['departureIncomplete'] = true;
+  }
+  if (arrDatePresent !== arrTimePresent) {
+    errors['arrivalIncomplete'] = true;
+  }
+  if (Object.keys(errors).length > 0) {
+    return errors;
+  }
+
   const departure = combineDateAndTime(depDate, depTime);
   const arrival = combineDateAndTime(arrDate, arrTime);
   if (departure && arrival && arrival < departure) {
@@ -193,6 +222,7 @@ export class OpsDispatchWorkspaceComponent {
     && this.hasCommittedAllocation()
     && !this.hasPendingOverride()
     && !this.alreadyDispatched()
+    && this.transportForm.valid
     && this.transportFormValue().driver_name.trim().length > 0
   );
 
