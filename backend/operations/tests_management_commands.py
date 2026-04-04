@@ -644,6 +644,17 @@ class SeedReliefManagementFrontendTestDataCommandTests(SimpleTestCase):
 
 
 class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
+    def test_inventory_clerk_seed_permissions_exclude_staging_receipt_and_pickup_release(self) -> None:
+        from api import rbac
+        from operations.management.commands.seed_operations_rbac_permissions import (
+            OPERATIONS_ROLE_PERMISSION_MAP,
+        )
+
+        permissions = OPERATIONS_ROLE_PERMISSION_MAP["INVENTORY_CLERK"]
+
+        self.assertNotIn(rbac.PERM_OPERATIONS_CONSOLIDATION_RECEIVE, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_PICKUP_RELEASE, permissions)
+
     @patch(
         "operations.management.commands.seed_operations_rbac_permissions.Command._fetch_role_permission_keys",
         return_value=set(),

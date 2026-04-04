@@ -204,8 +204,10 @@ class Transfer(models.Model):
     fr_inventory_id = models.IntegerField()
     to_inventory_id = models.IntegerField()
     eligible_event_id = models.IntegerField(blank=True, null=True)
+    needs_list_id = models.IntegerField(blank=True, null=True)
     transfer_date = models.DateField(blank=True, null=True)
     reason_text = models.CharField(max_length=255, blank=True, null=True)
+    transfer_context = models.CharField(max_length=30, blank=True, null=True)
     status_code = models.CharField(max_length=1, blank=True, null=True)
     create_by_id = models.CharField(max_length=20, blank=True, null=True)
     create_dtime = models.DateTimeField(blank=True, null=True)
@@ -213,6 +215,11 @@ class Transfer(models.Model):
     update_dtime = models.DateTimeField(blank=True, null=True)
     verify_by_id = models.CharField(max_length=20, blank=True, null=True)
     verify_dtime = models.DateTimeField(blank=True, null=True)
+    dispatched_at = models.DateTimeField(blank=True, null=True)
+    dispatched_by = models.CharField(max_length=20, blank=True, null=True)
+    expected_arrival = models.DateTimeField(blank=True, null=True)
+    received_at = models.DateTimeField(blank=True, null=True)
+    received_by = models.CharField(max_length=20, blank=True, null=True)
     version_nbr = models.IntegerField(default=1)
 
     class Meta:
