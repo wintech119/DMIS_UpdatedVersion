@@ -295,7 +295,12 @@ class OperationsApiTests(SimpleTestCase):
         )
         pickup_release_response = self.client.post(
             "/api/v1/operations/packages/90/pickup-release",
-            {"released_by_name": "Receiver"},
+            {
+                "collected_by_name": "Community Driver",
+                "collected_by_id_ref": "NID-7788",
+                "released_by_name": "Receiver",
+                "release_notes": "Pickup at gate",
+            },
             format="json",
         )
 
@@ -319,7 +324,10 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_partial_request.call_args.kwargs["payload"]["reason"], "Release received legs now")
         self.assertEqual(mock_partial_approve.call_args.args[0], 90)
         self.assertEqual(mock_pickup_release.call_args.args[0], 90)
+        self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["collected_by_name"], "Community Driver")
+        self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["collected_by_id_ref"], "NID-7788")
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["released_by_name"], "Receiver")
+        self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["release_notes"], "Pickup at gate")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)

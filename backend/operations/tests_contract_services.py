@@ -15,6 +15,7 @@ from operations.constants import (
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
     CONSOLIDATION_LEG_STATUS_PLANNED,
+    CONSOLIDATION_STATUS_ALL_RECEIVED,
     CONSOLIDATION_STATUS_AWAITING_LEGS,
     DISPATCH_STATUS_IN_TRANSIT,
     FULFILLMENT_MODE_PICKUP_AT_STAGING,
@@ -27,6 +28,7 @@ from operations.constants import (
     PACKAGE_STATUS_CONSOLIDATING,
     PACKAGE_STATUS_DISPATCHED,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
+    PACKAGE_STATUS_READY_FOR_DISPATCH,
     PACKAGE_STATUS_READY_FOR_PICKUP,
     PACKAGE_STATUS_RECEIVED,
     PACKAGE_STATUS_SPLIT,
@@ -38,6 +40,9 @@ from operations.constants import (
     QUEUE_CODE_PICKUP_RELEASE,
     QUEUE_CODE_RECEIPT,
     QUEUE_CODE_STAGING_RECEIPT,
+    ROLE_INVENTORY_CLERK,
+    ROLE_LOGISTICS_MANAGER,
+    ROLE_LOGISTICS_OFFICER,
     ROLE_SYSTEM_ADMINISTRATOR,
     REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
     REQUEST_STATUS_FULFILLED,
@@ -47,13 +52,16 @@ from operations.constants import (
 )
 from operations.exceptions import OperationValidationError
 from operations.models import (
+    OperationsAllocationLine,
     OperationsConsolidationLeg,
+    OperationsConsolidationLegItem,
     OperationsDispatch,
     OperationsDispatchTransport,
     OperationsEligibilityDecision,
     OperationsNotification,
     OperationsPackage,
     OperationsPackageLock,
+    OperationsPickupRelease,
     OperationsQueueAssignment,
     OperationsReceipt,
     OperationsReliefRequest,
@@ -1045,6 +1053,9 @@ class OperationsWorkflowContractTests(TestCase):
         load_request_mock.assert_any_call(70, for_update=True)
         load_request_mock.assert_any_call(70)
 
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services._sync_operations_request")
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.get_staging_hub_details")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -1057,11 +1068,22 @@ class OperationsWorkflowContractTests(TestCase):
         current_package_mock,
         get_staging_hub_details_mock,
         get_agency_scope_mock,
+        sync_operations_request_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
     ) -> None:
+        request_record = self._create_operations_request_record()
         load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
         save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
+        sync_operations_request_mock.return_value = request_record
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
         get_staging_hub_details_mock.return_value = {
             "warehouse_id": 55,
             "warehouse_name": "ODPEM Hub 55",
@@ -1097,6 +1119,154 @@ class OperationsWorkflowContractTests(TestCase):
             entity_type="CONSOLIDATION_LEG",
         ).count(),
         6,
+        )
+
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services._sync_operations_request")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.get_staging_hub_details")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_skips_same_warehouse_consolidation_leg(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_staging_hub_details_mock,
+        get_agency_scope_mock,
+        sync_operations_request_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+        sync_operations_request_mock.return_value = request_record
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        get_staging_hub_details_mock.return_value = {
+            "warehouse_id": 55,
+            "warehouse_name": "ODPEM Hub 55",
+            "parish_code": "01",
+        }
+
+        contract_services.save_package(
+            70,
+            payload={
+                "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                "staging_warehouse_id": 55,
+                "allocations": [
+                    {"item_id": 101, "inventory_id": 55, "batch_id": 1001, "quantity": "2"},
+                    {"item_id": 102, "inventory_id": 9, "batch_id": 1002, "quantity": "1"},
+                ],
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+        )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(
+            list(
+                OperationsConsolidationLeg.objects.filter(package_id=90)
+                .order_by("leg_sequence")
+                .values_list("source_warehouse_id", flat=True)
+            ),
+            [9],
+        )
+        self.assertFalse(
+            OperationsConsolidationLeg.objects.filter(package_id=90, source_warehouse_id=55).exists()
+        )
+        self.assertEqual(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                entity_type="CONSOLIDATION_LEG",
+            ).count(),
+            3,
+        )
+
+    @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
+    @patch("operations.contract_services.recommend_staging_hub")
+    @patch("operations.contract_services._sync_operations_request")
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.get_staging_hub_details")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_routes_directly_when_all_allocations_are_already_at_staging(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_staging_hub_details_mock,
+        get_agency_scope_mock,
+        sync_operations_request_mock,
+        recommend_staging_hub_mock,
+        _beneficiary_parish_code_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+        sync_operations_request_mock.return_value = request_record
+        recommend_staging_hub_mock.return_value = SimpleNamespace(
+            recommended_staging_warehouse_id=55,
+            staging_selection_basis="SAME_PARISH",
+            recommended_staging_warehouse_name="ODPEM Hub 55",
+            recommended_staging_parish_code="01",
+        )
+        get_staging_hub_details_mock.return_value = {
+            "warehouse_id": 55,
+            "warehouse_name": "ODPEM Hub 55",
+            "parish_code": "01",
+        }
+
+        contract_services.save_package(
+            70,
+            payload={
+                "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                "staging_warehouse_id": 55,
+                "allocations": [
+                    {"item_id": 101, "inventory_id": 55, "batch_id": 1001, "quantity": "2"},
+                    {"item_id": 102, "inventory_id": 55, "batch_id": 1002, "quantity": "1"},
+                ],
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+        )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.status_code, "READY_FOR_DISPATCH")
+        self.assertEqual(package_record.source_warehouse_id, 55)
+        self.assertEqual(package_record.consolidation_status, CONSOLIDATION_STATUS_ALL_RECEIVED)
+        self.assertFalse(OperationsConsolidationLeg.objects.filter(package_id=90).exists())
+        self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
+        self.assertEqual(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_DISPATCH,
+                entity_type="PACKAGE",
+                entity_id=90,
+            ).count(),
+            3,
+        )
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                entity_type="CONSOLIDATION_LEG",
+            ).exists()
         )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -1260,16 +1430,12 @@ class OperationsWorkflowContractTests(TestCase):
                 self.assertEqual(synced.status_code, status_code)
                 package_record.delete()
 
-    @patch("operations.contract_services.assign_user_to_queue")
-    @patch("operations.contract_services._assign_pickup_release_queue")
     @patch("operations.contract_services._receive_leg_stock_into_staging")
     @patch("operations.contract_services._package_context_by_package_id")
     def test_receive_consolidation_leg_assigns_pickup_release_to_role_queue(
         self,
         package_context_mock,
         _receive_stock_mock,
-        assign_pickup_release_queue_mock,
-        assign_user_to_queue_mock,
     ) -> None:
         request_record = self._create_operations_request_record()
         request_record.submitted_by_id = "requester-1"
@@ -1323,11 +1489,302 @@ class OperationsWorkflowContractTests(TestCase):
             )
 
         self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_READY_FOR_PICKUP)
-        assign_pickup_release_queue_mock.assert_called_once_with(
-            package_record=package_record,
-            tenant_id=request_record.beneficiary_tenant_id,
+        self.assertEqual(
+            set(
+                OperationsQueueAssignment.objects.filter(
+                    queue_code=QUEUE_CODE_PICKUP_RELEASE,
+                    entity_type="PACKAGE",
+                    entity_id=int(package_record.package_id),
+                ).values_list("assigned_role_code", flat=True)
+            ),
+            {ROLE_LOGISTICS_OFFICER, ROLE_LOGISTICS_MANAGER},
         )
-        assign_user_to_queue_mock.assert_not_called()
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_PICKUP_RELEASE,
+                entity_type="PACKAGE",
+                entity_id=int(package_record.package_id),
+                assigned_role_code=ROLE_INVENTORY_CLERK,
+            ).exists()
+        )
+
+    @patch("operations.contract_services._create_consolidation_waybill")
+    @patch("operations.contract_services.legacy_service._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._create_leg_shadow_transfer", return_value=701)
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_dispatch_consolidation_leg_assigns_staging_receipt_to_logistics_roles_only(
+        self,
+        package_context_mock,
+        _create_shadow_transfer_mock,
+        _apply_stock_delta_mock,
+        _create_waybill_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=191,
+            package_no="PK00191",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLegItem.objects.create(
+            leg=leg,
+            item_id=101,
+            batch_id=1001,
+            quantity="2",
+            source_type="ON_HAND",
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(leg.leg_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=191, reliefrqst_id=70, agency_id=501, status_code="P"),
+            self._request_stub(
+                reliefrqst_id=70,
+                agency_id=501,
+                status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+            ),
+            request_record,
+            package_record,
+        )
+
+        result = contract_services.dispatch_consolidation_leg(
+            191,
+            int(leg.leg_id),
+            payload={
+                "driver_name": "Jane Driver",
+                "vehicle_registration": "1234AB",
+                "departure_dtime": "2026-03-26T09:00:00Z",
+                "estimated_arrival_dtime": "2026-03-26T10:00:00Z",
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertEqual(result["status"], CONSOLIDATION_LEG_STATUS_IN_TRANSIT)
+        self.assertEqual(
+            set(
+                OperationsQueueAssignment.objects.filter(
+                    queue_code=QUEUE_CODE_STAGING_RECEIPT,
+                    entity_type="CONSOLIDATION_LEG",
+                    entity_id=int(leg.leg_id),
+                ).values_list("assigned_role_code", flat=True)
+            ),
+            {ROLE_LOGISTICS_OFFICER, ROLE_LOGISTICS_MANAGER},
+        )
+        self.assertFalse(
+            OperationsQueueAssignment.objects.filter(
+                queue_code=QUEUE_CODE_STAGING_RECEIPT,
+                entity_type="CONSOLIDATION_LEG",
+                entity_id=int(leg.leg_id),
+                assigned_role_code=ROLE_INVENTORY_CLERK,
+            ).exists()
+        )
+
+    @patch("operations.contract_services._sync_operations_request")
+    @patch("operations.contract_services._request_fully_dispatched", return_value=True)
+    @patch("operations.contract_services.legacy_service._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_pickup_release_persists_enriched_contract_and_staged_allocations_when_no_legs_exist(
+        self,
+        package_context_mock,
+        apply_stock_delta_mock,
+        _request_fully_dispatched_mock,
+        sync_operations_request_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        sync_operations_request_mock.return_value = request_record
+        package_record = OperationsPackage.objects.create(
+            package_id=192,
+            package_no="PK00192",
+            relief_request=request_record,
+            source_warehouse_id=55,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_PICKUP_AT_STAGING,
+            status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=55,
+            batch_id=1001,
+            quantity="2",
+            source_type="ON_HAND",
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_PICKUP_RELEASE,
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package = self._package_stub(reliefpkg_id=192, reliefrqst_id=70, agency_id=501, status_code="P")
+        request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        package_context_mock.return_value = (package, request, request_record, package_record)
+
+        result = contract_services.pickup_release(
+            192,
+            payload={
+                "collected_by_name": "Community Driver",
+                "collected_by_id_ref": "NID-7788",
+                "released_by_name": "Receiver",
+                "release_notes": "Pickup at gate",
+                "driver_name": "Ignored",
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        package_record.refresh_from_db()
+        pickup_release_record = OperationsPickupRelease.objects.get(package_id=192)
+        self.assertEqual(result["status"], "RECEIVED")
+        self.assertEqual(set(result.keys()), {"status", "package"})
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_RECEIVED)
+        self.assertEqual(pickup_release_record.staging_warehouse_id, 55)
+        self.assertEqual(pickup_release_record.tenant_id, 20)
+        self.assertEqual(pickup_release_record.collected_by_name, "Community Driver")
+        self.assertEqual(pickup_release_record.collected_by_id_ref, "NID-7788")
+        self.assertEqual(pickup_release_record.released_by_name, "Receiver")
+        self.assertEqual(pickup_release_record.release_notes, "Pickup at gate")
+        self.assertEqual(
+            pickup_release_record.release_artifact_json,
+            {
+                "staging_warehouse_id": 55,
+                "tenant_id": 20,
+                "collected_by_name": "Community Driver",
+                "collected_by_id_ref": "NID-7788",
+                "released_by_user_id": "logistics-manager-1",
+                "released_by_name": "Receiver",
+                "released_at": pickup_release_record.released_at.isoformat(),
+                "release_notes": "Pickup at gate",
+            },
+        )
+        apply_stock_delta_mock.assert_called_once()
+        self.assertEqual(
+            apply_stock_delta_mock.call_args.args[0],
+            [
+                {
+                    "item_id": 101,
+                    "quantity": package_record.allocation_lines.get().quantity,
+                    "inventory_id": 55,
+                    "batch_id": 1001,
+                    "source_type": "ON_HAND",
+                }
+            ],
+        )
+
+    @patch("operations.contract_services._sync_operations_request")
+    @patch("operations.contract_services._request_fully_dispatched", return_value=True)
+    @patch("operations.contract_services.legacy_service._apply_stock_delta_for_rows")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_pickup_release_accepts_legacy_payload_without_collector_fields(
+        self,
+        package_context_mock,
+        apply_stock_delta_mock,
+        _request_fully_dispatched_mock,
+        sync_operations_request_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=71, agency_id=502)
+        sync_operations_request_mock.return_value = request_record
+        package_record = OperationsPackage.objects.create(
+            package_id=193,
+            package_no="PK00193",
+            relief_request=request_record,
+            source_warehouse_id=56,
+            staging_warehouse_id=56,
+            fulfillment_mode=FULFILLMENT_MODE_PICKUP_AT_STAGING,
+            status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=102,
+            source_warehouse_id=56,
+            batch_id=1002,
+            quantity="1",
+            source_type="ON_HAND",
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_PICKUP_RELEASE,
+            entity_type="PACKAGE",
+            entity_id=int(package_record.package_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        package = self._package_stub(reliefpkg_id=193, reliefrqst_id=71, agency_id=502, status_code="P")
+        request = self._request_stub(
+            reliefrqst_id=71,
+            agency_id=502,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        package_context_mock.return_value = (package, request, request_record, package_record)
+
+        result = contract_services.pickup_release(
+            193,
+            payload={
+                "released_by_name": "Receiver Two",
+                "release_notes": "Legacy client payload",
+            },
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        package_record.refresh_from_db()
+        pickup_release_record = OperationsPickupRelease.objects.get(package_id=193)
+        self.assertEqual(result["status"], "RECEIVED")
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_RECEIVED)
+        self.assertIsNone(pickup_release_record.collected_by_name)
+        self.assertIsNone(pickup_release_record.collected_by_id_ref)
+        self.assertEqual(pickup_release_record.staging_warehouse_id, 56)
+        self.assertEqual(pickup_release_record.tenant_id, 20)
+        self.assertEqual(
+            pickup_release_record.release_artifact_json["collected_by_name"],
+            None,
+        )
+        self.assertEqual(
+            pickup_release_record.release_artifact_json["collected_by_id_ref"],
+            None,
+        )
+        apply_stock_delta_mock.assert_called_once()
 
     @patch("operations.contract_services._package_context_by_package_id")
     def test_cancel_package_blocks_in_transit_consolidation_legs(

@@ -1044,7 +1044,7 @@ def _assign_pickup_release_queue(
         queue_code=QUEUE_CODE_PICKUP_RELEASE,
         entity_type=ENTITY_PACKAGE,
         entity_id=int(package_record.package_id),
-        role_codes=DISPATCH_ROLE_CODES,
+        role_codes=FULFILLMENT_ROLE_CODES,
         tenant_id=tenant_id,
     )
 
@@ -1485,9 +1485,12 @@ def _leg_dispatch_rows(leg: OperationsConsolidationLeg) -> list[dict[str, Any]]:
 
 def _pickup_release_rows(package_record: OperationsPackage) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for leg in package_record.consolidation_legs.filter(
-        status_code=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
-    ).order_by("leg_sequence"):
+    received_legs = list(
+        package_record.consolidation_legs.filter(
+            status_code=CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING
+        ).order_by("leg_sequence")
+    )
+    for leg in received_legs:
         for item in leg.items.order_by("leg_item_id"):
             if item.staging_batch_id is None:
                 raise OperationValidationError(
@@ -1506,6 +1509,32 @@ def _pickup_release_rows(package_record: OperationsPackage) -> list[dict[str, An
                     "source_type": "ON_HAND",
                 }
             )
+    if rows or package_record.consolidation_legs.exists():
+        return rows
+
+    staging_warehouse_id = int(package_record.staging_warehouse_id or 0)
+    if staging_warehouse_id <= 0:
+        raise OperationValidationError(
+            {"pickup_release": "Package is missing a valid staging warehouse for pickup release."}
+        )
+    for line in package_record.allocation_lines.order_by("line_id"):
+        if int(line.source_warehouse_id) != staging_warehouse_id:
+            raise OperationValidationError(
+                {
+                    "pickup_release": (
+                        f"Allocation line {line.line_id} is not fully staged for pickup release."
+                    )
+                }
+            )
+        rows.append(
+            {
+                "item_id": int(line.item_id),
+                "quantity": line.quantity,
+                "inventory_id": staging_warehouse_id,
+                "batch_id": int(line.batch_id),
+                "source_type": "ON_HAND",
+            }
+        )
     return rows
 
 
@@ -1570,10 +1599,12 @@ def _create_consolidation_legs(
         grouped_lines.setdefault(int(line.source_warehouse_id), []).append(line)
     now = timezone.now()
     created_legs: list[OperationsConsolidationLeg] = []
-    for leg_sequence, source_warehouse_id in enumerate(sorted(grouped_lines), start=1):
+    for source_warehouse_id in sorted(grouped_lines):
+        if int(source_warehouse_id) == int(package_record.staging_warehouse_id):
+            continue
         leg = OperationsConsolidationLeg.objects.create(
             package=package_record,
-            leg_sequence=leg_sequence,
+            leg_sequence=len(created_legs) + 1,
             source_warehouse_id=source_warehouse_id,
             staging_warehouse_id=int(package_record.staging_warehouse_id),
             status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
@@ -1613,6 +1644,57 @@ def _create_consolidation_legs(
         consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
     )
     return created_legs
+
+
+def _transition_staged_package_ready(
+    *,
+    package: ReliefPkg,
+    request_record: OperationsReliefRequest,
+    package_record: OperationsPackage,
+    actor_id: str,
+    materialize_dispatch_sources: bool,
+) -> OperationsPackage:
+    if package_record.fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING:
+        package_record = _sync_operations_package(
+            package,
+            request_record=request_record,
+            actor_id=actor_id,
+            status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
+            source_warehouse_id=package_record.staging_warehouse_id,
+        )
+        _assign_pickup_release_queue(
+            package_record=package_record,
+            tenant_id=request_record.beneficiary_tenant_id,
+        )
+        return _update_package_workflow_fields(
+            package_record,
+            actor_id=actor_id,
+            consolidation_status=CONSOLIDATION_STATUS_ALL_RECEIVED,
+        )
+
+    if materialize_dispatch_sources:
+        _materialize_staged_dispatch_sources(package_record=package_record, actor_id=actor_id)
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
+        source_warehouse_id=package_record.staging_warehouse_id,
+    )
+    package_record = _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        consolidation_status=CONSOLIDATION_STATUS_ALL_RECEIVED,
+    )
+    _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
+    assign_roles_to_queue(
+        queue_code=QUEUE_CODE_DISPATCH,
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        role_codes=DISPATCH_ROLE_CODES,
+        tenant_id=request_record.beneficiary_tenant_id,
+    )
+    return package_record
 
 
 def _update_package_consolidation_status(
@@ -2650,26 +2732,61 @@ def save_package(
                 consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
             )
             legs = _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
-            for leg in legs:
-                assign_roles_to_queue(
-                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
-                    entity_type=ENTITY_CONSOLIDATION_LEG,
-                    entity_id=int(leg.leg_id),
+            if legs:
+                for leg in legs:
+                    assign_roles_to_queue(
+                        queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                        entity_type=ENTITY_CONSOLIDATION_LEG,
+                        entity_id=int(leg.leg_id),
+                        role_codes=DISPATCH_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                    )
+                create_role_notifications(
+                    event_code=EVENT_CONSOLIDATION_PLANNED,
+                    entity_type=ENTITY_PACKAGE,
+                    entity_id=int(package.reliefpkg_id),
+                    message_text=(
+                        f"Package {package.tracking_no} is committed for staged fulfillment "
+                        "and awaiting consolidation leg dispatch."
+                    ),
                     role_codes=DISPATCH_ROLE_CODES,
                     tenant_id=request_record.beneficiary_tenant_id,
+                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
                 )
-            create_role_notifications(
-                event_code=EVENT_CONSOLIDATION_PLANNED,
-                entity_type=ENTITY_PACKAGE,
-                entity_id=int(package.reliefpkg_id),
-                message_text=(
-                    f"Package {package.tracking_no} is committed for staged fulfillment "
-                    "and awaiting consolidation leg dispatch."
-                ),
-                role_codes=DISPATCH_ROLE_CODES,
-                tenant_id=request_record.beneficiary_tenant_id,
-                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
-            )
+            else:
+                package_record = _transition_staged_package_ready(
+                    package=package,
+                    request_record=request_record,
+                    package_record=package_record,
+                    actor_id=actor_id,
+                    materialize_dispatch_sources=False,
+                )
+                if package_record.status_code == PACKAGE_STATUS_READY_FOR_PICKUP:
+                    create_role_notifications(
+                        event_code=EVENT_PACKAGE_COMMITTED,
+                        entity_type=ENTITY_PACKAGE,
+                        entity_id=int(package.reliefpkg_id),
+                        message_text=(
+                            f"Package {package.tracking_no} is already staged and ready "
+                            "for pickup release."
+                        ),
+                        role_codes=FULFILLMENT_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                        queue_code=QUEUE_CODE_PICKUP_RELEASE,
+                    )
+                else:
+                    create_role_notifications(
+                        event_code=EVENT_STAGED_DELIVERY_READY,
+                        entity_type=ENTITY_PACKAGE,
+                        entity_id=int(package.reliefpkg_id),
+                        message_text=(
+                            f"Package {package.tracking_no} is already staged and ready "
+                            "for final dispatch."
+                        ),
+                        role_codes=DISPATCH_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                        queue_code=QUEUE_CODE_DISPATCH,
+                    )
         else:
             dispatch = _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
             assign_roles_to_queue(
@@ -2734,36 +2851,71 @@ def approve_override(
         package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id, status_code=PACKAGE_STATUS_COMMITTED, override_status_code=None)
         complete_queue_assignments(entity_type=ENTITY_REQUEST, entity_id=reliefrqst_id, queue_code=QUEUE_CODE_OVERRIDE, actor_id=actor_id)
         if _is_staged_fulfillment_mode(package_record.fulfillment_mode):
-            _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
-            _sync_operations_package(
-                package,
-                request_record=request_record,
-                actor_id=actor_id,
-                status_code=PACKAGE_STATUS_CONSOLIDATING,
-                override_status_code=None,
-            )
-            _update_package_workflow_fields(
-                package_record,
-                actor_id=actor_id,
-                consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
-            )
-            for leg in package_record.consolidation_legs.order_by("leg_sequence"):
-                assign_roles_to_queue(
-                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
-                    entity_type=ENTITY_CONSOLIDATION_LEG,
-                    entity_id=int(leg.leg_id),
+            legs = _create_consolidation_legs(package_record=package_record, actor_id=actor_id)
+            if legs:
+                _sync_operations_package(
+                    package,
+                    request_record=request_record,
+                    actor_id=actor_id,
+                    status_code=PACKAGE_STATUS_CONSOLIDATING,
+                    override_status_code=None,
+                )
+                _update_package_workflow_fields(
+                    package_record,
+                    actor_id=actor_id,
+                    consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+                )
+                for leg in package_record.consolidation_legs.order_by("leg_sequence"):
+                    assign_roles_to_queue(
+                        queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                        entity_type=ENTITY_CONSOLIDATION_LEG,
+                        entity_id=int(leg.leg_id),
+                        role_codes=DISPATCH_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                    )
+                create_role_notifications(
+                    event_code=EVENT_OVERRIDE_APPROVED,
+                    entity_type=ENTITY_PACKAGE,
+                    entity_id=int(package.reliefpkg_id),
+                    message_text=f"Override approved for staged package {package.tracking_no}.",
                     role_codes=DISPATCH_ROLE_CODES,
                     tenant_id=request_record.beneficiary_tenant_id,
+                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
                 )
-            create_role_notifications(
-                event_code=EVENT_OVERRIDE_APPROVED,
-                entity_type=ENTITY_PACKAGE,
-                entity_id=int(package.reliefpkg_id),
-                message_text=f"Override approved for staged package {package.tracking_no}.",
-                role_codes=DISPATCH_ROLE_CODES,
-                tenant_id=request_record.beneficiary_tenant_id,
-                queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
-            )
+            else:
+                package_record = _transition_staged_package_ready(
+                    package=package,
+                    request_record=request_record,
+                    package_record=package_record,
+                    actor_id=actor_id,
+                    materialize_dispatch_sources=False,
+                )
+                if package_record.status_code == PACKAGE_STATUS_READY_FOR_PICKUP:
+                    create_role_notifications(
+                        event_code=EVENT_OVERRIDE_APPROVED,
+                        entity_type=ENTITY_PACKAGE,
+                        entity_id=int(package.reliefpkg_id),
+                        message_text=(
+                            f"Override approved for staged package {package.tracking_no}; "
+                            "it is ready for pickup release."
+                        ),
+                        role_codes=FULFILLMENT_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                        queue_code=QUEUE_CODE_PICKUP_RELEASE,
+                    )
+                else:
+                    create_role_notifications(
+                        event_code=EVENT_OVERRIDE_APPROVED,
+                        entity_type=ENTITY_PACKAGE,
+                        entity_id=int(package.reliefpkg_id),
+                        message_text=(
+                            f"Override approved for staged package {package.tracking_no}; "
+                            "it is ready for final dispatch."
+                        ),
+                        role_codes=DISPATCH_ROLE_CODES,
+                        tenant_id=request_record.beneficiary_tenant_id,
+                        queue_code=QUEUE_CODE_DISPATCH,
+                    )
         else:
             _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
             assign_roles_to_queue(
@@ -2869,7 +3021,7 @@ def dispatch_consolidation_leg(
         queue_code=QUEUE_CODE_STAGING_RECEIPT,
         entity_type=ENTITY_CONSOLIDATION_LEG,
         entity_id=int(leg.leg_id),
-        role_codes=DISPATCH_ROLE_CODES,
+        role_codes=FULFILLMENT_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
     create_role_notifications(
@@ -2880,7 +3032,7 @@ def dispatch_consolidation_leg(
             f"Consolidation leg {leg.leg_sequence} for package {package.tracking_no} "
             "is in transit to staging."
         ),
-        role_codes=DISPATCH_ROLE_CODES,
+        role_codes=FULFILLMENT_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
         queue_code=QUEUE_CODE_STAGING_RECEIPT,
     )
@@ -2901,7 +3053,7 @@ def receive_consolidation_leg(
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
-    _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may receive consolidation legs.")
+    _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may receive consolidation legs.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
@@ -2974,32 +3126,20 @@ def receive_consolidation_leg(
     )
     if consolidation_status == CONSOLIDATION_STATUS_ALL_RECEIVED:
         if package_record.fulfillment_mode == FULFILLMENT_MODE_PICKUP_AT_STAGING:
-            package_record = _sync_operations_package(
-                package,
+            package_record = _transition_staged_package_ready(
+                package=package,
                 request_record=request_record,
-                actor_id=actor_id,
-                status_code=PACKAGE_STATUS_READY_FOR_PICKUP,
-            )
-            _assign_pickup_release_queue(
                 package_record=package_record,
-                tenant_id=request_record.beneficiary_tenant_id,
+                actor_id=actor_id,
+                materialize_dispatch_sources=False,
             )
         else:
-            _materialize_staged_dispatch_sources(package_record=package_record, actor_id=actor_id)
-            package_record = _sync_operations_package(
-                package,
+            package_record = _transition_staged_package_ready(
+                package=package,
                 request_record=request_record,
+                package_record=package_record,
                 actor_id=actor_id,
-                status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
-                source_warehouse_id=package_record.staging_warehouse_id,
-            )
-            _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
-            assign_roles_to_queue(
-                queue_code=QUEUE_CODE_DISPATCH,
-                entity_type=ENTITY_PACKAGE,
-                entity_id=int(package_record.package_id),
-                role_codes=DISPATCH_ROLE_CODES,
-                tenant_id=request_record.beneficiary_tenant_id,
+                materialize_dispatch_sources=True,
             )
             create_role_notifications(
                 event_code=EVENT_STAGED_DELIVERY_READY,
@@ -3072,6 +3212,7 @@ def pickup_release(
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
+    _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may complete pickup release.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
@@ -3102,6 +3243,15 @@ def pickup_release(
         consume_stock=True,
     )
     now = timezone.now()
+    released_by_name = str(payload.get("released_by_name") or actor_id).strip()
+    release_notes = str(payload.get("release_notes") or "").strip() or None
+    collected_by_name = str(payload.get("collected_by_name") or "").strip() or None
+    collected_by_id_ref = str(payload.get("collected_by_id_ref") or "").strip() or None
+    pickup_tenant_id = (
+        request_record.beneficiary_tenant_id
+        or package_record.destination_tenant_id
+        or tenant_context.active_tenant_id
+    )
     package.received_by_id = actor_id
     package.received_dtime = now
     package.status_code = legacy_service.PKG_STATUS_COMPLETED
@@ -3117,15 +3267,23 @@ def pickup_release(
     )
     OperationsPickupRelease.objects.create(
         package=package_record,
+        staging_warehouse_id=package_record.staging_warehouse_id,
+        tenant_id=pickup_tenant_id,
+        collected_by_name=collected_by_name,
+        collected_by_id_ref=collected_by_id_ref,
         released_by_user_id=actor_id,
-        released_by_name=str(payload.get("released_by_name") or actor_id).strip(),
+        released_by_name=released_by_name,
         released_at=now,
-        release_notes=str(payload.get("release_notes") or "").strip() or None,
+        release_notes=release_notes,
         release_artifact_json={
+            "staging_warehouse_id": package_record.staging_warehouse_id,
+            "tenant_id": pickup_tenant_id,
+            "collected_by_name": collected_by_name,
+            "collected_by_id_ref": collected_by_id_ref,
             "released_by_user_id": actor_id,
-            "released_by_name": str(payload.get("released_by_name") or actor_id).strip(),
+            "released_by_name": released_by_name,
             "released_at": now.isoformat(),
-            "release_notes": str(payload.get("release_notes") or "").strip() or None,
+            "release_notes": release_notes,
         },
     )
     complete_queue_assignments(
