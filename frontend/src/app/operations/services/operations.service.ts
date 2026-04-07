@@ -7,6 +7,12 @@ import {
   AllocationCommitResponse,
   AllocationItemGroup,
   AllocationOptionsResponse,
+  ConsolidationLegDispatchPayload,
+  ConsolidationLegDispatchResponse,
+  ConsolidationLegReceivePayload,
+  ConsolidationLegReceiveResponse,
+  ConsolidationLegsResponse,
+  ConsolidationWaybillResponse,
   CreateRequestPayload,
   RequestReferenceDataResponse,
   DispatchDetailResponse,
@@ -18,11 +24,19 @@ import {
   OperationsTaskListResponse,
   OverrideApprovalPayload,
   PackageDetailResponse,
+  PackageDraftPayload,
   PackageQueueResponse,
+  PartialReleaseApprovePayload,
+  PartialReleaseApproveResponse,
+  PartialReleaseRequestPayload,
+  PartialReleaseRequestResponse,
+  PickupReleasePayload,
+  PickupReleaseResponse,
   ReceiptConfirmationPayload,
   ReceiptConfirmationResponse,
   RequestDetailResponse,
   RequestListResponse,
+  StagingRecommendationResponse,
   UpdateRequestPayload,
   WaybillResponse,
 } from '../models/operations.model';
@@ -30,13 +44,21 @@ import {
   createDispatchDetailFallback,
   normalizeAllocationItemGroup,
   normalizeAllocationOptions,
+  normalizeConsolidationLegDispatchResponse,
+  normalizeConsolidationLegReceiveResponse,
+  normalizeConsolidationLegsResponse,
+  normalizeConsolidationWaybill,
   normalizeDispatchDetail,
   normalizeDispatchQueueItem,
   normalizeEligibilityDetail,
   normalizePackageDetail,
   normalizePackageQueueItem,
+  normalizePartialReleaseApproveResponse,
+  normalizePartialReleaseRequestResponse,
+  normalizePickupReleaseResponse,
   normalizeRequestDetail,
   normalizeRequestSummary,
+  normalizeStagingRecommendation,
   normalizeTaskFeed,
   normalizeWaybill,
 } from './operations-adapters';
@@ -132,12 +154,7 @@ export class OperationsService {
 
   savePackageDraft(
     reliefrqstId: number,
-    payload: {
-      source_warehouse_id?: number;
-      to_inventory_id?: number;
-      transport_mode?: string;
-      comments_text?: string;
-    },
+    payload: PackageDraftPayload,
   ): Observable<PackageDetailResponse> {
     return this.http.post<PackageDetailResponse>(
       `${this.apiUrl}/packages/${reliefrqstId}/draft`,
@@ -245,6 +262,79 @@ export class OperationsService {
     return this.http.get<WaybillResponse>(`${this.apiUrl}/dispatch/${reliefpkgId}/waybill`).pipe(
       map(normalizeWaybill),
     );
+  }
+
+  getStagingRecommendation(reliefrqstId: number): Observable<StagingRecommendationResponse> {
+    return this.http.get<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/staging-recommendation`,
+    ).pipe(map(normalizeStagingRecommendation));
+  }
+
+  getConsolidationLegs(reliefpkgId: number): Observable<ConsolidationLegsResponse> {
+    return this.http.get<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs`,
+    ).pipe(map(normalizeConsolidationLegsResponse));
+  }
+
+  dispatchConsolidationLeg(
+    reliefpkgId: number,
+    legId: number,
+    payload: ConsolidationLegDispatchPayload,
+  ): Observable<ConsolidationLegDispatchResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/dispatch`,
+      payload,
+    ).pipe(map(normalizeConsolidationLegDispatchResponse));
+  }
+
+  receiveConsolidationLeg(
+    reliefpkgId: number,
+    legId: number,
+    payload: ConsolidationLegReceivePayload,
+  ): Observable<ConsolidationLegReceiveResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/receive`,
+      payload,
+    ).pipe(map(normalizeConsolidationLegReceiveResponse));
+  }
+
+  getConsolidationLegWaybill(
+    reliefpkgId: number,
+    legId: number,
+  ): Observable<ConsolidationWaybillResponse> {
+    return this.http.get<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/consolidation-legs/${legId}/waybill`,
+    ).pipe(map(normalizeConsolidationWaybill));
+  }
+
+  requestPartialRelease(
+    reliefpkgId: number,
+    payload: PartialReleaseRequestPayload,
+  ): Observable<PartialReleaseRequestResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/partial-release/request`,
+      payload,
+    ).pipe(map(normalizePartialReleaseRequestResponse));
+  }
+
+  approvePartialRelease(
+    reliefpkgId: number,
+    payload: PartialReleaseApprovePayload,
+  ): Observable<PartialReleaseApproveResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/partial-release/approve`,
+      payload,
+    ).pipe(map(normalizePartialReleaseApproveResponse));
+  }
+
+  submitPickupRelease(
+    reliefpkgId: number,
+    payload: PickupReleasePayload,
+  ): Observable<PickupReleaseResponse> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefpkgId}/pickup-release`,
+      payload,
+    ).pipe(map(normalizePickupReleaseResponse));
   }
 
   getTasks(): Observable<OperationsTaskListResponse> {

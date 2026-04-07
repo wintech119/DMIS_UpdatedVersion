@@ -4,20 +4,35 @@ import {
   AllocationLine,
   AllocationOptionsResponse,
   AllocationSummary,
+  ConsolidationLeg,
+  ConsolidationLegDispatchResponse,
+  ConsolidationLegItem,
+  ConsolidationLegReceiveResponse,
+  ConsolidationLegsResponse,
+  ConsolidationWaybillResponse,
   DispatchDetailResponse,
   DispatchQueueItem,
   DispatchRecordSummary,
   DispatchTransportSummary,
   EligibilityDetailResponse,
+  FulfillmentMode,
   OperationsEntityType,
   OperationsTask,
   OperationsTaskListResponse,
   PackageDetailResponse,
+  PackageLegSummary,
   PackageQueueItem,
+  PackageSplitChild,
+  PackageSplitReferences,
   PackageSummary,
+  PartialReleaseApproveResponse,
+  PartialReleaseRequestResponse,
+  PickupReleaseResponse,
   RequestDetailResponse,
   RequestItem,
   RequestSummary,
+  StagingRecommendationResponse,
+  StagingSelectionBasis,
   SuggestedAllocationLine,
   WaybillResponse,
 } from '../models/operations.model';
@@ -83,6 +98,72 @@ export function normalizeRequestItem(raw: unknown): RequestItem {
   };
 }
 
+function normalizeFulfillmentMode(value: unknown): FulfillmentMode | undefined {
+  const normalized = asString(value).trim().toUpperCase();
+  if (
+    normalized === 'DIRECT'
+    || normalized === 'PICKUP_AT_STAGING'
+    || normalized === 'DELIVER_FROM_STAGING'
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeStagingBasis(value: unknown): StagingSelectionBasis | null {
+  const normalized = asString(value).trim().toUpperCase();
+  if (
+    normalized === 'SAME_PARISH'
+    || normalized === 'PROXIMITY_MATRIX'
+    || normalized === 'MANUAL_OVERRIDE'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizePackageLegSummary(raw: unknown): PackageLegSummary | null {
+  if (raw == null) {
+    return null;
+  }
+  const source = asRecord(raw);
+  if (!Object.keys(source).length) {
+    return null;
+  }
+  return {
+    total_legs: asNumber(source['total_legs']),
+    planned_legs: asNumber(source['planned_legs']),
+    in_transit_legs: asNumber(source['in_transit_legs']),
+    received_legs: asNumber(source['received_legs']),
+    cancelled_legs: asNumber(source['cancelled_legs']),
+    all_received: asBoolean(source['all_received']),
+  };
+}
+
+function normalizePackageSplitChild(raw: unknown): PackageSplitChild {
+  const source = asRecord(raw);
+  return {
+    package_id: asNumber(source['package_id']),
+    package_no: asNullableString(source['package_no']),
+    status_code: asString(source['status_code'], ''),
+  };
+}
+
+function normalizePackageSplit(raw: unknown): PackageSplitReferences | null {
+  if (raw == null) {
+    return null;
+  }
+  const source = asRecord(raw);
+  if (!Object.keys(source).length) {
+    return null;
+  }
+  return {
+    split_from_package_id: asNullableNumber(source['split_from_package_id']),
+    split_from_package_no: asNullableString(source['split_from_package_no']),
+    split_children: asArray(source['split_children']).map(normalizePackageSplitChild),
+  };
+}
+
 export function normalizePackageSummary(raw: unknown): PackageSummary {
   const source = asRecord(raw);
   const statusCode = asString(source['status_code'], 'A') as PackageSummary['status_code'];
@@ -96,7 +177,7 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
     to_inventory_id: asNullableNumber(source['to_inventory_id']),
     destination_warehouse_name: asNullableString(source['destination_warehouse_name']),
     status_code: statusCode,
-    status_label: formatPackageStatus(statusCode),
+    status_label: asString(source['status_label'], formatPackageStatus(statusCode)),
     dispatch_dtime: asNullableString(source['dispatch_dtime']),
     received_dtime: asNullableString(source['received_dtime']),
     transport_mode: asNullableString(source['transport_mode']),
@@ -105,6 +186,19 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
     execution_status: asNullableString(source['execution_status']),
     needs_list_id: asNullableNumber(source['needs_list_id']),
     compatibility_bridge: asBoolean(source['compatibility_bridge']),
+    fulfillment_mode: normalizeFulfillmentMode(source['fulfillment_mode']),
+    staging_warehouse_id: asNullableNumber(source['staging_warehouse_id']),
+    recommended_staging_warehouse_id: asNullableNumber(source['recommended_staging_warehouse_id']),
+    staging_selection_basis: normalizeStagingBasis(source['staging_selection_basis']),
+    staging_override_reason: asNullableString(source['staging_override_reason']),
+    consolidation_status: asNullableString(
+      source['consolidation_status'],
+    ) as PackageSummary['consolidation_status'],
+    effective_dispatch_source_warehouse_id: asNullableNumber(
+      source['effective_dispatch_source_warehouse_id'],
+    ),
+    leg_summary: normalizePackageLegSummary(source['leg_summary']),
+    split: normalizePackageSplit(source['split']),
   };
 }
 
@@ -530,6 +624,120 @@ function normalizeNotificationTask(raw: unknown): OperationsTask {
     due_date: null,
     assigned_to: assignedTo,
     queue_code: asNullableString(source['queue_code']),
+  };
+}
+
+function normalizeConsolidationLegItem(raw: unknown): ConsolidationLegItem {
+  const source = asRecord(raw);
+  return {
+    leg_item_id: asNumber(source['leg_item_id']),
+    item_id: asNumber(source['item_id']),
+    batch_id: asNullableNumber(source['batch_id']),
+    quantity: asString(source['quantity'], '0'),
+    source_type: asString(source['source_type'], 'ON_HAND'),
+    source_record_id: asNullableNumber(source['source_record_id']),
+    staging_batch_id: asNullableNumber(source['staging_batch_id']),
+    uom_code: asNullableString(source['uom_code']),
+  };
+}
+
+export function normalizeConsolidationLeg(raw: unknown): ConsolidationLeg {
+  const source = asRecord(raw);
+  const statusCode = asString(source['status_code'], 'PLANNED') as ConsolidationLeg['status_code'];
+  return {
+    leg_id: asNumber(source['leg_id']),
+    package_id: asNumber(source['package_id']),
+    leg_sequence: asNumber(source['leg_sequence']),
+    source_warehouse_id: asNumber(source['source_warehouse_id']),
+    staging_warehouse_id: asNumber(source['staging_warehouse_id']),
+    status_code: statusCode,
+    status_label: asString(source['status_label'], statusCode),
+    shadow_transfer_id: asNullableNumber(source['shadow_transfer_id']),
+    driver_name: asNullableString(source['driver_name']),
+    driver_license_no: asNullableString(source['driver_license_no']),
+    vehicle_id: asNullableString(source['vehicle_id']),
+    vehicle_registration: asNullableString(source['vehicle_registration']),
+    vehicle_type: asNullableString(source['vehicle_type']),
+    transport_mode: asNullableString(source['transport_mode']),
+    transport_notes: asNullableString(source['transport_notes']),
+    dispatched_by_id: asNullableString(source['dispatched_by_id']),
+    dispatched_at: asNullableString(source['dispatched_at']),
+    expected_arrival_at: asNullableString(source['expected_arrival_at']),
+    received_by_user_id: asNullableString(source['received_by_user_id']),
+    received_at: asNullableString(source['received_at']),
+    items: asArray(source['items']).map(normalizeConsolidationLegItem),
+    waybill_no: asNullableString(source['waybill_no']),
+  };
+}
+
+export function normalizeConsolidationLegsResponse(raw: unknown): ConsolidationLegsResponse {
+  const source = asRecord(raw);
+  return {
+    package: normalizePackageSummary(source['package']),
+    results: asArray(source['results']).map(normalizeConsolidationLeg),
+  };
+}
+
+export function normalizeConsolidationLegDispatchResponse(raw: unknown): ConsolidationLegDispatchResponse {
+  const source = asRecord(raw);
+  return {
+    status: 'IN_TRANSIT',
+    package: normalizePackageSummary(source['package']),
+    leg: normalizeConsolidationLeg(source['leg']),
+  };
+}
+
+export function normalizeConsolidationLegReceiveResponse(raw: unknown): ConsolidationLegReceiveResponse {
+  const source = asRecord(raw);
+  return {
+    status: 'RECEIVED_AT_STAGING',
+    package: normalizePackageSummary(source['package']),
+    leg: normalizeConsolidationLeg(source['leg']),
+  };
+}
+
+export function normalizeConsolidationWaybill(raw: unknown): ConsolidationWaybillResponse {
+  const source = asRecord(raw);
+  return {
+    waybill_no: asString(source['waybill_no']),
+    waybill_payload: asRecord(source['waybill_payload']) as unknown as ConsolidationWaybillResponse['waybill_payload'],
+    persisted: asBoolean(source['persisted']),
+  };
+}
+
+export function normalizeStagingRecommendation(raw: unknown): StagingRecommendationResponse {
+  const source = asRecord(raw);
+  return {
+    reliefrqst_id: asNumber(source['reliefrqst_id']),
+    recommended_staging_warehouse_id: asNullableNumber(source['recommended_staging_warehouse_id']),
+    recommended_staging_warehouse_name: asNullableString(source['recommended_staging_warehouse_name']),
+    recommended_staging_parish_code: asNullableString(source['recommended_staging_parish_code']),
+    staging_selection_basis: normalizeStagingBasis(source['staging_selection_basis']),
+  };
+}
+
+export function normalizePartialReleaseRequestResponse(raw: unknown): PartialReleaseRequestResponse {
+  const source = asRecord(raw);
+  return {
+    status: 'PARTIAL_RELEASE_REQUESTED',
+    package: normalizePackageSummary(source['package']),
+  };
+}
+
+export function normalizePartialReleaseApproveResponse(raw: unknown): PartialReleaseApproveResponse {
+  const source = asRecord(raw);
+  return {
+    parent: normalizePackageSummary(source['parent']),
+    residual: source['residual'] ? normalizePackageSummary(source['residual']) : null,
+    released: source['released'] ? normalizePackageSummary(source['released']) : null,
+  };
+}
+
+export function normalizePickupReleaseResponse(raw: unknown): PickupReleaseResponse {
+  const source = asRecord(raw);
+  return {
+    status: 'RECEIVED',
+    package: normalizePackageSummary(source['package']),
   };
 }
 

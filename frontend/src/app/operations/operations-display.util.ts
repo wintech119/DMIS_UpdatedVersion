@@ -38,6 +38,10 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   DISPATCHED: 'Dispatched',
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled',
+  // Staged fulfillment status codes
+  CONSOLIDATING: 'Consolidating',
+  READY_FOR_PICKUP: 'Ready for Pickup',
+  SPLIT: 'Split',
 };
 
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
@@ -54,6 +58,46 @@ const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   DISPATCHED: 'warning',
   RECEIVED: 'success',
   CANCELLED: 'muted',
+  // Staged fulfillment status codes
+  CONSOLIDATING: 'warning',
+  READY_FOR_PICKUP: 'review',
+  SPLIT: 'muted',
+};
+
+const CONSOLIDATION_STATUS_LABELS: Record<string, string> = {
+  AWAITING_LEGS: 'Awaiting legs',
+  LEGS_IN_TRANSIT: 'Legs in transit',
+  PARTIALLY_RECEIVED: 'Partially received',
+  ALL_RECEIVED: 'All received',
+  PARTIAL_RELEASE_REQUESTED: 'Partial release requested',
+};
+
+const CONSOLIDATION_STATUS_TONES: Record<string, OperationsTone> = {
+  AWAITING_LEGS: 'draft',
+  LEGS_IN_TRANSIT: 'warning',
+  PARTIALLY_RECEIVED: 'warning',
+  ALL_RECEIVED: 'success',
+  PARTIAL_RELEASE_REQUESTED: 'review',
+};
+
+const CONSOLIDATION_LEG_STATUS_LABELS: Record<string, string> = {
+  PLANNED: 'Planned',
+  IN_TRANSIT: 'In transit',
+  RECEIVED_AT_STAGING: 'Received at staging',
+  CANCELLED: 'Cancelled',
+};
+
+const CONSOLIDATION_LEG_STATUS_TONES: Record<string, OperationsTone> = {
+  PLANNED: 'draft',
+  IN_TRANSIT: 'warning',
+  RECEIVED_AT_STAGING: 'success',
+  CANCELLED: 'muted',
+};
+
+const FULFILLMENT_MODE_LABELS: Record<string, string> = {
+  DIRECT: 'Direct dispatch',
+  DELIVER_FROM_STAGING: 'Deliver from staging',
+  PICKUP_AT_STAGING: 'Pickup at staging',
 };
 
 const URGENCY_LABELS: Record<string, string> = {
@@ -112,6 +156,31 @@ export function getOperationsPackageTone(
 ): OperationsTone {
   const normalized = normalizeOperationsPackageStatus(code, executionStatus);
   return PACKAGE_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function formatOperationsConsolidationStatus(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_STATUS_LABELS[normalized] ?? 'Unknown';
+}
+
+export function getOperationsConsolidationStatusTone(code: string | null | undefined): OperationsTone {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function formatOperationsConsolidationLegStatus(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_LEG_STATUS_LABELS[normalized] ?? 'Unknown';
+}
+
+export function getOperationsConsolidationLegTone(code: string | null | undefined): OperationsTone {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_LEG_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function formatOperationsFulfillmentMode(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return FULFILLMENT_MODE_LABELS[normalized] ?? 'Not set';
 }
 
 export function formatOperationsUrgency(code: string | null | undefined): string {

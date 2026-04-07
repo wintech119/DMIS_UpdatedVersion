@@ -9,7 +9,44 @@ export type RequestStatusCode =
   | 'INELIGIBLE'
   | 'REJECTED'
   | 'CANCELLED';
-export type PackageStatusCode = 'A' | 'P' | 'D' | 'C';
+
+// Legacy single-char package codes used by older components and legacy payloads.
+export type LegacyPackageStatusCode = 'A' | 'P' | 'D' | 'C';
+// Extended codes introduced for staged fulfillment and explicit state names.
+export type StagedPackageStatusCode =
+  | 'DRAFT'
+  | 'PENDING_OVERRIDE_APPROVAL'
+  | 'COMMITTED'
+  | 'CONSOLIDATING'
+  | 'READY_FOR_PICKUP'
+  | 'READY_FOR_DISPATCH'
+  | 'SPLIT'
+  | 'DISPATCHED'
+  | 'RECEIVED'
+  | 'CANCELLED';
+export type PackageStatusCode = LegacyPackageStatusCode | StagedPackageStatusCode;
+
+// Staged fulfillment routing decision for a relief package.
+export type FulfillmentMode = 'DIRECT' | 'PICKUP_AT_STAGING' | 'DELIVER_FROM_STAGING';
+
+// Rolled-up state of all consolidation legs for a staged package.
+export type ConsolidationStatus =
+  | 'AWAITING_LEGS'
+  | 'LEGS_IN_TRANSIT'
+  | 'PARTIALLY_RECEIVED'
+  | 'ALL_RECEIVED'
+  | 'PARTIAL_RELEASE_REQUESTED';
+
+// Why the backend selected a particular staging warehouse.
+export type StagingSelectionBasis = 'SAME_PARISH' | 'PROXIMITY_MATRIX' | 'MANUAL_OVERRIDE';
+
+// Lifecycle of a single consolidation leg from a source warehouse into the staging hub.
+export type ConsolidationLegStatus =
+  | 'PLANNED'
+  | 'IN_TRANSIT'
+  | 'RECEIVED_AT_STAGING'
+  | 'CANCELLED';
+
 export type ItemStatusCode = 'R' | 'P' | 'F';
 export type UrgencyCode = 'C' | 'H' | 'M' | 'L';
 export type EligibilityDecision = 'Y' | 'APPROVED' | 'REJECTED' | 'INELIGIBLE';
@@ -41,6 +78,27 @@ export interface RequestItem {
   status_code: ItemStatusCode | null;
 }
 
+export interface PackageLegSummary {
+  total_legs: number;
+  planned_legs: number;
+  in_transit_legs: number;
+  received_legs: number;
+  cancelled_legs: number;
+  all_received: boolean;
+}
+
+export interface PackageSplitChild {
+  package_id: number;
+  package_no: string | null;
+  status_code: PackageStatusCode | string;
+}
+
+export interface PackageSplitReferences {
+  split_from_package_id: number | null;
+  split_from_package_no: string | null;
+  split_children: PackageSplitChild[];
+}
+
 export interface PackageSummary {
   reliefpkg_id: number;
   tracking_no: string | null;
@@ -60,6 +118,17 @@ export interface PackageSummary {
   execution_status: string | null;
   needs_list_id: number | null;
   compatibility_bridge: boolean;
+  // Staged fulfillment fields (optional for backwards compatibility with legacy
+  // callers that still type objects as PackageSummary without staging data).
+  fulfillment_mode?: FulfillmentMode;
+  staging_warehouse_id?: number | null;
+  recommended_staging_warehouse_id?: number | null;
+  staging_selection_basis?: StagingSelectionBasis | null;
+  staging_override_reason?: string | null;
+  consolidation_status?: ConsolidationStatus | null;
+  effective_dispatch_source_warehouse_id?: number | null;
+  leg_summary?: PackageLegSummary | null;
+  split?: PackageSplitReferences | null;
 }
 
 export interface RequestSummary {
@@ -460,3 +529,154 @@ export const OVERRIDE_REASON_OPTIONS: readonly { value: string; label: string }[
   { value: 'SOURCE_EXCEPTION', label: 'Source exception' },
   { value: 'OTHER', label: 'Other' },
 ];
+
+// Staged Fulfillment ──────────────────────────────────────────────
+
+export const FULFILLMENT_MODE_OPTIONS: readonly {
+  value: FulfillmentMode;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: 'DIRECT',
+    label: 'Direct dispatch',
+    hint: 'Ship straight from the source warehouse to the destination.',
+  },
+  {
+    value: 'DELIVER_FROM_STAGING',
+    label: 'Deliver from staging',
+    hint: 'Consolidate items at a staging hub before onward delivery.',
+  },
+  {
+    value: 'PICKUP_AT_STAGING',
+    label: 'Pickup at staging',
+    hint: 'Beneficiary collects the package directly from the staging hub.',
+  },
+];
+
+export interface ConsolidationLegItem {
+  leg_item_id: number;
+  item_id: number;
+  batch_id: number | null;
+  quantity: string;
+  source_type: AllocationSourceType | string;
+  source_record_id: number | null;
+  staging_batch_id: number | null;
+  uom_code: string | null;
+}
+
+export interface ConsolidationLeg {
+  leg_id: number;
+  package_id: number;
+  leg_sequence: number;
+  source_warehouse_id: number;
+  staging_warehouse_id: number;
+  status_code: ConsolidationLegStatus;
+  status_label: string;
+  shadow_transfer_id: number | null;
+  driver_name: string | null;
+  /** Masked by backend when returned to the client. */
+  driver_license_no: string | null;
+  vehicle_id: string | null;
+  vehicle_registration: string | null;
+  vehicle_type: string | null;
+  transport_mode: string | null;
+  transport_notes: string | null;
+  dispatched_by_id: string | null;
+  dispatched_at: string | null;
+  expected_arrival_at: string | null;
+  received_by_user_id: string | null;
+  received_at: string | null;
+  items: ConsolidationLegItem[];
+  waybill_no: string | null;
+}
+
+export interface ConsolidationLegsResponse {
+  package: PackageSummary;
+  results: ConsolidationLeg[];
+}
+
+export interface ConsolidationLegDispatchPayload {
+  driver_name: string;
+  driver_license_no?: string;
+  vehicle_id?: string;
+  vehicle_registration?: string;
+  vehicle_type?: string;
+  transport_mode?: string;
+  transport_notes?: string;
+  departure_dtime?: string;
+  estimated_arrival_dtime?: string;
+}
+
+export interface ConsolidationLegDispatchResponse {
+  status: 'IN_TRANSIT';
+  package: PackageSummary;
+  leg: ConsolidationLeg;
+}
+
+export interface ConsolidationLegReceivePayload {
+  received_by_name?: string;
+  receipt_notes?: string;
+}
+
+export interface ConsolidationLegReceiveResponse {
+  status: 'RECEIVED_AT_STAGING';
+  package: PackageSummary;
+  leg: ConsolidationLeg;
+}
+
+export interface ConsolidationWaybillResponse {
+  waybill_no: string;
+  waybill_payload: WaybillPayload;
+  persisted: boolean;
+}
+
+export interface StagingRecommendationResponse {
+  reliefrqst_id: number;
+  recommended_staging_warehouse_id: number | null;
+  recommended_staging_warehouse_name: string | null;
+  recommended_staging_parish_code: string | null;
+  staging_selection_basis: StagingSelectionBasis | null;
+}
+
+export interface PartialReleaseRequestPayload {
+  reason: string;
+}
+
+export interface PartialReleaseRequestResponse {
+  status: 'PARTIAL_RELEASE_REQUESTED';
+  package: PackageSummary;
+}
+
+export interface PartialReleaseApprovePayload {
+  approval_reason?: string;
+}
+
+export interface PartialReleaseApproveResponse {
+  parent: PackageSummary;
+  residual: PackageSummary | null;
+  released: PackageSummary | null;
+}
+
+export interface PickupReleasePayload {
+  collected_by_name: string;
+  collected_by_id_ref?: string;
+  released_by_name?: string;
+  release_notes?: string;
+}
+
+export interface PickupReleaseResponse {
+  status: 'RECEIVED';
+  package: PackageSummary;
+}
+
+export interface PackageDraftPayload {
+  source_warehouse_id?: number;
+  to_inventory_id?: number;
+  transport_mode?: string;
+  comments_text?: string;
+  fulfillment_mode?: FulfillmentMode;
+  staging_warehouse_id?: number | null;
+  recommended_staging_warehouse_id?: number | null;
+  staging_override_reason?: string | null;
+}

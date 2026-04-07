@@ -14,6 +14,7 @@ import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../replenishme
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
+import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
 import { RequestDetailResponse, RequestItem, PackageSummary } from '../models/operations.model';
@@ -49,6 +50,7 @@ interface WorkflowStep {
     MatTooltipModule,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
+    OpsSplitBannerComponent,
     OpsStatusChipComponent,
   ],
   templateUrl: './relief-request-detail.component.html',
@@ -126,6 +128,18 @@ export class ReliefRequestDetailComponent implements OnInit {
   });
 
   readonly primaryPackage = computed(() => this.request()?.packages?.[0] ?? null);
+
+  readonly splitParentInfo = computed(() => {
+    const split = this.primaryPackage()?.split;
+    if (!split?.split_from_package_id) {
+      return null;
+    }
+    return { id: split.split_from_package_id, no: split.split_from_package_no };
+  });
+
+  readonly splitChildren = computed(() =>
+    this.primaryPackage()?.split?.split_children ?? [],
+  );
 
   ngOnInit(): void {
     const reliefrqstId = Number(this.route.snapshot.paramMap.get('reliefrqstId'));

@@ -431,6 +431,10 @@ export class OpsDispatchWorkspaceComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (detail: DispatchDetailResponse) => {
+          if (detail.fulfillment_mode === 'PICKUP_AT_STAGING') {
+            this.router.navigate(['/operations/pickup-release', reliefpkgId]);
+            return;
+          }
           this.dispatchDetail.set(detail);
           const transport = detail.dispatch?.transport;
           const depParts = this.splitDateTime(transport?.departure_dtime);

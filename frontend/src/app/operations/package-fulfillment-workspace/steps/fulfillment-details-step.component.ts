@@ -1,14 +1,26 @@
-import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 
 import { MasterDataService } from '../../../master-data/services/master-data.service';
-import { OVERRIDE_REASON_OPTIONS, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
+import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../../replenishment/services/notification.service';
+import {
+  FULFILLMENT_MODE_OPTIONS,
+  FulfillmentMode,
+  OVERRIDE_REASON_OPTIONS,
+  TRANSPORT_MODE_OPTIONS,
+} from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
+import {
+  OpsStagingCardApplyEvent,
+  OpsStagingRecommendationCardComponent,
+} from '../../shared/ops-staging-recommendation-card.component';
 
 @Component({
   selector: 'app-fulfillment-details-step',
@@ -18,7 +30,9 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatRadioModule,
     MatSelectModule,
+    OpsStagingRecommendationCardComponent,
   ],
   template: `
     <div class="ops-details">
@@ -30,6 +44,46 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
           </span>
         }
       </div>
+
+      <section class="ops-details__mode" aria-label="Fulfillment mode">
+        <header class="ops-details__mode-header">
+          <strong>Fulfillment mode</strong>
+          <span class="ops-details__mode-copy">
+            Choose how this package moves from source warehouse to beneficiary.
+          </span>
+        </header>
+        <mat-radio-group
+          class="ops-details__mode-group"
+          aria-label="Select fulfillment mode"
+          [value]="draft().fulfillment_mode"
+          (change)="onFulfillmentModeChange($event.value)"
+          [disabled]="lockOperationalFields || !canSetFulfillmentMode()">
+          @for (option of fulfillmentModeOptions; track option.value) {
+            <mat-radio-button [value]="option.value" class="ops-details__mode-option">
+              <span class="ops-details__mode-label">{{ option.label }}</span>
+              <span class="ops-details__mode-hint">{{ option.hint }}</span>
+            </mat-radio-button>
+          }
+        </mat-radio-group>
+        @if (!canSetFulfillmentMode()) {
+          <p class="ops-details__mode-locked" role="note">
+            <mat-icon aria-hidden="true">lock</mat-icon>
+            You do not have permission to change the fulfillment mode.
+          </p>
+        }
+      </section>
+
+      @if (store.isStagedFulfillment()) {
+        <app-ops-staging-recommendation-card
+          [recommendation]="store.stagingRecommendation()"
+          [currentStagingWarehouseId]="store.stagingWarehouseId()"
+          [basis]="store.stagingSelectionBasis()"
+          [recommendationLoading]="store.recommendationLoading()"
+          [recommendationError]="store.recommendationError()"
+          [saving]="savingStagingMode()"
+          [disabled]="lockOperationalFields || !canSetFulfillmentMode()"
+          (applied)="onStagingApplied($event)" />
+      }
 
       <div class="ops-details__form">
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -120,7 +174,74 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
     .ops-details {
       display: flex;
       flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── Mode selector ── */
+
+    .ops-details__mode {
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+      padding: 14px 16px;
+      border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.08));
+      border-radius: var(--ops-radius-md, 10px);
+      background: var(--ops-card, #fbfaf7);
+    }
+
+    .ops-details__mode-header {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ops-details__mode-header strong {
+      font-size: 0.92rem;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-details__mode-copy {
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__mode-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .ops-details__mode-option {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 4px;
+    }
+
+    .ops-details__mode-label {
+      font-weight: 600;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-details__mode-hint {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--ops-ink-muted, #787774);
+      margin-top: 2px;
+    }
+
+    .ops-details__mode-locked {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__mode-locked mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
     }
 
     /* ── Header row ── */
@@ -234,14 +355,59 @@ export class FulfillmentDetailsStepComponent {
   @Input() lockOperationalFields = false;
 
   private readonly masterData = inject(MasterDataService);
+  private readonly auth = inject(AuthRbacService);
+  private readonly notifications = inject(DmisNotificationService);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly draft = this.store.draft;
 
   readonly warehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
   readonly overrideOptions = OVERRIDE_REASON_OPTIONS;
+  readonly fulfillmentModeOptions = FULFILLMENT_MODE_OPTIONS;
+
+  readonly canSetFulfillmentMode = computed(() =>
+    this.auth.hasPermission('operations.fulfillment_mode.set'),
+  );
+
+  readonly savingStagingMode = computed(() => this.store.loading());
 
   normalizeText(value: unknown): string {
     return String(value ?? '');
+  }
+
+  onFulfillmentModeChange(mode: FulfillmentMode): void {
+    if (!mode || mode === this.draft().fulfillment_mode) {
+      return;
+    }
+    const reliefrqstId = this.store.reliefrqstId();
+    const stagingWarehouseId = this.draft().staging_warehouse_id
+      ? Number(this.draft().staging_warehouse_id)
+      : null;
+    const overrideReason = this.draft().staging_override_reason || null;
+    if (!reliefrqstId) {
+      this.store.patchDraft({ fulfillment_mode: mode });
+      return;
+    }
+    if (mode !== 'DIRECT' && this.store.reliefrqstId()) {
+      this.store.loadStagingRecommendation(this.store.reliefrqstId());
+    }
+    this.store.saveFulfillmentModeDraft(mode, stagingWarehouseId, overrideReason).subscribe({
+      next: () => this.notifications.showSuccess('Fulfillment mode updated.'),
+      error: () => this.notifications.showError('Failed to update fulfillment mode.'),
+    });
+  }
+
+  onStagingApplied(event: OpsStagingCardApplyEvent): void {
+    const mode = this.draft().fulfillment_mode;
+    this.store
+      .saveFulfillmentModeDraft(
+        mode,
+        event.staging_warehouse_id,
+        event.staging_override_reason,
+      )
+      .subscribe({
+        next: () => this.notifications.showSuccess('Staging hub updated.'),
+        error: () => this.notifications.showError('Failed to update staging hub.'),
+      });
   }
 }

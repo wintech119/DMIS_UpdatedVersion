@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { EMPTY, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { EMPTY, Observable, of } from 'rxjs';
+import { catchError, tap } from 'rxjs/operators';
 
 import {
   AllocationCandidate,
@@ -9,9 +9,23 @@ import {
   AllocationItemGroup,
   AllocationOptionsResponse,
   AllocationSelectionPayload,
+  ConsolidationLeg,
+  ConsolidationLegDispatchPayload,
+  ConsolidationLegDispatchResponse,
+  ConsolidationLegReceivePayload,
+  ConsolidationLegReceiveResponse,
+  FulfillmentMode,
   OVERRIDE_REASON_OPTIONS,
   OverrideApprovalPayload,
   PackageDetailResponse,
+  PackageDraftPayload,
+  PartialReleaseApprovePayload,
+  PartialReleaseApproveResponse,
+  PartialReleaseRequestPayload,
+  PartialReleaseRequestResponse,
+  PickupReleasePayload,
+  PickupReleaseResponse,
+  StagingRecommendationResponse,
   WaybillResponse,
   AllocationMethod,
 } from '../models/operations.model';
@@ -24,6 +38,9 @@ interface WorkspaceDraft {
   comments_text: string;
   override_reason_code: string;
   override_note: string;
+  fulfillment_mode: FulfillmentMode;
+  staging_warehouse_id: string;
+  staging_override_reason: string;
 }
 
 export interface StockAvailabilityIssue {
@@ -42,6 +59,9 @@ const DEFAULT_DRAFT: WorkspaceDraft = {
   comments_text: '',
   override_reason_code: '',
   override_note: '',
+  fulfillment_mode: 'DIRECT',
+  staging_warehouse_id: '',
+  staging_override_reason: '',
 };
 
 @Injectable()
@@ -50,12 +70,21 @@ export class OperationsWorkspaceStateService {
   private latestWorkspaceGeneration = 0;
   private latestSourceWarehouseRequestId = 0;
   private latestItemWarehouseRequestIds: Record<number, number> = {};
+  private latestLegsRequestId = 0;
+  private latestRecommendationRequestId = 0;
 
   readonly reliefrqstId = signal(0);
   readonly reliefpkgId = signal(0);
   readonly packageDetail = signal<PackageDetailResponse | null>(null);
   readonly options = signal<AllocationOptionsResponse | null>(null);
   readonly waybill = signal<WaybillResponse | null>(null);
+
+  readonly consolidationLegs = signal<ConsolidationLeg[]>([]);
+  readonly legsLoading = signal(false);
+  readonly legsError = signal<string | null>(null);
+  readonly stagingRecommendation = signal<StagingRecommendationResponse | null>(null);
+  readonly recommendationLoading = signal(false);
+  readonly recommendationError = signal<string | null>(null);
 
   readonly loading = signal(false);
   readonly waybillLoading = signal(false);
@@ -93,6 +122,72 @@ export class OperationsWorkspaceStateService {
   });
 
   readonly hasWaybill = computed(() => !!(this.waybill()?.waybill_no));
+
+  // ── Staged fulfillment derived state ───────────────────────────
+  readonly fulfillmentMode = computed<FulfillmentMode>(() =>
+    (this.packageDetail()?.package?.fulfillment_mode ?? 'DIRECT') as FulfillmentMode,
+  );
+  readonly isStagedFulfillment = computed(() => this.fulfillmentMode() !== 'DIRECT');
+  readonly isPickupMode = computed(() => this.fulfillmentMode() === 'PICKUP_AT_STAGING');
+  readonly isDeliverFromStaging = computed(() => this.fulfillmentMode() === 'DELIVER_FROM_STAGING');
+
+  readonly stagingWarehouseId = computed(
+    () => this.packageDetail()?.package?.staging_warehouse_id ?? null,
+  );
+  readonly recommendedStagingWarehouseId = computed(
+    () => this.packageDetail()?.package?.recommended_staging_warehouse_id ?? null,
+  );
+  readonly stagingSelectionBasis = computed(
+    () => this.packageDetail()?.package?.staging_selection_basis ?? null,
+  );
+  readonly stagingOverrideReason = computed(
+    () => this.packageDetail()?.package?.staging_override_reason ?? null,
+  );
+  readonly consolidationStatus = computed(
+    () => this.packageDetail()?.package?.consolidation_status ?? null,
+  );
+  readonly effectiveDispatchSourceWarehouseId = computed(
+    () => this.packageDetail()?.package?.effective_dispatch_source_warehouse_id ?? null,
+  );
+
+  readonly legSummary = computed(() => this.packageDetail()?.package?.leg_summary ?? null);
+  readonly consolidationProgress = computed(() => {
+    const summary = this.legSummary();
+    return summary
+      ? { received: summary.received_legs, total: summary.total_legs }
+      : { received: 0, total: 0 };
+  });
+  readonly allLegsReceived = computed(() => this.legSummary()?.all_received ?? false);
+
+  readonly canDispatchFromStaging = computed(() => {
+    const pkg = this.packageDetail()?.package;
+    const status = String(pkg?.status_code ?? '').trim().toUpperCase();
+    return this.isDeliverFromStaging() && status === 'READY_FOR_DISPATCH';
+  });
+  readonly canReleaseForPickup = computed(() => {
+    const pkg = this.packageDetail()?.package;
+    const status = String(pkg?.status_code ?? '').trim().toUpperCase();
+    return this.isPickupMode() && status === 'READY_FOR_PICKUP';
+  });
+  readonly canRequestPartialRelease = computed(() => {
+    const status = String(this.consolidationStatus() ?? '').trim().toUpperCase();
+    return this.isStagedFulfillment() && status === 'PARTIALLY_RECEIVED';
+  });
+  readonly canApprovePartialRelease = computed(() => {
+    const status = String(this.consolidationStatus() ?? '').trim().toUpperCase();
+    return status === 'PARTIAL_RELEASE_REQUESTED';
+  });
+
+  readonly splitChildren = computed(
+    () => this.packageDetail()?.package?.split?.split_children ?? [],
+  );
+  readonly parentSplitInfo = computed(() => {
+    const split = this.packageDetail()?.package?.split;
+    if (!split?.split_from_package_id) {
+      return null;
+    }
+    return { id: split.split_from_package_id, no: split.split_from_package_no };
+  });
 
   readonly requestAvailabilityIssue = computed<StockAvailabilityIssue | null>(() => {
     const message = this.optionsError();
@@ -175,6 +270,12 @@ export class OperationsWorkspaceStateService {
     this.selectedRowsByItem.set({});
     this.itemWarehouseOverrides.set({});
     this.draft.set({ ...DEFAULT_DRAFT });
+    this.consolidationLegs.set([]);
+    this.legsError.set(null);
+    this.legsLoading.set(false);
+    this.stagingRecommendation.set(null);
+    this.recommendationError.set(null);
+    this.recommendationLoading.set(false);
 
     this.operationsService.getPackage(reliefrqstId).pipe(
       catchError((error: HttpErrorResponse) => {
@@ -197,6 +298,15 @@ export class OperationsWorkspaceStateService {
             this.reliefpkgId.set(packageDetail.package.reliefpkg_id);
           }
         }
+
+        // Eagerly load consolidation legs when package is staged so the
+        // consolidation panel is synchronous with the rest of the workspace.
+        const mode = packageDetail?.package?.fulfillment_mode;
+        const pkgId = packageDetail?.package?.reliefpkg_id;
+        if (mode && mode !== 'DIRECT' && pkgId) {
+          this.loadConsolidationLegs(pkgId);
+        }
+
         if (!loadOptions) {
           this.options.set(null);
           this.loading.set(false);
@@ -243,6 +353,274 @@ export class OperationsWorkspaceStateService {
         this.loadError.set(this.extractError(error, 'Failed to refresh package status.'));
       },
     });
+  }
+
+  // ── Staged fulfillment loading ─────────────────────────────────
+
+  loadConsolidationLegs(reliefpkgId: number): void {
+    if (!reliefpkgId) {
+      return;
+    }
+    const workspaceGeneration = this.latestWorkspaceGeneration;
+    const requestId = ++this.latestLegsRequestId;
+    this.legsLoading.set(true);
+    this.legsError.set(null);
+
+    this.operationsService.getConsolidationLegs(reliefpkgId).subscribe({
+      next: (response) => {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || this.latestLegsRequestId !== requestId
+        ) {
+          return;
+        }
+        this.consolidationLegs.set(response.results ?? []);
+        if (response.package) {
+          this.packageDetail.update((current) => {
+            if (current) {
+              return { ...current, package: response.package };
+            }
+            return this.buildStandalonePackageDetail(response.package);
+          });
+          this.reliefpkgId.set(response.package.reliefpkg_id);
+          if (response.package.reliefrqst_id) {
+            this.reliefrqstId.set(response.package.reliefrqst_id);
+          }
+        }
+        this.legsLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || this.latestLegsRequestId !== requestId
+        ) {
+          return;
+        }
+        this.legsLoading.set(false);
+        this.legsError.set(this.extractError(error, 'Failed to load consolidation legs.'));
+      },
+    });
+  }
+
+  /**
+   * For standalone consolidation pages that load by reliefpkg_id — builds
+   * a minimal PackageDetailResponse shell so computed signals work without a
+   * full workspace load.
+   */
+  private buildStandalonePackageDetail(pkg: NonNullable<PackageDetailResponse['package']>): PackageDetailResponse {
+    return {
+      request: {
+        reliefrqst_id: pkg.reliefrqst_id,
+        tracking_no: pkg.tracking_no,
+        agency_id: pkg.agency_id,
+        agency_name: null,
+        eligible_event_id: pkg.eligible_event_id,
+        event_name: null,
+        urgency_ind: null,
+        status_code: 'DRAFT',
+        status_label: '',
+        request_date: null,
+        create_dtime: null,
+        review_dtime: null,
+        action_dtime: null,
+        rqst_notes_text: null,
+        review_notes_text: null,
+        status_reason_desc: null,
+        version_nbr: 0,
+        item_count: 0,
+        total_requested_qty: '0',
+        total_issued_qty: '0',
+        reliefpkg_id: pkg.reliefpkg_id,
+        package_tracking_no: pkg.tracking_no,
+        package_status: pkg.status_code,
+        execution_status: pkg.execution_status,
+        needs_list_id: pkg.needs_list_id,
+        compatibility_bridge: pkg.compatibility_bridge,
+        request_mode: null,
+        authority_context: null,
+      } as PackageDetailResponse['request'],
+      package: pkg,
+      items: [],
+      compatibility_only: false,
+    };
+  }
+
+  refreshConsolidationLegs(): void {
+    const pkgId = this.reliefpkgId();
+    if (pkgId) {
+      this.loadConsolidationLegs(pkgId);
+    }
+  }
+
+  loadStagingRecommendation(reliefrqstId: number): void {
+    if (!reliefrqstId) {
+      return;
+    }
+    const workspaceGeneration = this.latestWorkspaceGeneration;
+    const requestId = ++this.latestRecommendationRequestId;
+    this.recommendationLoading.set(true);
+    this.recommendationError.set(null);
+
+    this.operationsService.getStagingRecommendation(reliefrqstId).subscribe({
+      next: (recommendation) => {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || this.latestRecommendationRequestId !== requestId
+        ) {
+          return;
+        }
+        this.stagingRecommendation.set(recommendation);
+        this.recommendationLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || this.latestRecommendationRequestId !== requestId
+        ) {
+          return;
+        }
+        this.recommendationLoading.set(false);
+        this.recommendationError.set(
+          this.extractError(error, 'Failed to load staging recommendation.'),
+        );
+      },
+    });
+  }
+
+  dispatchLeg(
+    legId: number,
+    payload: ConsolidationLegDispatchPayload,
+  ): Observable<ConsolidationLegDispatchResponse> {
+    const pkgId = this.reliefpkgId();
+    if (!pkgId) {
+      return EMPTY as unknown as Observable<ConsolidationLegDispatchResponse>;
+    }
+    return this.operationsService.dispatchConsolidationLeg(pkgId, legId, payload).pipe(
+      tap((response) => {
+        if (response.package) {
+          this.packageDetail.update((current) =>
+            current ? { ...current, package: response.package } : current,
+          );
+        }
+        this.refreshConsolidationLegs();
+      }),
+    );
+  }
+
+  receiveLeg(
+    legId: number,
+    payload: ConsolidationLegReceivePayload,
+  ): Observable<ConsolidationLegReceiveResponse> {
+    const pkgId = this.reliefpkgId();
+    if (!pkgId) {
+      return EMPTY as unknown as Observable<ConsolidationLegReceiveResponse>;
+    }
+    return this.operationsService.receiveConsolidationLeg(pkgId, legId, payload).pipe(
+      tap((response) => {
+        if (response.package) {
+          this.packageDetail.update((current) =>
+            current ? { ...current, package: response.package } : current,
+          );
+        }
+        this.refreshConsolidationLegs();
+      }),
+    );
+  }
+
+  requestPartialRelease(
+    payload: PartialReleaseRequestPayload,
+  ): Observable<PartialReleaseRequestResponse> {
+    const pkgId = this.reliefpkgId();
+    if (!pkgId) {
+      return EMPTY as unknown as Observable<PartialReleaseRequestResponse>;
+    }
+    return this.operationsService.requestPartialRelease(pkgId, payload).pipe(
+      tap((response) => {
+        if (response.package) {
+          this.packageDetail.update((current) =>
+            current ? { ...current, package: response.package } : current,
+          );
+        }
+        this.refreshConsolidationLegs();
+      }),
+    );
+  }
+
+  approvePartialRelease(
+    payload: PartialReleaseApprovePayload,
+  ): Observable<PartialReleaseApproveResponse> {
+    const pkgId = this.reliefpkgId();
+    if (!pkgId) {
+      return EMPTY as unknown as Observable<PartialReleaseApproveResponse>;
+    }
+    return this.operationsService.approvePartialRelease(pkgId, payload).pipe(
+      tap((response) => {
+        if (response.parent) {
+          this.packageDetail.update((current) =>
+            current ? { ...current, package: response.parent } : current,
+          );
+        }
+        this.refreshConsolidationLegs();
+      }),
+    );
+  }
+
+  releaseForPickup(payload: PickupReleasePayload): Observable<PickupReleaseResponse> {
+    const pkgId = this.reliefpkgId();
+    if (!pkgId) {
+      return EMPTY as unknown as Observable<PickupReleaseResponse>;
+    }
+    return this.operationsService.submitPickupRelease(pkgId, payload).pipe(
+      tap((response) => {
+        if (response.package) {
+          this.packageDetail.update((current) =>
+            current ? { ...current, package: response.package } : current,
+          );
+        }
+      }),
+    );
+  }
+
+  saveFulfillmentModeDraft(
+    fulfillmentMode: FulfillmentMode,
+    stagingWarehouseId: number | null,
+    stagingOverrideReason: string | null,
+  ): Observable<PackageDetailResponse> {
+    const reliefrqstId = this.reliefrqstId();
+    const draft = this.draft();
+    const payload: PackageDraftPayload = {
+      source_warehouse_id: draft.source_warehouse_id
+        ? Number(draft.source_warehouse_id)
+        : undefined,
+      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
+      transport_mode: draft.transport_mode.trim() || undefined,
+      comments_text: draft.comments_text.trim() || undefined,
+      fulfillment_mode: fulfillmentMode,
+      staging_warehouse_id: stagingWarehouseId,
+      staging_override_reason: stagingOverrideReason?.trim() || null,
+    };
+    this.patchDraft({
+      fulfillment_mode: fulfillmentMode,
+      staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
+      staging_override_reason: stagingOverrideReason ?? '',
+    });
+    return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
+      tap((detail) => {
+        this.packageDetail.set(detail);
+        this.hydrateDraft(detail);
+        if (detail.package) {
+          this.reliefpkgId.set(detail.package.reliefpkg_id);
+          if (
+            detail.package.fulfillment_mode
+            && detail.package.fulfillment_mode !== 'DIRECT'
+          ) {
+            this.loadConsolidationLegs(detail.package.reliefpkg_id);
+          } else {
+            this.consolidationLegs.set([]);
+          }
+        }
+      }),
+    );
   }
 
   loadWaybill(): void {
@@ -305,6 +683,11 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
       transport_mode: draft.transport_mode.trim() || undefined,
       comments_text: draft.comments_text.trim() || undefined,
+      fulfillment_mode: draft.fulfillment_mode,
+      staging_warehouse_id: draft.staging_warehouse_id
+        ? Number(draft.staging_warehouse_id)
+        : undefined,
+      staging_override_reason: draft.staging_override_reason.trim() || undefined,
     }).subscribe({
       next: (detail) => {
         if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestSourceWarehouseRequestId !== requestId) {
@@ -692,6 +1075,12 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: d.to_inventory_id || (pkg.to_inventory_id != null ? String(pkg.to_inventory_id) : ''),
       transport_mode: d.transport_mode || pkg.transport_mode || '',
       comments_text: d.comments_text || pkg.comments_text || '',
+      fulfillment_mode: (pkg.fulfillment_mode ?? d.fulfillment_mode ?? 'DIRECT') as FulfillmentMode,
+      staging_warehouse_id:
+        pkg.staging_warehouse_id != null
+          ? String(pkg.staging_warehouse_id)
+          : (d.staging_warehouse_id || ''),
+      staging_override_reason: pkg.staging_override_reason ?? d.staging_override_reason ?? '',
     }));
   }
 
@@ -744,6 +1133,8 @@ export class OperationsWorkspaceStateService {
     this.latestWorkspaceGeneration += 1;
     this.latestSourceWarehouseRequestId = 0;
     this.latestItemWarehouseRequestIds = {};
+    this.latestLegsRequestId = 0;
+    this.latestRecommendationRequestId = 0;
     return this.latestWorkspaceGeneration;
   }
 

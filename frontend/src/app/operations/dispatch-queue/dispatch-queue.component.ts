@@ -142,7 +142,21 @@ export class DispatchQueueComponent implements OnInit {
   }
 
   viewDispatch(item: DispatchQueueItem): void {
+    if (item.fulfillment_mode === 'PICKUP_AT_STAGING') {
+      this.router.navigate(['/operations/pickup-release', item.reliefpkg_id]);
+      return;
+    }
     this.router.navigate(['/operations/dispatch', item.reliefpkg_id]);
+  }
+
+  primaryActionLabel(item: DispatchQueueItem): string {
+    return item.fulfillment_mode === 'PICKUP_AT_STAGING'
+      ? 'Open pickup release'
+      : 'Open dispatch';
+  }
+
+  primaryActionIcon(item: DispatchQueueItem): string {
+    return item.fulfillment_mode === 'PICKUP_AT_STAGING' ? 'front_hand' : 'local_shipping';
   }
 
   trackByPackageId(_index: number, item: DispatchQueueItem): number {

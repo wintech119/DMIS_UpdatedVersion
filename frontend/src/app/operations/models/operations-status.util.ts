@@ -67,6 +67,10 @@ const PKG_STATUS_LABELS: Record<string, string> = {
   DISPATCHED: 'Dispatched',
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled',
+  // Staged fulfillment status codes
+  CONSOLIDATING: 'Consolidating at Staging',
+  READY_FOR_PICKUP: 'Ready for Pickup',
+  SPLIT: 'Split',
 };
 
 export function formatPackageStatus(code: PackageStatusCode | string): string {
@@ -82,11 +86,14 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'P':
     case 'COMMITTED':
     case 'READY_FOR_DISPATCH':
+    case 'READY_FOR_PICKUP':
+    case 'CONSOLIDATING':
     case 'PENDING_OVERRIDE_APPROVAL': return 'status-awaiting';
     case 'D':
     case 'DISPATCHED': return 'status-submitted';
     case 'C':
     case 'RECEIVED': return 'status-filled';
+    case 'SPLIT':
     case 'CANCELLED': return 'status-cancelled';
     default: return 'status-unknown';
   }
@@ -165,6 +172,55 @@ export function formatExecutionStatus(status: string | null | undefined): string
     case 'DISPATCHED': return 'Dispatched';
     case 'OVERRIDE_APPROVED': return 'Override Approved';
     case '': return 'Not started';
+    default: return normalized;
+  }
+}
+
+// ── Staged fulfillment ───────────────────────────────────────────
+
+export function formatFulfillmentMode(mode: string | null | undefined): string {
+  const normalized = String(mode ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'DIRECT': return 'Direct dispatch';
+    case 'DELIVER_FROM_STAGING': return 'Deliver from staging';
+    case 'PICKUP_AT_STAGING': return 'Pickup at staging';
+    case '': return 'Not set';
+    default: return normalized;
+  }
+}
+
+export function formatConsolidationStatus(status: string | null | undefined): string {
+  const normalized = String(status ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'AWAITING_LEGS': return 'Awaiting legs';
+    case 'LEGS_IN_TRANSIT': return 'Legs in transit';
+    case 'PARTIALLY_RECEIVED': return 'Partially received';
+    case 'ALL_RECEIVED': return 'All received';
+    case 'PARTIAL_RELEASE_REQUESTED': return 'Partial release requested';
+    case '': return 'Not started';
+    default: return normalized;
+  }
+}
+
+export function formatConsolidationLegStatus(status: string | null | undefined): string {
+  const normalized = String(status ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'PLANNED': return 'Planned';
+    case 'IN_TRANSIT': return 'In transit';
+    case 'RECEIVED_AT_STAGING': return 'Received at staging';
+    case 'CANCELLED': return 'Cancelled';
+    case '': return 'Not set';
+    default: return normalized;
+  }
+}
+
+export function formatStagingSelectionBasis(basis: string | null | undefined): string {
+  const normalized = String(basis ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'SAME_PARISH': return 'Same parish as destination';
+    case 'PROXIMITY_MATRIX': return 'Nearest staging hub (proximity)';
+    case 'MANUAL_OVERRIDE': return 'Manual override';
+    case '': return 'Not set';
     default: return normalized;
   }
 }

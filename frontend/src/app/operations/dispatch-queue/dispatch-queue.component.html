@@ -89,6 +89,11 @@
                   <div class="ops-row__header">
                     <p class="ops-row__title">{{ row.tracking_no ?? ('PKG-' + row.reliefpkg_id) }}</p>
                     <app-ops-status-chip [label]="formatPackageStatus(row.status_code, row.execution_status)" [tone]="chipTone(getPackageTone(row.status_code, row.execution_status))" />
+                    @if (row.fulfillment_mode === 'PICKUP_AT_STAGING') {
+                      <app-ops-status-chip label="Pickup at staging" tone="info" />
+                    } @else if (row.fulfillment_mode === 'DELIVER_FROM_STAGING') {
+                      <app-ops-status-chip label="Deliver from staging" tone="info" />
+                    }
                     @if (row.transport_mode) {
                       <app-ops-status-chip [label]="row.transport_mode" tone="soft" />
                     }

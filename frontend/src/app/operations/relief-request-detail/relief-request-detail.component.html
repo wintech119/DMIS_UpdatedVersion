@@ -179,6 +179,10 @@
           </div>
         </section>
 
+        <app-ops-split-banner
+          [parent]="splitParentInfo()"
+          [children]="splitChildren()" />
+
         @if (rq.packages.length > 0) {
           <section class="ops-card">
             <div class="ops-card__header">
