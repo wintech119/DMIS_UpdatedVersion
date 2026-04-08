@@ -96,6 +96,20 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
+def _boolean_payload_flag(payload: dict[str, object], field_name: str, *, default: bool = False) -> bool:
+    raw_value = payload.get(field_name, default)
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value in (None, ""):
+        return default
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise OperationValidationError({field_name: f"{field_name} must be true or false."})
+
+
 @api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
@@ -352,6 +366,28 @@ def operations_package_draft(request, reliefrqst_id: int):
 operations_package_draft.required_permission = [PERM_OPERATIONS_PACKAGE_CREATE, PERM_OPERATIONS_PACKAGE_LOCK]
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_package_unlock(request, reliefrqst_id: int):
+    try:
+        payload = request.data or {}
+        return Response(
+            operations_service.release_package_lock(
+                reliefrqst_id,
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+                force=_boolean_payload_flag(payload, "force", default=False),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_package_unlock.required_permission = PERM_OPERATIONS_PACKAGE_LOCK
+
+
 @api_view(["GET"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])
@@ -382,11 +418,16 @@ def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int
         source_warehouse_id = request.query_params.get("source_warehouse_id")
         if source_warehouse_id in (None, ""):
             raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        if request.query_params.get("draft_allocations") not in (None, ""):
+            raise OperationValidationError(
+                {"draft_allocations": "Use the preview endpoint for draft-aware allocation guidance."}
+            )
         return Response(
             operations_service.get_item_allocation_options(
                 reliefrqst_id,
                 item_id,
                 source_warehouse_id=_optional_positive_int_query_param(source_warehouse_id, "source_warehouse_id"),
+                draft_allocations=None,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -397,6 +438,28 @@ def operations_item_allocation_options(request, reliefrqst_id: int, item_id: int
 
 
 operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
+
+
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int):
+    try:
+        return Response(
+            operations_service.get_item_allocation_preview(
+                reliefrqst_id,
+                item_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_item_allocation_preview.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
 
 
 @api_view(["POST"])

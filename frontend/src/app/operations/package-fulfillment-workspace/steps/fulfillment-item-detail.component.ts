@@ -162,6 +162,74 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </p>
       }
 
+      <!-- Multi-warehouse continuation callout — only when backend recommends it. -->
+      @if (continuationVisible()) {
+        <section
+          class="detail__continuation"
+          role="region"
+          [attr.aria-label]="'Multi-warehouse continuation for ' + (item().item_name || 'this item')">
+          <header class="detail__continuation-head">
+            <mat-icon aria-hidden="true">call_split</mat-icon>
+            <div>
+              <h4 class="detail__continuation-title">
+                {{ continuationShortfall() | number:'1.0-4' }} units still need coverage
+              </h4>
+              <p class="detail__continuation-copy">
+                Add another warehouse below to keep building this item's allocation. Your current
+                selections will be preserved.
+              </p>
+            </div>
+            @if (continuationLoading()) {
+              <span class="detail__continuation-loading" aria-live="polite">
+                <mat-icon aria-hidden="true">progress_activity</mat-icon>
+                Recalculating&hellip;
+              </span>
+            }
+          </header>
+
+          <ul class="detail__alternate-list" role="list">
+            @for (alt of visibleAlternateWarehouses(); track alt.warehouse_id) {
+              <li class="detail__alternate-card" role="listitem">
+                <div class="detail__alternate-head">
+                  <span class="detail__alternate-name">{{ alt.warehouse_name }}</span>
+                  @if (alt.can_fully_cover) {
+                    <span class="detail__alternate-badge detail__alternate-badge--ok">
+                      <mat-icon aria-hidden="true">check_circle</mat-icon>
+                      Fully covers shortfall
+                    </span>
+                  } @else {
+                    <span class="detail__alternate-badge detail__alternate-badge--partial">
+                      <mat-icon aria-hidden="true">timelapse</mat-icon>
+                      Partial cover
+                    </span>
+                  }
+                </div>
+                <dl class="detail__alternate-figures">
+                  <div>
+                    <dt>Available</dt>
+                    <dd>{{ alt.available_qty | number:'1.0-4' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Suggested</dt>
+                    <dd>{{ alt.suggested_qty | number:'1.0-4' }}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  matButton="outlined"
+                  color="primary"
+                  class="detail__alternate-action"
+                  [disabled]="readOnly() || addingWarehouse()"
+                  (click)="onAddWarehouse(alt.warehouse_id)">
+                  <mat-icon aria-hidden="true">add</mat-icon>
+                  Add this warehouse
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
       <!-- Available Warehouses -->
       <p class="detail__section-eyebrow">Available Warehouses</p>
 
@@ -750,6 +818,152 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       font-size: 0.78rem;
     }
 
+    /* ── Continuation callout (multi-warehouse) ── */
+    .detail__continuation {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--color-border-warning, rgba(217, 119, 6, 0.32));
+      background: var(--color-surface-warning, rgba(254, 243, 199, 0.5));
+    }
+
+    .detail__continuation-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .detail__continuation-head mat-icon {
+      color: var(--color-text-warning, #b45309);
+      flex-shrink: 0;
+    }
+
+    .detail__continuation-title {
+      margin: 0 0 2px;
+      font-size: 0.95rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__continuation-copy {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__continuation-loading {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.78rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__continuation-loading mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      animation: detail-continuation-spin 1.2s linear infinite;
+    }
+
+    @keyframes detail-continuation-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .detail__alternate-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .detail__alternate-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid rgba(55, 53, 47, 0.1);
+    }
+
+    .detail__alternate-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .detail__alternate-name {
+      font-size: 0.88rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__alternate-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      font-weight: var(--weight-semibold, 600);
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .detail__alternate-badge mat-icon {
+      font-size: 13px;
+      width: 13px;
+      height: 13px;
+    }
+
+    .detail__alternate-badge--ok {
+      background: var(--color-surface-success, rgba(34, 197, 94, 0.12));
+      color: var(--color-text-success, #166534);
+    }
+
+    .detail__alternate-badge--partial {
+      background: var(--color-surface-warning, rgba(217, 119, 6, 0.12));
+      color: var(--color-text-warning, #b45309);
+    }
+
+    .detail__alternate-figures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin: 0;
+    }
+
+    .detail__alternate-figures div {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail__alternate-figures dt {
+      margin: 0;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__alternate-figures dd {
+      margin: 0;
+      font-size: 0.92rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__alternate-action {
+      align-self: flex-start;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 1100px) {
       .detail__metrics {
@@ -864,6 +1078,39 @@ export class FulfillmentItemDetailComponent {
       : 'Increase reservation to cover';
   });
 
+  // ── Continuation (multi-warehouse) computed signals ──
+
+  readonly visibleAlternateWarehouses = computed(() => {
+    const item = this.item();
+    const alternates = item.alternate_warehouses ?? [];
+    if (alternates.length === 0) {
+      return alternates;
+    }
+    const loaded = new Set(this.store().loadedWarehousesByItem()[item.item_id] ?? []);
+    return alternates.filter((alt) => !loaded.has(alt.warehouse_id));
+  });
+
+  readonly continuationVisible = computed(() => {
+    if (this.readOnly()) return false;
+    const item = this.item();
+    return item.continuation_recommended && this.visibleAlternateWarehouses().length > 0;
+  });
+
+  readonly continuationShortfall = computed(() => {
+    const item = this.item();
+    const effective = item.effective_remaining_qty ?? item.remaining_shortfall_qty ?? '0';
+    const parsed = Number.parseFloat(String(effective));
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+
+  readonly continuationLoading = computed(
+    () => this.store().previewLoadingByItem()[this.item().item_id] ?? false,
+  );
+
+  readonly addingWarehouse = computed(
+    () => this.store().addingWarehouseByItem()[this.item().item_id] ?? false,
+  );
+
   readonly warehouseGroups = computed<WarehouseGroup[]>(() => {
     const candidates = this.item().candidates;
     const map = new Map<number, WarehouseGroup>();
@@ -903,6 +1150,10 @@ export class FulfillmentItemDetailComponent {
 
   onWarehouseOverride(warehouseId: string): void {
     this.store().updateItemWarehouse(this.item().item_id, warehouseId);
+  }
+
+  onAddWarehouse(warehouseId: number): void {
+    this.store().addItemWarehouse(this.item().item_id, warehouseId);
   }
 
   stringifyValue(value: unknown): string {

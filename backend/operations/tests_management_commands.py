@@ -4,15 +4,33 @@ from contextlib import nullcontext
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
-from operations.models import TenantControlScope, TenantHierarchy, TenantRequestPolicy
+from operations.constants import (
+    QUEUE_CODE_DISPATCH,
+    QUEUE_CODE_FULFILLMENT,
+    QUEUE_CODE_OVERRIDE,
+    REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    ROLE_LOGISTICS_MANAGER,
+    ROLE_LOGISTICS_OFFICER,
+)
+from operations.models import (
+    OperationsNotification,
+    OperationsPackage,
+    OperationsPackageLock,
+    OperationsQueueAssignment,
+    OperationsReliefRequest,
+    TenantControlScope,
+    TenantHierarchy,
+    TenantRequestPolicy,
+)
 
 
 class ImportReliefManagementAuthorityCommandTests(TestCase):
@@ -726,3 +744,352 @@ class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
         self.assertIn("Operations RBAC seed applied.", text)
         insert_permissions.assert_called_once()
         insert_role_permissions.assert_called_once()
+
+
+class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
+    resolver_path = (
+        "operations.management.commands.repair_request_level_fulfillment_queue_scope."
+        "operations_policy.resolve_odpem_fulfillment_tenant_id"
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.resolver_patch = patch(self.resolver_path, return_value=27)
+        self.resolver_patch.start()
+        self.addCleanup(self.resolver_patch.stop)
+
+    def _create_request(
+        self,
+        *,
+        relief_request_id: int,
+        request_no: str,
+        requesting_tenant_id: int = 19,
+        beneficiary_tenant_id: int = 19,
+        status_code: str = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    ) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=requesting_tenant_id,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=beneficiary_tenant_id,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=status_code,
+            submitted_by_id="relief_jrc_requester_tst",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_assignment(
+        self,
+        *,
+        entity_id: int,
+        queue_code: str = QUEUE_CODE_FULFILLMENT,
+        tenant_id: int | None = 19,
+        role_code: str = ROLE_LOGISTICS_OFFICER,
+        assignment_status: str = "OPEN",
+    ) -> OperationsQueueAssignment:
+        return OperationsQueueAssignment.objects.create(
+            queue_code=queue_code,
+            entity_type="RELIEF_REQUEST",
+            entity_id=entity_id,
+            assigned_role_code=role_code,
+            assigned_tenant_id=tenant_id,
+            assignment_status=assignment_status,
+        )
+
+    def _create_notification(
+        self,
+        *,
+        entity_id: int,
+        queue_code: str = QUEUE_CODE_FULFILLMENT,
+        tenant_id: int | None = 19,
+        role_code: str = ROLE_LOGISTICS_OFFICER,
+    ) -> OperationsNotification:
+        return OperationsNotification.objects.create(
+            event_code="REQUEST_APPROVED",
+            entity_type="RELIEF_REQUEST",
+            entity_id=entity_id,
+            recipient_role_code=role_code,
+            recipient_tenant_id=tenant_id,
+            message_text="Repair candidate",
+            queue_code=queue_code,
+        )
+
+    def test_dry_run_reports_affected_rows_and_does_not_persist_changes(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("Request-level fulfillment queue scope repair:", text)
+        self.assertIn("RQ95009", text)
+        self.assertIn("QUEUE_ASSIGNMENT", text)
+        self.assertIn("NOTIFICATION", text)
+        self.assertIn("tenant=19 -> 27", text)
+        self.assertIn("Dry-run only", text)
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+        self.assertEqual(notification.recipient_tenant_id, 19)
+
+
+    def test_apply_updates_fulfillment_queue_assignments_to_odpem_tenant(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        officer_assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        manager_assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_MANAGER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        officer_assignment.refresh_from_db()
+        manager_assignment.refresh_from_db()
+        self.assertEqual(officer_assignment.assigned_tenant_id, 27)
+        self.assertEqual(manager_assignment.assigned_tenant_id, 27)
+        self.assertIn("queue assignments updated: 2", output.getvalue())
+
+    def test_apply_updates_corresponding_notifications_to_odpem_tenant(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        officer_notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        manager_notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_MANAGER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        officer_notification.refresh_from_db()
+        manager_notification.refresh_from_db()
+        self.assertEqual(officer_notification.recipient_tenant_id, 27)
+        self.assertEqual(manager_notification.recipient_tenant_id, 27)
+        self.assertIn("notifications updated: 2", output.getvalue())
+
+    def test_request_no_filter_limits_repair_to_targeted_request(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        self._create_request(relief_request_id=95010, request_no="RQ95010")
+        targeted_assignment = self._create_assignment(entity_id=95009)
+        other_assignment = self._create_assignment(entity_id=95010)
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            request_no="RQ95009",
+            apply=True,
+            stdout=output,
+        )
+
+        targeted_assignment.refresh_from_db()
+        other_assignment.refresh_from_db()
+        self.assertEqual(targeted_assignment.assigned_tenant_id, 27)
+        self.assertEqual(other_assignment.assigned_tenant_id, 19)
+        self.assertIn("candidate requests: 1", output.getvalue())
+
+    def test_second_apply_is_noop_after_initial_repair(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        self._create_assignment(entity_id=95009)
+        first_output = StringIO()
+        second_output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=first_output)
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=second_output)
+
+        self.assertIn("total rows repaired: 1", first_output.getvalue())
+        self.assertIn("No repairs needed.", second_output.getvalue())
+        self.assertIn("total rows repaired: 0", second_output.getvalue())
+
+    def test_include_override_repairs_request_level_override_rows(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        override_assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        override_notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            include_override=True,
+            apply=True,
+            stdout=output,
+        )
+
+        override_assignment.refresh_from_db()
+        override_notification.refresh_from_db()
+        self.assertEqual(override_assignment.assigned_tenant_id, 27)
+        self.assertEqual(override_notification.recipient_tenant_id, 27)
+
+    def test_override_rows_are_skipped_without_include_override(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        override_assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        override_notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        override_assignment.refresh_from_db()
+        override_notification.refresh_from_db()
+        self.assertEqual(override_assignment.assigned_tenant_id, 19)
+        self.assertEqual(override_notification.recipient_tenant_id, 19)
+        self.assertIn("planned queue assignment repairs: 0", output.getvalue())
+
+    def test_rows_already_in_odpem_scope_are_left_untouched(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009, tenant_id=27)
+        notification = self._create_notification(entity_id=95009, tenant_id=27)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 27)
+        self.assertEqual(notification.recipient_tenant_id, 27)
+        self.assertIn("total rows repaired: 0", output.getvalue())
+
+    def test_unrelated_queue_codes_are_untouched(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_DISPATCH,
+            tenant_id=19,
+            role_code=ROLE_LOGISTICS_OFFICER,
+        )
+        notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_DISPATCH,
+            tenant_id=19,
+            role_code=ROLE_LOGISTICS_OFFICER,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            include_override=True,
+            apply=True,
+            stdout=output,
+        )
+
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+        self.assertEqual(notification.recipient_tenant_id, 19)
+
+
+class ReleasePackageLockCommandTests(TestCase):
+    resolver_path = "operations.contract_services._resolve_request_level_fulfillment_tenant_id"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.resolver_patch = patch(self.resolver_path, return_value=27)
+        self.resolver_patch.start()
+        self.addCleanup(self.resolver_patch.stop)
+
+    def _create_request(self, *, relief_request_id: int = 95009, request_no: str = "RQ95009") -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 4, 7),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_package(self, *, request_record: OperationsReliefRequest) -> OperationsPackage:
+        return OperationsPackage.objects.create(
+            package_id=95027,
+            package_no="PK95027",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=request_record.beneficiary_tenant_id,
+            destination_agency_id=request_record.beneficiary_agency_id,
+            status_code="COMMITTED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_lock(self, *, package_record: OperationsPackage) -> OperationsPackageLock:
+        return OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_started_at=timezone.now() - timedelta(minutes=2),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+
+    def test_dry_run_shows_lock_details_and_does_not_persist(self) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        lock = self._create_lock(package_record=package_record)
+        output = StringIO()
+
+        call_command("release_package_lock", request_no="RQ95009", stdout=output)
+
+        lock.refresh_from_db()
+        text = output.getvalue()
+        self.assertIn("Package lock release:", text)
+        self.assertIn("RQ95009", text)
+        self.assertIn("PK95027", text)
+        self.assertIn("active_lock: yes", text)
+        self.assertIn("Dry-run only", text)
+        self.assertEqual(lock.lock_status, "ACTIVE")
+
+    def test_apply_releases_active_lock(self) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        lock = self._create_lock(package_record=package_record)
+        output = StringIO()
+
+        call_command("release_package_lock", package_id=95027, actor="SYSTEM", apply=True, stdout=output)
+
+        lock.refresh_from_db()
+        self.assertEqual(lock.lock_status, "RELEASED")
+        self.assertLessEqual(lock.lock_expires_at, timezone.now())
+        self.assertEqual(
+            OperationsNotification.objects.get(
+                queue_code=QUEUE_CODE_FULFILLMENT,
+                entity_type="PACKAGE",
+                entity_id=95027,
+                recipient_user_id="kemar_tst",
+            ).recipient_tenant_id,
+            27,
+        )
+        text = output.getvalue()
+        self.assertIn("Package lock released.", text)
+        self.assertIn("released: True", text)
+
+    def test_apply_is_noop_when_no_active_lock_exists(self) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        output = StringIO()
+
+        call_command("release_package_lock", request_no="RQ95009", apply=True, stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("No active package lock found for this package.", text)
+        self.assertIn("released: False", text)

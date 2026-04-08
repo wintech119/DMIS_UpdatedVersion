@@ -4,6 +4,7 @@ import {
   AllocationLine,
   AllocationOptionsResponse,
   AllocationSummary,
+  AlternateWarehouseOption,
   ConsolidationLeg,
   ConsolidationLegDispatchResponse,
   ConsolidationLegItem,
@@ -341,6 +342,17 @@ function normalizeAllocationCandidate(raw: unknown): AllocationCandidate {
   };
 }
 
+export function normalizeAlternateWarehouseOption(raw: unknown): AlternateWarehouseOption {
+  const source = asRecord(raw);
+  return {
+    warehouse_id: asNumber(source['warehouse_id']),
+    warehouse_name: asString(source['warehouse_name'], ''),
+    available_qty: asString(source['available_qty'], '0'),
+    suggested_qty: asString(source['suggested_qty'], '0'),
+    can_fully_cover: asBoolean(source['can_fully_cover']),
+  };
+}
+
 export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup {
   const source = asRecord(raw);
   const candidates = asArray(source['candidates']).map(normalizeAllocationCandidate);
@@ -368,6 +380,13 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     compliance_markers: complianceMarkers,
     override_required: asBoolean(source['override_required']),
     source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
+    remaining_shortfall_qty: asString(source['remaining_shortfall_qty'], '0'),
+    continuation_recommended: asBoolean(source['continuation_recommended']),
+    alternate_warehouses: asArray(source['alternate_warehouses']).map(normalizeAlternateWarehouseOption),
+    draft_selected_qty:
+      source['draft_selected_qty'] != null ? asString(source['draft_selected_qty'], '0') : undefined,
+    effective_remaining_qty:
+      source['effective_remaining_qty'] != null ? asString(source['effective_remaining_qty'], '0') : undefined,
   };
 }
 

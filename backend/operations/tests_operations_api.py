@@ -248,6 +248,83 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch(
+        "operations.views.operations_service.release_package_lock",
+        return_value={
+            "released": True,
+            "package_id": 90,
+            "package_no": "PK00090",
+            "previous_lock_owner_user_id": "kemar_tst",
+            "previous_lock_owner_role_code": "LOGISTICS_OFFICER",
+            "released_by_user_id": "ops-dev",
+            "released_at": "2026-04-07T15:11:00Z",
+            "lock_status": "RELEASED",
+            "lock_expires_at": "2026-04-07T15:11:00Z",
+            "message": "Package lock released.",
+        },
+    )
+    def test_package_unlock_contract_forwards_force_flag_and_returns_payload(
+        self,
+        mock_unlock,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post("/api/v1/operations/packages/70/unlock", {"force": True}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["released"])
+        self.assertEqual(response.json()["package_no"], "PK00090")
+        self.assertEqual(mock_unlock.call_args.args[0], 70)
+        self.assertEqual(mock_unlock.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_unlock.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_unlock.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertTrue(mock_unlock.call_args.kwargs["force"])
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch(
+        "operations.views.operations_service.get_item_allocation_options",
+        return_value={
+            "item_id": 101,
+            "source_warehouse_id": 1,
+            "remaining_shortfall_qty": "6.0000",
+            "continuation_recommended": True,
+            "alternate_warehouses": [
+                {
+                    "warehouse_id": 2,
+                    "warehouse_name": "Warehouse 2",
+                    "available_qty": "6.0000",
+                    "suggested_qty": "6.0000",
+                    "can_fully_cover": True,
+                }
+            ],
+        },
+    )
+    def test_item_allocation_options_forwards_ids_and_returns_continuation_fields(
+        self,
+        mock_item_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/packages/70/allocation-options/101?source_warehouse_id=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["remaining_shortfall_qty"], "6.0000")
+        self.assertTrue(response.json()["continuation_recommended"])
+        self.assertEqual(response.json()["alternate_warehouses"][0]["warehouse_id"], 2)
+        self.assertEqual(mock_item_options.call_args.args[:2], (70, 101))
+        self.assertEqual(mock_item_options.call_args.kwargs["source_warehouse_id"], 1)
+        self.assertIsNone(mock_item_options.call_args.kwargs["draft_allocations"])
+        self.assertEqual(mock_item_options.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_item_options.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_item_options.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.pickup_release", return_value={"status": "RECEIVED"})
     @patch("operations.views.operations_service.approve_partial_release", return_value={"status": "APPROVED"})
     @patch("operations.views.operations_service.request_partial_release", return_value={"status": "PARTIAL_RELEASE_REQUESTED"})
@@ -345,6 +422,189 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "Must be a positive integer."}})
         mock_options.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_item_allocation_options")
+    def test_item_allocation_options_require_source_warehouse_id(
+        self,
+        mock_item_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/packages/70/allocation-options/101")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "source_warehouse_id is required."}})
+        mock_item_options.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_item_allocation_options")
+    def test_item_allocation_options_reject_invalid_source_warehouse_id(
+        self,
+        mock_item_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/packages/70/allocation-options/101?source_warehouse_id=abc")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "Must be a positive integer."}})
+        mock_item_options.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_item_allocation_options")
+    def test_item_allocation_options_rejects_draft_allocations_query_param(
+        self,
+        mock_item_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/operations/packages/70/allocation-options/101",
+            {"source_warehouse_id": 1, "draft_allocations": "[]"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"draft_allocations": "Use the preview endpoint for draft-aware allocation guidance."}},
+        )
+        mock_item_options.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch(
+        "operations.views.operations_service.get_item_allocation_preview",
+        return_value={
+            "item_id": 101,
+            "item_code": "MASK001",
+            "item_name": "Face Mask",
+            "request_qty": "12.0000",
+            "issue_qty": "2.0000",
+            "remaining_qty": "10.0000",
+            "draft_selected_qty": "5.0000",
+            "effective_remaining_qty": "5.0000",
+            "urgency_ind": "H",
+            "candidates": [],
+            "suggested_allocations": [],
+            "remaining_after_suggestion": "2.0000",
+            "source_warehouse_id": 1,
+            "remaining_shortfall_qty": "2.0000",
+            "continuation_recommended": True,
+            "alternate_warehouses": [
+                {
+                    "warehouse_id": 5,
+                    "warehouse_name": "Warehouse 5",
+                    "available_qty": "4.0000",
+                    "suggested_qty": "2.0000",
+                    "can_fully_cover": True,
+                }
+            ],
+        },
+    )
+    def test_item_allocation_preview_forwards_ids_and_payload(
+        self,
+        mock_preview,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        payload = {
+            "source_warehouse_id": 1,
+            "draft_allocations": [
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1001,
+                    "quantity": "2.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                }
+            ],
+        }
+
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["remaining_qty"], "10.0000")
+        self.assertEqual(response.json()["draft_selected_qty"], "5.0000")
+        self.assertEqual(response.json()["effective_remaining_qty"], "5.0000")
+        self.assertEqual(mock_preview.call_args.args[:2], (70, 101))
+        self.assertEqual(mock_preview.call_args.kwargs["payload"], payload)
+        self.assertEqual(mock_preview.call_args.kwargs["actor_id"], "ops-dev")
+        self.assertEqual(mock_preview.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_preview.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_item_allocation_preview_rejects_missing_source_warehouse_id(
+        self,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            {"draft_allocations": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "source_warehouse_id is required."}})
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_item_allocation_preview_rejects_invalid_source_warehouse_id(
+        self,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            {"source_warehouse_id": "abc", "draft_allocations": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"source_warehouse_id": "Must be a positive integer."}})
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_item_allocation_preview_rejects_invalid_draft_allocations(
+        self,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            {"source_warehouse_id": 1, "draft_allocations": {"not": "a-list"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"draft_allocations": "draft_allocations must be provided as an array."}},
+        )
 
     @patch("operations.views.operations_service.list_requests")
     @patch(

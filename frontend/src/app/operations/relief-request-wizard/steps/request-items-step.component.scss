@@ -408,19 +408,22 @@
   }
 
   &--qty {
-    flex: 0 0 68px;
-  }
-
-  &--urgency {
+    // Wide enough to display up to 6-digit quantities (e.g. 100000) plus
+    // the native number spinner arrows and floating label.
     flex: 0 0 116px;
   }
 
+  &--urgency {
+    // Fits the "Urgency" floating label and the longest option labels.
+    flex: 0 0 136px;
+  }
+
   &--reason {
-    flex: 1 1 130px;
+    flex: 1 1 160px;
   }
 
   &--date {
-    flex: 0 0 148px;
+    flex: 0 0 156px;
 
     // Shrink the datepicker toggle so it doesn't crowd the label
     .mat-datepicker-toggle {
@@ -470,19 +473,19 @@
     }
 
     &--qty {
-      flex: 0 0 68px;
+      flex: 0 0 116px;
     }
 
     &--urgency {
-      flex: 1 1 110px;
+      flex: 1 1 136px;
     }
 
     &--reason {
-      flex: 1 1 130px;
+      flex: 1 1 160px;
     }
 
     &--date {
-      flex: 1 1 130px;
+      flex: 1 1 156px;
     }
   }
 }

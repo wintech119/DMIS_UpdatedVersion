@@ -112,6 +112,11 @@ def resolve_odpem_tenant_id() -> int | None:
     return int(row[0])
 
 
+def resolve_odpem_fulfillment_tenant_id() -> int | None:
+    """Return the operational tenant that owns ODPEM-managed fulfillment work."""
+    return resolve_odpem_tenant_id()
+
+
 def _is_odpem_tenant(tenant_id: object, tenant_code: object) -> bool:
     parsed_tenant_id = _parse_int(tenant_id)
     resolved_tenant_id = resolve_odpem_tenant_id()

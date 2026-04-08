@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from api.tenancy import TenantContext, TenantMembership
 from operations import contract_services
 from operations import policy as operations_policy
+from operations import services as operations_service
 from operations.constants import (
     CONSOLIDATION_LEG_STATUS_CANCELLED,
     CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
@@ -210,6 +212,11 @@ class OperationsWorkflowContractTests(TestCase):
             save=lambda **kwargs: None,
         )
         self.dispatch_ready_context = _tenant_context(tenant_id=20, tenant_code="FFP", tenant_type="EXTERNAL")
+        self.odpem_context = _tenant_context(
+            tenant_id=27,
+            tenant_code="OFFICE-OF-DISASTER-P",
+            tenant_type="NATIONAL",
+        )
         self.dispatch_roles = ["LOGISTICS_MANAGER"]
         self.agency_scope = operations_policy.AgencyScope(
             agency_id=501,
@@ -1048,10 +1055,105 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertTrue(
             OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).exists()
         )
+        self.assertEqual(
+            set(
+                OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90)
+                .values_list("assigned_tenant_id", flat=True)
+            ),
+            {20},
+        )
         # First call loads for update, second re-syncs request status after legacy save
         self.assertEqual(load_request_mock.call_count, 2)
         load_request_mock.assert_any_call(70, for_update=True)
         load_request_mock.assert_any_call(70)
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    @override_settings(ODPEM_TENANT_ID=27)
+    def test_save_package_routes_override_requests_into_odpem_fulfillment_scope(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        request = self._request_stub(
+            reliefrqst_id=95009,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        package = self._package_stub(reliefpkg_id=91, reliefrqst_id=95009, agency_id=501)
+        load_request_mock.return_value = request
+        current_package_mock.return_value = package
+        save_package_mock.return_value = {"status": "PENDING_OVERRIDE_APPROVAL", "reliefpkg_id": 91}
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 19, "JRC")
+        OperationsReliefRequest.objects.create(
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_operations_package_record(
+        self,
+        *,
+        request_record: OperationsReliefRequest,
+        package_id: int = 90,
+        status_code: str = PACKAGE_STATUS_COMMITTED,
+    ) -> OperationsPackage:
+        return OperationsPackage.objects.create(
+            package_id=package_id,
+            package_no=f"PK{package_id:05d}",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=request_record.beneficiary_tenant_id,
+            destination_agency_id=request_record.beneficiary_agency_id,
+            status_code=status_code,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_OFFICER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+
+        contract_services.save_package(
+            95009,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="devon_tst",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.odpem_context,
+        )
+
+        override_assignment = OperationsQueueAssignment.objects.get(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        self.assertEqual(override_assignment.assigned_tenant_id, 27)
+        override_notification = OperationsNotification.objects.get(
+            queue_code=QUEUE_CODE_OVERRIDE,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            recipient_role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        self.assertEqual(override_notification.recipient_tenant_id, 27)
 
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
     @patch("operations.contract_services.recommend_staging_hub")
@@ -1119,6 +1221,15 @@ class OperationsWorkflowContractTests(TestCase):
             entity_type="CONSOLIDATION_LEG",
         ).count(),
         6,
+        )
+        self.assertEqual(
+            set(
+                OperationsQueueAssignment.objects.filter(
+                    queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+                    entity_type="CONSOLIDATION_LEG",
+                ).values_list("assigned_tenant_id", flat=True)
+            ),
+            {20},
         )
 
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
@@ -2104,6 +2215,45 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(lock.lock_owner_role_code, ROLE_SYSTEM_ADMINISTRATOR)
         self.assertTrue(OperationsDispatch.objects.filter(package_id=90).exists())
 
+    def test_acquire_package_lock_returns_lock_context_for_active_conflict(self) -> None:
+        self._create_operations_request_record()
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        lock = OperationsPackageLock.objects.create(
+            package_id=90,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_started_at=timezone.now(),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services._acquire_package_lock(
+                90,
+                actor_id="devon_tst",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+            )
+
+        self.assertEqual(
+            raised.exception.errors["lock"],
+            "Package is locked by another fulfillment actor.",
+        )
+        self.assertEqual(raised.exception.errors["lock_owner_user_id"], "kemar_tst")
+        self.assertEqual(raised.exception.errors["lock_owner_role_code"], ROLE_LOGISTICS_MANAGER)
+        self.assertEqual(
+            raised.exception.errors["lock_expires_at"],
+            contract_services.legacy_service._as_iso(lock.lock_expires_at),
+        )
+
     def test_acquire_package_lock_recovers_from_concurrent_insert_race(self) -> None:
         self._create_operations_request_record()
         OperationsPackage.objects.create(
@@ -2143,6 +2293,243 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(lock.lock_owner_user_id, "logistics-manager-1")
         self.assertEqual(lock.lock_status, "ACTIVE")
         self.assertEqual(OperationsPackageLock.objects.filter(package_id=90).count(), 1)
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_lock_owner_can_release_their_own_package_lock(
+        self,
+        load_request_mock,
+        current_package_mock,
+    ) -> None:
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_record = self._create_operations_package_record(request_record=request_record)
+        lock = OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="devon_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_OFFICER,
+            lock_started_at=timezone.now() - timedelta(minutes=1),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_OFFICER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+        with patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27):
+            result = contract_services.release_package_lock(
+                70,
+                actor_id="devon_tst",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+                tenant_context=self.odpem_context,
+            )
+
+        lock.refresh_from_db()
+        unlock_notification = OperationsNotification.objects.get(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="PACKAGE",
+            entity_id=90,
+            recipient_user_id="devon_tst",
+        )
+        self.assertTrue(result["released"])
+        self.assertEqual(result["package_id"], 90)
+        self.assertEqual(result["package_no"], "PK00090")
+        self.assertEqual(result["previous_lock_owner_user_id"], "devon_tst")
+        self.assertEqual(result["previous_lock_owner_role_code"], ROLE_LOGISTICS_OFFICER)
+        self.assertEqual(result["released_by_user_id"], "devon_tst")
+        self.assertEqual(result["lock_status"], "RELEASED")
+        self.assertEqual(lock.lock_status, "RELEASED")
+        self.assertLessEqual(lock.lock_expires_at, timezone.now())
+        self.assertEqual(unlock_notification.recipient_tenant_id, 27)
+        self.assertNotEqual(unlock_notification.recipient_tenant_id, request_record.beneficiary_tenant_id)
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_other_fulfillment_user_cannot_release_someone_elses_lock_without_elevated_role(
+        self,
+        load_request_mock,
+        current_package_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = self._create_operations_package_record(request_record=request_record)
+        lock = OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_started_at=timezone.now() - timedelta(minutes=1),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.release_package_lock(
+                70,
+                actor_id="devon_tst",
+                actor_roles=[ROLE_LOGISTICS_OFFICER],
+                tenant_context=self.dispatch_ready_context,
+                force=True,
+            )
+
+        lock.refresh_from_db()
+        self.assertEqual(
+            raised.exception.errors["lock"],
+            "Only the current lock owner, a Logistics Manager, or a System Administrator may release this package lock.",
+        )
+        self.assertEqual(lock.lock_status, "ACTIVE")
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_logistics_manager_can_force_release_another_users_lock(
+        self,
+        load_request_mock,
+        current_package_mock,
+    ) -> None:
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_record = self._create_operations_package_record(request_record=request_record)
+        lock = OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_OFFICER,
+            lock_started_at=timezone.now() - timedelta(minutes=1),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=70,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+        with patch("operations.contract_services._resolve_request_level_fulfillment_tenant_id", return_value=27):
+            result = contract_services.release_package_lock(
+                70,
+                actor_id="manager_tst",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=self.odpem_context,
+                force=True,
+            )
+
+        lock.refresh_from_db()
+        actor_notification = OperationsNotification.objects.get(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="PACKAGE",
+            entity_id=90,
+            recipient_user_id="manager_tst",
+        )
+        previous_owner_notification = OperationsNotification.objects.get(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="PACKAGE",
+            entity_id=90,
+            recipient_user_id="kemar_tst",
+        )
+        self.assertTrue(result["released"])
+        self.assertEqual(result["previous_lock_owner_user_id"], "kemar_tst")
+        self.assertEqual(result["previous_lock_owner_role_code"], ROLE_LOGISTICS_OFFICER)
+        self.assertEqual(result["released_by_user_id"], "manager_tst")
+        self.assertEqual(lock.lock_status, "RELEASED")
+        self.assertLessEqual(lock.lock_expires_at, timezone.now())
+        self.assertEqual(actor_notification.recipient_tenant_id, 27)
+        self.assertEqual(previous_owner_notification.recipient_tenant_id, 27)
+        self.assertNotEqual(previous_owner_notification.recipient_tenant_id, request_record.beneficiary_tenant_id)
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_release_package_lock_returns_safe_success_when_no_active_lock_exists(
+        self,
+        load_request_mock,
+        current_package_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        self._create_operations_package_record(request_record=request_record)
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+
+        result = contract_services.release_package_lock(
+            70,
+            actor_id="devon_tst",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        self.assertFalse(result["released"])
+        self.assertEqual(result["package_id"], 90)
+        self.assertEqual(result["package_no"], "PK00090")
+        self.assertEqual(result["lock_status"], None)
+        self.assertEqual(result["message"], "No active package lock found for this package.")
+
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_release_package_lock_enforces_request_scope(
+        self,
+        load_request_mock,
+        current_package_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = self._create_operations_package_record(request_record=request_record)
+        OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_started_at=timezone.now() - timedelta(minutes=1),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        unrelated_context = _tenant_context(tenant_id=31, tenant_code="EXT-31", tenant_type="EXTERNAL")
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.release_package_lock(
+                70,
+                actor_id="manager_tst",
+                actor_roles=[ROLE_LOGISTICS_MANAGER],
+                tenant_context=unrelated_context,
+                force=True,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["scope"],
+            "Request is outside the active tenant or workflow assignment scope.",
+        )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
@@ -2977,6 +3364,7 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.ReliefPkg.objects.filter")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.get_request")
+    @override_settings(ODPEM_TENANT_ID=27)
     def test_submit_eligibility_decision_returns_payload_for_cross_tenant_queue_assignee(
         self,
         get_request_mock,
@@ -2985,13 +3373,13 @@ class OperationsWorkflowContractTests(TestCase):
         _request_summary_payload_mock,
     ) -> None:
         get_request_mock.return_value = {
-            "reliefrqst_id": 70,
+            "reliefrqst_id": 95009,
             "items": [],
             "packages": [],
         }
         filter_packages_mock.return_value.order_by.return_value = []
         request = self._request_stub(
-            reliefrqst_id=70,
+            reliefrqst_id=95009,
             agency_id=501,
             status_code=contract_services.legacy_service.STATUS_AWAITING_APPROVAL,
         )
@@ -3004,18 +3392,18 @@ class OperationsWorkflowContractTests(TestCase):
         request.save = Mock()
         load_request_mock.return_value = request
         OperationsReliefRequest.objects.create(
-            relief_request_id=70,
-            request_no="RQ00070",
-            requesting_tenant_id=14,
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
             requesting_agency_id=401,
-            beneficiary_tenant_id=20,
+            beneficiary_tenant_id=19,
             beneficiary_agency_id=501,
             origin_mode="SELF",
             event_id=12,
             request_date=date(2026, 3, 26),
             urgency_code="H",
             status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
-            submitted_by_id="requester-1",
+            submitted_by_id="relief_jrc_requester_tst",
             submitted_at=timezone.now(),
             create_by_id="tester",
             update_by_id="tester",
@@ -3023,22 +3411,17 @@ class OperationsWorkflowContractTests(TestCase):
         OperationsQueueAssignment.objects.create(
             queue_code=QUEUE_CODE_ELIGIBILITY,
             entity_type="RELIEF_REQUEST",
-            entity_id=70,
+            entity_id=95009,
             assigned_role_code=ELIGIBILITY_ROLE_CODES[0],
             assignment_status="OPEN",
         )
 
         result = contract_services.submit_eligibility_decision(
-            70,
+            95009,
             payload={"decision": "APPROVED"},
-            actor_id="eligibility-1",
+            actor_id="andrea_tst",
             actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
-            tenant_context=_tenant_context(
-                tenant_id=27,
-                tenant_code="OFFICE-OF-DISASTER-P",
-                tenant_type="NATIONAL",
-                access_level="ADMIN",
-            ),
+            tenant_context=self.odpem_context,
         )
 
         self.assertEqual(result["status_code"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
@@ -3049,7 +3432,7 @@ class OperationsWorkflowContractTests(TestCase):
             request.status_code,
             contract_services.legacy_service.STATUS_SUBMITTED,
         )
-        self.assertEqual(request.review_by_id, "eligibility-1")
+        self.assertEqual(request.review_by_id, "andrea_tst")
         self.assertIsNotNone(request.review_dtime)
         self.assertIsNone(request.action_by_id)
         self.assertIsNone(request.action_dtime)
@@ -3067,32 +3450,32 @@ class OperationsWorkflowContractTests(TestCase):
             },
         )
         self.assertEqual(
-            OperationsEligibilityDecision.objects.get(relief_request_id=70).decision_code,
+            OperationsEligibilityDecision.objects.get(relief_request_id=95009).decision_code,
             "APPROVED",
         )
         self.assertEqual(
             OperationsQueueAssignment.objects.get(
                 queue_code=QUEUE_CODE_ELIGIBILITY,
                 entity_type="RELIEF_REQUEST",
-                entity_id=70,
+                entity_id=95009,
             ).assignment_status,
             "COMPLETED",
         )
         fulfillment_assignment = OperationsQueueAssignment.objects.get(
             queue_code=contract_services.QUEUE_CODE_FULFILLMENT,
             entity_type="RELIEF_REQUEST",
-            entity_id=70,
+            entity_id=95009,
             assigned_role_code=contract_services.FULFILLMENT_ROLE_CODES[0],
         )
-        self.assertEqual(fulfillment_assignment.assigned_tenant_id, 20)
+        self.assertEqual(fulfillment_assignment.assigned_tenant_id, 27)
         self.assertEqual(
             OperationsNotification.objects.get(
                 queue_code=contract_services.QUEUE_CODE_FULFILLMENT,
                 entity_type="RELIEF_REQUEST",
-                entity_id=70,
+                entity_id=95009,
                 recipient_role_code=contract_services.FULFILLMENT_ROLE_CODES[0],
             ).recipient_tenant_id,
-            20,
+            27,
         )
 
     @patch(
@@ -3247,7 +3630,7 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request", return_value=None)
     @patch("operations.contract_services.legacy_service._load_request")
-    def test_fulfillment_queue_fallback_respects_scope(
+    def test_fulfillment_queue_includes_external_request_routed_to_odpem_scope(
         self,
         load_request_mock,
         _current_package_mock,
@@ -3255,11 +3638,11 @@ class OperationsWorkflowContractTests(TestCase):
         _request_summary_mock,
     ) -> None:
         OperationsReliefRequest.objects.create(
-            relief_request_id=70,
-            request_no="RQ00070",
-            requesting_tenant_id=20,
-            requesting_agency_id=501,
-            beneficiary_tenant_id=20,
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
             beneficiary_agency_id=501,
             origin_mode="SELF",
             event_id=12,
@@ -3268,6 +3651,14 @@ class OperationsWorkflowContractTests(TestCase):
             status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
             create_by_id="tester",
             update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
         )
         OperationsReliefRequest.objects.create(
             relief_request_id=71,
@@ -3285,22 +3676,22 @@ class OperationsWorkflowContractTests(TestCase):
             update_by_id="tester",
         )
         requests = {
-            70: self._request_stub(reliefrqst_id=70, agency_id=501, status_code=3),
+            95009: self._request_stub(reliefrqst_id=95009, agency_id=501, status_code=3),
             71: self._request_stub(reliefrqst_id=71, agency_id=502, status_code=3),
         }
         load_request_mock.side_effect = lambda reliefrqst_id: requests[int(reliefrqst_id)]
         get_agency_scope_mock.side_effect = lambda agency_id: {
-            501: self._agency_scope_for(501, 20, "FFP"),
+            501: self._agency_scope_for(501, 19, "JRC"),
             502: self._agency_scope_for(502, 30, "OUT-30"),
         }[int(agency_id)]
 
         result = contract_services.list_packages(
-            actor_id="logistics-1",
-            actor_roles=["LOGISTICS_MANAGER"],
-            tenant_context=self.dispatch_ready_context,
+            actor_id="kemar_tst",
+            actor_roles=[ROLE_LOGISTICS_MANAGER],
+            tenant_context=self.odpem_context,
         )
 
-        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [70])
+        self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [95009])
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})
     @patch(
@@ -3398,6 +3789,38 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [71])
         self.assertIsNone(result["results"][0]["current_package"])
+
+    def test_ensure_fulfillment_request_access_allows_odpem_assignment_for_external_request(self) -> None:
+        request_record = OperationsReliefRequest.objects.create(
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_OFFICER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+
+        contract_services._ensure_fulfillment_request_access(
+            request_record,
+            actor_id="devon_tst",
+            actor_roles=[ROLE_LOGISTICS_OFFICER],
+            tenant_context=self.odpem_context,
+        )
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -3518,11 +3941,11 @@ class OperationsWorkflowContractTests(TestCase):
         _current_package_mock,
     ) -> None:
         OperationsReliefRequest.objects.create(
-            relief_request_id=75,
-            request_no="RQ00075",
-            requesting_tenant_id=20,
-            requesting_agency_id=501,
-            beneficiary_tenant_id=20,
+            relief_request_id=95009,
+            request_no="RQ95009",
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
             beneficiary_agency_id=501,
             origin_mode="SELF",
             event_id=12,
@@ -3532,15 +3955,23 @@ class OperationsWorkflowContractTests(TestCase):
             create_by_id="tester",
             update_by_id="tester",
         )
-        load_request_mock.return_value = self._request_stub(reliefrqst_id=75, agency_id=501, status_code=3)
-        get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
+        OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            entity_type="RELIEF_REQUEST",
+            entity_id=95009,
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=27,
+            assignment_status="OPEN",
+        )
+        load_request_mock.return_value = self._request_stub(reliefrqst_id=95009, agency_id=501, status_code=3)
+        get_agency_scope_mock.return_value = self._agency_scope_for(501, 19, "JRC")
 
         with self.assertRaises(OperationValidationError):
             contract_services.get_package(
-                75,
-                actor_id="other-user",
+                95009,
+                actor_id="relief_jrc_requester_tst",
                 actor_roles=[ELIGIBILITY_ROLE_CODES[0]],
-                tenant_context=self.dispatch_ready_context,
+                tenant_context=_tenant_context(tenant_id=19, tenant_code="JRC", tenant_type="EXTERNAL"),
             )
 
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id), "requesting_tenant_id": request_record.requesting_tenant_id})
@@ -3961,6 +4392,9 @@ class ItemAllocationOptionsTests(TestCase):
             "suggested_allocations": [],
             "remaining_after_suggestion": "20.0000",
             "source_warehouse_id": 1,
+            "remaining_shortfall_qty": "20.0000",
+            "continuation_recommended": False,
+            "alternate_warehouses": [],
         }
 
         result = contract_services.get_item_allocation_options(
@@ -3974,7 +4408,805 @@ class ItemAllocationOptionsTests(TestCase):
 
         self.assertEqual(result["item_id"], 101)
         self.assertEqual(result["source_warehouse_id"], 1)
-        get_item_options_mock.assert_called_once_with(80, 101, source_warehouse_id=1)
+        self.assertEqual(result["remaining_shortfall_qty"], "20.0000")
+        self.assertFalse(result["continuation_recommended"])
+        get_item_options_mock.assert_called_once_with(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+            draft_allocations=None,
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.get_item_allocation_preview")
+    def test_preview_forwards_draft_aware_payload(
+        self,
+        get_item_preview_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.request_stub
+        get_agency_scope_mock.return_value = self.agency_scope
+        get_item_preview_mock.return_value = {
+            "item_id": 101,
+            "remaining_qty": "20.0000",
+            "draft_selected_qty": "2.0000",
+            "effective_remaining_qty": "18.0000",
+            "remaining_after_suggestion": "12.0000",
+            "remaining_shortfall_qty": "12.0000",
+            "continuation_recommended": True,
+            "alternate_warehouses": [],
+        }
+
+        result = contract_services.get_item_allocation_preview(
+            80,
+            101,
+            payload={
+                "source_warehouse_id": 1,
+                "draft_allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "2.0000",
+                    }
+                ],
+            },
+            actor_id="fulfiller-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["draft_selected_qty"], "2.0000")
+        self.assertEqual(result["effective_remaining_qty"], "18.0000")
+        get_item_preview_mock.assert_called_once_with(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+            draft_allocations=[
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1001,
+                    "quantity": "2.0000",
+                }
+            ],
+        )
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse")
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "10.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_service_omits_continuation_when_selected_warehouse_fully_covers(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        fetch_candidates_mock.return_value = [
+            {
+                "batch_id": 1001,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "B-1001",
+                "batch_date": date(2026, 3, 25),
+                "expiry_date": None,
+                "usable_qty": Decimal("8.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("8.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            }
+        ]
+
+        result = operations_service.get_item_allocation_options(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["source_warehouse_id"], 1)
+        self.assertEqual(result["remaining_after_suggestion"], "0.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "0.0000")
+        self.assertFalse(result["continuation_recommended"])
+        self.assertEqual(result["alternate_warehouses"], [])
+        get_warehouses_with_stock_mock.assert_not_called()
+        can_access_warehouse_mock.assert_not_called()
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse")
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "10.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_preview_without_draft_allocations_returns_zero_draft_selected_qty(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        fetch_candidates_mock.return_value = [
+            {
+                "batch_id": 1001,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "B-1001",
+                "batch_date": date(2026, 3, 25),
+                "expiry_date": None,
+                "usable_qty": Decimal("8.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("8.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            }
+        ]
+
+        result = operations_service.get_item_allocation_preview(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["remaining_qty"], "8.0000")
+        self.assertEqual(result["draft_selected_qty"], "0.0000")
+        self.assertEqual(result["effective_remaining_qty"], "8.0000")
+        self.assertEqual(result["remaining_after_suggestion"], "0.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "0.0000")
+        self.assertFalse(result["continuation_recommended"])
+        self.assertEqual(result["alternate_warehouses"], [])
+        get_warehouses_with_stock_mock.assert_not_called()
+        can_access_warehouse_mock.assert_not_called()
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse")
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "12.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_service_includes_sorted_authorized_alternates_for_shortfall(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 99.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 12.0},
+                    {"warehouse_id": 7, "warehouse_name": "Warehouse 7", "available_qty": 4.0},
+                    {"warehouse_id": 5, "warehouse_name": "Warehouse 5", "available_qty": 6.0},
+                    {"warehouse_id": 2, "warehouse_name": "Warehouse 2", "available_qty": 6.0},
+                ]
+            },
+            [],
+        )
+        can_access_warehouse_mock.side_effect = lambda _tenant_context, warehouse_id, write=False: write and warehouse_id != 9
+
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            2: [
+                {
+                    "batch_id": 2001,
+                    "inventory_id": 2,
+                    "item_id": 101,
+                    "batch_no": "B-2001",
+                    "batch_date": date(2026, 3, 24),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 2",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            5: [
+                {
+                    "batch_id": 5001,
+                    "inventory_id": 5,
+                    "item_id": 101,
+                    "batch_no": "B-5001",
+                    "batch_date": date(2026, 3, 23),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 5",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            7: [
+                {
+                    "batch_id": 7001,
+                    "inventory_id": 7,
+                    "item_id": 101,
+                    "batch_no": "B-7001",
+                    "batch_date": date(2026, 3, 22),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 7",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            9: [
+                {
+                    "batch_id": 9001,
+                    "inventory_id": 9,
+                    "item_id": 101,
+                    "batch_no": "B-9001",
+                    "batch_date": date(2026, 3, 21),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("12.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("12.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 9",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: warehouse_candidates.get(warehouse_id, [])
+        )
+
+        result = operations_service.get_item_allocation_options(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["remaining_after_suggestion"], "6.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "6.0000")
+        self.assertTrue(result["continuation_recommended"])
+        self.assertEqual(
+            [row["warehouse_id"] for row in result["alternate_warehouses"]],
+            [2, 5, 7],
+        )
+        self.assertEqual(
+            result["alternate_warehouses"],
+            [
+                {
+                    "warehouse_id": 2,
+                    "warehouse_name": "Warehouse 2",
+                    "available_qty": "6.0000",
+                    "suggested_qty": "6.0000",
+                    "can_fully_cover": True,
+                },
+                {
+                    "warehouse_id": 5,
+                    "warehouse_name": "Warehouse 5",
+                    "available_qty": "6.0000",
+                    "suggested_qty": "6.0000",
+                    "can_fully_cover": True,
+                },
+                {
+                    "warehouse_id": 7,
+                    "warehouse_name": "Warehouse 7",
+                    "available_qty": "4.0000",
+                    "suggested_qty": "4.0000",
+                    "can_fully_cover": False,
+                },
+            ],
+        )
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "12.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_preview_adjusts_candidates_and_alternates_for_draft_allocations(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 99.0},
+                    {"warehouse_id": 5, "warehouse_name": "Warehouse 5", "available_qty": 6.0},
+                    {"warehouse_id": 7, "warehouse_name": "Warehouse 7", "available_qty": 3.0},
+                ]
+            },
+            [],
+        )
+
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                },
+                {
+                    "batch_id": 1002,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1002",
+                    "batch_date": date(2026, 3, 26),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("2.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("2.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                },
+            ],
+            5: [
+                {
+                    "batch_id": 5001,
+                    "inventory_id": 5,
+                    "item_id": 101,
+                    "batch_no": "B-5001",
+                    "batch_date": date(2026, 3, 23),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 5",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            7: [
+                {
+                    "batch_id": 7001,
+                    "inventory_id": 7,
+                    "item_id": 101,
+                    "batch_no": "B-7001",
+                    "batch_date": date(2026, 3, 22),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 7",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: warehouse_candidates.get(warehouse_id, [])
+        )
+
+        result = operations_service.get_item_allocation_preview(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+            draft_allocations=[
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1001,
+                    "quantity": "1.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1002,
+                    "quantity": "2.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+                {
+                    "item_id": 101,
+                    "inventory_id": 5,
+                    "batch_id": 5001,
+                    "quantity": "2.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+            ],
+        )
+
+        self.assertEqual(result["remaining_qty"], "10.0000")
+        self.assertEqual(result["draft_selected_qty"], "5.0000")
+        self.assertEqual(result["effective_remaining_qty"], "5.0000")
+        self.assertEqual(result["remaining_after_suggestion"], "2.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "2.0000")
+        self.assertTrue(result["continuation_recommended"])
+        self.assertEqual(len(result["candidates"]), 1)
+        self.assertEqual(result["candidates"][0]["batch_id"], 1001)
+        self.assertEqual(result["candidates"][0]["available_qty"], "3.0000")
+        self.assertEqual(result["suggested_allocations"][0]["quantity"], "3.0000")
+        self.assertEqual(
+            result["alternate_warehouses"],
+            [
+                {
+                    "warehouse_id": 5,
+                    "warehouse_name": "Warehouse 5",
+                    "available_qty": "4.0000",
+                    "suggested_qty": "2.0000",
+                    "can_fully_cover": True,
+                },
+                {
+                    "warehouse_id": 7,
+                    "warehouse_name": "Warehouse 7",
+                    "available_qty": "3.0000",
+                    "suggested_qty": "2.0000",
+                    "can_fully_cover": True,
+                },
+            ],
+        )
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "12.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_service_applies_item_draft_allocations_to_shortfall_and_alternates(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 99.0},
+                    {"warehouse_id": 5, "warehouse_name": "Warehouse 5", "available_qty": 6.0},
+                    {"warehouse_id": 7, "warehouse_name": "Warehouse 7", "available_qty": 3.0},
+                ]
+            },
+            [],
+        )
+
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": date(2026, 3, 25),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                },
+                {
+                    "batch_id": 1002,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1002",
+                    "batch_date": date(2026, 3, 26),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("2.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("2.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                },
+            ],
+            5: [
+                {
+                    "batch_id": 5001,
+                    "inventory_id": 5,
+                    "item_id": 101,
+                    "batch_no": "B-5001",
+                    "batch_date": date(2026, 3, 23),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 5",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+            7: [
+                {
+                    "batch_id": 7001,
+                    "inventory_id": 7,
+                    "item_id": 101,
+                    "batch_no": "B-7001",
+                    "batch_date": date(2026, 3, 22),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("3.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("3.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 7",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: warehouse_candidates.get(warehouse_id, [])
+        )
+
+        result = operations_service.get_item_allocation_options(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+            draft_allocations=[
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1001,
+                    "quantity": "1.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+                {
+                    "item_id": 101,
+                    "inventory_id": 1,
+                    "batch_id": 1002,
+                    "quantity": "2.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+                {
+                    "item_id": 101,
+                    "inventory_id": 5,
+                    "batch_id": 5001,
+                    "quantity": "2.0000",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                },
+            ],
+        )
+
+        self.assertEqual(result["remaining_qty"], "10.0000")
+        self.assertEqual(result["remaining_after_suggestion"], "2.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "2.0000")
+        self.assertTrue(result["continuation_recommended"])
+        self.assertEqual(
+            result["candidates"],
+            [
+                {
+                    "batch_id": 1001,
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "batch_no": "B-1001",
+                    "batch_date": "2026-03-25",
+                    "expiry_date": None,
+                    "usable_qty": "3.0000",
+                    "reserved_qty": "0.0000",
+                    "available_qty": "3.0000",
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+        )
+        self.assertEqual(len(result["suggested_allocations"]), 1)
+        self.assertEqual(result["suggested_allocations"][0]["item_id"], 101)
+        self.assertEqual(result["suggested_allocations"][0]["inventory_id"], 1)
+        self.assertEqual(result["suggested_allocations"][0]["batch_id"], 1001)
+        self.assertEqual(result["suggested_allocations"][0]["quantity"], "3.0000")
+        self.assertEqual(
+            result["alternate_warehouses"],
+            [
+                {
+                    "warehouse_id": 5,
+                    "warehouse_name": "Warehouse 5",
+                    "available_qty": "4.0000",
+                    "suggested_qty": "2.0000",
+                    "can_fully_cover": True,
+                },
+                {
+                    "warehouse_id": 7,
+                    "warehouse_name": "Warehouse 7",
+                    "available_qty": "3.0000",
+                    "suggested_qty": "2.0000",
+                    "can_fully_cover": True,
+                },
+            ],
+        )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")

@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
+import { finalize } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
@@ -11,6 +12,10 @@ import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { FulfillmentDetailsStepComponent } from './steps/fulfillment-details-step.component';
 import { FulfillmentPlanStepComponent } from './steps/fulfillment-plan-step.component';
 import { FulfillmentReviewStepComponent } from './steps/fulfillment-review-step.component';
+import {
+  ConfirmDialogData,
+  DmisConfirmDialogComponent,
+} from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
@@ -23,10 +28,15 @@ import {
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { OpsConsolidationPanelComponent } from '../shared/ops-consolidation-panel.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsPackageLockStateComponent } from '../shared/ops-package-lock-state.component';
 import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
 import { OperationsService } from '../services/operations.service';
 import { OperationsWorkspaceStateService } from '../services/operations-workspace-state.service';
-import { AllocationCommitResponse, ConsolidationLeg } from '../models/operations.model';
+import {
+  AllocationCommitResponse,
+  ConsolidationLeg,
+  PackageLockReleaseResponse,
+} from '../models/operations.model';
 import {
   formatAllocationMethod,
   formatExecutionStatus,
@@ -51,6 +61,7 @@ interface FulfillmentConfirmationState {
     MatStepperModule,
     OpsMetricStripComponent,
     OpsConsolidationPanelComponent,
+    OpsPackageLockStateComponent,
     OpsSplitBannerComponent,
     FulfillmentPlanStepComponent,
     FulfillmentDetailsStepComponent,
@@ -93,8 +104,15 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly reliefrqstId = signal(0);
   readonly submissionErrors = signal<string[]>([]);
   readonly confirmationState = signal<FulfillmentConfirmationState | null>(null);
+  readonly savingDraft = signal(false);
 
   readonly packageDetail = this.store.packageDetail;
+
+  readonly canSaveDraft = computed(() =>
+    !this.store.hasCommittedAllocation()
+    && !this.store.hasPendingOverride()
+    && !this.confirmationState()
+  );
 
   readonly hasOperationsAccess = computed(() =>
     PackageFulfillmentWorkspaceComponent.OPERATIONS_ACCESS_PERMISSIONS.some((permission) =>
@@ -215,6 +233,30 @@ export class PackageFulfillmentWorkspaceComponent {
     }
     this.submissionErrors.set([]);
     this.store.load(reliefrqstId, true);
+  }
+
+  saveDraft(): void {
+    if (this.savingDraft() || !this.reliefrqstId()) {
+      return;
+    }
+    this.savingDraft.set(true);
+    this.store.saveDraft()
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.savingDraft.set(false)),
+      )
+      .subscribe({
+        next: () => {
+          this.notifications.showSuccess('Fulfillment draft saved. You can return later to continue.');
+        },
+        error: (error: HttpErrorResponse) => {
+          if (this.store.lockConflict()) {
+            // Lock conflict is rendered as a first-class blocker card.
+            return;
+          }
+          this.notifications.showError(this.extractError(error, 'Failed to save draft. Please try again.'));
+        },
+      });
   }
 
   backToRequest(): void {
@@ -364,9 +406,74 @@ export class PackageFulfillmentWorkspaceComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.store.setSubmitting(false);
+        if (this.store.captureLockConflict(error)) {
+          // Lock conflict is rendered as a first-class blocker card.
+          return;
+        }
         this.notifications.showError(this.extractError(error, 'Failed to save reservation.'));
       },
     });
+  }
+
+  onRefreshAfterLockConflict(): void {
+    this.refresh();
+  }
+
+  onReleaseOwnLock(): void {
+    this.runLockRelease(false);
+  }
+
+  onForceReleaseLock(): void {
+    const dialogRef = this.dialog.open<DmisConfirmDialogComponent, ConfirmDialogData, boolean>(
+      DmisConfirmDialogComponent,
+      {
+        width: '480px',
+        data: {
+          title: 'Take over package',
+          message:
+            'This will release the current package lock and let you continue. '
+            + 'The current lock owner will be notified.',
+          confirmLabel: 'Take over package',
+          cancelLabel: 'Cancel',
+          icon: 'lock_open',
+          confirmColor: 'warn',
+        },
+      },
+    );
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.runLockRelease(true);
+      });
+  }
+
+  private runLockRelease(force: boolean): void {
+    this.store.releasePackageLock(force)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response: PackageLockReleaseResponse) => {
+          if (response.released) {
+            const takeoverLabel = response.package_no
+              ? `Package lock taken over. ${response.package_no}`
+              : 'Package lock taken over.';
+            this.notifications.showSuccess(
+              force ? takeoverLabel : 'Your package lock has been released.',
+            );
+          } else {
+            // Soft success: no package yet, or the lock was already released server-side.
+            this.notifications.showSuccess(response.message || 'No active lock found.');
+          }
+        },
+        error: (error: HttpErrorResponse) => {
+          this.notifications.showError(
+            this.extractError(error, 'Failed to release package lock. Please try again.'),
+          );
+        },
+      });
   }
 
   private collectPlanErrors(): string[] {

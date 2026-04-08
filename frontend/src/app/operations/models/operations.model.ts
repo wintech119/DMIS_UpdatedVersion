@@ -285,6 +285,14 @@ export interface SuggestedAllocationLine {
   quantity: string;
 }
 
+export interface AlternateWarehouseOption {
+  warehouse_id: number;
+  warehouse_name: string;
+  available_qty: string;
+  suggested_qty: string;
+  can_fully_cover: boolean;
+}
+
 export interface AllocationItemGroup {
   item_id: number;
   item_code?: string | null;
@@ -302,6 +310,21 @@ export interface AllocationItemGroup {
   override_required: boolean;
   /** Source warehouse for this item (set when using per-item warehouse override). */
   source_warehouse_id?: number | null;
+  /** Quantity still needed after using this warehouse only. */
+  remaining_shortfall_qty: string;
+  /** Backend hint that the operator should add another warehouse for this item. */
+  continuation_recommended: boolean;
+  /** Alternate warehouses that could cover the remaining shortfall. */
+  alternate_warehouses: AlternateWarehouseOption[];
+  /** Total quantity already chosen across draft selections (POST preview only). */
+  draft_selected_qty?: string;
+  /** Remaining qty after subtracting draft selections (POST preview only). */
+  effective_remaining_qty?: string;
+}
+
+export interface ItemAllocationPreviewPayload {
+  source_warehouse_id: number;
+  draft_allocations: SuggestedAllocationLine[];
 }
 
 export interface AllocationOptionsResponse {
@@ -679,4 +702,24 @@ export interface PackageDraftPayload {
   staging_warehouse_id?: number | null;
   recommended_staging_warehouse_id?: number | null;
   staging_override_reason?: string | null;
+}
+
+export interface PackageLockConflict {
+  lock: string;
+  lock_owner_user_id: string | null;
+  lock_owner_role_code: string | null;
+  lock_expires_at: string | null;
+}
+
+export interface PackageLockReleaseResponse {
+  released: boolean;
+  message: string;
+  package_id: number | null;
+  package_no: string | null;
+  previous_lock_owner_user_id: string | null;
+  previous_lock_owner_role_code: string | null;
+  released_by_user_id: string | null;
+  released_at: string | null;
+  lock_status: 'ACTIVE' | 'RELEASED' | null;
+  lock_expires_at: string | null;
 }

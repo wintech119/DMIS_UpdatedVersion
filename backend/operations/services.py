@@ -8,7 +8,7 @@ from django.db import connection, transaction
 from django.db.models import F
 from django.utils import timezone
 
-from api.tenancy import TenantContext
+from api.tenancy import TenantContext, can_access_warehouse
 from operations import policy as operations_policy
 from operations.exceptions import OperationValidationError
 from replenishment.legacy_models import Agency, Item, ReliefPkg, ReliefRqst
@@ -750,6 +750,178 @@ def _resolve_candidate_warehouse_ids(
     return sorted(warehouse_ids)
 
 
+def _allocation_line_key(row: Mapping[str, Any]) -> tuple[int, int, str, int | None]:
+    source_record_id = row.get("source_record_id")
+    return (
+        int(row["inventory_id"]),
+        int(row["batch_id"]),
+        str(row.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+        int(source_record_id) if source_record_id not in (None, "") else None,
+    )
+
+
+def _normalized_item_draft_allocations(
+    draft_allocations: Sequence[Mapping[str, Any]] | None,
+    *,
+    item_id: int,
+) -> list[dict[str, Any]]:
+    if not draft_allocations:
+        return []
+
+    errors: dict[str, str] = {}
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(draft_allocations):
+        if not isinstance(raw, Mapping):
+            errors[f"draft_allocations[{index}]"] = "Each draft allocation must be an object."
+            continue
+        draft_item_id = _positive_int(raw.get("item_id"), f"draft_allocations[{index}].item_id", errors)
+        if draft_item_id is not None and draft_item_id != item_id:
+            errors[f"draft_allocations[{index}].item_id"] = f"Must match item_id {item_id}."
+        inventory_id = _positive_int(raw.get("inventory_id"), f"draft_allocations[{index}].inventory_id", errors)
+        batch_id = _positive_int(raw.get("batch_id"), f"draft_allocations[{index}].batch_id", errors)
+        try:
+            quantity = _quantize_qty(Decimal(str(raw.get("quantity"))))
+        except (InvalidOperation, ValueError, TypeError):
+            errors[f"draft_allocations[{index}].quantity"] = "Must be a decimal number."
+            continue
+        if quantity <= 0:
+            errors[f"draft_allocations[{index}].quantity"] = "Must be greater than zero."
+        source_record_id = raw.get("source_record_id")
+        normalized_source_record_id = None
+        if source_record_id not in (None, ""):
+            normalized_source_record_id = _positive_int(
+                source_record_id,
+                f"draft_allocations[{index}].source_record_id",
+                errors,
+            )
+        if inventory_id is None or batch_id is None or draft_item_id is None:
+            continue
+        normalized.append(
+            {
+                "item_id": draft_item_id,
+                "inventory_id": inventory_id,
+                "batch_id": batch_id,
+                "quantity": quantity,
+                "source_type": str(raw.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                "source_record_id": normalized_source_record_id,
+            }
+        )
+
+    if errors:
+        raise OperationValidationError(errors)
+    return normalized
+
+
+def _draft_allocations_by_key(
+    draft_allocations: Sequence[Mapping[str, Any]],
+) -> dict[tuple[int, int, str, int | None], Decimal]:
+    allocation_map: dict[tuple[int, int, str, int | None], Decimal] = {}
+    for row in draft_allocations:
+        key = _allocation_line_key(row)
+        allocation_map[key] = allocation_map.get(key, Decimal("0")) + _quantize_qty(row["quantity"])
+    return allocation_map
+
+
+def _adjust_candidates_for_draft_allocations(
+    candidates: Sequence[Mapping[str, Any]],
+    draft_allocations: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if not draft_allocations:
+        return [dict(candidate) for candidate in candidates]
+
+    draft_allocations_map = _draft_allocations_by_key(draft_allocations)
+    adjusted_candidates: list[dict[str, Any]] = []
+    for candidate in candidates:
+        draft_qty = draft_allocations_map.get(_allocation_line_key(candidate), Decimal("0"))
+        available_qty = max(Decimal("0"), _quantize_qty(candidate["available_qty"]) - draft_qty)
+        usable_qty = max(
+            Decimal("0"),
+            _quantize_qty(candidate.get("usable_qty", candidate["available_qty"])) - draft_qty,
+        )
+        if available_qty <= 0:
+            continue
+        adjusted_candidates.append(
+            {
+                **candidate,
+                "available_qty": _quantize_qty(available_qty),
+                "usable_qty": _quantize_qty(usable_qty),
+            }
+        )
+    return adjusted_candidates
+
+
+def _warehouse_usable_surplus_for_item(
+    warehouse_id: int,
+    item_id: int,
+    *,
+    item: Item | Mapping[str, Any] | None,
+    as_of_date: date,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> Decimal:
+    candidates = _fetch_batch_candidates(warehouse_id, item_id, as_of_date=as_of_date)
+    adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, draft_allocations or ())
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
+    return sum((_quantize_qty(candidate["available_qty"]) for candidate in sorted_candidates), Decimal("0"))
+
+
+def _build_alternate_warehouse_options(
+    *,
+    item_id: int,
+    item: Item | Mapping[str, Any] | None,
+    source_warehouse_id: int,
+    remaining_shortfall_qty: Decimal,
+    tenant_context: TenantContext | None,
+    as_of_date: date,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if remaining_shortfall_qty <= 0:
+        return []
+
+    warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], source_warehouse_id)
+    alternates: list[dict[str, Any]] = []
+    seen_warehouse_ids = {int(source_warehouse_id)}
+    for warehouse_row in warehouse_rows.get(item_id, []):
+        warehouse_id = int(warehouse_row["warehouse_id"])
+        if warehouse_id in seen_warehouse_ids:
+            continue
+        seen_warehouse_ids.add(warehouse_id)
+        if tenant_context is not None and not can_access_warehouse(tenant_context, warehouse_id, write=True):
+            continue
+        available_qty = _warehouse_usable_surplus_for_item(
+            warehouse_id,
+            item_id,
+            item=item,
+            as_of_date=as_of_date,
+            draft_allocations=draft_allocations,
+        )
+        if available_qty <= 0:
+            continue
+        alternates.append(
+            {
+                "warehouse_id": warehouse_id,
+                "warehouse_name": str(warehouse_row.get("warehouse_name") or "").strip() or f"Warehouse {warehouse_id}",
+                "available_qty_decimal": _quantize_qty(available_qty),
+            }
+        )
+
+    alternates.sort(
+        key=lambda row: (
+            -row["available_qty_decimal"],
+            row["warehouse_id"],
+        )
+    )
+    return [
+        {
+            "warehouse_id": row["warehouse_id"],
+            "warehouse_name": row["warehouse_name"],
+            "available_qty": str(row["available_qty_decimal"]),
+            "suggested_qty": str(min(row["available_qty_decimal"], remaining_shortfall_qty)),
+            "can_fully_cover": row["available_qty_decimal"] >= remaining_shortfall_qty,
+        }
+        for row in alternates
+    ]
+
+
 def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[str, Any]:
     """Reshape the needs-list allocation response to match the operations contract.
 
@@ -837,17 +1009,15 @@ def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: i
     return {"request": _request_summary(_load_request(reliefrqst_id)), "items": results}
 
 
-def get_item_allocation_options(
+def _build_item_allocation_response(
     reliefrqst_id: int,
     item_id: int,
     *,
     source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    include_draft_metrics: bool = False,
 ) -> dict[str, Any]:
-    """Return allocation candidates for a single item from a single warehouse.
-
-    Used when the operator overrides the source warehouse for one item without
-    reloading data for every other item in the request.
-    """
     item_rows = _request_item_rows_for_allocation(reliefrqst_id)
     row = next((r for r in item_rows if int(r["item_id"]) == item_id), None)
     if row is None:
@@ -856,22 +1026,43 @@ def get_item_allocation_options(
         )
 
     item = Item.objects.filter(item_id=item_id).first()
-    remaining_qty = max(
+    base_remaining_qty = max(
         Decimal("0"),
         _quantize_qty(row["request_qty"]) - _quantize_qty(row["issue_qty"]),
     )
-    candidates = _fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=timezone.localdate())
-    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, candidates)
-    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
-        sorted_candidates, remaining_qty
+    normalized_draft_allocations = _normalized_item_draft_allocations(
+        draft_allocations,
+        item_id=item_id,
     )
-    return {
+    draft_selected_qty = sum(
+        (_quantize_qty(allocation["quantity"]) for allocation in normalized_draft_allocations),
+        Decimal("0"),
+    )
+    effective_remaining_qty = max(Decimal("0"), _quantize_qty(base_remaining_qty) - draft_selected_qty)
+    as_of_date = timezone.localdate()
+    candidates = _fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=as_of_date)
+    adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, normalized_draft_allocations)
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
+    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
+        sorted_candidates, effective_remaining_qty
+    )
+    remaining_shortfall_qty = _quantize_qty(remaining_after_suggestion)
+    alternate_warehouses = _build_alternate_warehouse_options(
+        item_id=item_id,
+        item=item,
+        source_warehouse_id=source_warehouse_id,
+        remaining_shortfall_qty=remaining_shortfall_qty,
+        tenant_context=tenant_context,
+        as_of_date=as_of_date,
+        draft_allocations=normalized_draft_allocations,
+    )
+    response = {
         "item_id": item_id,
         "item_code": getattr(item, "item_code", None),
         "item_name": getattr(item, "item_name", None),
         "request_qty": str(_quantize_qty(row["request_qty"])),
         "issue_qty": str(_quantize_qty(row["issue_qty"])),
-        "remaining_qty": str(remaining_qty.quantize(Decimal("0.0001"))),
+        "remaining_qty": str(base_remaining_qty.quantize(Decimal("0.0001"))),
         "urgency_ind": row.get("urgency_ind"),
         "candidates": [
             {
@@ -890,7 +1081,56 @@ def get_item_allocation_options(
         ],
         "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
         "source_warehouse_id": source_warehouse_id,
+        "remaining_shortfall_qty": str(remaining_shortfall_qty),
+        "continuation_recommended": remaining_shortfall_qty > 0 and bool(alternate_warehouses),
+        "alternate_warehouses": alternate_warehouses,
     }
+    if include_draft_metrics:
+        response["draft_selected_qty"] = str(_quantize_qty(draft_selected_qty))
+        response["effective_remaining_qty"] = str(_quantize_qty(effective_remaining_qty))
+    return response
+
+
+def get_item_allocation_options(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return allocation candidates for a single item from a single warehouse.
+
+    Used when the operator overrides the source warehouse for one item without
+    reloading data for every other item in the request.
+    """
+    return _build_item_allocation_response(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
+        include_draft_metrics=False,
+    )
+
+
+def get_item_allocation_preview(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return the draft-aware allocation preview for a single item."""
+    return _build_item_allocation_response(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
+        include_draft_metrics=True,
+    )
 
 
 def _normalized_allocations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:

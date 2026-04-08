@@ -7,6 +7,7 @@ import {
   AllocationCommitResponse,
   AllocationItemGroup,
   AllocationOptionsResponse,
+  ItemAllocationPreviewPayload,
   ConsolidationLegDispatchPayload,
   ConsolidationLegDispatchResponse,
   ConsolidationLegReceivePayload,
@@ -25,6 +26,7 @@ import {
   OverrideApprovalPayload,
   PackageDetailResponse,
   PackageDraftPayload,
+  PackageLockReleaseResponse,
   PackageQueueResponse,
   PartialReleaseApprovePayload,
   PartialReleaseApproveResponse,
@@ -162,6 +164,16 @@ export class OperationsService {
     ).pipe(switchMap(() => this.getPackage(reliefrqstId)));
   }
 
+  releasePackageLock(
+    reliefrqstId: number,
+    force = false,
+  ): Observable<PackageLockReleaseResponse> {
+    return this.http.post<PackageLockReleaseResponse>(
+      `${this.apiUrl}/packages/${reliefrqstId}/unlock`,
+      { force },
+    );
+  }
+
   getAllocationOptions(
     reliefrqstId: number,
     sourceWarehouseId?: number,
@@ -185,6 +197,17 @@ export class OperationsService {
     return this.http.get<unknown>(
       `${this.apiUrl}/packages/${reliefrqstId}/allocation-options/${itemId}`,
       { params },
+    ).pipe(map(normalizeAllocationItemGroup));
+  }
+
+  previewItemAllocationOptions(
+    reliefrqstId: number,
+    itemId: number,
+    payload: ItemAllocationPreviewPayload,
+  ): Observable<AllocationItemGroup> {
+    return this.http.post<unknown>(
+      `${this.apiUrl}/packages/${reliefrqstId}/allocation-options/${itemId}/preview`,
+      payload,
     ).pipe(map(normalizeAllocationItemGroup));
   }
 

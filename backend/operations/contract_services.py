@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
@@ -50,6 +50,7 @@ from operations.constants import (
     EVENT_REQUEST_REJECTED,
     EVENT_REQUEST_SUBMITTED,
     EVENT_STAGED_DELIVERY_READY,
+    EVENT_PACKAGE_UNLOCKED,
     EVENT_STAGING_RECEIPT_RECORDED,
     FULFILLMENT_MODE_DELIVER_FROM_STAGING,
     FULFILLMENT_MODE_DIRECT,
@@ -799,13 +800,8 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
             .filter(package_id=int(package_id))
             .first()
         )
-        if (
-            existing
-            and existing.lock_status == "ACTIVE"
-            and existing.lock_owner_user_id != actor_id
-            and (existing.lock_expires_at is None or existing.lock_expires_at > now)
-        ):
-            raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."})
+        if existing and existing.lock_owner_user_id != actor_id and _is_package_lock_active(existing, now=now):
+            raise OperationValidationError(_package_lock_conflict_errors(existing))
         if existing is None:
             try:
                 with transaction.atomic():
@@ -825,13 +821,8 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
                     .filter(package_id=int(package_id))
                     .first()
                 )
-                if (
-                    existing
-                    and existing.lock_status == "ACTIVE"
-                    and existing.lock_owner_user_id != actor_id
-                    and (existing.lock_expires_at is None or existing.lock_expires_at > now)
-                ):
-                    raise OperationValidationError({"lock": "Package is locked by another fulfillment actor."}) from None
+                if existing and existing.lock_owner_user_id != actor_id and _is_package_lock_active(existing, now=now):
+                    raise OperationValidationError(_package_lock_conflict_errors(existing)) from None
                 if existing is None:
                     raise  # Unexpected state; propagate original error.
                 lock = existing
@@ -877,6 +868,129 @@ def _acquire_package_lock(package_id: int, *, actor_id: str, actor_roles: Iterab
             queue_code=QUEUE_CODE_FULFILLMENT,
         )
     return lock
+
+
+def _is_package_lock_active(lock: OperationsPackageLock | None, *, now: datetime | None = None) -> bool:
+    if lock is None or lock.lock_status != "ACTIVE":
+        return False
+    current_time = now or timezone.now()
+    return lock.lock_expires_at is None or lock.lock_expires_at > current_time
+
+
+def _package_lock_conflict_errors(lock: OperationsPackageLock) -> dict[str, Any]:
+    return {
+        "lock": "Package is locked by another fulfillment actor.",
+        "lock_owner_user_id": lock.lock_owner_user_id,
+        "lock_owner_role_code": lock.lock_owner_role_code,
+        "lock_expires_at": legacy_service._as_iso(lock.lock_expires_at),
+    }
+
+
+def _package_lock_release_response(
+    *,
+    package_record: OperationsPackage | None,
+    lock: OperationsPackageLock | None,
+    released: bool,
+    message: str,
+    released_by_user_id: str | None = None,
+    released_at: datetime | None = None,
+) -> dict[str, Any]:
+    return {
+        "released": released,
+        "message": message,
+        "package_id": int(package_record.package_id) if package_record is not None else None,
+        "package_no": package_record.package_no if package_record is not None else None,
+        "previous_lock_owner_user_id": lock.lock_owner_user_id if lock is not None else None,
+        "previous_lock_owner_role_code": lock.lock_owner_role_code if lock is not None else None,
+        "released_by_user_id": released_by_user_id,
+        "released_at": legacy_service._as_iso(released_at),
+        "lock_status": lock.lock_status if lock is not None else None,
+        "lock_expires_at": legacy_service._as_iso(lock.lock_expires_at) if lock is not None else None,
+    }
+
+
+def _persist_released_package_lock(lock: OperationsPackageLock, *, released_at: datetime) -> OperationsPackageLock:
+    lock.lock_status = "RELEASED"
+    lock.lock_expires_at = released_at
+    lock.save(update_fields=["lock_status", "lock_expires_at"])
+    return lock
+
+
+def _release_package_lock_for_record(
+    package_record: OperationsPackage,
+    *,
+    request_record: OperationsReliefRequest,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    force: bool = False,
+) -> dict[str, Any]:
+    normalized_roles = normalize_role_codes(actor_roles)
+    now = timezone.now()
+    with transaction.atomic():
+        lock = (
+            OperationsPackageLock.objects.select_for_update()
+            .filter(package_id=int(package_record.package_id))
+            .first()
+        )
+        if not _is_package_lock_active(lock, now=now):
+            return _package_lock_release_response(
+                package_record=package_record,
+                lock=lock,
+                released=False,
+                message="No active package lock found for this package.",
+            )
+
+        is_lock_owner = lock.lock_owner_user_id == actor_id
+        can_force_release = ROLE_SYSTEM_ADMINISTRATOR in normalized_roles or ROLE_LOGISTICS_MANAGER in normalized_roles
+        if not is_lock_owner:
+            if not can_force_release:
+                raise OperationValidationError(
+                    {
+                        "lock": (
+                            "Only the current lock owner, a Logistics Manager, "
+                            "or a System Administrator may release this package lock."
+                        )
+                    }
+                )
+            if not force:
+                raise OperationValidationError(
+                    {"force": "force=true is required to release another actor's package lock."}
+                )
+
+        previous_lock_owner_user_id = lock.lock_owner_user_id
+        _persist_released_package_lock(lock, released_at=now)
+        notification_tenant_id = _resolve_request_level_fulfillment_tenant_id()
+
+        create_user_notification(
+            event_code=EVENT_PACKAGE_UNLOCKED,
+            entity_type=ENTITY_PACKAGE,
+            entity_id=int(package_record.package_id),
+            recipient_user_id=actor_id,
+            tenant_id=notification_tenant_id,
+            queue_code=QUEUE_CODE_FULFILLMENT,
+            message_text=f"Package lock on {package_record.package_no} was released by {actor_id}.",
+        )
+        if previous_lock_owner_user_id != actor_id:
+            create_user_notification(
+                event_code=EVENT_PACKAGE_UNLOCKED,
+                entity_type=ENTITY_PACKAGE,
+                entity_id=int(package_record.package_id),
+                recipient_user_id=previous_lock_owner_user_id,
+                tenant_id=notification_tenant_id,
+                queue_code=QUEUE_CODE_FULFILLMENT,
+                message_text=(
+                    f"Package lock on {package_record.package_no} was force-released by {actor_id}."
+                ),
+            )
+
+    return _package_lock_release_response(
+        package_record=package_record,
+        lock=lock,
+        released=True,
+        message="Package lock released.",
+        released_by_user_id=actor_id,
+        released_at=now,
+    )
 
 
 def _ensure_request_access(
@@ -1047,6 +1161,15 @@ def _assign_pickup_release_queue(
         role_codes=FULFILLMENT_ROLE_CODES,
         tenant_id=tenant_id,
     )
+
+
+def _resolve_request_level_fulfillment_tenant_id() -> int:
+    tenant_id = operations_policy.resolve_odpem_fulfillment_tenant_id()
+    if tenant_id is None:
+        raise OperationValidationError(
+            {"tenant_scope": "ODPEM fulfillment tenant could not be resolved for request-level logistics routing."}
+        )
+    return int(tenant_id)
 
 
 def _package_lock_payload(package_id: int) -> dict[str, Any] | None:
@@ -2366,12 +2489,13 @@ def submit_eligibility_decision(
     request_record.save(update_fields=["reviewed_by_id", "reviewed_at"])
     complete_queue_assignments(entity_type=ENTITY_REQUEST, entity_id=reliefrqst_id, queue_code=QUEUE_CODE_ELIGIBILITY, actor_id=actor_id)
     if decision_code == "APPROVED":
+        fulfillment_tenant_id = _resolve_request_level_fulfillment_tenant_id()
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_FULFILLMENT,
             entity_type=ENTITY_REQUEST,
             entity_id=reliefrqst_id,
             role_codes=FULFILLMENT_ROLE_CODES,
-            tenant_id=request_record.beneficiary_tenant_id,
+            tenant_id=fulfillment_tenant_id,
         )
         create_role_notifications(
             event_code=EVENT_REQUEST_APPROVED,
@@ -2379,7 +2503,7 @@ def submit_eligibility_decision(
             entity_id=reliefrqst_id,
             message_text=f"Relief request {request.tracking_no} is approved for fulfillment.",
             role_codes=FULFILLMENT_ROLE_CODES,
-            tenant_id=request_record.beneficiary_tenant_id,
+            tenant_id=fulfillment_tenant_id,
             queue_code=QUEUE_CODE_FULFILLMENT,
         )
     else:
@@ -2485,6 +2609,43 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
     return payload
 
 
+def release_package_lock(
+    reliefrqst_id: int,
+    *,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+    force: bool = False,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(
+        request_probe,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+        write=True,
+    )
+    request_record = _sync_operations_request(request, actor_id=actor_id)
+    package = legacy_service._current_package_for_request(reliefrqst_id)
+    if package is None:
+        return _package_lock_release_response(
+            package_record=None,
+            lock=None,
+            released=False,
+            message="No current package exists for this request.",
+        )
+    package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
+    return _release_package_lock_for_record(
+        package_record,
+        request_record=request_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        force=force,
+    )
+
+
 def get_staging_recommendation(
     reliefrqst_id: int,
     *,
@@ -2575,6 +2736,7 @@ def get_item_allocation_options(
     item_id: int,
     *,
     source_warehouse_id: int,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
     actor_id: str | None = None,
     actor_roles: Iterable[str] | None = None,
     tenant_context: TenantContext,
@@ -2593,6 +2755,45 @@ def get_item_allocation_options(
         reliefrqst_id,
         item_id,
         source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
+    )
+
+
+def get_item_allocation_preview(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
+    if requested_source_warehouse_id in (_UNSET, None):
+        raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+
+    draft_allocations = payload.get("draft_allocations", [])
+    if draft_allocations is None:
+        draft_allocations = []
+    if not isinstance(draft_allocations, list):
+        raise OperationValidationError({"draft_allocations": "draft_allocations must be provided as an array."})
+
+    request = legacy_service._load_request(reliefrqst_id)
+    request_probe = _request_access_probe_from_legacy(request)
+    _ensure_fulfillment_request_access(
+        request_probe,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+    )
+    return legacy_service.get_item_allocation_preview(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=int(requested_source_warehouse_id),
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
     )
 
 
@@ -2696,12 +2897,13 @@ def save_package(
         if lines_to_create:
             OperationsAllocationLine.objects.bulk_create(lines_to_create)
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
+        fulfillment_tenant_id = _resolve_request_level_fulfillment_tenant_id()
         assign_roles_to_queue(
             queue_code=QUEUE_CODE_OVERRIDE,
             entity_type=ENTITY_REQUEST,
             entity_id=reliefrqst_id,
             role_codes=[ROLE_LOGISTICS_MANAGER],
-            tenant_id=request_record.beneficiary_tenant_id,
+            tenant_id=fulfillment_tenant_id,
         )
         create_role_notifications(
             event_code=EVENT_OVERRIDE_REQUESTED,
@@ -2709,7 +2911,7 @@ def save_package(
             entity_id=reliefrqst_id,
             message_text=f"Override approval is required for package {package.tracking_no}.",
             role_codes=[ROLE_LOGISTICS_MANAGER],
-            tenant_id=request_record.beneficiary_tenant_id,
+            tenant_id=fulfillment_tenant_id,
             queue_code=QUEUE_CODE_OVERRIDE,
         )
     elif status_code == PACKAGE_STATUS_COMMITTED:

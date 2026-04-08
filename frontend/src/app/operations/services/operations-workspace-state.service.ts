@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { EMPTY, Observable, of } from 'rxjs';
-import { catchError, tap } from 'rxjs/operators';
+import { EMPTY, Observable, of, throwError } from 'rxjs';
+import { catchError, finalize, tap } from 'rxjs/operators';
 
 import {
   AllocationCandidate,
@@ -19,6 +19,8 @@ import {
   OverrideApprovalPayload,
   PackageDetailResponse,
   PackageDraftPayload,
+  PackageLockConflict,
+  PackageLockReleaseResponse,
   PartialReleaseApprovePayload,
   PartialReleaseApproveResponse,
   PartialReleaseRequestPayload,
@@ -30,6 +32,45 @@ import {
   AllocationMethod,
 } from '../models/operations.model';
 import { OperationsService } from './operations.service';
+
+/**
+ * Attempt to parse a DMIS Operations package-lock conflict out of an HttpErrorResponse.
+ *
+ * The backend returns HTTP 400 with `{errors: {lock, lock_owner_user_id, lock_owner_role_code,
+ * lock_expires_at}}` when another actor holds the package lock. This helper lifts that shape
+ * out so the UI can present it as a first-class workflow safeguard rather than a raw toast.
+ * Returns null for any other kind of error.
+ */
+export function tryParsePackageLockConflict(
+  error: HttpErrorResponse | unknown,
+): PackageLockConflict | null {
+  if (!(error instanceof HttpErrorResponse) || error.status !== 400) {
+    return null;
+  }
+  const body = error.error as { errors?: Record<string, unknown> } | null | undefined;
+  const errors = body?.errors;
+  if (!errors || typeof errors !== 'object') {
+    return null;
+  }
+  const lockMessage = (errors as Record<string, unknown>)['lock'];
+  if (typeof lockMessage !== 'string' || !lockMessage.trim()) {
+    return null;
+  }
+  return {
+    lock: lockMessage,
+    lock_owner_user_id: asNullablePackageLockString((errors as Record<string, unknown>)['lock_owner_user_id']),
+    lock_owner_role_code: asNullablePackageLockString((errors as Record<string, unknown>)['lock_owner_role_code']),
+    lock_expires_at: asNullablePackageLockString((errors as Record<string, unknown>)['lock_expires_at']),
+  };
+}
+
+function asNullablePackageLockString(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
 
 interface WorkspaceDraft {
   source_warehouse_id: string;
@@ -70,6 +111,8 @@ export class OperationsWorkspaceStateService {
   private latestWorkspaceGeneration = 0;
   private latestSourceWarehouseRequestId = 0;
   private latestItemWarehouseRequestIds: Record<number, number> = {};
+  private latestItemPreviewRequestIds: Record<number, number> = {};
+  private latestItemAddRequestIds: Record<number, number> = {};
   private latestLegsRequestId = 0;
   private latestRecommendationRequestId = 0;
 
@@ -89,16 +132,34 @@ export class OperationsWorkspaceStateService {
   readonly loading = signal(false);
   readonly waybillLoading = signal(false);
   readonly submitting = signal(false);
+  readonly unlocking = signal(false);
 
   readonly loadError = signal<string | null>(null);
   readonly optionsError = signal<string | null>(null);
   readonly waybillError = signal<string | null>(null);
+
+  /**
+   * Captured DMIS package-lock conflict when another actor holds the lock on the current
+   * package. Set by any write path that hits the backend's lock guard; cleared by
+   * {@link load} or by a successful {@link releasePackageLock}. When non-null the workspace
+   * surfaces a first-class blocker card instead of a generic error toast.
+   */
+  readonly lockConflict = signal<PackageLockConflict | null>(null);
 
   readonly draft = signal<WorkspaceDraft>({ ...DEFAULT_DRAFT });
   readonly selectedRowsByItem = signal<Record<number, AllocationSelectionPayload[]>>({});
 
   /** Per-item warehouse overrides: item_id -> warehouse_id string. */
   readonly itemWarehouseOverrides = signal<Record<number, string>>({});
+
+  /** Warehouses currently contributing to each item: item_id -> ordered list of warehouse ids. */
+  readonly loadedWarehousesByItem = signal<Record<number, number[]>>({});
+
+  /** True per-item while a draft-aware POST preview recompute is in flight. */
+  readonly previewLoadingByItem = signal<Record<number, boolean>>({});
+
+  /** True per-item while an additive warehouse load is in flight. */
+  readonly addingWarehouseByItem = signal<Record<number, boolean>>({});
 
   /** True while a per-item warehouse switch is loading (does NOT clear existing data). */
   readonly switching = signal(false);
@@ -269,6 +330,9 @@ export class OperationsWorkspaceStateService {
     this.waybillError.set(null);
     this.selectedRowsByItem.set({});
     this.itemWarehouseOverrides.set({});
+    this.loadedWarehousesByItem.set({});
+    this.previewLoadingByItem.set({});
+    this.addingWarehouseByItem.set({});
     this.draft.set({ ...DEFAULT_DRAFT });
     this.consolidationLegs.set([]);
     this.legsError.set(null);
@@ -276,6 +340,7 @@ export class OperationsWorkspaceStateService {
     this.stagingRecommendation.set(null);
     this.recommendationError.set(null);
     this.recommendationLoading.set(false);
+    this.lockConflict.set(null);
 
     this.operationsService.getPackage(reliefrqstId).pipe(
       catchError((error: HttpErrorResponse) => {
@@ -581,6 +646,37 @@ export class OperationsWorkspaceStateService {
     );
   }
 
+  saveDraft(): Observable<PackageDetailResponse> {
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId) {
+      return EMPTY as unknown as Observable<PackageDetailResponse>;
+    }
+    const draft = this.draft();
+    const payload: PackageDraftPayload = {
+      source_warehouse_id: draft.source_warehouse_id
+        ? Number(draft.source_warehouse_id)
+        : undefined,
+      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
+      transport_mode: draft.transport_mode.trim() || undefined,
+      comments_text: draft.comments_text.trim() || undefined,
+      fulfillment_mode: draft.fulfillment_mode,
+      staging_warehouse_id: draft.staging_warehouse_id
+        ? Number(draft.staging_warehouse_id)
+        : null,
+      staging_override_reason: draft.staging_override_reason.trim() || null,
+    };
+    return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
+      tap((detail) => {
+        this.packageDetail.set(detail);
+        this.hydrateDraft(detail);
+        if (detail.package) {
+          this.reliefpkgId.set(detail.package.reliefpkg_id);
+        }
+      }),
+      catchError((error: HttpErrorResponse) => this.routeWriteError(error)),
+    );
+  }
+
   saveFulfillmentModeDraft(
     fulfillmentMode: FulfillmentMode,
     stagingWarehouseId: number | null,
@@ -620,7 +716,64 @@ export class OperationsWorkspaceStateService {
           }
         }
       }),
+      catchError((error: HttpErrorResponse) => this.routeWriteError(error)),
     );
+  }
+
+  /**
+   * Release the package lock for the current request. With `force=false` this is a
+   * self-release (only the owner may succeed). With `force=true` this is a takeover
+   * (backend enforces the LOGISTICS_MANAGER / SYSTEM_ADMINISTRATOR role rule).
+   *
+   * On any terminal response the lockConflict signal is cleared, because both a real
+   * release and a no-op response mean the blocker is no longer meaningful. A real
+   * release (`released: true`) also reloads the package so the workspace re-hydrates
+   * with lock-free state.
+   */
+  releasePackageLock(force: boolean): Observable<PackageLockReleaseResponse> {
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId || this.unlocking()) {
+      return EMPTY as unknown as Observable<PackageLockReleaseResponse>;
+    }
+    this.unlocking.set(true);
+    return this.operationsService.releasePackageLock(reliefrqstId, force).pipe(
+      tap((response) => {
+        this.lockConflict.set(null);
+        if (response.released) {
+          this.load(reliefrqstId, true);
+        }
+      }),
+      finalize(() => this.unlocking.set(false)),
+    );
+  }
+
+  /**
+   * Centralised write-path error router. If the error is a package-lock conflict,
+   * populate the blocker signal and re-throw so callers can still short-circuit via
+   * their own error handlers. All other errors pass through untouched.
+   */
+  private routeWriteError(error: unknown): Observable<never> {
+    this.captureLockConflict(error);
+    return throwError(() => error);
+  }
+
+  /**
+   * Public entry point for component-level error handlers that call write endpoints
+   * directly (e.g. commitAllocations, approveOverride via runAllocationAction). Returns
+   * true when a package-lock conflict was detected and captured, so the component can
+   * skip its own generic error snackbar.
+   */
+  captureLockConflict(error: unknown): boolean {
+    const conflict = tryParsePackageLockConflict(error);
+    if (!conflict) {
+      return false;
+    }
+    this.lockConflict.set(conflict);
+    return true;
+  }
+
+  clearLockConflict(): void {
+    this.lockConflict.set(null);
   }
 
   loadWaybill(): void {
@@ -715,6 +868,12 @@ export class OperationsWorkspaceStateService {
         this.options.set(prevOptions);
         this.selectedRowsByItem.set(prevSelections);
         this.loading.set(false);
+        const lockConflict = tryParsePackageLockConflict(error);
+        if (lockConflict) {
+          // Lock is surfaced as a first-class blocker; suppress the generic loadError banner.
+          this.lockConflict.set(lockConflict);
+          return;
+        }
         this.loadError.set(this.extractError(error, 'Failed to save package draft.'));
       },
     });
@@ -777,6 +936,11 @@ export class OperationsWorkspaceStateService {
             uom_code: line.uom_code ?? null,
           })),
         });
+        // Override is a swap, not an add — reset multi-warehouse tracking for this item.
+        this.loadedWarehousesByItem.set({
+          ...this.loadedWarehousesByItem(),
+          [itemId]: [Number(normalizedWarehouseId)],
+        });
         this.switching.set(false);
       },
       error: (error: HttpErrorResponse) => {
@@ -801,6 +965,186 @@ export class OperationsWorkspaceStateService {
         this.switching.set(false);
       },
     });
+  }
+
+  /**
+   * Add an additional warehouse to an item's allocation, preserving prior selections.
+   * Used by the multi-warehouse continuation flow when a single warehouse cannot
+   * cover the full requested quantity.
+   */
+  addItemWarehouse(itemId: number, warehouseId: number): void {
+    const reliefrqstId = this.reliefrqstId();
+    const workspaceGeneration = this.latestWorkspaceGeneration;
+    if (!reliefrqstId || !warehouseId || warehouseId <= 0) {
+      return;
+    }
+    const alreadyLoaded = this.loadedWarehousesByItem()[itemId] ?? [];
+    if (alreadyLoaded.includes(warehouseId)) {
+      return;
+    }
+
+    const requestId = (this.latestItemAddRequestIds[itemId] ?? 0) + 1;
+    this.latestItemAddRequestIds[itemId] = requestId;
+
+    this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: true }));
+
+    this.operationsService.getItemAllocationOptions(reliefrqstId, itemId, warehouseId).subscribe({
+      next: (newGroup) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
+        if (this.latestItemAddRequestIds[itemId] !== requestId) {
+          return;
+        }
+
+        const currentOptions = this.options();
+        if (!currentOptions) {
+          this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
+          return;
+        }
+
+        const existing = currentOptions.items.find((entry) => entry.item_id === itemId);
+        if (!existing) {
+          this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
+          return;
+        }
+
+        // Append candidates from the new warehouse, de-duplicating by selection key.
+        const existingKeys = new Set(existing.candidates.map((c) => this.selectionKey(c)));
+        const appendedCandidates = newGroup.candidates.filter(
+          (c) => !existingKeys.has(this.selectionKey(c)),
+        );
+        const mergedCandidates = [...existing.candidates, ...appendedCandidates];
+
+        // Append the new warehouse's suggested allocations to the existing selections.
+        const priorSelections = this.selectedRowsByItem()[itemId] ?? [];
+        const priorSelectionKeys = new Set(priorSelections.map((r) => this.selectionKey(r)));
+        const newSelections = newGroup.suggested_allocations
+          .filter((line) => !priorSelectionKeys.has(this.selectionKey(line)))
+          .map((line) => ({
+            item_id: line.item_id,
+            inventory_id: line.inventory_id,
+            batch_id: line.batch_id,
+            quantity: line.quantity,
+            source_type: line.source_type,
+            source_record_id: line.source_record_id ?? null,
+            uom_code: line.uom_code ?? null,
+          }));
+        const mergedSelections = [...priorSelections, ...newSelections];
+
+        // Merge the item group: keep prior fields, update continuation hints from the
+        // server response, and replace the candidate list with the merged one.
+        const mergedItem: AllocationItemGroup = {
+          ...existing,
+          candidates: mergedCandidates,
+          remaining_shortfall_qty: newGroup.remaining_shortfall_qty,
+          continuation_recommended: newGroup.continuation_recommended,
+          alternate_warehouses: newGroup.alternate_warehouses,
+        };
+
+        this.options.set({
+          ...currentOptions,
+          items: currentOptions.items.map((entry) =>
+            entry.item_id === itemId ? mergedItem : entry,
+          ),
+        });
+        this.selectedRowsByItem.set({
+          ...this.selectedRowsByItem(),
+          [itemId]: this.sortSelections(itemId, mergedSelections),
+        });
+        this.loadedWarehousesByItem.set({
+          ...this.loadedWarehousesByItem(),
+          [itemId]: [...alreadyLoaded, warehouseId],
+        });
+        this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
+        this.optionsError.set(null);
+
+        // Recompute draft-aware metrics now that selections have been merged.
+        this.previewItemAllocations(itemId, warehouseId);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
+        if (this.latestItemAddRequestIds[itemId] !== requestId) {
+          return;
+        }
+        this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
+        this.optionsError.set(this.extractError(error, 'Failed to load stock for this item.'));
+      },
+    });
+  }
+
+  /**
+   * Recompute the draft-aware continuation metrics for a single item against the
+   * currently-selected draft allocations. Only continuation fields are merged into
+   * the cached item group — candidates and selections are user-driven and untouched.
+   */
+  previewItemAllocations(itemId: number, sourceWarehouseId: number): void {
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId || !sourceWarehouseId || sourceWarehouseId <= 0) {
+      return;
+    }
+    const workspaceGeneration = this.latestWorkspaceGeneration;
+    const requestId = (this.latestItemPreviewRequestIds[itemId] ?? 0) + 1;
+    this.latestItemPreviewRequestIds[itemId] = requestId;
+
+    this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: true }));
+
+    const draftAllocations = (this.selectedRowsByItem()[itemId] ?? [])
+      .filter((row) => this.toNumber(row.quantity) > 0)
+      .map((row) => ({
+        item_id: row.item_id,
+        inventory_id: row.inventory_id,
+        batch_id: row.batch_id,
+        quantity: this.formatQuantity(this.toNumber(row.quantity)),
+        source_type: row.source_type ?? 'ON_HAND',
+        source_record_id: row.source_record_id ?? null,
+        uom_code: row.uom_code ?? null,
+      }));
+
+    this.operationsService
+      .previewItemAllocationOptions(reliefrqstId, itemId, {
+        source_warehouse_id: sourceWarehouseId,
+        draft_allocations: draftAllocations,
+      })
+      .subscribe({
+        next: (preview) => {
+          if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+            return;
+          }
+          if (this.latestItemPreviewRequestIds[itemId] !== requestId) {
+            return;
+          }
+          const currentOptions = this.options();
+          if (currentOptions) {
+            const updatedItems = currentOptions.items.map((existing) =>
+              existing.item_id === itemId
+                ? {
+                    ...existing,
+                    remaining_shortfall_qty: preview.remaining_shortfall_qty,
+                    continuation_recommended: preview.continuation_recommended,
+                    alternate_warehouses: preview.alternate_warehouses,
+                    draft_selected_qty: preview.draft_selected_qty,
+                    effective_remaining_qty: preview.effective_remaining_qty,
+                  }
+                : existing,
+            );
+            this.options.set({ ...currentOptions, items: updatedItems });
+          }
+          this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: false }));
+        },
+        error: () => {
+          if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+            return;
+          }
+          if (this.latestItemPreviewRequestIds[itemId] !== requestId) {
+            return;
+          }
+          // Soft-fail: continuation hint just won't refresh; don't disrupt the user.
+          this.previewLoadingByItem.update((map) => ({ ...map, [itemId]: false }));
+        },
+      });
   }
 
   /** Clear all per-item warehouse overrides and reload with the default warehouse. */
@@ -850,12 +1194,14 @@ export class OperationsWorkspaceStateService {
       })),
     };
     this.selectedRowsByItem.set(next);
+    this.maybeRefreshContinuationPreview(itemId);
   }
 
   clearItemSelection(itemId: number): void {
     const next = { ...this.selectedRowsByItem() };
     next[itemId] = [];
     this.selectedRowsByItem.set(next);
+    this.maybeRefreshContinuationPreview(itemId);
   }
 
   setCandidateQuantity(itemId: number, candidate: AllocationCandidate, quantity: number): void {
@@ -888,6 +1234,33 @@ export class OperationsWorkspaceStateService {
       ...this.selectedRowsByItem(),
       [itemId]: this.sortSelections(itemId, rows),
     });
+    this.maybeRefreshContinuationPreview(itemId);
+  }
+
+  /**
+   * Recompute the draft-aware continuation hints whenever an item's selections
+   * change AND continuation guidance is currently active for that item. Guidance
+   * is active when the backend recommends continuation (single warehouse, has
+   * shortfall) OR when the item is already spread across multiple warehouses
+   * (in which case effective_remaining_qty is the only honest figure). Items
+   * with no continuation guidance skip the preview entirely.
+   */
+  private maybeRefreshContinuationPreview(itemId: number): void {
+    const loaded = this.loadedWarehousesByItem()[itemId] ?? [];
+    if (loaded.length === 0) {
+      return;
+    }
+    const item = this.getItemGroup(itemId);
+    const continuationActive =
+      (item?.continuation_recommended ?? false) || loaded.length > 1;
+    if (!continuationActive) {
+      return;
+    }
+    const previewWarehouseId = loaded[loaded.length - 1];
+    if (!previewWarehouseId) {
+      return;
+    }
+    this.previewItemAllocations(itemId, previewWarehouseId);
   }
 
   getSelectedRows(itemId: number): AllocationSelectionPayload[] {
@@ -1133,6 +1506,8 @@ export class OperationsWorkspaceStateService {
     this.latestWorkspaceGeneration += 1;
     this.latestSourceWarehouseRequestId = 0;
     this.latestItemWarehouseRequestIds = {};
+    this.latestItemPreviewRequestIds = {};
+    this.latestItemAddRequestIds = {};
     this.latestLegsRequestId = 0;
     this.latestRecommendationRequestId = 0;
     return this.latestWorkspaceGeneration;
@@ -1148,6 +1523,7 @@ export class OperationsWorkspaceStateService {
   ): void {
     const committed = detail?.allocation?.allocation_lines ?? [];
     const nextSelections: Record<number, AllocationSelectionPayload[]> = {};
+    const nextLoadedWarehouses: Record<number, number[]> = {};
     for (const item of options.items) {
       const itemCommitted = committed.filter((line) => line.item_id === item.item_id);
       if (itemCommitted.length) {
@@ -1163,19 +1539,28 @@ export class OperationsWorkspaceStateService {
             uom_code: line.uom_code ?? null,
           })),
         );
-        continue;
+      } else {
+        nextSelections[item.item_id] = item.suggested_allocations.map((line) => ({
+          item_id: line.item_id,
+          inventory_id: line.inventory_id,
+          batch_id: line.batch_id,
+          quantity: line.quantity,
+          source_type: line.source_type,
+          source_record_id: line.source_record_id ?? null,
+          uom_code: line.uom_code ?? null,
+        }));
       }
-      nextSelections[item.item_id] = item.suggested_allocations.map((line) => ({
-        item_id: line.item_id,
-        inventory_id: line.inventory_id,
-        batch_id: line.batch_id,
-        quantity: line.quantity,
-        source_type: line.source_type,
-        source_record_id: line.source_record_id ?? null,
-        uom_code: line.uom_code ?? null,
-      }));
+
+      const seededWarehouseId =
+        item.source_warehouse_id != null
+          ? Number(item.source_warehouse_id)
+          : Number(this.sourceWarehouseId() || 0);
+      if (Number.isFinite(seededWarehouseId) && seededWarehouseId > 0) {
+        nextLoadedWarehouses[item.item_id] = [seededWarehouseId];
+      }
     }
     this.selectedRowsByItem.set(nextSelections);
+    this.loadedWarehousesByItem.set(nextLoadedWarehouses);
   }
 
   private getItemGroup(itemId: number): AllocationItemGroup | undefined {

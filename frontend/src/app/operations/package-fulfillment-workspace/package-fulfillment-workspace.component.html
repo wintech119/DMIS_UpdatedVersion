@@ -41,6 +41,18 @@
     </dmis-empty-state>
   }
 
+  @if (store.lockConflict(); as conflict) {
+    <app-ops-package-lock-state
+      [conflict]="conflict"
+      [currentUserRef]="auth.currentUserRef()"
+      [currentUserRoles]="auth.roles()"
+      [unlocking]="store.unlocking()"
+      [refreshing]="store.loading()"
+      (refresh)="onRefreshAfterLockConflict()"
+      (releaseOwn)="onReleaseOwnLock()"
+      (forceRelease)="onForceReleaseLock()" />
+  }
+
   @if (!store.loading() && !store.loadError() && packageDetail(); as detail) {
     <app-ops-metric-strip [items]="workspaceMetrics()" />
 
@@ -154,6 +166,7 @@
       </div>
     </div>
 
+    @if (!store.lockConflict()) {
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
@@ -168,6 +181,16 @@
           <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
+            @if (canSaveDraft()) {
+              <button
+                mat-stroked-button
+                type="button"
+                [disabled]="savingDraft() || store.submitting() || store.loading()"
+                (click)="saveDraft()">
+                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
+                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
+              </button>
+            }
             <button mat-flat-button color="primary" type="button" (click)="goToDetails()">Continue</button>
           </div>
         </div>
@@ -179,6 +202,16 @@
           <app-fulfillment-details-step [lockOperationalFields]="lockOperationalFields()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            @if (canSaveDraft()) {
+              <button
+                mat-stroked-button
+                type="button"
+                [disabled]="savingDraft() || store.submitting() || store.loading()"
+                (click)="saveDraft()">
+                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
+                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
+              </button>
+            }
             <button mat-flat-button color="primary" type="button" (click)="goToReview()">Review Reservation</button>
           </div>
         </div>
@@ -193,6 +226,16 @@
             [canApproveOverride]="canApprovePendingOverride()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            @if (canSaveDraft()) {
+              <button
+                mat-stroked-button
+                type="button"
+                [disabled]="savingDraft() || store.submitting() || store.loading()"
+                (click)="saveDraft()">
+                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
+                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
+              </button>
+            }
             <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
               <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
               {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
@@ -237,5 +280,6 @@
         </div>
       </mat-step>
     </mat-stepper>
+    }
   }
 </div>
