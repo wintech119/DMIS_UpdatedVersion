@@ -409,6 +409,8 @@ export class ExecutionWorkspaceStateService {
       if (!draft.override_reason_code.trim()) {
         errors.push('Select an override reason before submitting a bypassed plan.');
       }
+    }
+    if (this.hasPendingOverride()) {
       if (!draft.override_note.trim()) {
         errors.push('Add an override note before submitting a bypassed plan.');
       }

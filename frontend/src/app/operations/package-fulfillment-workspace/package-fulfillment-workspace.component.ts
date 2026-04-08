@@ -42,7 +42,6 @@ import {
   formatExecutionStatus,
   formatPackageStatus,
   formatUrgency,
-  isOverrideApproverRole,
 } from '../models/operations-status.util';
 
 interface FulfillmentConfirmationState {
@@ -120,11 +119,22 @@ export class PackageFulfillmentWorkspaceComponent {
     )
   );
 
+  readonly canSubmitOverrideRequest = computed(() =>
+    this.hasOperationsAccess()
+    && this.hasRole('LOGISTICS_OFFICER', 'TST_LOGISTICS_OFFICER')
+    && !this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
+    && this.auth.hasPermission('operations.package.override_request')
+  );
+
   readonly canApprovePendingOverride = computed(() => {
-    if (!this.store.hasPendingOverride() || !this.hasOperationsAccess()) {
+    if (
+      !this.store.hasPendingOverride()
+      || !this.hasOperationsAccess()
+      || !this.auth.hasPermission('operations.package.override_approve')
+    ) {
       return false;
     }
-    if (!isOverrideApproverRole(this.auth.roles())) {
+    if (!this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')) {
       return false;
     }
     return !this.isNoSelfApprovalBlocked();
@@ -133,7 +143,9 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly lockPlanEdits = computed(() => this.store.hasPendingOverride());
   readonly lockOperationalFields = computed(() => this.store.hasPendingOverride());
   readonly commitActionDisabled = computed(() =>
-    this.store.submitting() || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
+    this.store.submitting()
+    || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
+    || (this.store.planRequiresOverride() && !this.store.hasPendingOverride() && !this.canSubmitOverrideRequest())
   );
 
   readonly overrideApprovalHint = computed(() => {
@@ -147,6 +159,9 @@ export class PackageFulfillmentWorkspaceComponent {
       return 'This plan is waiting for override approval. Review the details, then approve or return it.';
     }
     if (this.store.planRequiresOverride()) {
+      if (!this.canSubmitOverrideRequest()) {
+        return 'Only a Logistics Officer can submit this override request. Logistics Managers approve only after the package enters pending override approval.';
+      }
       return 'This plan needs manager approval before it can be dispatched.';
     }
     return null;
@@ -160,6 +175,9 @@ export class PackageFulfillmentWorkspaceComponent {
       return 'Awaiting Override Approval';
     }
     if (this.store.planRequiresOverride()) {
+      if (!this.canSubmitOverrideRequest()) {
+        return 'Override Submission Restricted';
+      }
       return 'Submit Override For Approval';
     }
     if (this.store.hasCommittedAllocation()) {
@@ -370,6 +388,13 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
 
+    if (this.store.planRequiresOverride() && !this.canSubmitOverrideRequest()) {
+      this.notifications.showWarning(
+        'Only a Logistics Officer can submit this override request. Logistics Managers approve it after submission.',
+      );
+      return;
+    }
+
     const { payload, errors } = this.store.buildCommitPayload();
     if (!payload || errors.length) {
       this.submissionErrors.set(errors);
@@ -500,11 +525,18 @@ export class PackageFulfillmentWorkspaceComponent {
       if (!draft.override_reason_code.trim()) {
         errors.push('Select an override reason before continuing.');
       }
-      if (!draft.override_note.trim()) {
-        errors.push('Add an override note before continuing.');
+      if (this.store.hasPendingOverride() && !draft.override_note.trim()) {
+        errors.push(
+          'Add an override note before continuing.',
+        );
       }
     }
     return [...new Set(errors)];
+  }
+
+  private hasRole(...expectedRoles: string[]): boolean {
+    const normalized = new Set(this.auth.roles().map((role) => String(role).trim().toUpperCase()));
+    return expectedRoles.some((role) => normalized.has(role.trim().toUpperCase()));
   }
 
   private buildConfirmationState(

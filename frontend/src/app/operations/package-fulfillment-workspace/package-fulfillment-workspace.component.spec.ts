@@ -25,6 +25,7 @@ import {
   PackageSummary,
   RequestSummary,
 } from '../models/operations.model';
+import { AllocationItemGroup } from '../models/operations.model';
 
 // Stub replacements for the heavy fulfillment step children. They keep the parent
 // template binding surface intact without dragging in their MasterDataService /
@@ -65,6 +66,13 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
   let operationsService: jasmine.SpyObj<OperationsService>;
   let dialog: jasmine.SpyObj<MatDialog>;
   let notifications: jasmine.SpyObj<DmisNotificationService>;
+  let fakeAuth: {
+    load: jasmine.Spy;
+    hasPermission: jasmine.Spy;
+    roles: ReturnType<typeof signal<readonly string[]>>;
+    currentUserRef: ReturnType<typeof signal<string | null>>;
+    permissions: ReturnType<typeof signal<readonly string[]>>;
+  };
 
   const LOCK_CONFLICT: PackageLockConflict = {
     lock: 'Package is locked by another fulfillment actor.',
@@ -135,6 +143,53 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
     };
   }
 
+  function buildOverrideItemGroup(): AllocationItemGroup {
+    return {
+      item_id: 44,
+      item_code: 'WATER-044',
+      item_name: 'Portable Water Container',
+      request_qty: '2',
+      issue_qty: '0',
+      remaining_qty: '2',
+      urgency_ind: 'H',
+      candidates: [
+        {
+          batch_id: 1001,
+          inventory_id: 9001,
+          item_id: 44,
+          usable_qty: '10',
+          reserved_qty: '0',
+          available_qty: '10',
+          source_type: 'ON_HAND',
+          can_expire_flag: true,
+          issuance_order: 'FEFO',
+          batch_no: 'B-1001',
+        },
+        {
+          batch_id: 1002,
+          inventory_id: 9002,
+          item_id: 44,
+          usable_qty: '10',
+          reserved_qty: '0',
+          available_qty: '10',
+          source_type: 'ON_HAND',
+          can_expire_flag: true,
+          issuance_order: 'FEFO',
+          batch_no: 'B-1002',
+        },
+      ],
+      suggested_allocations: [],
+      remaining_after_suggestion: '0',
+      can_expire_flag: true,
+      issuance_order: 'FEFO',
+      compliance_markers: ['allocation_order_override'],
+      override_required: false,
+      remaining_shortfall_qty: '0',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+    };
+  }
+
   beforeEach(async () => {
     operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
       'getPackage',
@@ -163,7 +218,7 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       'showSuccess',
     ]);
 
-    const fakeAuth = {
+    fakeAuth = {
       load: jasmine.createSpy('load'),
       hasPermission: jasmine.createSpy('hasPermission').and.returnValue(true),
       roles: signal<readonly string[]>(['LOGISTICS_MANAGER']),
@@ -327,6 +382,62 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       const host = fixture.nativeElement as HTMLElement;
       expect(host.querySelector('app-ops-package-lock-state')).toBeNull();
       expect(host.querySelector('mat-stepper')).not.toBeNull();
+    });
+  });
+
+  describe('override workflow gating', () => {
+    function populateOverrideSelection(): void {
+      component.store.reliefrqstId.set(95009);
+      component.store.packageDetail.set(buildPackageDetail());
+      component.store.options.set({
+        request: { reliefrqst_id: 95009 } as unknown as RequestSummary,
+        items: [buildOverrideItemGroup()],
+      });
+      component.store.selectedRowsByItem.set({
+        44: [
+          {
+            item_id: 44,
+            inventory_id: 9002,
+            batch_id: 1002,
+            quantity: '2',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+            uom_code: 'EA',
+          },
+        ],
+      });
+      component.store.patchDraft({
+        override_reason_code: 'FEFO_BYPASS',
+        override_note: 'Needs manager approval',
+      });
+    }
+
+    it('lets logistics officers submit override requests', () => {
+      fakeAuth.roles.set(['LOGISTICS_OFFICER']);
+      populateOverrideSelection();
+
+      expect(component.canSubmitOverrideRequest()).toBeTrue();
+      expect(component.commitActionDisabled()).toBeFalse();
+      expect(component.commitActionLabel()).toBe('Submit Override For Approval');
+    });
+
+    it('does not require an approval note for order-only bypasses', () => {
+      populateOverrideSelection();
+      component.store.patchDraft({ override_note: '' });
+
+      const errors = (component as unknown as { collectDetailErrors(): string[] }).collectDetailErrors();
+
+      expect(errors).toEqual([]);
+    });
+
+    it('blocks logistics managers from using the override-request action before pending approval exists', () => {
+      fakeAuth.roles.set(['LOGISTICS_MANAGER']);
+      populateOverrideSelection();
+
+      expect(component.canSubmitOverrideRequest()).toBeFalse();
+      expect(component.commitActionDisabled()).toBeTrue();
+      expect(component.commitActionLabel()).toBe('Override Submission Restricted');
+      expect(component.overrideApprovalHint()).toContain('Only a Logistics Officer can submit this override request.');
     });
   });
 });

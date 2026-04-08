@@ -1139,6 +1139,13 @@ def _reservation_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset({"insufficient_on_hand_stock"})
+
+
+def _approval_required_override_markers(markers: Sequence[str]) -> list[str]:
+    return [marker for marker in markers if marker in _APPROVAL_REQUIRED_OVERRIDE_MARKERS]
+
+
 def _load_package_plan_with_source_info(package_id: int) -> list[dict[str, Any]]:
     rows = _load_package_rows(package_id)
     if not rows:
@@ -1538,23 +1545,29 @@ def commit_allocation(
             _fetch_batch_candidates(int(needs_list.warehouse_id), int(item_id)),
         )
 
-    override_required = False
     override_markers: list[str] = []
     for item_id, rows in _package_plan_map(selected_rows).items():
         candidates = candidate_by_item.get(item_id, [])
         target_qty = sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0"))
         recommended, remaining = build_greedy_allocation_plan(candidates, target_qty)
         if remaining > 0:
-            override_required = True
             override_markers.append("insufficient_on_hand_stock")
         if _group_plan_rows(recommended) != rows:
-            override_required = True
             override_markers.append("allocation_order_override")
+    override_markers = list(dict.fromkeys(override_markers))
+    approval_markers = _approval_required_override_markers(override_markers)
+    override_required = bool(approval_markers)
 
-    if override_required:
-        if not override_reason_code or not override_note:
+    if override_markers:
+        if not override_reason_code:
             raise OverrideApprovalError(
-                "Override reason code and note are required for non-compliant allocations.",
+                "Override reason code is required for non-compliant allocations.",
+                code="override_details_missing",
+            )
+    if override_required:
+        if not override_note:
+            raise OverrideApprovalError(
+                "Override note is required for allocations awaiting approval.",
                 code="override_details_missing",
             )
         if not allow_pending_override:
@@ -1584,7 +1597,7 @@ def commit_allocation(
         package_id=package.reliefpkg_id,
         plan_rows=selected_rows,
         actor_user_id=actor_user_id,
-        notes=override_note or f"NL:{needs_list.needs_list_id}:{needs_list.needs_list_no}",
+        notes=(override_reason_code or override_note) or f"NL:{needs_list.needs_list_id}:{needs_list.needs_list_no}",
     )
 
     if not override_required or not allow_pending_override:

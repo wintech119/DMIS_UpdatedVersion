@@ -363,7 +363,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         <p class="detail__notice detail__notice--warning" role="status">
           <mat-icon aria-hidden="true">policy</mat-icon>
           This selection no longer matches the system's {{ item().issuance_order }} recommendation.
-          Submit an override reason in the next step.
+          Capture an override reason in the next step.
         </p>
       }
     </div>

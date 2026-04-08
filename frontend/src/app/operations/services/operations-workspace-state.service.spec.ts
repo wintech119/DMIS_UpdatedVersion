@@ -11,6 +11,7 @@ import {
   AllocationCandidate,
   AllocationItemGroup,
   AllocationOptionsResponse,
+  AllocationCommitPayload,
   PackageDetailResponse,
   PackageDraftPayload,
   PackageLockReleaseResponse,
@@ -356,6 +357,107 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     // hydrateDraft should also have reflected the response transport/comments into the draft signal.
     expect(service.draft().transport_mode).toBe('TRUCK');
     expect(service.draft().comments_text).toBe('Saved from draft');
+  });
+});
+
+describe('OperationsWorkspaceStateService.buildCommitPayload', () => {
+  function buildCandidate(): AllocationCandidate {
+    return {
+      batch_id: 1001,
+      inventory_id: 9001,
+      item_id: 44,
+      usable_qty: '10',
+      reserved_qty: '0',
+      available_qty: '10',
+      source_type: 'ON_HAND',
+      can_expire_flag: true,
+      issuance_order: 'FEFO',
+      batch_no: 'B-1001',
+    };
+  }
+
+  function buildOverrideCandidate(): AllocationCandidate {
+    return {
+      batch_id: 1002,
+      inventory_id: 9002,
+      item_id: 44,
+      usable_qty: '10',
+      reserved_qty: '0',
+      available_qty: '10',
+      source_type: 'ON_HAND',
+      can_expire_flag: true,
+      issuance_order: 'FEFO',
+      batch_no: 'B-1002',
+    };
+  }
+
+  function buildItemGroup(): AllocationItemGroup {
+    return {
+      item_id: 44,
+      item_code: 'WATER-044',
+      item_name: 'Portable Water Container',
+      request_qty: '2',
+      issue_qty: '0',
+      remaining_qty: '2',
+      urgency_ind: 'H',
+      candidates: [buildCandidate(), buildOverrideCandidate()],
+      suggested_allocations: [],
+      remaining_after_suggestion: '0',
+      can_expire_flag: true,
+      issuance_order: 'FEFO',
+      compliance_markers: ['allocation_order_override'],
+      override_required: false,
+      remaining_shortfall_qty: '0',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+    };
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        { provide: OperationsService, useValue: {} },
+      ],
+    });
+  });
+
+  it('includes override metadata when the selected plan bypasses allocation rules', () => {
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.options.set({
+      request: { reliefrqst_id: 95009 } as unknown as RequestSummary,
+      items: [buildItemGroup()],
+    });
+    service.patchDraft({
+      source_warehouse_id: '9001',
+      override_reason_code: ' FEFO_BYPASS ',
+      override_note: ' Needs manager approval ',
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9002,
+          batch_id: 1002,
+          quantity: '2',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    const result = service.buildCommitPayload();
+
+    expect(result.errors).toEqual([]);
+    expect(result.payload).toEqual(
+      jasmine.objectContaining<AllocationCommitPayload>({
+        source_warehouse_id: 9001,
+        override_reason_code: 'FEFO_BYPASS',
+        override_note: 'Needs manager approval',
+      }),
+    );
   });
 });
 

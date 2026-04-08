@@ -348,6 +348,8 @@ export interface AllocationCommitPayload {
   to_inventory_id?: number;
   transport_mode?: string;
   comments_text?: string;
+  override_reason_code?: string;
+  override_note?: string;
   allocations: AllocationSelectionPayload[];
 }
 

@@ -88,8 +88,8 @@ interface ReviewGroup {
         <div class="ops-callout ops-callout--warning" role="status">
           <mat-icon aria-hidden="true">policy</mat-icon>
           <span>
-            This selection bypasses the backend recommendation. The reservation will route for narrow override approval
-            before dispatch can continue.
+            This selection bypasses the backend recommendation. Record the override reason before you commit the
+            reservation.
           </span>
         </div>
       }

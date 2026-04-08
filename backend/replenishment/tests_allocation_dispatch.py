@@ -491,6 +491,131 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertEqual([row["batch_id"] for row in recommended], [100])
         self.assertIn("allocation_order_override", markers)
 
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 1,
+                    "inventory_id": 10,
+                    "batch_id": 100,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": "EA",
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_commits_order_override_with_reason_code_only(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        _mock_sort_candidates,
+        _mock_allocation_plan,
+        upsert_rows_mock,
+        stock_delta_mock,
+        _log_audit_mock,
+        header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
+        mock_load_needs_items.return_value = [SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=1,
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+
+        result = commit_allocation(
+            LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+            [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+            actor_user_id="tester",
+            override_reason_code="FEFO_BYPASS",
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(result["status"], "COMMITTED")
+        self.assertFalse(result["override_required"])
+        self.assertEqual(result["override_markers"], ["allocation_order_override"])
+        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
+        stock_delta_mock.assert_called_once()
+        header_updates_mock.assert_called_once()
+
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 1,
+                    "inventory_id": 10,
+                    "batch_id": 100,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": "EA",
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_requires_reason_code_for_order_override(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        _mock_sort_candidates,
+        _mock_allocation_plan,
+        _header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
+        mock_load_needs_items.return_value = [SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=1,
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+
+        with self.assertRaises(OverrideApprovalError) as raised:
+            commit_allocation(
+                LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+                [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+                actor_user_id="tester",
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(raised.exception.code, "override_details_missing")
+
     def test_validate_override_approval_rejects_self_approval_and_bad_roles(self) -> None:
         with self.assertRaises(OverrideApprovalError):
             validate_override_approval(

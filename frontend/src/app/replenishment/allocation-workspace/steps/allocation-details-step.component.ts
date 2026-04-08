@@ -128,9 +128,13 @@ import { ExecutionWorkspaceStateService } from '../../execution/services/executi
       @if (store.planRequiresOverride() || store.hasPendingOverride()) {
         <div class="details-override">
           <div class="details-override__header">
-            <h3>Rule Bypass Visibility</h3>
+            <h3>{{ store.hasPendingOverride() ? 'Override Approval' : 'Order Override' }}</h3>
             <p>
-              The current plan bypasses the recommended stock order. A supervisor must be able to see why this happened.
+              {{
+                store.hasPendingOverride()
+                  ? 'This reservation is awaiting approval because a blocking allocation rule was bypassed.'
+                  : 'The current plan bypasses the recommended stock order. Record the reason before committing.'
+              }}
             </p>
           </div>
 
@@ -146,20 +150,22 @@ import { ExecutionWorkspaceStateService } from '../../execution/services/executi
                   <mat-option [value]="option.value">{{ option.label }}</mat-option>
                 }
               </mat-select>
-              <mat-hint>Visible to supervisors when a FEFO/FIFO or source order bypass is submitted.</mat-hint>
+              <mat-hint>Recorded with the saved allocation when the recommended stock order is bypassed.</mat-hint>
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="details-field details-field--full">
-              <mat-label>Override Note</mat-label>
-              <textarea
-                matInput
-                rows="4"
-                [ngModel]="draft().override_note"
-                (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
-                placeholder="Explain the operational reason for the rule bypass"
-                [disabled]="lockOperationalFields"
-              ></textarea>
-            </mat-form-field>
+            @if (store.hasPendingOverride()) {
+              <mat-form-field appearance="outline" class="details-field details-field--full">
+                <mat-label>Override Note</mat-label>
+                <textarea
+                  matInput
+                  rows="4"
+                  [ngModel]="draft().override_note"
+                  (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
+                  placeholder="Explain the operational reason for the rule bypass"
+                  [disabled]="lockOperationalFields"
+                ></textarea>
+              </mat-form-field>
+            }
           </div>
         </div>
       }

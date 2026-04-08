@@ -130,8 +130,14 @@ import {
           <div class="ops-details__override-header">
             <mat-icon aria-hidden="true">warning_amber</mat-icon>
             <div>
-              <strong>Rule Bypass</strong>
-              <span>Plan deviates from recommended stock order.</span>
+              <strong>{{ store.hasPendingOverride() ? 'Override Approval' : 'Order Override' }}</strong>
+              <span>
+                {{
+                  store.hasPendingOverride()
+                    ? 'This reservation is awaiting approval because a blocking allocation rule was bypassed.'
+                    : 'Plan deviates from the recommended stock order. Capture the reason before committing.'
+                }}
+              </span>
             </div>
           </div>
 
@@ -149,17 +155,19 @@ import {
               </mat-select>
             </mat-form-field>
 
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Override Note</mat-label>
-              <textarea
-                matInput
-                rows="2"
-                [ngModel]="draft().override_note"
-                (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
-                placeholder="Operational reason for the bypass"
-                [disabled]="lockOperationalFields"
-              ></textarea>
-            </mat-form-field>
+            @if (store.hasPendingOverride()) {
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Override Note</mat-label>
+                <textarea
+                  matInput
+                  rows="2"
+                  [ngModel]="draft().override_note"
+                  (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
+                  placeholder="Operational reason for the bypass"
+                  [disabled]="lockOperationalFields"
+                ></textarea>
+              </mat-form-field>
+            }
           </div>
         </div>
       }

@@ -22,6 +22,7 @@ from operations.constants import (
     ROLE_LOGISTICS_OFFICER,
 )
 from operations.models import (
+    OperationsAllocationLine,
     OperationsNotification,
     OperationsPackage,
     OperationsPackageLock,
@@ -31,8 +32,6 @@ from operations.models import (
     TenantHierarchy,
     TenantRequestPolicy,
 )
-
-
 class ImportReliefManagementAuthorityCommandTests(TestCase):
     def _write_payload(self, payload: dict[str, object]) -> str:
         fd, raw_path = tempfile.mkstemp(
@@ -1093,3 +1092,88 @@ class ReleasePackageLockCommandTests(TestCase):
         text = output.getvalue()
         self.assertIn("No active package lock found for this package.", text)
         self.assertIn("released: False", text)
+
+
+class ResetPackageAllocationsCommandTests(TestCase):
+    def _create_request(self, *, relief_request_id: int = 95009, request_no: str = "RQ95009") -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 4, 7),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_package(self, *, request_record: OperationsReliefRequest) -> OperationsPackage:
+        return OperationsPackage.objects.create(
+            package_id=95027,
+            package_no="PK95027",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=request_record.beneficiary_tenant_id,
+            destination_agency_id=request_record.beneficiary_agency_id,
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=1,
+    )
+    def test_dry_run_shows_current_allocation_counts(self, _legacy_count_mock) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_status="ACTIVE",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=1,
+            batch_id=1001,
+            quantity="2.0000",
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        output = StringIO()
+
+        call_command("reset_package_allocations", request_no="RQ95009", stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("Package allocation reset:", text)
+        self.assertIn("operations_allocation_lines: 1", text)
+        self.assertIn("legacy_allocation_lines: 1", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch("operations.management.commands.reset_package_allocations.contract_services.reset_package_allocations")
+    def test_apply_delegates_to_cleanup_service(self, reset_mock) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        reset_mock.return_value = {
+            "status": "DRAFT",
+            "operations_allocation_lines_deleted": 3,
+            "legacy_allocation_lines_deleted": 2,
+            "released_stock_summary": {"line_count": 3, "total_qty": "450.0000"},
+        }
+        output = StringIO()
+
+        call_command("reset_package_allocations", request_no="RQ95009", apply=True, stdout=output)
+
+        reset_mock.assert_called_once_with(95027, actor_id="SYSTEM")
+        text = output.getvalue()
+        self.assertIn("Package allocations reset.", text)
+        self.assertIn("operations_allocation_lines_deleted: 3", text)
+        self.assertIn("released_stock_total_qty: 450.0000", text)

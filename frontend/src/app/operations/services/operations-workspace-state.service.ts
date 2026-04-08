@@ -172,8 +172,19 @@ export class OperationsWorkspaceStateService {
   );
 
   readonly hasCommittedAllocation = computed(() => {
-    const alloc = this.packageDetail()?.allocation;
-    return (alloc?.allocation_lines?.length ?? 0) > 0;
+    const detail = this.packageDetail();
+    if (!detail) {
+      return false;
+    }
+    const lines = detail.allocation?.allocation_lines?.length ?? 0;
+    if (lines === 0) {
+      return false;
+    }
+    // Draft packages (new 'DRAFT' and legacy 'A') may carry allocation lines
+    // from a prior Save Draft but are not yet committed. Only packages in a
+    // non-draft status with allocation lines count as committed.
+    const status = String(detail.package?.status_code ?? '').trim().toUpperCase();
+    return status !== 'DRAFT' && status !== 'A';
   });
 
   readonly hasPendingOverride = computed(() => {
@@ -1397,6 +1408,8 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: this.draft().to_inventory_id ? Number(this.draft().to_inventory_id) : undefined,
       transport_mode: this.draft().transport_mode.trim() || undefined,
       comments_text: this.draft().comments_text.trim() || undefined,
+      override_reason_code: this.planRequiresOverride() ? (this.draft().override_reason_code.trim() || undefined) : undefined,
+      override_note: this.planRequiresOverride() ? (this.draft().override_note.trim() || undefined) : undefined,
     };
     return { payload, errors: [] };
   }
@@ -1444,12 +1457,16 @@ export class OperationsWorkspaceStateService {
     if (!pkg) {
       return;
     }
+    const storedOverrideReason =
+      detail.allocation?.allocation_lines.find((line) => !!String(line.override_reason_code ?? '').trim())
+        ?.override_reason_code ?? '';
     this.draft.update((d) => ({
       ...d,
       source_warehouse_id: pkg.source_warehouse_id != null ? String(pkg.source_warehouse_id) : (d.source_warehouse_id || ''),
       to_inventory_id: d.to_inventory_id || (pkg.to_inventory_id != null ? String(pkg.to_inventory_id) : ''),
       transport_mode: d.transport_mode || pkg.transport_mode || '',
       comments_text: d.comments_text || pkg.comments_text || '',
+      override_reason_code: d.override_reason_code || storedOverrideReason,
       fulfillment_mode: (pkg.fulfillment_mode ?? d.fulfillment_mode ?? 'DIRECT') as FulfillmentMode,
       staging_warehouse_id:
         pkg.staging_warehouse_id != null
@@ -1671,26 +1688,12 @@ export class OperationsWorkspaceStateService {
   }
 
   private getDerivedSourceWarehouseId(): number | undefined {
+    // Only send a package-level default when the user explicitly set one in the
+    // draft. Do NOT fall back to the persisted package value or a value inferred
+    // from per-item selections — per-item warehouse selection is first-class
+    // and must not fabricate a default that the backend would persist.
     const explicitSourceWarehouseId = this.sanitizeInteger(this.draft().source_warehouse_id);
-    if (explicitSourceWarehouseId) {
-      return Number(explicitSourceWarehouseId);
-    }
-
-    const packageSourceWarehouseId = this.packageDetail()?.package?.source_warehouse_id;
-    if (packageSourceWarehouseId != null) {
-      return Number(packageSourceWarehouseId);
-    }
-
-    const selectedWarehouseIds = [...new Set(
-      Object.values(this.selectedRowsByItem())
-      .flat()
-      .filter((row) => this.toNumber(row.quantity) > 0 && Number(row.inventory_id) > 0)
-      .map((row) => Number(row.inventory_id)),
-    )];
-    if (selectedWarehouseIds.length === 1) {
-      return selectedWarehouseIds[0];
-    }
-    return undefined;
+    return explicitSourceWarehouseId ? Number(explicitSourceWarehouseId) : undefined;
   }
 
   private buildDraftAllocationSelections(): AllocationSelectionPayload[] {

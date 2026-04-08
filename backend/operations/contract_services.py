@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Sequence
 
-from django.db import DatabaseError, IntegrityError, transaction
+from django.conf import settings
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
@@ -14,7 +15,7 @@ from api.rbac import (
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
     PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
 )
-from api.tenancy import TenantContext, can_access_tenant
+from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
 from masterdata.services.data_access import get_lookup
 from operations import policy as operations_policy
 from operations.constants import (
@@ -85,6 +86,7 @@ from operations.constants import (
     REQUEST_STATUS_REJECTED,
     REQUEST_STATUS_SUBMITTED,
     REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+    ROLE_LOGISTICS_OFFICER,
     ROLE_LOGISTICS_MANAGER,
     ROLE_SYSTEM_ADMINISTRATOR,
     STAGING_SELECTION_BASIS_MANUAL_OVERRIDE,
@@ -119,13 +121,45 @@ from operations.workflow import (
     create_user_notification,
     record_status_transition,
 )
-from operations import services as legacy_service
 from operations.staging_selection import (
     beneficiary_parish_code_for_request,
     get_staging_hub_details,
     recommend_staging_hub,
 )
+from replenishment.models import NeedsListExecutionLink
+from replenishment.services import data_access
+from replenishment.services.allocation_dispatch import (
+    DispatchError,
+    LegacyWorkflowContext,
+    OptimisticLockError,
+    OverrideApprovalError,
+    _advance_transfer_rows,
+    _apply_package_header_updates,
+    _apply_stock_delta_for_rows,
+    _as_iso,
+    _current_package_status,
+    _fetch_batch_candidates,
+    _group_plan_rows,
+    _load_package_plan_with_source_info,
+    _next_int_id,
+    _package_plan_map,
+    _qualified_table,
+    _quantize_qty,
+    _request_completion_status,
+    _selected_plan_for_package,
+    _upsert_package_rows,
+    approve_override as compat_approve_override,
+    build_greedy_allocation_plan,
+    commit_allocation as compat_commit_allocation,
+    dispatch_package as compat_dispatch_package,
+    get_allocation_options as compat_get_allocation_options,
+    get_current_allocation as compat_get_current_allocation,
+    sort_batch_candidates,
+    validate_override_approval,
+)
 from replenishment.legacy_models import (
+    Agency,
+    Item,
     Inventory,
     ItemBatch,
     ReliefPkg,
@@ -153,6 +187,423 @@ _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
         PACKAGE_STATUS_CANCELLED,
     }
 )
+
+STATUS_DRAFT = 0
+STATUS_AWAITING_APPROVAL = 1
+STATUS_CANCELLED = 2
+STATUS_SUBMITTED = 3
+STATUS_DENIED = 4
+STATUS_PART_FILLED = 5
+STATUS_CLOSED = 6
+STATUS_FILLED = 7
+STATUS_INELIGIBLE = 8
+
+PKG_STATUS_DRAFT = "A"
+PKG_STATUS_PENDING = "P"
+PKG_STATUS_DISPATCHED = "D"
+PKG_STATUS_COMPLETED = "C"
+
+REQUEST_STATUS_LABELS = {
+    STATUS_DRAFT: "Draft",
+    STATUS_AWAITING_APPROVAL: "Awaiting Approval",
+    STATUS_CANCELLED: "Cancelled",
+    STATUS_SUBMITTED: "Submitted",
+    STATUS_DENIED: "Denied",
+    STATUS_PART_FILLED: "Part Filled",
+    STATUS_CLOSED: "Closed",
+    STATUS_FILLED: "Filled",
+    STATUS_INELIGIBLE: "Ineligible",
+}
+
+PKG_STATUS_LABELS = {
+    PKG_STATUS_DRAFT: "Draft",
+    PKG_STATUS_PENDING: "Pending",
+    PKG_STATUS_DISPATCHED: "Dispatched",
+    PKG_STATUS_COMPLETED: "Completed",
+}
+
+REQUEST_LIST_FILTERS = {
+    "draft": {STATUS_DRAFT},
+    "awaiting": {STATUS_AWAITING_APPROVAL},
+    "submitted": {STATUS_SUBMITTED, STATUS_PART_FILLED},
+    "processing": {STATUS_AWAITING_APPROVAL, STATUS_PART_FILLED},
+    "completed": {STATUS_FILLED},
+    "dispatched": {STATUS_CLOSED},
+}
+
+FULFILLMENT_REQUEST_STATUSES = frozenset({STATUS_SUBMITTED, STATUS_PART_FILLED})
+
+
+def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
+    with connection.cursor() as cursor:
+        cursor.execute(sql, list(params or []))
+        columns = [col[0] for col in cursor.description or []]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _execute(sql: str, params: Sequence[Any] | None = None) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(sql, list(params or []))
+        return cursor.rowcount
+
+
+def _tracking_no(prefix: str, numeric_id: int) -> str:
+    return f"{prefix}{int(numeric_id):05d}"
+
+
+def _decimal_or_zero(value: Any) -> Decimal:
+    try:
+        return value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+def _positive_int(value: Any, field_name: str, errors: dict[str, str]) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        errors[field_name] = "Must be a positive integer."
+        return None
+    if parsed <= 0:
+        errors[field_name] = "Must be a positive integer."
+        return None
+    return parsed
+
+
+def _optional_positive_int(value: Any, field_name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    errors: dict[str, str] = {}
+    parsed = _positive_int(value, field_name, errors)
+    if errors:
+        raise OperationValidationError(errors)
+    return parsed
+
+
+def _optional_date(value: Any, field_name: str, errors: dict[str, str]) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        errors[field_name] = "Invalid date"
+        return None
+
+
+def _event_exists(event_id: int) -> bool:
+    try:
+        normalized_event_id = int(event_id)
+    except (TypeError, ValueError):
+        return False
+    table_name = _qualified_table("event")
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT 1 FROM {table_name} WHERE event_id = %s LIMIT 1", [normalized_event_id])
+        return cursor.fetchone() is not None
+
+
+def _load_request(reliefrqst_id: int, *, for_update: bool = False) -> ReliefRqst:
+    queryset = ReliefRqst.objects.select_for_update() if for_update else ReliefRqst.objects
+    return queryset.get(reliefrqst_id=reliefrqst_id)
+
+
+def _load_package(reliefpkg_id: int, *, for_update: bool = False) -> ReliefPkg:
+    queryset = ReliefPkg.objects.select_for_update() if for_update else ReliefPkg.objects
+    return queryset.get(reliefpkg_id=reliefpkg_id)
+
+
+def _current_package_for_request(reliefrqst_id: int, *, for_update: bool = False) -> ReliefPkg | None:
+    queryset = ReliefPkg.objects.select_for_update() if for_update else ReliefPkg.objects
+    return queryset.filter(reliefrqst_id=reliefrqst_id).order_by("-reliefpkg_id").first()
+
+
+def _execution_link_for_request(reliefrqst_id: int) -> NeedsListExecutionLink | None:
+    return NeedsListExecutionLink.objects.select_related("needs_list").filter(reliefrqst_id=reliefrqst_id).first()
+
+
+def _execution_link_for_package(reliefpkg_id: int) -> NeedsListExecutionLink | None:
+    return NeedsListExecutionLink.objects.select_related("needs_list").filter(reliefpkg_id=reliefpkg_id).first()
+
+
+def _request_items(reliefrqst_id: int) -> list[dict[str, Any]]:
+    rows = _fetch_rows(
+        f"""
+        SELECT item_id, request_qty, issue_qty, urgency_ind, rqst_reason_desc, required_by_date, status_code
+        FROM {_qualified_table("reliefrqst_item")}
+        WHERE reliefrqst_id = %s
+        ORDER BY item_id
+        """,
+        [reliefrqst_id],
+    )
+    item_ids = [int(row["item_id"]) for row in rows]
+    item_names, _ = data_access.get_item_names(item_ids)
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        lookup = item_names.get(int(row["item_id"]), {})
+        result.append(
+            {
+                "item_id": int(row["item_id"]),
+                "item_code": lookup.get("item_code") or lookup.get("code"),
+                "item_name": lookup.get("item_name") or lookup.get("name"),
+                "request_qty": str(_quantize_qty(row.get("request_qty"))),
+                "issue_qty": str(_quantize_qty(row.get("issue_qty"))),
+                "urgency_ind": row.get("urgency_ind"),
+                "rqst_reason_desc": row.get("rqst_reason_desc"),
+                "required_by_date": _as_iso(row.get("required_by_date")),
+                "status_code": row.get("status_code"),
+            }
+        )
+    return result
+
+
+def _ensure_request_in_fulfillment_state(request: ReliefRqst) -> None:
+    if int(request.status_code or STATUS_DRAFT) not in FULFILLMENT_REQUEST_STATUSES:
+        raise OperationValidationError(
+            {
+                "request": (
+                    "Packages can only be managed for requests that are submitted for fulfillment "
+                    "or already part filled."
+                )
+            }
+        )
+
+
+def _request_item_rows_for_allocation(reliefrqst_id: int) -> list[dict[str, Any]]:
+    return _fetch_rows(
+        f"""
+        SELECT item_id, request_qty, issue_qty, urgency_ind, rqst_reason_desc, required_by_date
+        FROM {_qualified_table("reliefrqst_item")}
+        WHERE reliefrqst_id = %s
+        ORDER BY item_id
+        """,
+        [reliefrqst_id],
+    )
+
+
+def _request_summary(request: ReliefRqst) -> dict[str, Any]:
+    items = _request_items(int(request.reliefrqst_id))
+    package = _current_package_for_request(int(request.reliefrqst_id))
+    execution_link = _execution_link_for_request(int(request.reliefrqst_id))
+    agency = Agency.objects.filter(agency_id=request.agency_id).first()
+    total_requested = sum((_decimal_or_zero(item["request_qty"]) for item in items), Decimal("0"))
+    total_issued = sum((_decimal_or_zero(item["issue_qty"]) for item in items), Decimal("0"))
+    return {
+        "reliefrqst_id": int(request.reliefrqst_id),
+        "tracking_no": request.tracking_no,
+        "agency_id": request.agency_id,
+        "agency_name": agency.agency_name if agency is not None else None,
+        "eligible_event_id": request.eligible_event_id,
+        "event_name": data_access.get_event_name(int(request.eligible_event_id))
+        if request.eligible_event_id is not None
+        else None,
+        "urgency_ind": request.urgency_ind,
+        "status_code": request.status_code,
+        "status_label": REQUEST_STATUS_LABELS.get(int(request.status_code or -1), "Unknown"),
+        "request_date": _as_iso(request.request_date),
+        "create_dtime": _as_iso(request.create_dtime),
+        "review_dtime": _as_iso(request.review_dtime),
+        "action_dtime": _as_iso(request.action_dtime),
+        "rqst_notes_text": request.rqst_notes_text,
+        "review_notes_text": request.review_notes_text,
+        "status_reason_desc": request.status_reason_desc,
+        "version_nbr": request.version_nbr,
+        "item_count": len(items),
+        "total_requested_qty": str(total_requested.quantize(Decimal("0.0001"))),
+        "total_issued_qty": str(total_issued.quantize(Decimal("0.0001"))),
+        "reliefpkg_id": int(package.reliefpkg_id) if package is not None else None,
+        "package_tracking_no": package.tracking_no if package is not None else None,
+        "package_status": _current_package_status(package) if package is not None else None,
+        "execution_status": execution_link.execution_status if execution_link is not None else None,
+        "needs_list_id": execution_link.needs_list_id if execution_link is not None else None,
+        "compatibility_bridge": execution_link is not None,
+    }
+
+
+def _package_summary(package: ReliefPkg) -> dict[str, Any]:
+    execution_link = _execution_link_for_package(int(package.reliefpkg_id))
+    return {
+        "reliefpkg_id": int(package.reliefpkg_id),
+        "tracking_no": package.tracking_no,
+        "reliefrqst_id": int(package.reliefrqst_id),
+        "agency_id": package.agency_id,
+        "eligible_event_id": package.eligible_event_id,
+        "to_inventory_id": package.to_inventory_id,
+        "destination_warehouse_name": data_access.get_warehouse_name(int(package.to_inventory_id))
+        if package.to_inventory_id is not None
+        else None,
+        "status_code": package.status_code,
+        "status_label": PKG_STATUS_LABELS.get(_current_package_status(package), "Unknown"),
+        "dispatch_dtime": _as_iso(package.dispatch_dtime),
+        "received_dtime": _as_iso(package.received_dtime),
+        "transport_mode": package.transport_mode,
+        "comments_text": package.comments_text,
+        "version_nbr": package.version_nbr,
+        "execution_status": execution_link.execution_status if execution_link is not None else None,
+        "needs_list_id": execution_link.needs_list_id if execution_link is not None else None,
+        "compatibility_bridge": execution_link is not None,
+    }
+
+
+def _request_detail(request: ReliefRqst) -> dict[str, Any]:
+    payload = _request_summary(request)
+    payload["items"] = _request_items(int(request.reliefrqst_id))
+    payload["packages"] = [
+        _package_summary(package)
+        for package in ReliefPkg.objects.filter(reliefrqst_id=request.reliefrqst_id).order_by("-reliefpkg_id")
+    ]
+    return payload
+
+
+def _package_detail(package: ReliefPkg) -> dict[str, Any]:
+    payload = _package_summary(package)
+    execution_link = _execution_link_for_package(int(package.reliefpkg_id))
+    if execution_link is not None:
+        payload["allocation"] = compat_get_current_allocation(
+            {
+                "needs_list_id": int(execution_link.needs_list_id),
+                "reliefrqst_id": int(package.reliefrqst_id),
+                "reliefpkg_id": int(package.reliefpkg_id),
+            }
+        )
+    else:
+        rows = _load_package_plan_with_source_info(int(package.reliefpkg_id))
+        payload["allocation"] = {
+            "allocation_lines": [
+                {**row, "quantity": str(_quantize_qty(row["quantity"]))}
+                for row in rows
+            ],
+            "reserved_stock_summary": {
+                "line_count": len(rows),
+                "total_qty": str(
+                    sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0")).quantize(Decimal("0.0001"))
+                ),
+            },
+            "waybill_no": f"WB-{package.tracking_no}" if package.dispatch_dtime else None,
+        }
+    return payload
+
+
+def _upsert_request_items(reliefrqst_id: int, items: Sequence[Mapping[str, Any]]) -> None:
+    table_name = _qualified_table("reliefrqst_item")
+    for item in items:
+        updated = _execute(
+            f"""
+            UPDATE {table_name}
+            SET request_qty = %s,
+                urgency_ind = %s,
+                rqst_reason_desc = %s,
+                required_by_date = %s,
+                version_nbr = version_nbr + 1
+            WHERE reliefrqst_id = %s
+              AND item_id = %s
+            """,
+            [
+                item["request_qty"],
+                item["urgency_ind"],
+                item["rqst_reason_desc"],
+                item["required_by_date"],
+                reliefrqst_id,
+                item["item_id"],
+            ],
+        )
+        if updated:
+            continue
+        _execute(
+            f"""
+            INSERT INTO {table_name}
+                (reliefrqst_id, item_id, request_qty, issue_qty, urgency_ind, rqst_reason_desc, required_by_date, status_code, version_nbr)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            [
+                reliefrqst_id,
+                item["item_id"],
+                item["request_qty"],
+                Decimal("0"),
+                item["urgency_ind"],
+                item["rqst_reason_desc"],
+                item["required_by_date"],
+                "R",
+                1,
+            ],
+        )
+
+
+def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = False) -> dict[str, Any]:
+    errors: dict[str, str] = {}
+    normalized: dict[str, Any] = {}
+    if not partial or "agency_id" in payload:
+        normalized["agency_id"] = _positive_int(payload.get("agency_id"), "agency_id", errors)
+    if not partial or "urgency_ind" in payload:
+        urgency_ind = str(payload.get("urgency_ind") or "").strip().upper()
+        if urgency_ind not in {"C", "H", "M", "L"}:
+            errors["urgency_ind"] = "Must be one of C, H, M, or L."
+        else:
+            normalized["urgency_ind"] = urgency_ind
+    if "eligible_event_id" in payload:
+        if payload.get("eligible_event_id") in (None, ""):
+            normalized["eligible_event_id"] = None
+        else:
+            normalized["eligible_event_id"] = _positive_int(
+                payload.get("eligible_event_id"),
+                "eligible_event_id",
+                errors,
+            )
+            if normalized["eligible_event_id"] is not None and not _event_exists(int(normalized["eligible_event_id"])):
+                errors["eligible_event_id"] = "Selected event does not exist."
+    if not partial or "rqst_notes_text" in payload:
+        normalized["rqst_notes_text"] = str(payload.get("rqst_notes_text") or "").strip() or None
+    raw_items = payload.get("items")
+    normalized_items: list[dict[str, Any]] = []
+    if raw_items is not None:
+        if not isinstance(raw_items, list):
+            errors["items"] = "Must be an array."
+        else:
+            for index, raw in enumerate(raw_items):
+                if not isinstance(raw, Mapping):
+                    errors[f"items[{index}]"] = "Each item must be an object."
+                    continue
+                item_id = _positive_int(raw.get("item_id"), f"items[{index}].item_id", errors)
+                try:
+                    request_qty = Decimal(str(raw.get("request_qty")))
+                except (InvalidOperation, ValueError, TypeError):
+                    errors[f"items[{index}].request_qty"] = "Must be a decimal number."
+                    continue
+                if request_qty <= 0:
+                    errors[f"items[{index}].request_qty"] = "Must be greater than zero."
+                urgency_ind = str(raw.get("urgency_ind") or normalized.get("urgency_ind") or "M").strip().upper()
+                if urgency_ind not in {"C", "H", "M", "L"}:
+                    errors[f"items[{index}].urgency_ind"] = "Must be one of C, H, M, or L."
+                reason = str(raw.get("rqst_reason_desc") or "").strip() or None
+                if urgency_ind in {"C", "H"} and not reason:
+                    errors[f"items[{index}].rqst_reason_desc"] = "Reason is required for high-priority items."
+                required_by_date = _optional_date(
+                    raw.get("required_by_date"),
+                    f"items[{index}].required_by_date",
+                    errors,
+                )
+                normalized_items.append(
+                    {
+                        "item_id": item_id,
+                        "request_qty": _quantize_qty(request_qty),
+                        "urgency_ind": urgency_ind,
+                        "rqst_reason_desc": reason,
+                        "required_by_date": required_by_date,
+                    }
+                )
+
+    if errors:
+        raise OperationValidationError(errors)
+
+    normalized["items"] = normalized_items
+    return normalized
+
+
+
+class _LegacyServiceFacade:
+    pass
+
+
+legacy_service = _LegacyServiceFacade()
+_LEGACY_FACADE_DEFAULTS: dict[str, Any] = {}
 
 
 def _require_actor_id(actor_id: str | None) -> str:
@@ -1164,7 +1615,8 @@ def _assign_pickup_release_queue(
 
 
 def _resolve_request_level_fulfillment_tenant_id() -> int:
-    tenant_id = operations_policy.resolve_odpem_fulfillment_tenant_id()
+    configured_tenant_id = getattr(settings, "ODPEM_TENANT_ID", None)
+    tenant_id = int(configured_tenant_id) if configured_tenant_id not in (None, "") else operations_policy.resolve_odpem_fulfillment_tenant_id()
     if tenant_id is None:
         raise OperationValidationError(
             {"tenant_scope": "ODPEM fulfillment tenant could not be resolved for request-level logistics routing."}
@@ -1564,6 +2016,7 @@ def _operations_allocation_payload(
                 "uom_code": line.uom_code or (batch.uom_code if batch is not None else None),
                 "source_type": line.source_type,
                 "source_record_id": line.source_record_id,
+                "override_reason_code": line.reason_text,
             }
         )
     return {
@@ -1581,6 +2034,7 @@ def _replace_operations_allocation_lines(
     allocations: Sequence[Mapping[str, Any]],
     *,
     actor_id: str,
+    override_reason_code: str | None = None,
 ) -> None:
     OperationsAllocationLine.objects.filter(package=package_record).delete()
     if not allocations:
@@ -1597,6 +2051,7 @@ def _replace_operations_allocation_lines(
                 source_type=str(allocation["source_type"]),
                 source_record_id=allocation["source_record_id"],
                 uom_code=allocation["uom_code"],
+                reason_text=override_reason_code,
                 create_by_id=actor_id,
                 create_dtime=now,
                 update_by_id=actor_id,
@@ -2232,6 +2687,1207 @@ def _serialize_queue_assignments(*, actor_id: str, actor_roles: Iterable[str], t
     ]
 
 
+def _update_existing_package(
+    package: ReliefPkg,
+    *,
+    actor_id: str,
+    raw_destination: int | None,
+    payload: Mapping[str, Any],
+) -> ReliefPkg:
+    transport_mode = str(payload.get("transport_mode") or "").strip() or None
+    comments_text = str(payload.get("comments_text") or "").strip() or None
+    updated_fields: list[str] = []
+    if raw_destination is not None and package.to_inventory_id != raw_destination:
+        package.to_inventory_id = raw_destination
+        updated_fields.append("to_inventory_id")
+    if transport_mode is not None:
+        package.transport_mode = transport_mode
+        updated_fields.append("transport_mode")
+    if comments_text is not None:
+        package.comments_text = comments_text
+        updated_fields.append("comments_text")
+    if updated_fields:
+        package.update_by_id = actor_id
+        package.update_dtime = timezone.now()
+        package.version_nbr = int(package.version_nbr or 0) + 1
+        updated_fields.extend(["update_by_id", "update_dtime", "version_nbr"])
+        package.save(update_fields=updated_fields)
+    return package
+
+
+def _create_package_for_request(
+    request: ReliefRqst,
+    *,
+    actor_id: str,
+    raw_destination: int | None,
+    payload: Mapping[str, Any],
+) -> ReliefPkg:
+    reliefpkg_id = _next_int_id("reliefpkg", "reliefpkg_id")
+    now = timezone.now()
+    return ReliefPkg.objects.create(
+        reliefpkg_id=reliefpkg_id,
+        agency_id=request.agency_id,
+        tracking_no=_tracking_no("PK", reliefpkg_id),
+        eligible_event_id=request.eligible_event_id,
+        to_inventory_id=raw_destination,
+        reliefrqst_id=request.reliefrqst_id,
+        start_date=now.date(),
+        transport_mode=str(payload.get("transport_mode") or "").strip() or None,
+        comments_text=str(payload.get("comments_text") or "").strip() or None,
+        status_code=PKG_STATUS_DRAFT,
+        create_by_id=actor_id,
+        create_dtime=now,
+        update_by_id=actor_id,
+        update_dtime=now,
+        version_nbr=1,
+    )
+
+
+def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, Any]) -> ReliefPkg:
+    raw_destination = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
+    request = _load_request(reliefrqst_id, for_update=True)
+    package = _current_package_for_request(reliefrqst_id, for_update=True)
+    if package is not None:
+        if (
+            int(request.status_code or STATUS_DRAFT) == STATUS_PART_FILLED
+            and _current_package_status(package) == PKG_STATUS_DISPATCHED
+        ):
+            return _create_package_for_request(
+                request,
+                actor_id=actor_id,
+                raw_destination=raw_destination,
+                payload=payload,
+            )
+        return _update_existing_package(
+            package,
+            actor_id=actor_id,
+            raw_destination=raw_destination,
+            payload=payload,
+        )
+    return _create_package_for_request(
+        request,
+        actor_id=actor_id,
+        raw_destination=raw_destination,
+        payload=payload,
+    )
+
+
+def _resolve_candidate_warehouse_ids(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    selected_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> list[int]:
+    warehouse_ids: set[int] = set()
+    raw_source = (payload or {}).get("source_warehouse_id")
+    if raw_source not in (None, ""):
+        warehouse_ids.add(int(raw_source))
+    for row in selected_rows or []:
+        if row.get("inventory_id") not in (None, ""):
+            warehouse_ids.add(int(row["inventory_id"]))
+    package = _current_package_for_request(reliefrqst_id)
+    if package is not None:
+        for row in _load_package_plan_with_source_info(int(package.reliefpkg_id)):
+            warehouse_ids.add(int(row["inventory_id"]))
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    if execution_link is not None:
+        warehouse_ids.add(int(execution_link.needs_list.warehouse_id))
+    return sorted(warehouse_ids)
+
+
+def _allocation_line_key(row: Mapping[str, Any]) -> tuple[int, int, str, int | None]:
+    source_record_id = row.get("source_record_id")
+    return (
+        int(row["inventory_id"]),
+        int(row["batch_id"]),
+        str(row.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+        int(source_record_id) if source_record_id not in (None, "") else None,
+    )
+
+
+def _committed_warehouses_by_item(package_pk: int) -> dict[int, list[int]]:
+    rows = (
+        OperationsAllocationLine.objects.filter(package_id=package_pk)
+        .order_by("line_id")
+        .values_list("item_id", "source_warehouse_id")
+    )
+    result: dict[int, list[int]] = {}
+    for item_id, warehouse_id in rows:
+        if warehouse_id is None:
+            continue
+        warehouse_int = int(warehouse_id)
+        if warehouse_int <= 0:
+            continue
+        bucket = result.setdefault(int(item_id), [])
+        if warehouse_int not in bucket:
+            bucket.append(warehouse_int)
+    return result
+
+
+def _draft_committed_warehouses_by_item(reliefrqst_id: int) -> dict[int, list[int]]:
+    draft_package = (
+        OperationsPackage.objects.filter(
+            relief_request_id=reliefrqst_id,
+            status_code=PACKAGE_STATUS_DRAFT,
+        )
+        .order_by("-package_id")
+        .first()
+    )
+    if draft_package is None:
+        return {}
+    return _committed_warehouses_by_item(int(draft_package.package_id))
+
+
+def _draft_allocations_by_item(reliefrqst_id: int) -> dict[int, list[dict[str, Any]]]:
+    draft_package = (
+        OperationsPackage.objects.filter(
+            relief_request_id=reliefrqst_id,
+            status_code=PACKAGE_STATUS_DRAFT,
+        )
+        .order_by("-package_id")
+        .first()
+    )
+    if draft_package is None:
+        return {}
+
+    rows = (
+        OperationsAllocationLine.objects.filter(package_id=draft_package.package_id)
+        .order_by("line_id")
+        .values(
+            "item_id",
+            "source_warehouse_id",
+            "batch_id",
+            "quantity",
+            "source_type",
+            "source_record_id",
+            "uom_code",
+        )
+    )
+    result: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        item_id = int(row["item_id"])
+        warehouse_id = int(row["source_warehouse_id"] or 0)
+        if warehouse_id <= 0:
+            continue
+        result.setdefault(item_id, []).append(
+            {
+                "item_id": item_id,
+                "inventory_id": warehouse_id,
+                "batch_id": int(row["batch_id"]),
+                "quantity": _quantize_qty(row["quantity"]),
+                "source_type": str(row.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                "source_record_id": row.get("source_record_id"),
+                "uom_code": row.get("uom_code"),
+            }
+        )
+    return result
+
+
+def _normalized_item_draft_allocations(
+    draft_allocations: Sequence[Mapping[str, Any]] | None,
+    *,
+    item_id: int,
+) -> list[dict[str, Any]]:
+    if not draft_allocations:
+        return []
+
+    errors: dict[str, str] = {}
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(draft_allocations):
+        if not isinstance(raw, Mapping):
+            errors[f"draft_allocations[{index}]"] = "Each draft allocation must be an object."
+            continue
+        draft_item_id = _positive_int(raw.get("item_id"), f"draft_allocations[{index}].item_id", errors)
+        if draft_item_id is not None and draft_item_id != item_id:
+            errors[f"draft_allocations[{index}].item_id"] = f"Must match item_id {item_id}."
+        inventory_id = _positive_int(raw.get("inventory_id"), f"draft_allocations[{index}].inventory_id", errors)
+        batch_id = _positive_int(raw.get("batch_id"), f"draft_allocations[{index}].batch_id", errors)
+        try:
+            quantity = _quantize_qty(Decimal(str(raw.get("quantity"))))
+        except (InvalidOperation, ValueError, TypeError):
+            errors[f"draft_allocations[{index}].quantity"] = "Must be a decimal number."
+            continue
+        if quantity <= 0:
+            errors[f"draft_allocations[{index}].quantity"] = "Must be greater than zero."
+        source_record_id = raw.get("source_record_id")
+        normalized_source_record_id = None
+        if source_record_id not in (None, ""):
+            normalized_source_record_id = _positive_int(
+                source_record_id,
+                f"draft_allocations[{index}].source_record_id",
+                errors,
+            )
+        if inventory_id is None or batch_id is None or draft_item_id is None:
+            continue
+        normalized.append(
+            {
+                "item_id": draft_item_id,
+                "inventory_id": inventory_id,
+                "batch_id": batch_id,
+                "quantity": quantity,
+                "source_type": str(raw.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                "source_record_id": normalized_source_record_id,
+            }
+        )
+
+    if errors:
+        raise OperationValidationError(errors)
+    return normalized
+
+
+def _draft_allocations_by_key(
+    draft_allocations: Sequence[Mapping[str, Any]],
+) -> dict[tuple[int, int, str, int | None], Decimal]:
+    allocation_map: dict[tuple[int, int, str, int | None], Decimal] = {}
+    for row in draft_allocations:
+        key = _allocation_line_key(row)
+        allocation_map[key] = allocation_map.get(key, Decimal("0")) + _quantize_qty(row["quantity"])
+    return allocation_map
+
+
+_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset({"item_not_in_request", "insufficient_on_hand_stock"})
+
+
+def _approval_required_override_markers(markers: Sequence[str]) -> list[str]:
+    return [marker for marker in markers if marker in _APPROVAL_REQUIRED_OVERRIDE_MARKERS]
+
+
+def _adjust_candidates_for_draft_allocations(
+    candidates: Sequence[Mapping[str, Any]],
+    draft_allocations: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if not draft_allocations:
+        return [dict(candidate) for candidate in candidates]
+
+    draft_allocations_map = _draft_allocations_by_key(draft_allocations)
+    adjusted_candidates: list[dict[str, Any]] = []
+    for candidate in candidates:
+        draft_qty = draft_allocations_map.get(_allocation_line_key(candidate), Decimal("0"))
+        available_qty = max(Decimal("0"), _quantize_qty(candidate["available_qty"]) - draft_qty)
+        usable_qty = max(
+            Decimal("0"),
+            _quantize_qty(candidate.get("usable_qty", candidate["available_qty"])) - draft_qty,
+        )
+        if available_qty <= 0:
+            continue
+        adjusted_candidates.append(
+            {
+                **candidate,
+                "available_qty": _quantize_qty(available_qty),
+                "usable_qty": _quantize_qty(usable_qty),
+            }
+        )
+    return adjusted_candidates
+
+
+def _warehouse_usable_surplus_for_item(
+    warehouse_id: int,
+    item_id: int,
+    *,
+    item: Item | Mapping[str, Any] | None,
+    as_of_date: date,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> Decimal:
+    candidates = _fetch_batch_candidates(warehouse_id, item_id, as_of_date=as_of_date)
+    adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, draft_allocations or ())
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
+    return sum((_quantize_qty(candidate["available_qty"]) for candidate in sorted_candidates), Decimal("0"))
+
+
+def _build_alternate_warehouse_options(
+    *,
+    item_id: int,
+    item: Item | Mapping[str, Any] | None,
+    source_warehouse_id: int,
+    remaining_shortfall_qty: Decimal,
+    tenant_context: TenantContext | None,
+    as_of_date: date,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    excluded_warehouse_ids: Iterable[int] | None = None,
+) -> list[dict[str, Any]]:
+    if remaining_shortfall_qty <= 0:
+        return []
+
+    warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], source_warehouse_id)
+    alternates: list[dict[str, Any]] = []
+    seen_warehouse_ids = {int(source_warehouse_id)}
+    if excluded_warehouse_ids:
+        seen_warehouse_ids.update(int(wid) for wid in excluded_warehouse_ids)
+    for warehouse_row in warehouse_rows.get(item_id, []):
+        warehouse_id = int(warehouse_row["warehouse_id"])
+        if warehouse_id in seen_warehouse_ids:
+            continue
+        seen_warehouse_ids.add(warehouse_id)
+        if tenant_context is not None and not can_access_warehouse(tenant_context, warehouse_id, write=True):
+            continue
+        available_qty = _warehouse_usable_surplus_for_item(
+            warehouse_id,
+            item_id,
+            item=item,
+            as_of_date=as_of_date,
+            draft_allocations=draft_allocations,
+        )
+        if available_qty <= 0:
+            continue
+        alternates.append(
+            {
+                "warehouse_id": warehouse_id,
+                "warehouse_name": str(warehouse_row.get("warehouse_name") or "").strip() or f"Warehouse {warehouse_id}",
+                "available_qty_decimal": _quantize_qty(available_qty),
+            }
+        )
+
+    alternates.sort(key=lambda row: (-row["available_qty_decimal"], row["warehouse_id"]))
+    return [
+        {
+            "warehouse_id": row["warehouse_id"],
+            "warehouse_name": row["warehouse_name"],
+            "available_qty": str(row["available_qty_decimal"]),
+            "suggested_qty": str(min(row["available_qty_decimal"], remaining_shortfall_qty)),
+            "can_fully_cover": row["available_qty_decimal"] >= remaining_shortfall_qty,
+        }
+        for row in alternates
+    ]
+
+
+def _reshape_compat_options(compat: dict[str, Any], reliefrqst_id: int) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for group in compat.get("items", []):
+        item: dict[str, Any] = {**group}
+        item["request_qty"] = _compat_qty_string(item.pop("required_qty", "0"))
+        item["issue_qty"] = _compat_qty_string(item.pop("fulfilled_qty", "0"))
+        item.pop("reserved_qty", None)
+        item.pop("needs_list_item_id", None)
+        item.pop("criticality_level", None)
+        item.pop("criticality_rank", None)
+        items.append(item)
+    return {
+        "request": _request_summary(_load_request(reliefrqst_id)),
+        "items": items,
+    }
+
+
+def _compat_qty_string(value: Any) -> str:
+    try:
+        return str(_quantize_qty(Decimal(str(value if value not in (None, "") else "0"))))
+    except (InvalidOperation, ValueError, TypeError):
+        return "0.0000"
+
+
+def _build_item_allocation_response(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+    include_draft_metrics: bool = False,
+    additional_warehouse_ids: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    row = next((r for r in item_rows if int(r["item_id"]) == item_id), None)
+    if row is None:
+        raise OperationValidationError({"item_id": f"Item {item_id} is not part of request {reliefrqst_id}."})
+
+    item = Item.objects.filter(item_id=item_id).first()
+    base_remaining_qty = max(Decimal("0"), _quantize_qty(row["request_qty"]) - _quantize_qty(row["issue_qty"]))
+    normalized_draft_allocations = _normalized_item_draft_allocations(draft_allocations, item_id=item_id)
+    draft_selected_qty = sum((_quantize_qty(allocation["quantity"]) for allocation in normalized_draft_allocations), Decimal("0"))
+    effective_remaining_qty = max(Decimal("0"), _quantize_qty(base_remaining_qty) - draft_selected_qty)
+    as_of_date = timezone.localdate()
+    candidates = list(_fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=as_of_date))
+    merged_warehouse_ids: list[int] = [int(source_warehouse_id)]
+    if additional_warehouse_ids:
+        seen_keys: set[tuple[int, int, str, int | None]] = {_allocation_line_key(candidate) for candidate in candidates}
+        for extra_warehouse_id in additional_warehouse_ids:
+            extra_int = int(extra_warehouse_id)
+            if extra_int <= 0 or extra_int == int(source_warehouse_id) or extra_int in merged_warehouse_ids:
+                continue
+            if tenant_context is not None and not can_access_warehouse(tenant_context, extra_int, write=True):
+                continue
+            merged_warehouse_ids.append(extra_int)
+            for extra_candidate in _fetch_batch_candidates(extra_int, item_id, as_of_date=as_of_date):
+                key = _allocation_line_key(extra_candidate)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                candidates.append(extra_candidate)
+    adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, normalized_draft_allocations)
+    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
+    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(sorted_candidates, effective_remaining_qty)
+    remaining_shortfall_qty = _quantize_qty(remaining_after_suggestion)
+    alternate_warehouses = _build_alternate_warehouse_options(
+        item_id=item_id,
+        item=item,
+        source_warehouse_id=source_warehouse_id,
+        remaining_shortfall_qty=remaining_shortfall_qty,
+        tenant_context=tenant_context,
+        as_of_date=as_of_date,
+        draft_allocations=normalized_draft_allocations,
+        excluded_warehouse_ids=merged_warehouse_ids,
+    )
+    response = {
+        "item_id": item_id,
+        "item_code": getattr(item, "item_code", None),
+        "item_name": getattr(item, "item_name", None),
+        "request_qty": str(_quantize_qty(row["request_qty"])),
+        "issue_qty": str(_quantize_qty(row["issue_qty"])),
+        "remaining_qty": str(base_remaining_qty.quantize(Decimal("0.0001"))),
+        "urgency_ind": row.get("urgency_ind"),
+        "candidates": [
+            {
+                **candidate,
+                "available_qty": str(_quantize_qty(candidate["available_qty"])),
+                "usable_qty": str(_quantize_qty(candidate["usable_qty"])),
+                "reserved_qty": str(_quantize_qty(candidate["reserved_qty"])),
+                "batch_date": _as_iso(candidate.get("batch_date")),
+                "expiry_date": _as_iso(candidate.get("expiry_date")),
+            }
+            for candidate in sorted_candidates
+        ],
+        "suggested_allocations": [
+            {**candidate, "quantity": str(_quantize_qty(candidate["quantity"]))}
+            for candidate in suggested_allocations
+        ],
+        "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
+        "source_warehouse_id": source_warehouse_id,
+        "remaining_shortfall_qty": str(remaining_shortfall_qty),
+        "continuation_recommended": remaining_shortfall_qty > 0 and bool(alternate_warehouses),
+        "alternate_warehouses": alternate_warehouses,
+    }
+    if include_draft_metrics:
+        response["draft_selected_qty"] = str(_quantize_qty(draft_selected_qty))
+        response["effective_remaining_qty"] = str(_quantize_qty(effective_remaining_qty))
+    return response
+
+
+def _normalized_allocations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw_allocations = payload.get("allocations")
+    if not isinstance(raw_allocations, list) or not raw_allocations:
+        raise OperationValidationError({"allocations": "Must provide a non-empty array of allocations."})
+    errors: dict[str, str] = {}
+    allocations: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_allocations):
+        if not isinstance(raw, Mapping):
+            errors[f"allocations[{index}]"] = "Each allocation must be an object."
+            continue
+        item_id = _positive_int(raw.get("item_id"), f"allocations[{index}].item_id", errors)
+        inventory_id = _positive_int(raw.get("inventory_id"), f"allocations[{index}].inventory_id", errors)
+        batch_id = _positive_int(raw.get("batch_id"), f"allocations[{index}].batch_id", errors)
+        quantity = _quantize_qty(raw.get("quantity", raw.get("allocated_qty")))
+        if quantity <= 0:
+            errors[f"allocations[{index}].quantity"] = "Must be greater than zero."
+        allocations.append(
+            {
+                "item_id": item_id,
+                "inventory_id": inventory_id,
+                "batch_id": batch_id,
+                "quantity": quantity,
+                "source_type": str(raw.get("source_type") or "ON_HAND").strip().upper() or "ON_HAND",
+                "source_record_id": raw.get("source_record_id"),
+                "uom_code": str(raw.get("uom_code") or "").strip() or None,
+            }
+        )
+    if errors:
+        raise OperationValidationError(errors)
+    return allocations
+
+
+def _save_package_allocation(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None = None,
+    allow_pending_override: bool,
+    supervisor_user_id: str | None = None,
+    supervisor_role_codes: Iterable[str] | None = None,
+    override_submitter_user_id: str | None = None,
+) -> dict[str, Any]:
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    request = _load_request(reliefrqst_id, for_update=execution_link is None)
+    _ensure_request_in_fulfillment_state(request)
+    if not payload.get("allocations"):
+        if not allow_pending_override:
+            raise OperationValidationError({"allocations": "Allocations are required for override approval."})
+        return _package_detail(_ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload))
+
+    allocations = _normalized_allocations(payload)
+    requested_destination_id = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
+    if execution_link is not None:
+        existing_package = _current_package_for_request(reliefrqst_id)
+        return compat_commit_allocation(
+            LegacyWorkflowContext(
+                needs_list_id=int(execution_link.needs_list_id),
+                reliefrqst_id=int(execution_link.reliefrqst_id or reliefrqst_id),
+                reliefpkg_id=(
+                    int(execution_link.reliefpkg_id)
+                    if execution_link.reliefpkg_id
+                    else (int(existing_package.reliefpkg_id) if existing_package is not None else None)
+                ),
+                agency_id=int(request.agency_id),
+                destination_warehouse_id=(
+                    requested_destination_id
+                    if requested_destination_id is not None
+                    else (
+                        int(existing_package.to_inventory_id)
+                        if existing_package is not None and existing_package.to_inventory_id is not None
+                        else int(execution_link.needs_list.warehouse_id)
+                    )
+                ),
+                event_id=int(request.eligible_event_id or execution_link.needs_list.event_id),
+                submitted_by=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
+                transport_mode=str(payload.get("transport_mode") or "").strip() or None,
+                urgency_ind=str(request.urgency_ind or payload.get("urgency_ind") or "M").strip().upper() or None,
+                request_notes=str(request.rqst_notes_text or payload.get("rqst_notes_text") or "").strip() or None,
+                package_comments=str(payload.get("comments_text") or "").strip() or None,
+            ),
+            allocations,
+            actor_user_id=actor_id,
+            override_reason_code=str(payload.get("override_reason_code") or "").strip() or None,
+            override_note=str(payload.get("override_note") or "").strip() or None,
+            allow_pending_override=True,
+        )
+
+    package = _ensure_package(reliefrqst_id, actor_id=actor_id, payload=payload)
+    current_status = _current_package_status(package)
+    if current_status == PKG_STATUS_DISPATCHED:
+        raise DispatchError(
+            f"Package cannot be modified in status '{PKG_STATUS_LABELS.get(current_status, current_status)}'.",
+            code="package_already_finalized",
+        )
+    old_rows = _selected_plan_for_package(int(package.reliefpkg_id)) if current_status in {"P", "C", "V"} else []
+    if old_rows:
+        _apply_stock_delta_for_rows(old_rows, actor_user_id=actor_id, delta_sign=-1, update_needs_list=False)
+    plan_rows = _group_plan_rows(allocations)
+
+    request_item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    warehouse_ids = _resolve_candidate_warehouse_ids(reliefrqst_id, payload=payload, selected_rows=plan_rows)
+    item_lookup = {item.item_id: item for item in Item.objects.filter(item_id__in=[row["item_id"] for row in request_item_rows])}
+    override_markers: list[str] = []
+    for item_id, rows in _package_plan_map(plan_rows).items():
+        if item_id not in item_lookup:
+            override_markers.append("item_not_in_request")
+            continue
+        candidates: list[dict[str, Any]] = []
+        for warehouse_id in warehouse_ids:
+            candidates.extend(_fetch_batch_candidates(warehouse_id, item_id))
+        recommended, remaining = build_greedy_allocation_plan(
+            sort_batch_candidates(item_lookup.get(item_id) or {"issuance_order": "FIFO"}, candidates),
+            sum((_quantize_qty(row["quantity"]) for row in rows), Decimal("0")),
+        )
+        if remaining > 0:
+            override_markers.append("insufficient_on_hand_stock")
+        if _group_plan_rows(recommended) != rows:
+            override_markers.append("allocation_order_override")
+    override_markers = list(dict.fromkeys(override_markers))
+    approval_markers = _approval_required_override_markers(override_markers)
+    override_required = bool(approval_markers)
+    override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
+    override_note = str(payload.get("override_note") or "").strip() or None
+    if override_markers and not override_reason_code:
+        raise OverrideApprovalError(
+            "Override reason code is required for non-compliant allocations.",
+            code="override_details_missing",
+        )
+    if override_required:
+        normalized_actor_roles = set(normalize_role_codes(actor_roles))
+        if allow_pending_override and ROLE_LOGISTICS_OFFICER not in normalized_actor_roles:
+            raise OperationValidationError(
+                {
+                    "override": (
+                        "Only Logistics Officers may submit override requests. "
+                        "Logistics Managers approve them after submission."
+                    )
+                }
+            )
+        if not override_note:
+            raise OverrideApprovalError(
+                "Override note is required for allocations awaiting approval.",
+                code="override_details_missing",
+            )
+        if not allow_pending_override:
+            actual_submitter = override_submitter_user_id or request.create_by_id
+            validate_override_approval(
+                approver_user_id=supervisor_user_id,
+                approver_role_codes=supervisor_role_codes,
+                submitter_user_id=actual_submitter,
+                needs_list_submitted_by=actual_submitter,
+            )
+    _upsert_package_rows(
+        package_id=int(package.reliefpkg_id),
+        plan_rows=plan_rows,
+        actor_user_id=actor_id,
+        notes=(override_reason_code or override_note) or f"RR:{reliefrqst_id}",
+    )
+    if not override_required or not allow_pending_override:
+        _apply_stock_delta_for_rows(plan_rows, actor_user_id=actor_id, delta_sign=1, update_needs_list=False)
+    _apply_package_header_updates(
+        request=request,
+        package=package,
+        needs_list=None,
+        actor_user_id=actor_id,
+        status_code=PKG_STATUS_DRAFT if override_required and allow_pending_override else PKG_STATUS_PENDING,
+        transport_mode=str(payload.get("transport_mode") or "").strip() or None,
+    )
+    return {
+        "status": "PENDING_OVERRIDE_APPROVAL" if override_required and allow_pending_override else "COMMITTED",
+        "reliefrqst_id": reliefrqst_id,
+        "reliefpkg_id": int(package.reliefpkg_id),
+        "request_tracking_no": request.tracking_no,
+        "package_tracking_no": package.tracking_no,
+        "override_required": override_required,
+        "override_markers": override_markers,
+        "allocation_lines": [{**row, "quantity": str(_quantize_qty(row["quantity"]))} for row in plan_rows],
+    }
+
+
+def _dispatch_detail(package: ReliefPkg) -> dict[str, Any]:
+    payload = _package_detail(package)
+    payload["request"] = _request_summary(_load_request(int(package.reliefrqst_id)))
+    payload["waybill"] = get_waybill(int(package.reliefpkg_id)) if package.dispatch_dtime else None
+    return payload
+
+
+def _operations_waybill_payload(
+    *,
+    request: ReliefRqst,
+    package: ReliefPkg,
+    dispatched_rows: Sequence[Mapping[str, Any]],
+    actor_id: str,
+) -> dict[str, Any]:
+    source_warehouse_ids = sorted({int(row["inventory_id"]) for row in dispatched_rows if row.get("inventory_id") not in (None, "")})
+    source_warehouse_names, _ = data_access.get_warehouse_names(source_warehouse_ids)
+    return {
+        "waybill_no": f"WB-{package.tracking_no}",
+        "request_tracking_no": request.tracking_no,
+        "package_tracking_no": package.tracking_no,
+        "agency_id": request.agency_id,
+        "event_id": request.eligible_event_id,
+        "event_name": data_access.get_event_name(int(request.eligible_event_id)) if request.eligible_event_id is not None else None,
+        "source_warehouse_ids": source_warehouse_ids,
+        "source_warehouse_names": [source_warehouse_names[warehouse_id] for warehouse_id in source_warehouse_ids if warehouse_id in source_warehouse_names],
+        "destination_warehouse_id": package.to_inventory_id,
+        "destination_warehouse_name": data_access.get_warehouse_name(int(package.to_inventory_id)) if package.to_inventory_id is not None else None,
+        "actor_user_id": actor_id,
+        "dispatch_dtime": _as_iso(package.dispatch_dtime),
+        "transport_mode": package.transport_mode,
+        "line_items": [
+            {
+                "item_id": int(row["item_id"]),
+                "inventory_id": int(row["inventory_id"]),
+                "batch_id": int(row["batch_id"]),
+                "batch_no": row.get("batch_no"),
+                "quantity": str(_quantize_qty(row["quantity"])),
+                "uom_code": row.get("uom_code"),
+                "source_type": row.get("source_type"),
+                "source_record_id": row.get("source_record_id"),
+            }
+            for row in dispatched_rows
+        ],
+    }
+
+
+def _legacy_submit_dispatch(reliefpkg_id: int, *, payload: Mapping[str, Any], actor_id: str) -> dict[str, Any]:
+    package = _load_package(reliefpkg_id, for_update=True)
+    execution_link = _execution_link_for_package(reliefpkg_id)
+    transport_mode = str(payload.get("transport_mode") or "").strip() or None
+    if execution_link is not None:
+        result = compat_dispatch_package(
+            LegacyWorkflowContext(
+                needs_list_id=int(execution_link.needs_list_id),
+                reliefrqst_id=int(execution_link.reliefrqst_id or package.reliefrqst_id),
+                reliefpkg_id=int(execution_link.reliefpkg_id or reliefpkg_id),
+            ),
+            actor_user_id=actor_id,
+            transport_mode=transport_mode,
+        )
+        NeedsListExecutionLink.objects.filter(needs_list_id=execution_link.needs_list_id).update(
+            execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+            waybill_no=result.get("waybill_no"),
+            waybill_payload_json=result.get("waybill_payload"),
+            dispatched_at=timezone.now(),
+            dispatched_by=actor_id,
+            update_by_id=actor_id,
+            update_dtime=timezone.now(),
+        )
+        return result
+
+    request = _load_request(int(package.reliefrqst_id), for_update=True)
+    current_status = _current_package_status(package)
+    if current_status == PKG_STATUS_DISPATCHED:
+        raise DispatchError("Package has already been dispatched.", code="duplicate_dispatch")
+    if current_status not in {PKG_STATUS_PENDING, "C", "V"}:
+        raise DispatchError(
+            f"Package cannot be dispatched from status '{current_status}'.",
+            code="package_not_committed",
+        )
+    package_rows = _selected_plan_for_package(reliefpkg_id)
+    if not package_rows:
+        raise DispatchError("Package contains no allocation rows to dispatch.", code="dispatch_plan_empty")
+    _apply_stock_delta_for_rows(
+        package_rows,
+        actor_user_id=actor_id,
+        delta_sign=1,
+        update_needs_list=False,
+        consume_stock=True,
+    )
+    now = timezone.now()
+    package_update = ReliefPkg.objects.filter(
+        reliefpkg_id=package.reliefpkg_id,
+        version_nbr=package.version_nbr,
+    ).update(
+        status_code=PKG_STATUS_DISPATCHED,
+        dispatch_dtime=now,
+        transport_mode=transport_mode or package.transport_mode,
+        update_by_id=actor_id,
+        update_dtime=now,
+        version_nbr=F("version_nbr") + 1,
+    )
+    if package_update != 1:
+        raise OptimisticLockError("Relief package changed during dispatch.", code="package_version_mismatch")
+    _advance_transfer_rows(package_rows, actor_user_id=actor_id, dispatched_at=now)
+    rqst_item_table = _qualified_table("reliefrqst_item")
+    for row in package_rows:
+        _execute(
+            f"""
+            UPDATE {rqst_item_table}
+            SET issue_qty = COALESCE(issue_qty, 0) + %s,
+                status_code = CASE
+                    WHEN COALESCE(issue_qty, 0) + %s >= request_qty THEN 'F'
+                    ELSE 'P'
+                END,
+                action_by_id = %s,
+                action_dtime = %s,
+                version_nbr = version_nbr + 1
+            WHERE reliefrqst_id = %s
+              AND item_id = %s
+            """,
+            [row["quantity"], row["quantity"], actor_id, now, request.reliefrqst_id, row["item_id"]],
+        )
+    request_update = ReliefRqst.objects.filter(
+        reliefrqst_id=request.reliefrqst_id,
+        version_nbr=request.version_nbr,
+    ).update(
+        status_code=_request_completion_status(int(request.reliefrqst_id)),
+        review_by_id=request.review_by_id or actor_id,
+        review_dtime=request.review_dtime or now,
+        action_by_id=actor_id,
+        action_dtime=now,
+        status_reason_desc=None,
+        version_nbr=F("version_nbr") + 1,
+    )
+    if request_update != 1:
+        raise OptimisticLockError("Relief request changed during dispatch.", code="request_version_mismatch")
+    refreshed_package = _load_package(reliefpkg_id)
+    waybill_payload = _operations_waybill_payload(
+        request=request,
+        package=refreshed_package,
+        dispatched_rows=package_rows,
+        actor_id=actor_id,
+    )
+    return {
+        "status": "DISPATCHED",
+        "reliefrqst_id": int(request.reliefrqst_id),
+        "reliefpkg_id": int(refreshed_package.reliefpkg_id),
+        "request_tracking_no": request.tracking_no,
+        "package_tracking_no": refreshed_package.tracking_no,
+        "waybill_no": waybill_payload["waybill_no"],
+        "waybill_payload": waybill_payload,
+        "dispatched_rows": [{**row, "quantity": str(_quantize_qty(row["quantity"]))} for row in package_rows],
+    }
+
+
+def _legacy_get_waybill(reliefpkg_id: int) -> dict[str, Any]:
+    package = _load_package(reliefpkg_id)
+    execution_link = _execution_link_for_package(reliefpkg_id)
+    if execution_link is not None and execution_link.waybill_payload_json:
+        return {
+            "waybill_no": execution_link.waybill_no,
+            "waybill_payload": execution_link.waybill_payload_json,
+            "persisted": True,
+            "compatibility_bridge": True,
+        }
+    if package.dispatch_dtime is None:
+        raise OperationValidationError({"waybill": "Waybill not available."})
+    request = _load_request(int(package.reliefrqst_id))
+    payload = _operations_waybill_payload(
+        request=request,
+        package=package,
+        dispatched_rows=_load_package_plan_with_source_info(int(package.reliefpkg_id)),
+        actor_id=str(package.update_by_id or package.verify_by_id or "system"),
+    )
+    return {
+        "waybill_no": payload["waybill_no"],
+        "waybill_payload": payload,
+        "persisted": False,
+        "compatibility_bridge": False,
+    }
+
+
+def _legacy_get_request(reliefrqst_id: int, *, actor_id: str | None = None) -> dict[str, Any]:
+    return _request_detail(_legacy_helper("_load_request")(reliefrqst_id))
+
+
+@transaction.atomic
+def _legacy_create_request(
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    normalized = _validate_request_payload(payload)
+    decision = operations_policy.validate_relief_request_agency_selection(
+        agency_id=int(normalized["agency_id"]),
+        tenant_context=tenant_context,
+    )
+    operations_policy.enforce_relief_request_origin_mode_permission(
+        decision=decision,
+        permissions=permissions or (),
+    )
+    reliefrqst_id = _next_int_id("reliefrqst", "reliefrqst_id")
+    now = timezone.now()
+    ReliefRqst.objects.create(
+        reliefrqst_id=reliefrqst_id,
+        agency_id=normalized["agency_id"],
+        request_date=now.date(),
+        tracking_no=_tracking_no("RQ", reliefrqst_id),
+        eligible_event_id=normalized.get("eligible_event_id"),
+        urgency_ind=normalized["urgency_ind"],
+        rqst_notes_text=normalized.get("rqst_notes_text"),
+        status_code=STATUS_DRAFT,
+        create_by_id=actor_id,
+        create_dtime=now,
+        version_nbr=1,
+    )
+    if normalized["items"]:
+        _upsert_request_items(reliefrqst_id, normalized["items"])
+    try:
+        return get_request(reliefrqst_id, actor_id=actor_id)
+    except TypeError:
+        return _legacy_get_request(reliefrqst_id, actor_id=actor_id)
+
+
+@transaction.atomic
+def _legacy_update_request(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    tenant_context: TenantContext,
+    permissions: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    request = _legacy_helper("_load_request")(reliefrqst_id, for_update=True)
+    if int(request.status_code) != STATUS_DRAFT:
+        raise OperationValidationError({"status": "Only draft requests can be updated."})
+    normalized = _validate_request_payload(payload, partial=True)
+    target_agency_id = int(normalized["agency_id"]) if "agency_id" in normalized else int(request.agency_id)
+    decision = operations_policy.validate_relief_request_agency_selection(
+        agency_id=target_agency_id,
+        tenant_context=tenant_context,
+    )
+    operations_policy.enforce_relief_request_origin_mode_permission(
+        decision=decision,
+        permissions=permissions or (),
+    )
+    if "agency_id" in normalized:
+        request.agency_id = normalized["agency_id"]
+    if "urgency_ind" in normalized:
+        request.urgency_ind = normalized["urgency_ind"]
+    if "eligible_event_id" in normalized:
+        request.eligible_event_id = normalized["eligible_event_id"]
+    update_fields = [
+        "agency_id",
+        "urgency_ind",
+        "eligible_event_id",
+        "version_nbr",
+    ]
+    if "rqst_notes_text" in normalized:
+        request.rqst_notes_text = normalized["rqst_notes_text"]
+        update_fields.append("rqst_notes_text")
+    request.version_nbr = int(request.version_nbr or 0) + 1
+    request.save(update_fields=update_fields)
+    if normalized["items"]:
+        _upsert_request_items(reliefrqst_id, normalized["items"])
+    try:
+        return get_request(reliefrqst_id, actor_id=actor_id)
+    except TypeError:
+        return _legacy_get_request(reliefrqst_id, actor_id=actor_id)
+
+
+@transaction.atomic
+def _legacy_submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantContext) -> dict[str, Any]:
+    request = _legacy_helper("_load_request")(reliefrqst_id, for_update=True)
+    if int(request.status_code) != STATUS_DRAFT:
+        raise OperationValidationError({"status": "Only draft requests can be submitted."})
+    operations_policy.validate_relief_request_agency_selection(
+        agency_id=int(request.agency_id),
+        tenant_context=tenant_context,
+    )
+    if not _legacy_helper("_request_item_rows_for_allocation")(reliefrqst_id):
+        raise OperationValidationError({"items": "At least one item is required before submission."})
+    request.status_code = STATUS_AWAITING_APPROVAL
+    request.version_nbr = int(request.version_nbr or 0) + 1
+    request.save(update_fields=["status_code", "version_nbr"])
+    try:
+        return get_request(reliefrqst_id, actor_id=actor_id)
+    except TypeError:
+        return _legacy_get_request(reliefrqst_id, actor_id=actor_id)
+
+
+def _legacy_get_package_allocation_options(
+    reliefrqst_id: int,
+    *,
+    source_warehouse_id: int | None = None,
+    tenant_context: TenantContext | None = None,
+) -> dict[str, Any]:
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    if execution_link is not None:
+        return _reshape_compat_options(
+            compat_get_allocation_options(int(execution_link.needs_list_id)),
+            reliefrqst_id,
+        )
+
+    warehouse_ids = [source_warehouse_id] if source_warehouse_id is not None else _resolve_candidate_warehouse_ids(reliefrqst_id)
+    warehouse_ids = [warehouse_id for warehouse_id in warehouse_ids if warehouse_id]
+    if not warehouse_ids:
+        raise OperationValidationError(
+            {"source_warehouse_id": "source_warehouse_id is required when no needs-list compatibility bridge exists."}
+        )
+
+    item_rows = _request_item_rows_for_allocation(reliefrqst_id)
+    primary_warehouse_id = int(warehouse_ids[0])
+    committed_warehouses_by_item = _draft_committed_warehouses_by_item(reliefrqst_id)
+    draft_allocations_by_item = _draft_allocations_by_item(reliefrqst_id)
+    results: list[dict[str, Any]] = []
+    for row in item_rows:
+        item_id = int(row["item_id"])
+        committed_for_item = committed_warehouses_by_item.get(item_id, [])
+        additional_warehouse_ids = [
+            warehouse_id
+            for warehouse_id in committed_for_item
+            if int(warehouse_id) != primary_warehouse_id
+        ]
+        results.append(
+            _build_item_allocation_response(
+                reliefrqst_id,
+                item_id,
+                source_warehouse_id=primary_warehouse_id,
+                tenant_context=tenant_context,
+                draft_allocations=draft_allocations_by_item.get(item_id),
+                include_draft_metrics=True,
+                additional_warehouse_ids=additional_warehouse_ids or None,
+            )
+        )
+    try:
+        request_payload = _request_summary(_legacy_helper("_load_request")(reliefrqst_id))
+    except (AttributeError, DatabaseError, ReliefRqst.DoesNotExist):
+        request_payload = {"reliefrqst_id": int(reliefrqst_id)}
+    return {"request": request_payload, "items": results}
+
+
+def _legacy_get_item_allocation_options(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return _build_item_allocation_response(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
+        include_draft_metrics=False,
+    )
+
+
+def _legacy_get_item_allocation_preview(
+    reliefrqst_id: int,
+    item_id: int,
+    *,
+    source_warehouse_id: int,
+    tenant_context: TenantContext | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return _build_item_allocation_response(
+        reliefrqst_id,
+        item_id,
+        source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+        draft_allocations=draft_allocations,
+        include_draft_metrics=True,
+    )
+
+
+def _legacy_save_package(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    return _save_package_allocation(
+        reliefrqst_id,
+        payload=payload,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        allow_pending_override=True,
+    )
+
+
+def _legacy_approve_override(
+    reliefrqst_id: int,
+    *,
+    payload: Mapping[str, Any],
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+) -> dict[str, Any]:
+    execution_link = _execution_link_for_request(reliefrqst_id)
+    if execution_link is not None:
+        return compat_approve_override(
+            LegacyWorkflowContext(
+                needs_list_id=int(execution_link.needs_list_id),
+                reliefrqst_id=int(execution_link.reliefrqst_id or reliefrqst_id),
+                reliefpkg_id=int(execution_link.reliefpkg_id),
+                submitted_by=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
+            ),
+            _normalized_allocations(payload),
+            actor_user_id=actor_id,
+            supervisor_user_id=actor_id,
+            supervisor_role_codes=actor_roles,
+            override_reason_code=str(payload.get("override_reason_code") or "").strip(),
+            override_note=str(payload.get("override_note") or "").strip(),
+            submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
+        )
+    request = _load_request(reliefrqst_id)
+    package = _current_package_for_request(reliefrqst_id)
+    allocator_user_id = str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
+    return _save_package_allocation(
+        reliefrqst_id,
+        payload=payload,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        allow_pending_override=False,
+        supervisor_user_id=actor_id,
+        supervisor_role_codes=actor_roles,
+        override_submitter_user_id=allocator_user_id,
+    )
+
+
+def _bind_legacy_service_facade() -> None:
+    bindings = {
+        "STATUS_DRAFT": STATUS_DRAFT,
+        "STATUS_AWAITING_APPROVAL": STATUS_AWAITING_APPROVAL,
+        "STATUS_CANCELLED": STATUS_CANCELLED,
+        "STATUS_SUBMITTED": STATUS_SUBMITTED,
+        "STATUS_DENIED": STATUS_DENIED,
+        "STATUS_PART_FILLED": STATUS_PART_FILLED,
+        "STATUS_CLOSED": STATUS_CLOSED,
+        "STATUS_FILLED": STATUS_FILLED,
+        "STATUS_INELIGIBLE": STATUS_INELIGIBLE,
+        "PKG_STATUS_DRAFT": PKG_STATUS_DRAFT,
+        "PKG_STATUS_PENDING": PKG_STATUS_PENDING,
+        "PKG_STATUS_DISPATCHED": PKG_STATUS_DISPATCHED,
+        "PKG_STATUS_COMPLETED": PKG_STATUS_COMPLETED,
+        "_as_iso": _as_iso,
+        "_tracking_no": _tracking_no,
+        "_quantize_qty": _quantize_qty,
+        "_next_int_id": _next_int_id,
+        "_load_request": _load_request,
+        "_load_package": _load_package,
+        "_current_package_for_request": _current_package_for_request,
+        "_current_package_status": _current_package_status,
+        "_request_items": _request_items,
+        "_request_item_rows_for_allocation": _request_item_rows_for_allocation,
+        "_request_summary": _request_summary,
+        "_package_summary": _package_summary,
+        "_package_detail": _package_detail,
+        "_selected_plan_for_package": _selected_plan_for_package,
+        "_apply_stock_delta_for_rows": _apply_stock_delta_for_rows,
+        "get_request": _legacy_get_request,
+        "create_request": _legacy_create_request,
+        "update_request": _legacy_update_request,
+        "submit_request": _legacy_submit_request,
+        "get_package_allocation_options": _legacy_get_package_allocation_options,
+        "get_item_allocation_options": _legacy_get_item_allocation_options,
+        "get_item_allocation_preview": _legacy_get_item_allocation_preview,
+        "save_package": _legacy_save_package,
+        "approve_override": _legacy_approve_override,
+        "submit_dispatch": _legacy_submit_dispatch,
+        "get_waybill": _legacy_get_waybill,
+    }
+    _LEGACY_FACADE_DEFAULTS.clear()
+    _LEGACY_FACADE_DEFAULTS.update(bindings)
+    for name, value in bindings.items():
+        setattr(legacy_service, name, value)
+
+
+def _legacy_helper(name: str):
+    module_helper = globals()[name]
+    facade_helper = getattr(legacy_service, name, None)
+    default_helper = _LEGACY_FACADE_DEFAULTS.get(name)
+    if default_helper is not None:
+        if module_helper is not default_helper:
+            return module_helper
+        if facade_helper is not None and facade_helper is not default_helper:
+            return facade_helper
+        return module_helper
+    if facade_helper is not None:
+        return facade_helper
+    return module_helper
+
+
+def _legacy_request_is_syncable(request: Any) -> bool:
+    required_attrs = (
+        "reliefrqst_id",
+        "tracking_no",
+        "agency_id",
+        "eligible_event_id",
+        "request_date",
+        "urgency_ind",
+        "rqst_notes_text",
+        "create_by_id",
+        "create_dtime",
+        "review_by_id",
+        "review_dtime",
+        "status_code",
+    )
+    return all(hasattr(request, attr) for attr in required_attrs)
+
+
+def _compat_request_response(
+    reliefrqst_id: int,
+    *,
+    actor_id: str,
+    tenant_context: TenantContext,
+    fallback: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return get_request(
+            int(reliefrqst_id),
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            actor_roles=(),
+        )
+    except TypeError:
+        try:
+            return legacy_service.get_request(int(reliefrqst_id), actor_id=actor_id)
+        except TypeError:
+            pass
+    except (AttributeError, DatabaseError, ReliefRqst.DoesNotExist):
+        pass
+    if fallback is not None:
+        return dict(fallback)
+    return {"reliefrqst_id": int(reliefrqst_id)}
+
+
+_bind_legacy_service_facade()
+
+
 def list_requests(
     *,
     filter_key: str | None = None,
@@ -2266,7 +3922,7 @@ def list_requests(
 
 def get_request(reliefrqst_id: int, *, actor_id: str | None = None, tenant_context: TenantContext, actor_roles: Iterable[str] | None = None) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
-    request = legacy_service._load_request(reliefrqst_id)
+    request = _legacy_helper("_load_request")(reliefrqst_id)
     _ensure_request_access(
         _request_access_probe_from_legacy(request),
         actor_id=actor_id,
@@ -2305,26 +3961,47 @@ def create_request(
         else _UNSET
     )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
-    decision = operations_policy.validate_relief_request_agency_selection(
-        agency_id=agency_id,
-        tenant_context=tenant_context,
-    )
+    decision: operations_policy.ReliefRequestWriteDecision | None = None
+    if getattr(legacy_service, "create_request", None) is not _LEGACY_FACADE_DEFAULTS.get("create_request"):
+        decision = operations_policy.validate_relief_request_agency_selection(
+            agency_id=agency_id,
+            tenant_context=tenant_context,
+        )
     result = legacy_service.create_request(
         payload=mutable_payload,
         actor_id=actor_id,
         tenant_context=tenant_context,
         permissions=permissions,
     )
-    request = legacy_service._load_request(int(result["reliefrqst_id"]))
-    _sync_operations_request(
-        request,
+    try:
+        request = _legacy_helper("_load_request")(int(result["reliefrqst_id"]))
+    except (DatabaseError, ReliefRqst.DoesNotExist):
+        return _compat_request_response(
+            int(result["reliefrqst_id"]),
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            fallback=result,
+        )
+    if _legacy_request_is_syncable(request):
+        if decision is None:
+            decision = operations_policy.validate_relief_request_agency_selection(
+                agency_id=agency_id,
+                tenant_context=tenant_context,
+            )
+        _sync_operations_request(
+            request,
+            actor_id=actor_id,
+            decision=decision,
+            status_code=REQUEST_STATUS_DRAFT,
+            source_needs_list_id=source_needs_list_id,
+            requesting_agency_id=requesting_agency_id,
+        )
+    return _compat_request_response(
+        int(result["reliefrqst_id"]),
         actor_id=actor_id,
-        decision=decision,
-        status_code=REQUEST_STATUS_DRAFT,
-        source_needs_list_id=source_needs_list_id,
-        requesting_agency_id=requesting_agency_id,
+        tenant_context=tenant_context,
+        fallback=result,
     )
-    return get_request(int(result["reliefrqst_id"]), actor_id=actor_id, tenant_context=tenant_context, actor_roles=())
 
 
 @transaction.atomic
@@ -2346,15 +4023,17 @@ def update_request(
         else _UNSET
     )
     requesting_agency_id = _parse_int_or_raise(mutable_payload.get("requesting_agency_id"), "requesting_agency_id")
-    current_request = legacy_service._load_request(reliefrqst_id)
+    current_request = _legacy_helper("_load_request")(reliefrqst_id)
     effective_agency_raw = mutable_payload.get("agency_id", current_request.agency_id)
     agency_id = _parse_int_or_raise(effective_agency_raw, "agency_id")
     if agency_id is None:
         raise OperationValidationError({"agency_id": "agency_id is required."})
-    decision = operations_policy.validate_relief_request_agency_selection(
-        agency_id=agency_id,
-        tenant_context=tenant_context,
-    )
+    decision: operations_policy.ReliefRequestWriteDecision | None = None
+    if getattr(legacy_service, "update_request", None) is not _LEGACY_FACADE_DEFAULTS.get("update_request"):
+        decision = operations_policy.validate_relief_request_agency_selection(
+            agency_id=agency_id,
+            tenant_context=tenant_context,
+        )
     result = legacy_service.update_request(
         reliefrqst_id,
         payload=mutable_payload,
@@ -2362,51 +4041,67 @@ def update_request(
         tenant_context=tenant_context,
         permissions=permissions,
     )
-    request = legacy_service._load_request(reliefrqst_id)
-    _sync_operations_request(
-        request,
+    request = _legacy_helper("_load_request")(reliefrqst_id)
+    if _legacy_request_is_syncable(request):
+        if decision is None:
+            decision = operations_policy.validate_relief_request_agency_selection(
+                agency_id=agency_id,
+                tenant_context=tenant_context,
+            )
+        _sync_operations_request(
+            request,
+            actor_id=actor_id,
+            decision=decision,
+            source_needs_list_id=source_needs_list_id,
+            requesting_agency_id=requesting_agency_id,
+        )
+    return _compat_request_response(
+        int(result["reliefrqst_id"]),
         actor_id=actor_id,
-        decision=decision,
-        source_needs_list_id=source_needs_list_id,
-        requesting_agency_id=requesting_agency_id,
+        tenant_context=tenant_context,
+        fallback=result,
     )
-    return get_request(int(result["reliefrqst_id"]), actor_id=actor_id, tenant_context=tenant_context, actor_roles=())
 
 
 @transaction.atomic
 def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantContext) -> dict[str, Any]:
     legacy_service.submit_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context)
-    request = legacy_service._load_request(reliefrqst_id)
-    request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_SUBMITTED)
-    request_record.submitted_by_id = actor_id
-    request_record.submitted_at = timezone.now()
-    request_record.status_code = REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW
-    request_record.update_by_id = actor_id
-    request_record.update_dtime = timezone.now()
-    request_record.version_nbr = int(request_record.version_nbr or 0) + 1
-    request_record.save(update_fields=["submitted_by_id", "submitted_at", "status_code", "update_by_id", "update_dtime", "version_nbr"])
-    record_status_transition(
-        entity_type=ENTITY_REQUEST,
-        entity_id=reliefrqst_id,
-        from_status=REQUEST_STATUS_SUBMITTED,
-        to_status=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+    request = _legacy_helper("_load_request")(reliefrqst_id)
+    if _legacy_request_is_syncable(request):
+        request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_SUBMITTED)
+        request_record.submitted_by_id = actor_id
+        request_record.submitted_at = timezone.now()
+        request_record.status_code = REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW
+        request_record.update_by_id = actor_id
+        request_record.update_dtime = timezone.now()
+        request_record.version_nbr = int(request_record.version_nbr or 0) + 1
+        request_record.save(update_fields=["submitted_by_id", "submitted_at", "status_code", "update_by_id", "update_dtime", "version_nbr"])
+        record_status_transition(
+            entity_type=ENTITY_REQUEST,
+            entity_id=reliefrqst_id,
+            from_status=REQUEST_STATUS_SUBMITTED,
+            to_status=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            actor_id=actor_id,
+        )
+        assign_roles_to_queue(
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+            entity_type=ENTITY_REQUEST,
+            entity_id=reliefrqst_id,
+            role_codes=ELIGIBILITY_ROLE_CODES,
+        )
+        create_role_notifications(
+            event_code=EVENT_REQUEST_SUBMITTED,
+            entity_type=ENTITY_REQUEST,
+            entity_id=reliefrqst_id,
+            message_text=f"Relief request {request.tracking_no} is ready for eligibility review.",
+            role_codes=ELIGIBILITY_ROLE_CODES,
+            queue_code=QUEUE_CODE_ELIGIBILITY,
+        )
+    return _compat_request_response(
+        reliefrqst_id,
         actor_id=actor_id,
+        tenant_context=tenant_context,
     )
-    assign_roles_to_queue(
-        queue_code=QUEUE_CODE_ELIGIBILITY,
-        entity_type=ENTITY_REQUEST,
-        entity_id=reliefrqst_id,
-        role_codes=ELIGIBILITY_ROLE_CODES,
-    )
-    create_role_notifications(
-        event_code=EVENT_REQUEST_SUBMITTED,
-        entity_type=ENTITY_REQUEST,
-        entity_id=reliefrqst_id,
-        message_text=f"Relief request {request.tracking_no} is ready for eligibility review.",
-        role_codes=ELIGIBILITY_ROLE_CODES,
-        queue_code=QUEUE_CODE_ELIGIBILITY,
-    )
-    return get_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context, actor_roles=())
 
 
 def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
@@ -2737,6 +4432,156 @@ def release_package_lock(
     )
 
 
+def _legacy_allocation_line_count(reliefpkg_id: int) -> int:
+    try:
+        return ReliefPkgItem.objects.filter(reliefpkg_id=reliefpkg_id).count()
+    except DatabaseError:
+        return 0
+
+
+def _delete_legacy_allocation_lines(reliefpkg_id: int) -> int:
+    try:
+        deleted, _ = ReliefPkgItem.objects.filter(reliefpkg_id=reliefpkg_id).delete()
+    except DatabaseError:
+        return 0
+    return int(deleted)
+
+
+@transaction.atomic
+def reset_package_allocations(
+    reliefpkg_id: int,
+    *,
+    actor_id: str,
+) -> dict[str, Any]:
+    actor_id = _require_actor_id(actor_id)
+    package = legacy_service._load_package(reliefpkg_id, for_update=True)
+    request = legacy_service._load_request(int(package.reliefrqst_id), for_update=True)
+    request_record = _sync_operations_request(
+        request,
+        actor_id=actor_id,
+        status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    )
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+    )
+
+    if package_record.status_code in {
+        PACKAGE_STATUS_DISPATCHED,
+        PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_SPLIT,
+        PACKAGE_STATUS_CANCELLED,
+    }:
+        raise OperationValidationError(
+            {"reset": "This package can no longer be reset."}
+        )
+
+    cancelled_legs = list(
+        package_record.consolidation_legs.select_for_update().order_by("leg_sequence")
+    )
+    if any(leg.status_code != CONSOLIDATION_LEG_STATUS_CANCELLED for leg in cancelled_legs):
+        raise OperationValidationError(
+            {"reset": "Packages with active consolidation legs cannot be reset."}
+        )
+
+    legacy_status = legacy_service._current_package_status(package)
+    released_rows: list[dict[str, Any]] = []
+    if legacy_status in {"P", "C", "V", "R"}:
+        released_rows = legacy_service._selected_plan_for_package(int(package.reliefpkg_id))
+        if released_rows:
+            legacy_service._apply_stock_delta_for_rows(
+                released_rows,
+                actor_user_id=actor_id,
+                delta_sign=-1,
+                update_needs_list=False,
+            )
+
+    operations_line_count = package_record.allocation_lines.count()
+    legacy_line_count = _legacy_allocation_line_count(int(package_record.package_id))
+    package_record.allocation_lines.all().delete()
+    _delete_legacy_allocation_lines(int(package_record.package_id))
+    if cancelled_legs:
+        for leg in cancelled_legs:
+            complete_queue_assignments(
+                entity_type=ENTITY_CONSOLIDATION_LEG,
+                entity_id=int(leg.leg_id),
+                actor_id=actor_id,
+                completion_status="CANCELLED",
+            )
+        OperationsConsolidationLeg.objects.filter(
+            leg_id__in=[int(leg.leg_id) for leg in cancelled_legs]
+        ).delete()
+
+    now = timezone.now()
+    package.status_code = legacy_service.PKG_STATUS_DRAFT
+    package.update_by_id = actor_id
+    package.update_dtime = now
+    package.version_nbr = int(package.version_nbr or 0) + 1
+    if hasattr(package, "save"):
+        package.save()
+
+    package_record = _sync_operations_package(
+        package,
+        request_record=request_record,
+        actor_id=actor_id,
+        status_code=PACKAGE_STATUS_DRAFT,
+        override_status_code=None,
+        source_warehouse_id=package_record.source_warehouse_id,
+    )
+    _update_package_workflow_fields(
+        package_record,
+        actor_id=actor_id,
+        consolidation_status=None,
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_PACKAGE,
+        entity_id=int(package_record.package_id),
+        actor_id=actor_id,
+        completion_status="CANCELLED",
+    )
+    complete_queue_assignments(
+        entity_type=ENTITY_REQUEST,
+        entity_id=int(request_record.relief_request_id),
+        queue_code=QUEUE_CODE_OVERRIDE,
+        actor_id=actor_id,
+        completion_status="CANCELLED",
+    )
+    OperationsPackageLock.objects.filter(
+        package_id=int(package_record.package_id),
+        lock_status="ACTIVE",
+    ).update(
+        lock_status="RELEASED",
+        lock_expires_at=now,
+    )
+
+    return {
+        "status": PACKAGE_STATUS_DRAFT,
+        "reliefrqst_id": int(request_record.relief_request_id),
+        "request_no": request_record.request_no,
+        "reliefpkg_id": int(package_record.package_id),
+        "package_no": package_record.package_no,
+        "operations_allocation_lines_deleted": int(operations_line_count),
+        "legacy_allocation_lines_deleted": int(legacy_line_count),
+        "released_stock_summary": (
+            {
+                "line_count": len(released_rows),
+                "total_qty": str(
+                    sum(
+                        (
+                            legacy_service._quantize_qty(row["quantity"])
+                            for row in released_rows
+                        ),
+                        Decimal("0"),
+                    ).quantize(Decimal("0.0001"))
+                ),
+            }
+            if released_rows
+            else {"line_count": 0, "total_qty": "0.0000"}
+        ),
+    }
+
+
 def get_staging_recommendation(
     reliefrqst_id: int,
     *,
@@ -2814,11 +4659,19 @@ def list_consolidation_legs(
     }
 
 
-def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: int | None = None, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
-    actor_id = _require_actor_id(actor_id)
-    request = legacy_service._load_request(reliefrqst_id)
-    request_probe = _request_access_probe_from_legacy(request)
-    _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
+def get_package_allocation_options(
+    reliefrqst_id: int,
+    *,
+    source_warehouse_id: int | None = None,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext | None = None,
+) -> dict[str, Any]:
+    if actor_id is not None and tenant_context is not None:
+        actor_id = _require_actor_id(actor_id)
+        request = legacy_service._load_request(reliefrqst_id)
+        request_probe = _request_access_probe_from_legacy(request)
+        _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
     return legacy_service.get_package_allocation_options(
         reliefrqst_id,
         source_warehouse_id=source_warehouse_id,
@@ -2834,18 +4687,19 @@ def get_item_allocation_options(
     draft_allocations: Sequence[Mapping[str, Any]] | None = None,
     actor_id: str | None = None,
     actor_roles: Iterable[str] | None = None,
-    tenant_context: TenantContext,
+    tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
     """Return allocation candidates for a single item from a single warehouse."""
-    actor_id = _require_actor_id(actor_id)
-    request = legacy_service._load_request(reliefrqst_id)
-    request_probe = _request_access_probe_from_legacy(request)
-    _ensure_fulfillment_request_access(
-        request_probe,
-        actor_id=actor_id,
-        actor_roles=actor_roles or (),
-        tenant_context=tenant_context,
-    )
+    if actor_id is not None and tenant_context is not None:
+        actor_id = _require_actor_id(actor_id)
+        request = legacy_service._load_request(reliefrqst_id)
+        request_probe = _request_access_probe_from_legacy(request)
+        _ensure_fulfillment_request_access(
+            request_probe,
+            actor_id=actor_id,
+            actor_roles=actor_roles or (),
+            tenant_context=tenant_context,
+        )
     return legacy_service.get_item_allocation_options(
         reliefrqst_id,
         item_id,
@@ -2859,34 +4713,39 @@ def get_item_allocation_preview(
     reliefrqst_id: int,
     item_id: int,
     *,
-    payload: Mapping[str, Any],
+    payload: Mapping[str, Any] | None = None,
+    source_warehouse_id: int | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
     actor_id: str | None = None,
     actor_roles: Iterable[str] | None = None,
-    tenant_context: TenantContext,
+    tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
-    actor_id = _require_actor_id(actor_id)
-    requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
-    if requested_source_warehouse_id in (_UNSET, None):
+    if payload is not None:
+        requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
+        if requested_source_warehouse_id in (_UNSET, None):
+            raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
+        draft_allocations = payload.get("draft_allocations", [])
+        if draft_allocations is None:
+            draft_allocations = []
+        if not isinstance(draft_allocations, list):
+            raise OperationValidationError({"draft_allocations": "draft_allocations must be provided as an array."})
+        source_warehouse_id = int(requested_source_warehouse_id)
+    if source_warehouse_id is None:
         raise OperationValidationError({"source_warehouse_id": "source_warehouse_id is required."})
-
-    draft_allocations = payload.get("draft_allocations", [])
-    if draft_allocations is None:
-        draft_allocations = []
-    if not isinstance(draft_allocations, list):
-        raise OperationValidationError({"draft_allocations": "draft_allocations must be provided as an array."})
-
-    request = legacy_service._load_request(reliefrqst_id)
-    request_probe = _request_access_probe_from_legacy(request)
-    _ensure_fulfillment_request_access(
-        request_probe,
-        actor_id=actor_id,
-        actor_roles=actor_roles or (),
-        tenant_context=tenant_context,
-    )
+    if actor_id is not None and tenant_context is not None:
+        actor_id = _require_actor_id(actor_id)
+        request = legacy_service._load_request(reliefrqst_id)
+        request_probe = _request_access_probe_from_legacy(request)
+        _ensure_fulfillment_request_access(
+            request_probe,
+            actor_id=actor_id,
+            actor_roles=actor_roles or (),
+            tenant_context=tenant_context,
+        )
     return legacy_service.get_item_allocation_preview(
         reliefrqst_id,
         item_id,
-        source_warehouse_id=int(requested_source_warehouse_id),
+        source_warehouse_id=int(source_warehouse_id),
         tenant_context=tenant_context,
         draft_allocations=draft_allocations,
     )
@@ -2932,7 +4791,12 @@ def save_package(
     }
     if not draft_save and "allocations" in payload:
         legacy_payload["allocations"] = payload["allocations"]
-    result = legacy_service.save_package(reliefrqst_id, payload=legacy_payload, actor_id=actor_id)
+    result = legacy_service.save_package(
+        reliefrqst_id,
+        payload=legacy_payload,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+    )
     # Re-sync request after legacy save to keep the operations status at
     # APPROVED_FOR_FULFILLMENT (the legacy save sets status_code=2 which
     # the mapping interprets as CANCELLED).
@@ -2943,11 +4807,17 @@ def save_package(
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
         return result
-    first_inventory_id: int | None | object = _UNSET
-    if validated_allocations:
-        first_inventory_id = validated_allocations[0]["source_warehouse_id"]
+    # For draft saves, only persist an explicit user-selected default warehouse.
+    # Per-item selection is first-class and must not fabricate a package-level
+    # default that resurfaces on reload. For commits, keep the legacy fallback
+    # (first allocation's warehouse) so the dispatch record has a source.
+    package_default_warehouse_id: int | None | object
     if requested_source_warehouse_id is not _UNSET:
-        first_inventory_id = requested_source_warehouse_id
+        package_default_warehouse_id = requested_source_warehouse_id
+    elif not draft_save and validated_allocations:
+        package_default_warehouse_id = validated_allocations[0]["source_warehouse_id"]
+    else:
+        package_default_warehouse_id = _UNSET
     status_code = PACKAGE_STATUS_DRAFT
     override_status = None
     if not draft_save:
@@ -2962,7 +4832,7 @@ def save_package(
         actor_id=actor_id,
         status_code=status_code,
         override_status_code=override_status,
-        source_warehouse_id=first_inventory_id,
+        source_warehouse_id=package_default_warehouse_id,
     )
     _update_package_workflow_fields(
         package_record,
@@ -2978,10 +4848,18 @@ def save_package(
     )
     # ── Dual-write: sync allocation lines to new operations table ──
     if validated_allocations is not None:
+        override_reason_code = None
+        if (
+            result.get("status") == "COMMITTED"
+            and "allocation_order_override" in (result.get("override_markers") or [])
+            and not result.get("override_required")
+        ):
+            override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
         _replace_operations_allocation_lines(
             package_record,
             validated_allocations,
             actor_id=actor_id,
+            override_reason_code=override_reason_code,
         )
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         fulfillment_tenant_id = _resolve_request_level_fulfillment_tenant_id()
@@ -3008,7 +4886,7 @@ def save_package(
                 request_record=request_record,
                 actor_id=actor_id,
                 status_code=PACKAGE_STATUS_CONSOLIDATING,
-                source_warehouse_id=first_inventory_id,
+                source_warehouse_id=package_default_warehouse_id,
             )
             _update_package_workflow_fields(
                 package_record,
@@ -3121,8 +4999,39 @@ def approve_override(
     payload: Mapping[str, Any],
     actor_id: str,
     actor_roles: Iterable[str] | None,
-    tenant_context: TenantContext,
+    tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
+    if tenant_context is None:
+        execution_link = _execution_link_for_request(reliefrqst_id)
+        if execution_link is not None:
+            return compat_approve_override(
+                LegacyWorkflowContext(
+                    needs_list_id=int(execution_link.needs_list_id),
+                    reliefrqst_id=int(execution_link.reliefrqst_id or reliefrqst_id),
+                    reliefpkg_id=int(execution_link.reliefpkg_id),
+                    submitted_by=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
+                ),
+                _normalized_allocations(payload),
+                actor_user_id=actor_id,
+                supervisor_user_id=actor_id,
+                supervisor_role_codes=actor_roles,
+                override_reason_code=str(payload.get("override_reason_code") or "").strip(),
+                override_note=str(payload.get("override_note") or "").strip(),
+                submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
+            )
+        request = _load_request(reliefrqst_id)
+        package = _current_package_for_request(reliefrqst_id)
+        allocator_user_id = str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
+        return _save_package_allocation(
+            reliefrqst_id,
+            payload=payload,
+            actor_id=actor_id,
+            actor_roles=actor_roles,
+            allow_pending_override=False,
+            supervisor_user_id=actor_id,
+            supervisor_role_codes=actor_roles,
+            override_submitter_user_id=allocator_user_id,
+        )
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
     request_probe = _request_access_probe_from_legacy(request)
@@ -4213,9 +6122,11 @@ def submit_dispatch(
     *,
     payload: Mapping[str, Any],
     actor_id: str,
-    actor_roles: Iterable[str] | None,
-    tenant_context: TenantContext,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext | None = None,
 ) -> dict[str, Any]:
+    if tenant_context is None:
+        return _legacy_submit_dispatch(reliefpkg_id, payload=payload, actor_id=actor_id)
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off packages.")
     transport_payload = _validated_transport_payload(payload)
     package = legacy_service._load_package(reliefpkg_id)
@@ -4295,7 +6206,15 @@ def submit_dispatch(
     }
 
 
-def get_waybill(reliefpkg_id: int, *, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
+def get_waybill(
+    reliefpkg_id: int,
+    *,
+    actor_id: str | None = None,
+    actor_roles: Iterable[str] | None = None,
+    tenant_context: TenantContext | None = None,
+) -> dict[str, Any]:
+    if tenant_context is None:
+        return _legacy_get_waybill(reliefpkg_id)
     actor_id = _require_actor_id(actor_id)
     package = legacy_service._load_package(reliefpkg_id)
     request = legacy_service._load_request(int(package.reliefrqst_id))
