@@ -130,12 +130,14 @@ import {
           <div class="ops-details__override-header">
             <mat-icon aria-hidden="true">warning_amber</mat-icon>
             <div>
-              <strong>{{ store.hasPendingOverride() ? 'Override Approval' : 'Order Override' }}</strong>
+              <strong>{{ store.hasPendingOverride() || store.planNeedsApproval() ? 'Override Approval' : 'Order Override' }}</strong>
               <span>
                 {{
                   store.hasPendingOverride()
                     ? 'This reservation is awaiting approval because a blocking allocation rule was bypassed.'
-                    : 'Plan deviates from the recommended stock order. Capture the reason before committing.'
+                    : store.planNeedsApproval()
+                      ? 'This selection requires override documentation. Logistics Officers submit it for approval, while Logistics Managers can commit it directly.'
+                      : 'Plan deviates from the recommended stock order. Capture the reason before committing.'
                 }}
               </span>
             </div>
@@ -155,7 +157,7 @@ import {
               </mat-select>
             </mat-form-field>
 
-            @if (store.hasPendingOverride()) {
+            @if (store.planNeedsApproval() || store.hasPendingOverride()) {
               <mat-form-field appearance="outline" subscriptSizing="dynamic">
                 <mat-label>Override Note</mat-label>
                 <textarea

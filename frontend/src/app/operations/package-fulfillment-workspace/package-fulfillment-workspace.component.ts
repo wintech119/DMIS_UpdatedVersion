@@ -123,14 +123,20 @@ export class PackageFulfillmentWorkspaceComponent {
     this.hasOperationsAccess()
     && this.hasRole('LOGISTICS_OFFICER', 'TST_LOGISTICS_OFFICER')
     && !this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
-    && this.auth.hasPermission('operations.package.override_request')
+    && this.auth.hasPermission('operations.package.override.request')
+  );
+
+  readonly canCommitManagerOverrideDirectly = computed(() =>
+    this.hasOperationsAccess()
+    && this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
+    && this.auth.hasPermission('operations.package.allocate')
   );
 
   readonly canApprovePendingOverride = computed(() => {
     if (
       !this.store.hasPendingOverride()
       || !this.hasOperationsAccess()
-      || !this.auth.hasPermission('operations.package.override_approve')
+      || !this.auth.hasPermission('operations.package.override.approve')
     ) {
       return false;
     }
@@ -145,7 +151,12 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly commitActionDisabled = computed(() =>
     this.store.submitting()
     || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
-    || (this.store.planRequiresOverride() && !this.store.hasPendingOverride() && !this.canSubmitOverrideRequest())
+    || (
+      this.store.planNeedsApproval()
+      && !this.store.hasPendingOverride()
+      && !this.canSubmitOverrideRequest()
+      && !this.canCommitManagerOverrideDirectly()
+    )
   );
 
   readonly overrideApprovalHint = computed(() => {
@@ -158,11 +169,17 @@ export class PackageFulfillmentWorkspaceComponent {
       }
       return 'This plan is waiting for override approval. Review the details, then approve or return it.';
     }
-    if (this.store.planRequiresOverride()) {
+    if (this.store.planNeedsApproval()) {
+      if (this.canCommitManagerOverrideDirectly()) {
+        return 'As the Logistics Manager handling this fulfillment, you can record the override details and commit the reservation directly.';
+      }
       if (!this.canSubmitOverrideRequest()) {
-        return 'Only a Logistics Officer can submit this override request. Logistics Managers approve only after the package enters pending override approval.';
+        return 'Only a Logistics Officer can submit this override request, unless a Logistics Manager is committing the reservation directly.';
       }
       return 'This plan needs manager approval before it can be dispatched.';
+    }
+    if (this.store.planRequiresOverride()) {
+      return 'This selection deviates from the recommended stock order. Record the override reason before committing.';
     }
     return null;
   });
@@ -174,7 +191,10 @@ export class PackageFulfillmentWorkspaceComponent {
     if (this.store.hasPendingOverride()) {
       return 'Awaiting Override Approval';
     }
-    if (this.store.planRequiresOverride()) {
+    if (this.store.planNeedsApproval()) {
+      if (this.canCommitManagerOverrideDirectly()) {
+        return 'Commit Reservation';
+      }
       if (!this.canSubmitOverrideRequest()) {
         return 'Override Submission Restricted';
       }
@@ -388,9 +408,13 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
 
-    if (this.store.planRequiresOverride() && !this.canSubmitOverrideRequest()) {
+    if (
+      this.store.planNeedsApproval()
+      && !this.canSubmitOverrideRequest()
+      && !this.canCommitManagerOverrideDirectly()
+    ) {
       this.notifications.showWarning(
-        'Only a Logistics Officer can submit this override request. Logistics Managers approve it after submission.',
+        'Only a Logistics Officer can submit this override request, unless a Logistics Manager is committing the reservation directly.',
       );
       return;
     }
@@ -525,7 +549,7 @@ export class PackageFulfillmentWorkspaceComponent {
       if (!draft.override_reason_code.trim()) {
         errors.push('Select an override reason before continuing.');
       }
-      if (this.store.hasPendingOverride() && !draft.override_note.trim()) {
+      if ((this.store.planNeedsApproval() || this.store.hasPendingOverride()) && !draft.override_note.trim()) {
         errors.push(
           'Add an override note before continuing.',
         );

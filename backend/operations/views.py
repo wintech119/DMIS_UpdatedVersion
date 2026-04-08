@@ -41,6 +41,7 @@ from replenishment.services.allocation_dispatch import (
     DispatchError,
     OptimisticLockError,
     OverrideApprovalError,
+    ReservationError,
 )
 
 
@@ -77,6 +78,8 @@ def _service_error_response(exc: Exception) -> Response:
         return Response({"errors": exc.errors}, status=400)
     if isinstance(exc, OverrideApprovalError):
         return Response({"errors": {"override": exc.message}}, status=400)
+    if isinstance(exc, ReservationError):
+        return Response({"errors": {"allocations": str(exc)}}, status=409)
     if isinstance(exc, OptimisticLockError):
         return Response({"errors": {"version": exc.message}}, status=409)
     if isinstance(exc, DispatchError):

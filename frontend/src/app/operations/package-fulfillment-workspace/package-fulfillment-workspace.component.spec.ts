@@ -190,6 +190,14 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
     };
   }
 
+  function buildApprovalRequiredOverrideItemGroup(): AllocationItemGroup {
+    return {
+      ...buildOverrideItemGroup(),
+      compliance_markers: ['insufficient_on_hand_stock'],
+      override_required: true,
+    };
+  }
+
   beforeEach(async () => {
     operationsService = jasmine.createSpyObj<OperationsService>('OperationsService', [
       'getPackage',
@@ -386,7 +394,7 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
   });
 
   describe('override workflow gating', () => {
-    function populateOverrideSelection(): void {
+    function populateOrderOverrideSelection(): void {
       component.store.reliefrqstId.set(95009);
       component.store.packageDetail.set(buildPackageDetail());
       component.store.options.set({
@@ -412,17 +420,44 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       });
     }
 
-    it('lets logistics officers submit override requests', () => {
+    function populateApprovalRequiredSelection(): void {
+      component.store.reliefrqstId.set(95009);
+      component.store.packageDetail.set(buildPackageDetail());
+      component.store.options.set({
+        request: { reliefrqst_id: 95009 } as unknown as RequestSummary,
+        items: [buildApprovalRequiredOverrideItemGroup()],
+      });
+      component.store.selectedRowsByItem.set({
+        44: [
+          {
+            item_id: 44,
+            inventory_id: 9002,
+            batch_id: 1002,
+            quantity: '2',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+            uom_code: 'EA',
+          },
+        ],
+      });
+      component.store.patchDraft({
+        override_reason_code: 'STOCK_EXCEPTION',
+        override_note: 'Manager-authorized fulfillment override',
+      });
+    }
+
+    it('lets logistics officers submit approval-required override requests', () => {
       fakeAuth.roles.set(['LOGISTICS_OFFICER']);
-      populateOverrideSelection();
+      populateApprovalRequiredSelection();
 
       expect(component.canSubmitOverrideRequest()).toBeTrue();
+      expect(component.canCommitManagerOverrideDirectly()).toBeFalse();
       expect(component.commitActionDisabled()).toBeFalse();
       expect(component.commitActionLabel()).toBe('Submit Override For Approval');
     });
 
     it('does not require an approval note for order-only bypasses', () => {
-      populateOverrideSelection();
+      populateOrderOverrideSelection();
       component.store.patchDraft({ override_note: '' });
 
       const errors = (component as unknown as { collectDetailErrors(): string[] }).collectDetailErrors();
@@ -430,14 +465,24 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       expect(errors).toEqual([]);
     });
 
-    it('blocks logistics managers from using the override-request action before pending approval exists', () => {
+    it('lets logistics managers commit approval-required overrides directly', () => {
       fakeAuth.roles.set(['LOGISTICS_MANAGER']);
-      populateOverrideSelection();
+      populateApprovalRequiredSelection();
 
       expect(component.canSubmitOverrideRequest()).toBeFalse();
-      expect(component.commitActionDisabled()).toBeTrue();
-      expect(component.commitActionLabel()).toBe('Override Submission Restricted');
-      expect(component.overrideApprovalHint()).toContain('Only a Logistics Officer can submit this override request.');
+      expect(component.canCommitManagerOverrideDirectly()).toBeTrue();
+      expect(component.commitActionDisabled()).toBeFalse();
+      expect(component.commitActionLabel()).toBe('Commit Reservation');
+      expect(component.overrideApprovalHint()).toContain('you can record the override details and commit the reservation directly');
+    });
+
+    it('lets logistics managers commit order-only bypasses without approval', () => {
+      fakeAuth.roles.set(['LOGISTICS_MANAGER']);
+      populateOrderOverrideSelection();
+
+      expect(component.commitActionDisabled()).toBeFalse();
+      expect(component.commitActionLabel()).toBe('Commit Reservation');
+      expect(component.overrideApprovalHint()).toContain('Record the override reason before committing');
     });
   });
 });

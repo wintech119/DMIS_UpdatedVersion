@@ -313,6 +313,13 @@ export class OperationsWorkspaceStateService {
     }),
   );
 
+  readonly planNeedsApproval = computed(() =>
+    (this.options()?.items ?? []).some((group) => {
+      const total = this.getSelectedTotalForItem(group.item_id);
+      return total > 0 && group.override_required;
+    }),
+  );
+
   readonly totalSelectedQty = computed(() =>
     Object.values(this.selectedRowsByItem())
       .flat()
@@ -1360,6 +1367,14 @@ export class OperationsWorkspaceStateService {
     }
     if (selected > remaining + 0.0001) {
       return 'You cannot allocate more than the item still needs.';
+    }
+    const currentCandidateKeys = new Set(
+      item.candidates.map((candidate) => this.selectionKey(candidate)),
+    );
+    for (const selection of this.getSelectedRows(item.item_id)) {
+      if (!currentCandidateKeys.has(this.selectionKey(selection))) {
+        return 'One or more selected stock lines are no longer available. Refresh the item selection before continuing.';
+      }
     }
     for (const candidate of item.candidates) {
       const selectedQty = this.getSelectedQtyForCandidate(item.item_id, candidate);

@@ -3282,7 +3282,13 @@ def _save_package_allocation(
             override_markers.append("allocation_order_override")
     override_markers = list(dict.fromkeys(override_markers))
     approval_markers = _approval_required_override_markers(override_markers)
-    override_required = bool(approval_markers)
+    normalized_actor_roles = set(normalize_role_codes(actor_roles))
+    manager_direct_commit = (
+        bool(approval_markers)
+        and allow_pending_override
+        and ROLE_LOGISTICS_MANAGER in normalized_actor_roles
+    )
+    override_required = bool(approval_markers) and not manager_direct_commit
     override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
     override_note = str(payload.get("override_note") or "").strip() or None
     if override_markers and not override_reason_code:
@@ -3290,17 +3296,17 @@ def _save_package_allocation(
             "Override reason code is required for non-compliant allocations.",
             code="override_details_missing",
         )
-    if override_required:
-        normalized_actor_roles = set(normalize_role_codes(actor_roles))
+    if approval_markers:
         if allow_pending_override and ROLE_LOGISTICS_OFFICER not in normalized_actor_roles:
-            raise OperationValidationError(
-                {
-                    "override": (
-                        "Only Logistics Officers may submit override requests. "
-                        "Logistics Managers approve them after submission."
-                    )
-                }
-            )
+            if not manager_direct_commit:
+                raise OperationValidationError(
+                    {
+                        "override": (
+                            "Only Logistics Officers may submit override requests. "
+                            "Logistics Managers may commit their own overrides directly."
+                        )
+                    }
+                )
         if not override_note:
             raise OverrideApprovalError(
                 "Override note is required for allocations awaiting approval.",

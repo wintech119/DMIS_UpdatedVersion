@@ -1499,7 +1499,7 @@ class PackageAllocationGuardTests(TestCase):
     @patch("operations.services._ensure_package")
     @patch("operations.services._load_request")
     @patch("operations.services._execution_link_for_request", return_value=None)
-    def test_save_package_rejects_manager_submitting_override_request(
+    def test_save_package_allows_manager_to_commit_approval_required_override_directly(
         self,
         _execution_link_mock,
         load_request_mock,
@@ -1519,30 +1519,28 @@ class PackageAllocationGuardTests(TestCase):
         )
         ensure_package_mock.return_value = SimpleNamespace(reliefpkg_id=90, tracking_no="PK00090")
 
-        with self.assertRaises(operations_service.OperationValidationError) as raised:
-            operations_service._save_package_allocation(
-                88,
-                payload={
-                    "allocations": [
-                        {
-                            "item_id": 202,
-                            "inventory_id": 1,
-                            "batch_id": 1001,
-                            "quantity": "2",
-                        }
-                    ],
-                    "override_reason_code": "FEFO_BYPASS",
-                    "override_note": "Manager tried to submit directly.",
-                },
-                actor_id="manager-1",
-                actor_roles=["LOGISTICS_MANAGER"],
-                allow_pending_override=True,
-            )
-
-        self.assertEqual(
-            raised.exception.errors["override"],
-            "Only Logistics Officers may submit override requests. Logistics Managers approve them after submission.",
+        result = operations_service._save_package_allocation(
+            88,
+            payload={
+                "allocations": [
+                    {
+                        "item_id": 202,
+                        "inventory_id": 1,
+                        "batch_id": 1001,
+                        "quantity": "2",
+                    }
+                ],
+                "override_reason_code": "FEFO_BYPASS",
+                "override_note": "Manager-authorized fulfillment override.",
+            },
+            actor_id="manager-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            allow_pending_override=True,
         )
-        upsert_rows_mock.assert_not_called()
-        stock_delta_mock.assert_not_called()
-        header_updates_mock.assert_not_called()
+
+        self.assertEqual(result["status"], "COMMITTED")
+        self.assertFalse(result["override_required"])
+        self.assertEqual(result["override_markers"], ["item_not_in_request"])
+        upsert_rows_mock.assert_called_once()
+        stock_delta_mock.assert_called_once()
+        self.assertEqual(header_updates_mock.call_args.kwargs["status_code"], operations_service.PKG_STATUS_PENDING)

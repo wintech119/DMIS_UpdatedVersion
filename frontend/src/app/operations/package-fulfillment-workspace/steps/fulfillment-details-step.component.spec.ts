@@ -28,6 +28,7 @@ describe('FulfillmentDetailsStepComponent', () => {
   const recommendationLoading = signal(false);
   const recommendationError = signal<string | null>(null);
   const planRequiresOverride = signal(false);
+  const planNeedsApproval = signal(false);
   const hasPendingOverride = signal(false);
   const reliefrqstId = signal<number | null>(null);
 
@@ -41,6 +42,7 @@ describe('FulfillmentDetailsStepComponent', () => {
     recommendationLoading,
     recommendationError,
     planRequiresOverride,
+    planNeedsApproval,
     hasPendingOverride,
     reliefrqstId,
     patchDraft: jasmine.createSpy('patchDraft').and.callFake((patch: Record<string, unknown>) => {
@@ -76,6 +78,7 @@ describe('FulfillmentDetailsStepComponent', () => {
     recommendationLoading.set(false);
     recommendationError.set(null);
     planRequiresOverride.set(false);
+    planNeedsApproval.set(false);
     hasPendingOverride.set(false);
     reliefrqstId.set(null);
     storeStub.patchDraft.calls.reset();
@@ -111,8 +114,23 @@ describe('FulfillmentDetailsStepComponent', () => {
     expect(host.querySelector('textarea[placeholder=\"Operational reason for the bypass\"]')).toBeNull();
   });
 
+  it('shows the override note field when the selected plan still needs override approval evidence', () => {
+    planRequiresOverride.set(true);
+    planNeedsApproval.set(true);
+
+    const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('Override Approval');
+    expect(host.textContent).toContain('Override Reason');
+    expect(host.textContent).toContain('Override Note');
+    expect(host.querySelector('textarea[placeholder=\"Operational reason for the bypass\"]')).not.toBeNull();
+  });
+
   it('shows the override note field once approval is pending', () => {
     planRequiresOverride.set(true);
+    planNeedsApproval.set(true);
     hasPendingOverride.set(true);
 
     const fixture = TestBed.createComponent(FulfillmentDetailsStepComponent);

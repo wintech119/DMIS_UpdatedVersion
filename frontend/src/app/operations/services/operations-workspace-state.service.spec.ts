@@ -459,6 +459,34 @@ describe('OperationsWorkspaceStateService.buildCommitPayload', () => {
       }),
     );
   });
+
+  it('rejects stale draft selections that no longer exist in the current candidate list', () => {
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.options.set({
+      request: { reliefrqst_id: 95009 } as unknown as RequestSummary,
+      items: [buildItemGroup()],
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9999,
+          batch_id: 7777,
+          quantity: '2',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    const result = service.buildCommitPayload();
+
+    expect(result.payload).toBeNull();
+    expect(result.errors).toContain(
+      'Portable Water Container: One or more selected stock lines are no longer available. Refresh the item selection before continuing.',
+    );
+  });
 });
 
 describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {

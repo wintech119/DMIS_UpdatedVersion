@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from api.authentication import Principal
 from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT
+from replenishment.services.allocation_dispatch import ReservationError
 
 
 @override_settings(
@@ -244,6 +245,32 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_cancel_package.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_cancel_package.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_tasks.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch(
+        "operations.views.operations_service.save_package",
+        side_effect=ReservationError("Insufficient warehouse stock for item 195 at inventory 1."),
+    )
+    def test_commit_allocation_returns_conflict_for_reservation_errors(
+        self,
+        _mock_save_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/commit",
+            {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"allocations": "Insufficient warehouse stock for item 195 at inventory 1."}},
+        )
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
