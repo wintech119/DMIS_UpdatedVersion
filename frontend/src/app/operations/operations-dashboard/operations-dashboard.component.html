@@ -14,10 +14,12 @@
         <mat-icon>add</mat-icon>
         New Relief Request
       </button>
-      <button mat-stroked-button type="button" (click)="open('/operations/eligibility-review')">
-        <mat-icon>fact_check</mat-icon>
-        Review Queue
-      </button>
+      @if (canAccessEligibility()) {
+        <button mat-stroked-button type="button" (click)="open('/operations/eligibility-review')">
+          <mat-icon>fact_check</mat-icon>
+          Review Queue
+        </button>
+      }
     </div>
   </header>
 
@@ -101,15 +103,17 @@
                   </div>
                 </div>
               </div>
-              <div class="ops-timeline__step">
-                <span class="ops-timeline__dot" style="background: #92400e;"></span>
-                <div class="ops-timeline__content">
-                  <p class="ops-timeline__title">Eligibility Review</p>
-                  <div class="ops-timeline__meta">
-                    <span>Approve or decline requests with auditable decisions.</span>
+              @if (canAccessEligibility()) {
+                <div class="ops-timeline__step">
+                  <span class="ops-timeline__dot" style="background: #92400e;"></span>
+                  <div class="ops-timeline__content">
+                    <p class="ops-timeline__title">Eligibility Review</p>
+                    <div class="ops-timeline__meta">
+                      <span>Approve or decline requests with auditable decisions.</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              }
               <div class="ops-timeline__step">
                 <span class="ops-timeline__dot" style="background: #065f46;"></span>
                 <div class="ops-timeline__content">

@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
@@ -17,11 +18,16 @@ import {
   formatOperationsLineCount,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
+  buildOperationsQueueSeenStorageKey,
+  countOperationsUnreadIds,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
+  mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  readOperationsQueueSeenEntries,
+  writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
 type ReviewFilter = 'all' | 'critical' | 'high' | 'submitted' | 'closed';
@@ -56,20 +62,23 @@ interface ReviewSummary {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EligibilityReviewQueueComponent implements OnInit {
+  private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly seenStorageScope = 'eligibility-review';
 
   readonly loading = signal(true);
   readonly requests = signal<RequestSummary[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<ReviewFilter>('all');
+  readonly seenFilters = signal<Record<string, number[]>>({});
 
   readonly filterOptions: readonly { label: string; value: ReviewFilter }[] = [
-    { label: 'All', value: 'all' },
     { label: 'Critical', value: 'critical' },
     { label: 'High', value: 'high' },
     { label: 'Submitted', value: 'submitted' },
     { label: 'Closed', value: 'closed' },
+    { label: 'All', value: 'all' },
   ];
 
   readonly filteredRequests = computed(() => {
@@ -77,16 +86,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
     const filter = this.activeFilter();
 
     return this.requests().filter((request) => {
-      if (filter === 'critical' && String(request.urgency_ind ?? '').toUpperCase() !== 'C') {
-        return false;
-      }
-      if (filter === 'high' && String(request.urgency_ind ?? '').toUpperCase() !== 'H') {
-        return false;
-      }
-      if (filter === 'submitted' && !(request.status_code === 'SUBMITTED' || request.status_code === 'UNDER_ELIGIBILITY_REVIEW' || request.status_code === 'APPROVED_FOR_FULFILLMENT')) {
-        return false;
-      }
-      if (filter === 'closed' && !(request.status_code === 'CANCELLED' || request.status_code === 'REJECTED' || request.status_code === 'INELIGIBLE' || request.status_code === 'FULFILLED')) {
+      if (!this.matchesFilter(request, filter)) {
         return false;
       }
 
@@ -129,6 +129,19 @@ export class EligibilityReviewQueueComponent implements OnInit {
     };
   });
 
+  readonly unreadCounts = computed<Record<ReviewFilter, number>>(() => {
+    const rows = this.requests();
+    const seen = this.seenFilters();
+
+    return {
+      all: 0,
+      critical: countOperationsUnreadIds(this.getFilterRequestIds('critical', rows), seen['critical']),
+      high: countOperationsUnreadIds(this.getFilterRequestIds('high', rows), seen['high']),
+      submitted: countOperationsUnreadIds(this.getFilterRequestIds('submitted', rows), seen['submitted']),
+      closed: countOperationsUnreadIds(this.getFilterRequestIds('closed', rows), seen['closed']),
+    };
+  });
+
   readonly formatOperationsRequestStatus = formatOperationsRequestStatus;
   readonly formatOperationsUrgency = formatOperationsUrgency;
   readonly formatOperationsDateTime = formatOperationsDateTime;
@@ -138,11 +151,15 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
-    this.loadQueue();
+    this.auth.ensureLoaded().subscribe(() => {
+      this.loadSeenFilters();
+      this.loadQueue();
+    });
   }
 
   setFilter(filter: ReviewFilter): void {
     this.activeFilter.set(filter);
+    this.markFilterSeen(filter);
   }
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
@@ -165,6 +182,22 @@ export class EligibilityReviewQueueComponent implements OnInit {
     return mapOperationsToneToChipTone(tone);
   }
 
+  hasUnread(filter: ReviewFilter): boolean {
+    return filter !== 'all' && this.unreadCount(filter) > 0;
+  }
+
+  unreadCount(filter: ReviewFilter): number {
+    return this.unreadCounts()[filter] ?? 0;
+  }
+
+  filterAriaLabel(label: string, filter: ReviewFilter): string {
+    const unread = this.unreadCount(filter);
+    if (!unread) {
+      return label;
+    }
+    return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+  }
+
   trackByRequestId(_index: number, request: RequestSummary): number {
     return request.reliefrqst_id;
   }
@@ -180,6 +213,7 @@ export class EligibilityReviewQueueComponent implements OnInit {
           new Date(left.create_dtime ?? left.request_date ?? 0).getTime(),
         );
         this.requests.set(rows);
+        this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
@@ -187,5 +221,65 @@ export class EligibilityReviewQueueComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  private getSeenStorageKey(): string | null {
+    return buildOperationsQueueSeenStorageKey(this.seenStorageScope, this.auth.currentUserRef());
+  }
+
+  private loadSeenFilters(): void {
+    this.seenFilters.set(readOperationsQueueSeenEntries(this.getSeenStorageKey()));
+  }
+
+  private markFilterSeen(filter: ReviewFilter): void {
+    if (filter === 'all') {
+      return;
+    }
+
+    const ids = this.getFilterRequestIds(filter);
+    if (!ids.length) {
+      return;
+    }
+
+    const next = mergeOperationsQueueSeenEntries(this.seenFilters(), filter, ids);
+    this.seenFilters.set(next);
+    writeOperationsQueueSeenEntries(this.getSeenStorageKey(), next);
+  }
+
+  private syncSeenFilterForActiveView(): void {
+    const filter = this.activeFilter();
+    if (filter !== 'all') {
+      this.markFilterSeen(filter);
+    }
+  }
+
+  private getFilterRequestIds(
+    filter: Exclude<ReviewFilter, 'all'>,
+    rows: readonly RequestSummary[] = this.requests(),
+  ): number[] {
+    return rows
+      .filter((request) => this.matchesFilter(request, filter))
+      .map((request) => request.reliefrqst_id);
+  }
+
+  private matchesFilter(request: RequestSummary, filter: ReviewFilter): boolean {
+    switch (filter) {
+      case 'critical':
+        return String(request.urgency_ind ?? '').toUpperCase() === 'C';
+      case 'high':
+        return String(request.urgency_ind ?? '').toUpperCase() === 'H';
+      case 'submitted':
+        return request.status_code === 'SUBMITTED'
+          || request.status_code === 'UNDER_ELIGIBILITY_REVIEW'
+          || request.status_code === 'APPROVED_FOR_FULFILLMENT';
+      case 'closed':
+        return request.status_code === 'CANCELLED'
+          || request.status_code === 'REJECTED'
+          || request.status_code === 'INELIGIBLE'
+          || request.status_code === 'FULFILLED';
+      case 'all':
+      default:
+        return true;
+    }
   }
 }

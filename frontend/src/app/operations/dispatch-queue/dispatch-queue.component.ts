@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
@@ -21,10 +22,15 @@ import {
   formatOperationsPackageStatus,
   formatOperationsAge,
   formatOperationsDateTime,
+  buildOperationsQueueSeenStorageKey,
+  countOperationsUnreadIds,
   getOperationsPackageTone,
   handleRovingRadioKeydown,
+  mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  readOperationsQueueSeenEntries,
+  writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
 type DispatchFilter = 'all' | 'ready' | 'in_transit' | 'completed';
@@ -46,19 +52,22 @@ type DispatchStage = DispatchFilter | 'unknown';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DispatchQueueComponent implements OnInit {
+  private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly seenStorageScope = 'dispatch';
 
   readonly loading = signal(true);
   readonly items = signal<DispatchQueueItem[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<DispatchFilter>('all');
+  readonly seenFilters = signal<Record<string, number[]>>({});
 
   readonly filterOptions: readonly { label: string; value: DispatchFilter }[] = [
-    { label: 'All', value: 'all' },
     { label: 'Ready', value: 'ready' },
     { label: 'In Transit', value: 'in_transit' },
     { label: 'Completed', value: 'completed' },
+    { label: 'All', value: 'all' },
   ];
 
   readonly filteredItems = computed(() => {
@@ -116,13 +125,28 @@ export class DispatchQueueComponent implements OnInit {
     };
   });
 
+  readonly unreadCounts = computed<Record<DispatchFilter, number>>(() => {
+    const rows = this.items();
+    const seen = this.seenFilters();
+
+    return {
+      all: 0,
+      ready: countOperationsUnreadIds(this.getFilterPackageIds('ready', rows), seen['ready']),
+      in_transit: countOperationsUnreadIds(this.getFilterPackageIds('in_transit', rows), seen['in_transit']),
+      completed: countOperationsUnreadIds(this.getFilterPackageIds('completed', rows), seen['completed']),
+    };
+  });
+
   readonly formatPackageStatus = formatOperationsPackageStatus;
   readonly formatAge = formatOperationsAge;
   readonly formatDateTime = formatOperationsDateTime;
   readonly getPackageTone = getOperationsPackageTone;
 
   ngOnInit(): void {
-    this.refreshQueue();
+    this.auth.ensureLoaded().subscribe(() => {
+      this.loadSeenFilters();
+      this.refreshQueue();
+    });
   }
 
   refreshQueue(): void {
@@ -131,10 +155,27 @@ export class DispatchQueueComponent implements OnInit {
 
   setFilter(filter: DispatchFilter): void {
     this.activeFilter.set(filter);
+    this.markFilterSeen(filter);
   }
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
+  }
+
+  hasUnread(filter: DispatchFilter): boolean {
+    return filter !== 'all' && this.unreadCount(filter) > 0;
+  }
+
+  unreadCount(filter: DispatchFilter): number {
+    return this.unreadCounts()[filter] ?? 0;
+  }
+
+  filterAriaLabel(label: string, filter: DispatchFilter): string {
+    const unread = this.unreadCount(filter);
+    if (!unread) {
+      return label;
+    }
+    return `${label}, ${unread} new ${unread === 1 ? 'package' : 'packages'}`;
   }
 
   onSearch(value: string): void {
@@ -218,6 +259,7 @@ export class DispatchQueueComponent implements OnInit {
     this.operationsService.getDispatchQueue().subscribe({
       next: (response) => {
         this.items.set(response.results);
+        this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
@@ -225,5 +267,44 @@ export class DispatchQueueComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  private getSeenStorageKey(): string | null {
+    return buildOperationsQueueSeenStorageKey(this.seenStorageScope, this.auth.currentUserRef());
+  }
+
+  private loadSeenFilters(): void {
+    this.seenFilters.set(readOperationsQueueSeenEntries(this.getSeenStorageKey()));
+  }
+
+  private markFilterSeen(filter: DispatchFilter): void {
+    if (filter === 'all') {
+      return;
+    }
+
+    const ids = this.getFilterPackageIds(filter);
+    if (!ids.length) {
+      return;
+    }
+
+    const next = mergeOperationsQueueSeenEntries(this.seenFilters(), filter, ids);
+    this.seenFilters.set(next);
+    writeOperationsQueueSeenEntries(this.getSeenStorageKey(), next);
+  }
+
+  private syncSeenFilterForActiveView(): void {
+    const filter = this.activeFilter();
+    if (filter !== 'all') {
+      this.markFilterSeen(filter);
+    }
+  }
+
+  private getFilterPackageIds(
+    filter: Exclude<DispatchFilter, 'all'>,
+    rows: readonly DispatchQueueItem[] = this.items(),
+  ): number[] {
+    return rows
+      .filter((row) => this.getDispatchStage(row) === filter)
+      .map((row) => row.reliefpkg_id);
   }
 }

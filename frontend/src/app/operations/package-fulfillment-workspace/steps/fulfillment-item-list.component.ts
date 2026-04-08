@@ -176,12 +176,13 @@ export class FulfillmentItemListComponent {
   readonly items = input.required<AllocationItemGroup[]>();
   readonly selectedItemId = input<number | null>(null);
   readonly store = input.required<OperationsWorkspaceStateService>();
-  readonly defaultWarehouseId = input<string>('');
   readonly itemSelected = output<number>();
 
   isItemOverridden(itemId: number): boolean {
-    const defaultId = this.defaultWarehouseId();
-    if (!defaultId) return false;
-    return this.store().effectiveWarehouseForItem(itemId) !== defaultId;
+    const defaultWarehouseId = this.items().find((item) => item.item_id === itemId)?.source_warehouse_id;
+    if (defaultWarehouseId == null) {
+      return false;
+    }
+    return this.store().effectiveWarehouseForItem(itemId) !== String(defaultWarehouseId);
   }
 }

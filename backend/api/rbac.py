@@ -657,14 +657,6 @@ def _compat_operations_permissions_for_permissions(permissions: Iterable[str]) -
             PERM_OPERATIONS_QUEUE_VIEW,
             PERM_OPERATIONS_NOTIFICATION_RECEIVE,
         }
-    if PERM_NEEDS_LIST_APPROVE.lower() in normalized:
-        compat |= {
-            PERM_OPERATIONS_ELIGIBILITY_REVIEW,
-            PERM_OPERATIONS_ELIGIBILITY_APPROVE,
-            PERM_OPERATIONS_ELIGIBILITY_REJECT,
-            PERM_OPERATIONS_QUEUE_VIEW,
-            PERM_OPERATIONS_NOTIFICATION_RECEIVE,
-        }
     if PERM_NEEDS_LIST_EXECUTE.lower() in normalized:
         compat |= {
             PERM_OPERATIONS_PACKAGE_CREATE,

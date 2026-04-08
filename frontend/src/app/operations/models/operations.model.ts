@@ -698,6 +698,7 @@ export interface PackageDraftPayload {
   to_inventory_id?: number;
   transport_mode?: string;
   comments_text?: string;
+  allocations?: AllocationSelectionPayload[];
   fulfillment_mode?: FulfillmentMode;
   staging_warehouse_id?: number | null;
   recommended_staging_warehouse_id?: number | null;

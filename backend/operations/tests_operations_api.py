@@ -410,6 +410,29 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.get_package_allocation_options", return_value={"items": [{"item_id": 101}]})
+    def test_package_allocation_options_allow_missing_source_warehouse_id(
+        self,
+        mock_options,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.get("/api/v1/operations/packages/70/allocation-options")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items": [{"item_id": 101}]})
+        mock_options.assert_called_once_with(
+            70,
+            source_warehouse_id=None,
+            actor_id="ops-dev",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=SimpleNamespace(active_tenant_id=20),
+        )
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.get_package_allocation_options", return_value={"items": [{"item_id": 101}]})
     def test_package_allocation_options_reject_invalid_source_warehouse_id(
         self,
         mock_options,

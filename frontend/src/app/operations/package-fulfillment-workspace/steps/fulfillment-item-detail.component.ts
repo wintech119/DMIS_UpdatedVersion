@@ -12,7 +12,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 
-import { LookupItem } from '../../../master-data/models/master-data.models';
 import { AllocationCandidate, AllocationItemGroup } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { formatSourceType } from '../../models/operations-status.util';
@@ -24,6 +23,11 @@ interface WarehouseGroup {
   totalAvailable: number;
   batchCount: number;
   candidates: AllocationCandidate[];
+}
+
+interface WarehouseSelectOption {
+  label: string;
+  value: string;
 }
 
 const COMPLIANCE_LABELS: Record<string, string> = {
@@ -57,7 +61,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
           @if (isOverridden()) {
             <span class="detail__badge detail__badge--override">Overridden</span>
           }
-          @if (warehouseOptions().length > 1) {
+          @if (warehouseSelectOptions().length > 1) {
             <mat-form-field appearance="outline" class="detail__warehouse-select">
               <mat-label>Source</mat-label>
               <mat-select
@@ -66,9 +70,9 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                 [disabled]="readOnly()"
                 panelClass="detail-warehouse-panel"
                 [attr.aria-label]="'Source warehouse for ' + (item().item_name || 'this item')">
-                @for (wh of warehouseOptions(); track wh.value) {
-                  <mat-option [value]="stringifyValue(wh.value)">
-                    {{ wh.label }}{{ stringifyValue(wh.value) === defaultWarehouseId() ? ' (default)' : '' }}
+                @for (wh of warehouseSelectOptions(); track wh.value) {
+                  <mat-option [value]="wh.value">
+                    {{ wh.label }}
                   </mat-option>
                 }
               </mat-select>
@@ -172,11 +176,20 @@ const COMPLIANCE_LABELS: Record<string, string> = {
             <mat-icon aria-hidden="true">call_split</mat-icon>
             <div>
               <h4 class="detail__continuation-title">
-                {{ continuationShortfall() | number:'1.0-4' }} units still need coverage
+                @if (continuationHasShortfall()) {
+                  {{ continuationShortfall() | number:'1.0-4' }} units still need coverage
+                } @else {
+                  Other eligible warehouses available
+                }
               </h4>
               <p class="detail__continuation-copy">
-                Add another warehouse below to keep building this item's allocation. Your current
-                selections will be preserved.
+                @if (continuationHasShortfall()) {
+                  Add another warehouse below to keep building this item's allocation. Your current
+                  selections will be preserved.
+                } @else {
+                  Add another eligible warehouse below to allocate from multiple sources while
+                  keeping the current {{ item().issuance_order }} rule order.
+                }
               </p>
             </div>
             @if (continuationLoading()) {
@@ -192,7 +205,12 @@ const COMPLIANCE_LABELS: Record<string, string> = {
               <li class="detail__alternate-card" role="listitem">
                 <div class="detail__alternate-head">
                   <span class="detail__alternate-name">{{ alt.warehouse_name }}</span>
-                  @if (alt.can_fully_cover) {
+                  @if (!continuationHasShortfall()) {
+                    <span class="detail__alternate-badge detail__alternate-badge--ok">
+                      <mat-icon aria-hidden="true">check_circle</mat-icon>
+                      Eligible
+                    </span>
+                  } @else if (alt.can_fully_cover) {
                     <span class="detail__alternate-badge detail__alternate-badge--ok">
                       <mat-icon aria-hidden="true">check_circle</mat-icon>
                       Fully covers shortfall
@@ -1004,8 +1022,6 @@ export class FulfillmentItemDetailComponent {
   readonly item = input.required<AllocationItemGroup>();
   readonly readOnly = input(false);
   readonly store = input.required<OperationsWorkspaceStateService>();
-  readonly warehouseOptions = input<LookupItem[]>([]);
-  readonly defaultWarehouseId = input<string>('');
   readonly back = output<void>();
   readonly itemAvailabilityIssue = computed(() => this.store().getItemAvailabilityIssue(this.item()));
 
@@ -1014,9 +1030,27 @@ export class FulfillmentItemDetailComponent {
   );
 
   readonly isOverridden = computed(() => {
-    const defaultId = this.defaultWarehouseId();
+    const defaultId = this.item().source_warehouse_id != null ? String(this.item().source_warehouse_id) : '';
     const effective = this.effectiveWarehouse();
     return !!defaultId && !!effective && effective !== defaultId;
+  });
+
+  readonly warehouseSelectOptions = computed<WarehouseSelectOption[]>(() => {
+    const options = new Map<string, string>();
+    for (const candidate of this.item().candidates) {
+      options.set(String(candidate.inventory_id), candidate.warehouse_name || `Warehouse ${candidate.inventory_id}`);
+    }
+    for (const alternate of this.item().alternate_warehouses ?? []) {
+      options.set(String(alternate.warehouse_id), alternate.warehouse_name || `Warehouse ${alternate.warehouse_id}`);
+    }
+    const effectiveWarehouseId = this.effectiveWarehouse();
+    if (effectiveWarehouseId) {
+      options.set(
+        effectiveWarehouseId,
+        options.get(effectiveWarehouseId) ?? `Warehouse ${effectiveWarehouseId}`,
+      );
+    }
+    return [...options.entries()].map(([value, label]) => ({ value, label }));
   });
 
   // ── Metric card computed signals ──
@@ -1092,9 +1126,10 @@ export class FulfillmentItemDetailComponent {
 
   readonly continuationVisible = computed(() => {
     if (this.readOnly()) return false;
-    const item = this.item();
-    return item.continuation_recommended && this.visibleAlternateWarehouses().length > 0;
+    return this.visibleAlternateWarehouses().length > 0;
   });
+
+  readonly continuationHasShortfall = computed(() => this.continuationShortfall() > 0);
 
   readonly continuationShortfall = computed(() => {
     const item = this.item();
@@ -1154,10 +1189,6 @@ export class FulfillmentItemDetailComponent {
 
   onAddWarehouse(warehouseId: number): void {
     this.store().addItemWarehouse(this.item().item_id, warehouseId);
-  }
-
-  stringifyValue(value: unknown): string {
-    return String(value ?? '');
   }
 
   formatSource(sourceType: string): string {

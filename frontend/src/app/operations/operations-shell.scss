@@ -176,12 +176,44 @@ button.ops-chip.ops-chip--active,
   color: #ffffff;
 }
 
+.ops-chip--unread {
+  border-color: rgba(23, 68, 127, 0.24);
+  background: #eef4ff;
+  color: #17447f;
+  box-shadow: 0 0 0 1px rgba(23, 68, 127, 0.06);
+}
+
+.ops-toolbar__filters .ops-chip.ops-chip--unread:hover,
+.ops-toolbar__filters .ops-chip.ops-chip--unread:focus-visible,
+button.ops-chip.ops-chip--unread:hover,
+button.ops-chip.ops-chip--unread:focus-visible {
+  background: #e5efff;
+  color: #0f3a6a;
+}
+
 .ops-toolbar__filters .ops-chip.ops-chip--active:hover,
 .ops-toolbar__filters .ops-chip.ops-chip--active:focus-visible,
 button.ops-chip.ops-chip--active:hover,
 button.ops-chip.ops-chip--active:focus-visible {
   background: var(--color-text-primary);
   color: #ffffff;
+}
+
+.ops-chip__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.38rem;
+  border-radius: 999px;
+  background: #17447f;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1;
 }
 
 // ── Chip tone variants (WCAG AA contrast) ──────────────────────────────

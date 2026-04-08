@@ -174,4 +174,35 @@ describe('FulfillmentItemDetailComponent', () => {
     expect(titleText).toContain('still need coverage');
     expect(titleText).not.toContain('after this warehouse');
   });
+
+  it('shows eligible warehouse continuation cards even when shortfall is already covered', async () => {
+    const item = buildItemWithAlternates({
+      continuation_recommended: false,
+      remaining_shortfall_qty: '0',
+      effective_remaining_qty: '0',
+      alternate_warehouses: [
+        {
+          warehouse_id: 102,
+          warehouse_name: 'Spanish Town',
+          available_qty: '50',
+          suggested_qty: '0',
+          can_fully_cover: true,
+        },
+      ],
+    });
+
+    await TestBed.configureTestingModule({
+      imports: [FulfillmentItemDetailComponent],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+    fixture.componentRef.setInput('item', item);
+    fixture.componentRef.setInput('store', storeStub as never);
+    fixture.detectChanges();
+
+    const title = fixture.nativeElement.querySelector('.detail__continuation-title') as HTMLElement;
+    const badge = fixture.nativeElement.querySelector('.detail__alternate-badge') as HTMLElement;
+    expect(title.textContent ?? '').toContain('Other eligible warehouses available');
+    expect(badge.textContent ?? '').toContain('Eligible');
+  });
 });

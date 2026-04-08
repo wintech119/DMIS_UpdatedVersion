@@ -6,6 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
@@ -19,11 +20,16 @@ import {
   formatOperationsRequestStatus,
   formatOperationsUrgency,
   formatRequestMode,
+  buildOperationsQueueSeenStorageKey,
+  countOperationsUnreadIds,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
+  mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  readOperationsQueueSeenEntries,
+  writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
 type RequestFilter = 'all' | 'draft' | 'review' | 'approved' | 'dispatched' | 'closed';
@@ -55,21 +61,24 @@ interface QueueMetric {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReliefRequestListComponent implements OnInit {
+  private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly seenStorageScope = 'relief-requests';
 
   readonly loading = signal(true);
   readonly requests = signal<RequestSummary[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<RequestFilter>('all');
+  readonly seenFilters = signal<Record<string, number[]>>({});
 
   readonly filterOptions: readonly { label: string; value: RequestFilter }[] = [
-    { label: 'All', value: 'all' },
     { label: 'Draft', value: 'draft' },
     { label: 'Review', value: 'review' },
     { label: 'Approved', value: 'approved' },
     { label: 'Dispatched', value: 'dispatched' },
     { label: 'Closed', value: 'closed' },
+    { label: 'All', value: 'all' },
   ];
 
   readonly filteredRequests = computed(() => {
@@ -144,6 +153,20 @@ export class ReliefRequestListComponent implements OnInit {
     };
   });
 
+  readonly unreadCounts = computed<Record<RequestFilter, number>>(() => {
+    const rows = this.requests();
+    const seen = this.seenFilters();
+
+    return {
+      all: 0,
+      draft: countOperationsUnreadIds(this.getFilterRequestIds('draft', rows), seen['draft']),
+      review: countOperationsUnreadIds(this.getFilterRequestIds('review', rows), seen['review']),
+      approved: countOperationsUnreadIds(this.getFilterRequestIds('approved', rows), seen['approved']),
+      dispatched: countOperationsUnreadIds(this.getFilterRequestIds('dispatched', rows), seen['dispatched']),
+      closed: countOperationsUnreadIds(this.getFilterRequestIds('closed', rows), seen['closed']),
+    };
+  });
+
   readonly formatOperationsRequestStatus = formatOperationsRequestStatus;
   readonly formatOperationsUrgency = formatOperationsUrgency;
   readonly formatOperationsAge = formatOperationsAge;
@@ -154,11 +177,15 @@ export class ReliefRequestListComponent implements OnInit {
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
-    this.loadRequests();
+    this.auth.ensureLoaded().subscribe(() => {
+      this.loadSeenFilters();
+      this.loadRequests();
+    });
   }
 
   setFilter(filter: RequestFilter): void {
     this.activeFilter.set(filter);
+    this.markFilterSeen(filter);
   }
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
@@ -188,6 +215,22 @@ export class ReliefRequestListComponent implements OnInit {
     return mapOperationsToneToChipTone(tone);
   }
 
+  hasUnread(filter: RequestFilter): boolean {
+    return filter !== 'all' && this.unreadCount(filter) > 0;
+  }
+
+  unreadCount(filter: RequestFilter): number {
+    return this.unreadCounts()[filter] ?? 0;
+  }
+
+  filterAriaLabel(label: string, filter: RequestFilter): string {
+    const unread = this.unreadCount(filter);
+    if (!unread) {
+      return label;
+    }
+    return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+  }
+
   trackByRequestId(_index: number, request: RequestSummary): number {
     return request.reliefrqst_id;
   }
@@ -202,6 +245,7 @@ export class ReliefRequestListComponent implements OnInit {
           new Date(left.create_dtime ?? left.request_date ?? 0).getTime(),
         );
         this.requests.set(rows);
+        this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
@@ -239,5 +283,44 @@ export class ReliefRequestListComponent implements OnInit {
       || value === 'approved'
       || value === 'dispatched'
       || value === 'closed';
+  }
+
+  private getSeenStorageKey(): string | null {
+    return buildOperationsQueueSeenStorageKey(this.seenStorageScope, this.auth.currentUserRef());
+  }
+
+  private loadSeenFilters(): void {
+    this.seenFilters.set(readOperationsQueueSeenEntries(this.getSeenStorageKey()));
+  }
+
+  private markFilterSeen(filter: RequestFilter): void {
+    if (filter === 'all') {
+      return;
+    }
+
+    const ids = this.getFilterRequestIds(filter);
+    if (!ids.length) {
+      return;
+    }
+
+    const next = mergeOperationsQueueSeenEntries(this.seenFilters(), filter, ids);
+    this.seenFilters.set(next);
+    writeOperationsQueueSeenEntries(this.getSeenStorageKey(), next);
+  }
+
+  private syncSeenFilterForActiveView(): void {
+    const filter = this.activeFilter();
+    if (filter !== 'all') {
+      this.markFilterSeen(filter);
+    }
+  }
+
+  private getFilterRequestIds(
+    filter: Exclude<RequestFilter, 'all'>,
+    rows: readonly RequestSummary[] = this.requests(),
+  ): number[] {
+    return rows
+      .filter((request) => this.getStatusGroup(request) === filter)
+      .map((request) => request.reliefrqst_id);
   }
 }

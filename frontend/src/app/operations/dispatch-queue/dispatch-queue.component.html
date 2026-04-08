@@ -54,13 +54,18 @@
               <button
                 class="ops-chip"
                 [class.ops-chip--active]="activeFilter() === filter.value"
+                [class.ops-chip--unread]="hasUnread(filter.value)"
                 type="button"
                 role="radio"
                 [attr.aria-checked]="activeFilter() === filter.value"
+                [attr.aria-label]="filterAriaLabel(filter.label, filter.value)"
                 [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
                 (click)="setFilter(filter.value)"
                 (keydown)="onFilterKeydown($event, $index)">
-                {{ filter.label }}
+                <span>{{ filter.label }}</span>
+                @if (hasUnread(filter.value)) {
+                  <span class="ops-chip__count" aria-hidden="true">{{ unreadCount(filter.value) }}</span>
+                }
               </button>
             }
           </div>

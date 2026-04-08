@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Sequence
 
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
@@ -1519,6 +1519,94 @@ def _package_summary_payload(package: ReliefPkg, package_record: OperationsPacka
     return payload
 
 
+def _operations_allocation_payload(
+    package: ReliefPkg,
+    package_record: OperationsPackage,
+) -> dict[str, Any]:
+    allocation_lines = list(
+        package_record.allocation_lines.order_by(
+            "item_id",
+            "source_warehouse_id",
+            "batch_id",
+            "line_id",
+        )
+    )
+    try:
+        batch_lookup = {
+            int(batch.batch_id): batch
+            for batch in ItemBatch.objects.filter(
+                batch_id__in=[int(line.batch_id) for line in allocation_lines]
+            )
+        }
+    except DatabaseError:
+        batch_lookup = {}
+    dispatch = OperationsDispatch.objects.filter(package_id=int(package.reliefpkg_id)).first()
+    waybill = None
+    if dispatch is not None:
+        waybill = (
+            OperationsWaybill.objects.filter(dispatch_id=int(dispatch.dispatch_id))
+            .order_by("-generated_at", "-waybill_id")
+            .first()
+        )
+    total_qty = sum((legacy_service._quantize_qty(line.quantity) for line in allocation_lines), Decimal("0"))
+    serialized_lines: list[dict[str, Any]] = []
+    for line in allocation_lines:
+        batch = batch_lookup.get(int(line.batch_id))
+        serialized_lines.append(
+            {
+                "item_id": int(line.item_id),
+                "inventory_id": int(line.source_warehouse_id),
+                "batch_id": int(line.batch_id),
+                "batch_no": batch.batch_no if batch is not None else None,
+                "batch_date": legacy_service._as_iso(batch.batch_date if batch is not None else None),
+                "expiry_date": legacy_service._as_iso(batch.expiry_date if batch is not None else None),
+                "quantity": str(legacy_service._quantize_qty(line.quantity)),
+                "uom_code": line.uom_code or (batch.uom_code if batch is not None else None),
+                "source_type": line.source_type,
+                "source_record_id": line.source_record_id,
+            }
+        )
+    return {
+        "allocation_lines": serialized_lines,
+        "reserved_stock_summary": {
+            "line_count": len(serialized_lines),
+            "total_qty": str(total_qty.quantize(Decimal("0.0001"))),
+        },
+        "waybill_no": waybill.waybill_no if waybill is not None else None,
+    }
+
+
+def _replace_operations_allocation_lines(
+    package_record: OperationsPackage,
+    allocations: Sequence[Mapping[str, Any]],
+    *,
+    actor_id: str,
+) -> None:
+    OperationsAllocationLine.objects.filter(package=package_record).delete()
+    if not allocations:
+        return
+    now = timezone.now()
+    OperationsAllocationLine.objects.bulk_create(
+        [
+            OperationsAllocationLine(
+                package=package_record,
+                item_id=int(allocation["item_id"]),
+                source_warehouse_id=int(allocation["source_warehouse_id"]),
+                batch_id=int(allocation["batch_id"]),
+                quantity=allocation["quantity"],
+                source_type=str(allocation["source_type"]),
+                source_record_id=allocation["source_record_id"],
+                uom_code=allocation["uom_code"],
+                create_by_id=actor_id,
+                create_dtime=now,
+                update_by_id=actor_id,
+                update_dtime=now,
+            )
+            for allocation in allocations
+        ]
+    )
+
+
 def _dispatch_payload(package: ReliefPkg, dispatch: OperationsDispatch) -> dict[str, Any]:
     transport = OperationsDispatchTransport.objects.filter(dispatch_id=int(dispatch.dispatch_id)).first()
     payload = {
@@ -2605,7 +2693,10 @@ def get_package(reliefrqst_id: int, *, actor_id: str | None = None, actor_roles:
         "compatibility_only": False,
     }
     if package is not None:
-        payload["package"]["allocation"] = legacy_service._package_detail(package)["allocation"]
+        if package_record is not None and package_record.status_code == PACKAGE_STATUS_DRAFT:
+            payload["package"]["allocation"] = _operations_allocation_payload(package, package_record)
+        else:
+            payload["package"]["allocation"] = legacy_service._package_detail(package)["allocation"]
     return payload
 
 
@@ -2728,7 +2819,11 @@ def get_package_allocation_options(reliefrqst_id: int, *, source_warehouse_id: i
     request = legacy_service._load_request(reliefrqst_id)
     request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
-    return legacy_service.get_package_allocation_options(reliefrqst_id, source_warehouse_id=source_warehouse_id)
+    return legacy_service.get_package_allocation_options(
+        reliefrqst_id,
+        source_warehouse_id=source_warehouse_id,
+        tenant_context=tenant_context,
+    )
 
 
 def get_item_allocation_options(
@@ -2808,6 +2903,7 @@ def save_package(
     permissions: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
+    draft_save = bool(payload.get("draft_save"))
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
     validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
@@ -2829,7 +2925,14 @@ def save_package(
         existing_package_record=package_record,
         permissions=permissions,
     )
-    result = legacy_service.save_package(reliefrqst_id, payload=payload, actor_id=actor_id)
+    legacy_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"allocations", "draft_save"}
+    }
+    if not draft_save and "allocations" in payload:
+        legacy_payload["allocations"] = payload["allocations"]
+    result = legacy_service.save_package(reliefrqst_id, payload=legacy_payload, actor_id=actor_id)
     # Re-sync request after legacy save to keep the operations status at
     # APPROVED_FOR_FULFILLMENT (the legacy save sets status_code=2 which
     # the mapping interprets as CANCELLED).
@@ -2847,11 +2950,12 @@ def save_package(
         first_inventory_id = requested_source_warehouse_id
     status_code = PACKAGE_STATUS_DRAFT
     override_status = None
-    if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
-        status_code = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
-        override_status = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
-    elif result.get("status") == "COMMITTED":
-        status_code = PACKAGE_STATUS_COMMITTED
+    if not draft_save:
+        if result.get("status") == "PENDING_OVERRIDE_APPROVAL":
+            status_code = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
+            override_status = PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL
+        elif result.get("status") == "COMMITTED":
+            status_code = PACKAGE_STATUS_COMMITTED
     package_record = _sync_operations_package(
         package,
         request_record=request_record,
@@ -2874,28 +2978,11 @@ def save_package(
     )
     # ── Dual-write: sync allocation lines to new operations table ──
     if validated_allocations is not None:
-        OperationsAllocationLine.objects.filter(package=package_record).delete()
-        lines_to_create = []
-        now = timezone.now()
-        for allocation in validated_allocations:
-            lines_to_create.append(
-                OperationsAllocationLine(
-                    package=package_record,
-                    item_id=allocation["item_id"],
-                    source_warehouse_id=allocation["source_warehouse_id"],
-                    batch_id=allocation["batch_id"],
-                    quantity=allocation["quantity"],
-                    source_type=allocation["source_type"],
-                    source_record_id=allocation["source_record_id"],
-                    uom_code=allocation["uom_code"],
-                    create_by_id=actor_id,
-                    create_dtime=now,
-                    update_by_id=actor_id,
-                    update_dtime=now,
-                )
-            )
-        if lines_to_create:
-            OperationsAllocationLine.objects.bulk_create(lines_to_create)
+        _replace_operations_allocation_lines(
+            package_record,
+            validated_allocations,
+            actor_id=actor_id,
+        )
     if status_code == PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL:
         fulfillment_tenant_id = _resolve_request_level_fulfillment_tenant_id()
         assign_roles_to_queue(

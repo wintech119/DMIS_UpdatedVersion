@@ -5,6 +5,8 @@ import { catchError, forkJoin, of } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { AppAccessService } from '../../core/app-access.service';
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
@@ -54,6 +56,8 @@ const EMPTY_TASK_FEED: OperationsTaskListResponse = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OperationsDashboardComponent implements OnInit {
+  private readonly auth = inject(AuthRbacService);
+  private readonly appAccess = inject(AppAccessService);
   private readonly router = inject(Router);
   private readonly operationsService = inject(OperationsService);
 
@@ -71,9 +75,10 @@ export class OperationsDashboardComponent implements OnInit {
       hint: metric.note,
     })),
   );
+  readonly canAccessEligibility = computed(() => this.appAccess.canAccessNavKey('operations.eligibility'));
 
   ngOnInit(): void {
-    this.loadDashboard();
+    this.auth.ensureLoaded().subscribe(() => this.loadDashboard());
   }
 
   open(route: string): void {
@@ -86,10 +91,13 @@ export class OperationsDashboardComponent implements OnInit {
 
   private loadDashboard(): void {
     this.loading.set(true);
+    const canAccessEligibility = this.canAccessEligibility();
 
     forkJoin({
       requests: this.operationsService.listRequests(),
-      eligibility: this.operationsService.getEligibilityQueue(),
+      eligibility: canAccessEligibility
+        ? this.operationsService.getEligibilityQueue().pipe(catchError(() => of({ results: [] })))
+        : of({ results: [] }),
       packages: this.operationsService.getPackagesQueue(),
       dispatch: this.operationsService.getDispatchQueue(),
       tasks: this.operationsService.getTasks().pipe(catchError(() => of(EMPTY_TASK_FEED))),
@@ -110,26 +118,20 @@ export class OperationsDashboardComponent implements OnInit {
         const unreadNotifications = tasks.notifications.filter((task) => task.status === 'PENDING').length;
 
         this.dashboardSubtitle.set(
-          `Operations command center for relief requests, eligibility review, packing, and dispatch. `
+          `Operations command center for relief requests, ${canAccessEligibility ? 'eligibility review, ' : ''}packing, dispatch, and task coordination. `
           + `${openAssignments} live assignments and ${unreadNotifications} unread notifications.`,
         );
 
-        this.metrics.set([
+        const dashboardMetrics: DashboardMetric[] = [
           {
             label: 'Open Requests',
             value: requestRows.length,
-            note: `${draftCount} drafts, ${reviewCount} awaiting review`,
+            note: canAccessEligibility
+              ? `${draftCount} drafts, ${reviewCount} awaiting review`
+              : `${draftCount} drafts ready for submission`,
             route: '/operations/relief-requests',
             icon: 'assignment',
             tone: 'review',
-          },
-          {
-            label: 'Eligibility Queue',
-            value: reviewCount,
-            note: `${urgentCount} critical requests in line`,
-            route: '/operations/eligibility-review',
-            icon: 'verified_user',
-            tone: 'warning',
           },
           {
             label: 'Package Worklist',
@@ -147,7 +149,29 @@ export class OperationsDashboardComponent implements OnInit {
             icon: 'local_shipping',
             tone: 'success',
           },
-        ]);
+          {
+            label: 'Action Items',
+            value: openAssignments + unreadNotifications,
+            note: `${openAssignments} live assignments, ${unreadNotifications} unread notifications`,
+            route: '/operations/tasks',
+            icon: 'notifications_active',
+            tone: 'warning',
+          },
+        ];
+
+        if (canAccessEligibility) {
+          dashboardMetrics.splice(1, 0, {
+            label: 'Eligibility Queue',
+            value: reviewCount,
+            note: `${urgentCount} critical requests in line`,
+            route: '/operations/eligibility-review',
+            icon: 'verified_user',
+            tone: 'warning',
+          });
+          dashboardMetrics.pop();
+        }
+
+        this.metrics.set(dashboardMetrics);
 
         const priorityRequests = requestRows
           .filter((row) => row.status_code !== 'FULFILLED')
@@ -166,15 +190,17 @@ export class OperationsDashboardComponent implements OnInit {
 
         const queueHighlights: DashboardQueueItem[] = [
           ...priorityRequests,
-          ...eligibility.results.slice(0, 1).map((row) => ({
-            title: row.tracking_no ?? `Review ${row.reliefrqst_id}`,
-            detail: row.agency_name ?? `Agency ${row.agency_id ?? 'pending'}`,
-            status: `${formatOperationsRequestStatus(row.status_code)} | review`,
-            tone: getOperationsRequestTone(row.status_code),
-            age: formatOperationsAge(row.create_dtime ?? row.request_date),
-            route: `/operations/eligibility-review/${row.reliefrqst_id}`,
-            icon: 'fact_check',
-          })),
+          ...(canAccessEligibility
+            ? eligibility.results.slice(0, 1).map((row) => ({
+              title: row.tracking_no ?? `Review ${row.reliefrqst_id}`,
+              detail: row.agency_name ?? `Agency ${row.agency_id ?? 'pending'}`,
+              status: `${formatOperationsRequestStatus(row.status_code)} | review`,
+              tone: getOperationsRequestTone(row.status_code),
+              age: formatOperationsAge(row.create_dtime ?? row.request_date),
+              route: `/operations/eligibility-review/${row.reliefrqst_id}`,
+              icon: 'fact_check',
+            }))
+            : []),
         ];
 
         this.priorityWork.set(queueHighlights.slice(0, 6));
@@ -196,21 +222,13 @@ export class OperationsDashboardComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.metrics.set([
+        const fallbackMetrics: DashboardMetric[] = [
           {
             label: 'Open Requests',
             value: 0,
             note: 'Unavailable',
             route: '/operations/relief-requests',
             icon: 'assignment',
-            tone: 'muted',
-          },
-          {
-            label: 'Eligibility Queue',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/eligibility-review',
-            icon: 'verified_user',
             tone: 'muted',
           },
           {
@@ -229,9 +247,33 @@ export class OperationsDashboardComponent implements OnInit {
             icon: 'local_shipping',
             tone: 'muted',
           },
-        ]);
+          {
+            label: 'Action Items',
+            value: 0,
+            note: 'Unavailable',
+            route: '/operations/tasks',
+            icon: 'notifications_active',
+            tone: 'muted',
+          },
+        ];
+
+        if (canAccessEligibility) {
+          fallbackMetrics.splice(1, 0, {
+            label: 'Eligibility Queue',
+            value: 0,
+            note: 'Unavailable',
+            route: '/operations/eligibility-review',
+            icon: 'verified_user',
+            tone: 'muted',
+          });
+          fallbackMetrics.pop();
+        }
+
+        this.metrics.set(fallbackMetrics);
         this.priorityWork.set([]);
-        this.dashboardSubtitle.set('Operations command center for relief requests, eligibility review, packing, and dispatch.');
+        this.dashboardSubtitle.set(
+          `Operations command center for relief requests, ${canAccessEligibility ? 'eligibility review, ' : ''}packing, dispatch, and task coordination.`,
+        );
         this.loading.set(false);
       },
     });

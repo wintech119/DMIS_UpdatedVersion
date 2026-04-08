@@ -149,4 +149,20 @@ describe('AppAccessService', () => {
     expect(access.canAccessNavKey('operations.relief-requests')).toBeTrue();
     expect(access.canAccessNavKey('operations.dashboard')).toBeTrue();
   });
+
+  it('requires eligibility permissions and an eligibility role before exposing the eligibility lane', () => {
+    const directorAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(directorAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
+    const logisticsAccess = setup({
+      roles: ['LOGISTICS_MANAGER'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(logisticsAccess.canAccessNavKey('operations.eligibility')).toBeFalse();
+  });
 });

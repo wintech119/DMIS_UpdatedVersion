@@ -152,6 +152,9 @@ export class OperationsWorkspaceStateService {
   /** Per-item warehouse overrides: item_id -> warehouse_id string. */
   readonly itemWarehouseOverrides = signal<Record<number, string>>({});
 
+  /** Original per-item warehouse seed from the last full allocation load. */
+  readonly seededWarehousesByItem = signal<Record<number, string>>({});
+
   /** Warehouses currently contributing to each item: item_id -> ordered list of warehouse ids. */
   readonly loadedWarehousesByItem = signal<Record<number, number[]>>({});
 
@@ -163,9 +166,6 @@ export class OperationsWorkspaceStateService {
 
   /** True while a per-item warehouse switch is loading (does NOT clear existing data). */
   readonly switching = signal(false);
-
-  /** Number of items using a warehouse different from the default. */
-  readonly overrideCount = computed(() => Object.keys(this.itemWarehouseOverrides()).length);
 
   readonly selectedLineCount = computed(() =>
     Object.values(this.selectedRowsByItem()).reduce((sum, rows) => sum + rows.length, 0),
@@ -310,9 +310,17 @@ export class OperationsWorkspaceStateService {
 
   readonly sourceWarehouseId = computed(() => this.draft().source_warehouse_id);
 
-  /** Returns the effective warehouse for a given item (override if set, else default). */
+  /** Returns the effective warehouse for a given item (override if set, else item seed). */
   effectiveWarehouseForItem(itemId: number): string {
-    return this.itemWarehouseOverrides()[itemId] ?? this.sourceWarehouseId();
+    const overrideWarehouseId = this.itemWarehouseOverrides()[itemId];
+    if (overrideWarehouseId) {
+      return overrideWarehouseId;
+    }
+    const seededWarehouseId = this.options()?.items.find((entry) => entry.item_id === itemId)?.source_warehouse_id;
+    if (seededWarehouseId != null) {
+      return String(seededWarehouseId);
+    }
+    return this.sourceWarehouseId();
   }
 
   // ── Loading ────────────────────────────────────────────────────
@@ -330,6 +338,7 @@ export class OperationsWorkspaceStateService {
     this.waybillError.set(null);
     this.selectedRowsByItem.set({});
     this.itemWarehouseOverrides.set({});
+    this.seededWarehousesByItem.set({});
     this.loadedWarehousesByItem.set({});
     this.previewLoadingByItem.set({});
     this.addingWarehouseByItem.set({});
@@ -651,20 +660,7 @@ export class OperationsWorkspaceStateService {
     if (!reliefrqstId) {
       return EMPTY as unknown as Observable<PackageDetailResponse>;
     }
-    const draft = this.draft();
-    const payload: PackageDraftPayload = {
-      source_warehouse_id: draft.source_warehouse_id
-        ? Number(draft.source_warehouse_id)
-        : undefined,
-      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
-      transport_mode: draft.transport_mode.trim() || undefined,
-      comments_text: draft.comments_text.trim() || undefined,
-      fulfillment_mode: draft.fulfillment_mode,
-      staging_warehouse_id: draft.staging_warehouse_id
-        ? Number(draft.staging_warehouse_id)
-        : null,
-      staging_override_reason: draft.staging_override_reason.trim() || null,
-    };
+    const payload = this.buildPackageDraftPayload();
     return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
       tap((detail) => {
         this.packageDetail.set(detail);
@@ -683,18 +679,11 @@ export class OperationsWorkspaceStateService {
     stagingOverrideReason: string | null,
   ): Observable<PackageDetailResponse> {
     const reliefrqstId = this.reliefrqstId();
-    const draft = this.draft();
-    const payload: PackageDraftPayload = {
-      source_warehouse_id: draft.source_warehouse_id
-        ? Number(draft.source_warehouse_id)
-        : undefined,
-      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
-      transport_mode: draft.transport_mode.trim() || undefined,
-      comments_text: draft.comments_text.trim() || undefined,
+    const payload = this.buildPackageDraftPayload({
       fulfillment_mode: fulfillmentMode,
-      staging_warehouse_id: stagingWarehouseId,
-      staging_override_reason: stagingOverrideReason?.trim() || null,
-    };
+      staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
+      staging_override_reason: stagingOverrideReason ?? '',
+    });
     this.patchDraft({
       fulfillment_mode: fulfillmentMode,
       staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
@@ -814,6 +803,7 @@ export class OperationsWorkspaceStateService {
     // Capture previous state for rollback on error.
     const prevDraft = this.draft();
     const prevOverrides = this.itemWarehouseOverrides();
+    const prevSeededWarehouses = this.seededWarehousesByItem();
     const prevOptions = this.options();
     const prevSelections = this.selectedRowsByItem();
 
@@ -865,6 +855,7 @@ export class OperationsWorkspaceStateService {
         }
         this.patchDraft({ source_warehouse_id: prevDraft.source_warehouse_id });
         this.itemWarehouseOverrides.set(prevOverrides);
+        this.seededWarehousesByItem.set(prevSeededWarehouses);
         this.options.set(prevOptions);
         this.selectedRowsByItem.set(prevSelections);
         this.loading.set(false);
@@ -885,7 +876,7 @@ export class OperationsWorkspaceStateService {
    */
   updateItemWarehouse(itemId: number, warehouseId: string): void {
     const normalizedWarehouseId = this.sanitizeInteger(warehouseId);
-    const defaultWarehouseId = this.sourceWarehouseId();
+    const seededWarehouseId = this.getSeededWarehouseIdForItem(itemId);
     const reliefrqstId = this.reliefrqstId();
     const workspaceGeneration = this.latestWorkspaceGeneration;
     if (!reliefrqstId || !normalizedWarehouseId) {
@@ -908,8 +899,11 @@ export class OperationsWorkspaceStateService {
         if (!this.isCurrentWorkspaceGeneration(workspaceGeneration) || this.latestItemWarehouseRequestIds[itemId] !== requestId) {
           return;
         }
+        if (seededWarehouseId && !this.seededWarehousesByItem()[itemId]) {
+          this.seededWarehousesByItem.update((map) => ({ ...map, [itemId]: seededWarehouseId }));
+        }
         const currentOverrides = { ...this.itemWarehouseOverrides() };
-        if (normalizedWarehouseId === defaultWarehouseId) {
+        if (seededWarehouseId && normalizedWarehouseId === seededWarehouseId) {
           delete currentOverrides[itemId];
         } else {
           currentOverrides[itemId] = normalizedWarehouseId;
@@ -987,8 +981,22 @@ export class OperationsWorkspaceStateService {
     this.latestItemAddRequestIds[itemId] = requestId;
 
     this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: true }));
+    const draftAllocations = (this.selectedRowsByItem()[itemId] ?? [])
+      .filter((row) => this.toNumber(row.quantity) > 0)
+      .map((row) => ({
+        item_id: row.item_id,
+        inventory_id: row.inventory_id,
+        batch_id: row.batch_id,
+        quantity: this.formatQuantity(this.toNumber(row.quantity)),
+        source_type: row.source_type ?? 'ON_HAND',
+        source_record_id: row.source_record_id ?? null,
+        uom_code: row.uom_code ?? null,
+      }));
 
-    this.operationsService.getItemAllocationOptions(reliefrqstId, itemId, warehouseId).subscribe({
+    this.operationsService.previewItemAllocationOptions(reliefrqstId, itemId, {
+      source_warehouse_id: warehouseId,
+      draft_allocations: draftAllocations,
+    }).subscribe({
       next: (newGroup) => {
         if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
           return;
@@ -1037,9 +1045,12 @@ export class OperationsWorkspaceStateService {
         const mergedItem: AllocationItemGroup = {
           ...existing,
           candidates: mergedCandidates,
+          source_warehouse_id: existing.source_warehouse_id ?? newGroup.source_warehouse_id,
           remaining_shortfall_qty: newGroup.remaining_shortfall_qty,
           continuation_recommended: newGroup.continuation_recommended,
           alternate_warehouses: newGroup.alternate_warehouses,
+          draft_selected_qty: newGroup.draft_selected_qty,
+          effective_remaining_qty: newGroup.effective_remaining_qty,
         };
 
         this.options.set({
@@ -1058,8 +1069,6 @@ export class OperationsWorkspaceStateService {
         });
         this.addingWarehouseByItem.update((map) => ({ ...map, [itemId]: false }));
         this.optionsError.set(null);
-
-        // Recompute draft-aware metrics now that selections have been merged.
         this.previewItemAllocations(itemId, warehouseId);
       },
       error: (error: HttpErrorResponse) => {
@@ -1365,13 +1374,7 @@ export class OperationsWorkspaceStateService {
 
   buildCommitPayload(): { payload: AllocationCommitPayload | null; errors: string[] } {
     const errors: string[] = [];
-    const allocations = Object.values(this.selectedRowsByItem())
-      .flat()
-      .filter((row) => this.toNumber(row.quantity) > 0)
-      .map((row) => ({
-        ...row,
-        quantity: this.formatQuantity(this.toNumber(row.quantity)),
-      }));
+    const allocations = this.buildDraftAllocationSelections();
 
     if (!allocations.length) {
       errors.push('Select at least one stock line to reserve.');
@@ -1388,13 +1391,12 @@ export class OperationsWorkspaceStateService {
       return { payload: null, errors: [...new Set(errors)] };
     }
 
-    const draft = this.draft();
     const payload: AllocationCommitPayload = {
-      source_warehouse_id: draft.source_warehouse_id ? Number(draft.source_warehouse_id) : undefined,
+      source_warehouse_id: this.getDerivedSourceWarehouseId(),
       allocations,
-      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
-      transport_mode: draft.transport_mode.trim() || undefined,
-      comments_text: draft.comments_text.trim() || undefined,
+      to_inventory_id: this.draft().to_inventory_id ? Number(this.draft().to_inventory_id) : undefined,
+      transport_mode: this.draft().transport_mode.trim() || undefined,
+      comments_text: this.draft().comments_text.trim() || undefined,
     };
     return { payload, errors: [] };
   }
@@ -1523,7 +1525,9 @@ export class OperationsWorkspaceStateService {
   ): void {
     const committed = detail?.allocation?.allocation_lines ?? [];
     const nextSelections: Record<number, AllocationSelectionPayload[]> = {};
+    const nextSeededWarehouses: Record<number, string> = {};
     const nextLoadedWarehouses: Record<number, number[]> = {};
+    const nextOverrides: Record<number, string> = {};
     for (const item of options.items) {
       const itemCommitted = committed.filter((line) => line.item_id === item.item_id);
       if (itemCommitted.length) {
@@ -1551,16 +1555,43 @@ export class OperationsWorkspaceStateService {
         }));
       }
 
-      const seededWarehouseId =
-        item.source_warehouse_id != null
-          ? Number(item.source_warehouse_id)
-          : Number(this.sourceWarehouseId() || 0);
-      if (Number.isFinite(seededWarehouseId) && seededWarehouseId > 0) {
+      const committedWarehouseIds = [...new Set(
+        itemCommitted
+          .map((line) => Number(line.inventory_id))
+          .filter((warehouseId) => Number.isFinite(warehouseId) && warehouseId > 0),
+      )];
+      const seededWarehouseId = item.source_warehouse_id != null ? Number(item.source_warehouse_id) : 0;
+      const hasSeed = Number.isFinite(seededWarehouseId) && seededWarehouseId > 0;
+
+      if (committedWarehouseIds.length) {
+        nextLoadedWarehouses[item.item_id] = committedWarehouseIds;
+        // Rehydrate the per-item override so the draft's non-default warehouse is
+        // visible on reload (fixes the handoff bug where the warehouse card was
+        // hidden even though the committed allocation lines were preserved).
+        const overrideWarehouseId = committedWarehouseIds.find(
+          (warehouseId) => !hasSeed || warehouseId !== seededWarehouseId,
+        );
+        if (overrideWarehouseId != null) {
+          nextOverrides[item.item_id] = String(overrideWarehouseId);
+        }
+        if (hasSeed) {
+          // Capture the original seed so a later rollback via updateItemWarehouse
+          // can restore the server-suggested warehouse even when the user
+          // reopened a draft that already overrode it.
+          nextSeededWarehouses[item.item_id] = String(seededWarehouseId);
+        }
+        continue;
+      }
+
+      if (hasSeed) {
+        nextSeededWarehouses[item.item_id] = String(seededWarehouseId);
         nextLoadedWarehouses[item.item_id] = [seededWarehouseId];
       }
     }
     this.selectedRowsByItem.set(nextSelections);
+    this.seededWarehousesByItem.set(nextSeededWarehouses);
     this.loadedWarehousesByItem.set(nextLoadedWarehouses);
+    this.itemWarehouseOverrides.set(nextOverrides);
   }
 
   private getItemGroup(itemId: number): AllocationItemGroup | undefined {
@@ -1606,6 +1637,70 @@ export class OperationsWorkspaceStateService {
       .sort((left, right) => left.key.localeCompare(right.key))
       .map((row) => `${row.key}:${row.quantity}`)
       .join(';');
+  }
+
+  private buildPackageDraftPayload(
+    draftOverrides: Partial<Pick<WorkspaceDraft, 'fulfillment_mode' | 'staging_warehouse_id' | 'staging_override_reason'>> = {},
+  ): PackageDraftPayload {
+    const draft = { ...this.draft(), ...draftOverrides };
+    const payload: PackageDraftPayload = {
+      source_warehouse_id: this.getDerivedSourceWarehouseId(),
+      to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
+      transport_mode: draft.transport_mode.trim() || undefined,
+      comments_text: draft.comments_text.trim() || undefined,
+      fulfillment_mode: draft.fulfillment_mode,
+      staging_warehouse_id: draft.staging_warehouse_id ? Number(draft.staging_warehouse_id) : null,
+      staging_override_reason: draft.staging_override_reason.trim() || null,
+    };
+    if (this.options() || Object.keys(this.selectedRowsByItem()).length) {
+      payload.allocations = this.buildDraftAllocationSelections();
+    }
+    return payload;
+  }
+
+  private getSeededWarehouseIdForItem(itemId: number): string {
+    const seededWarehouseId = this.seededWarehousesByItem()[itemId];
+    if (seededWarehouseId) {
+      return seededWarehouseId;
+    }
+    const currentItemWarehouseId = this.getItemGroup(itemId)?.source_warehouse_id;
+    if (currentItemWarehouseId != null) {
+      return String(currentItemWarehouseId);
+    }
+    return this.sourceWarehouseId();
+  }
+
+  private getDerivedSourceWarehouseId(): number | undefined {
+    const explicitSourceWarehouseId = this.sanitizeInteger(this.draft().source_warehouse_id);
+    if (explicitSourceWarehouseId) {
+      return Number(explicitSourceWarehouseId);
+    }
+
+    const packageSourceWarehouseId = this.packageDetail()?.package?.source_warehouse_id;
+    if (packageSourceWarehouseId != null) {
+      return Number(packageSourceWarehouseId);
+    }
+
+    const selectedWarehouseIds = [...new Set(
+      Object.values(this.selectedRowsByItem())
+      .flat()
+      .filter((row) => this.toNumber(row.quantity) > 0 && Number(row.inventory_id) > 0)
+      .map((row) => Number(row.inventory_id)),
+    )];
+    if (selectedWarehouseIds.length === 1) {
+      return selectedWarehouseIds[0];
+    }
+    return undefined;
+  }
+
+  private buildDraftAllocationSelections(): AllocationSelectionPayload[] {
+    return Object.values(this.selectedRowsByItem())
+      .flat()
+      .filter((row) => this.toNumber(row.quantity) > 0)
+      .map((row) => ({
+        ...row,
+        quantity: this.formatQuantity(this.toNumber(row.quantity)),
+      }));
   }
 
   private toNumber(value: string | number | null | undefined): number {

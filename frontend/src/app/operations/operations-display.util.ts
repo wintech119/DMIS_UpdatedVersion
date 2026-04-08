@@ -1,5 +1,7 @@
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
 
+const OPERATIONS_QUEUE_SEEN_LIMIT = 250;
+
 const REQUEST_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
@@ -380,6 +382,100 @@ export function mapOperationsToneToChipTone(
   }
 }
 
+export function buildOperationsQueueSeenStorageKey(
+  scope: string,
+  userRef: string | null | undefined,
+): string | null {
+  const normalizedScope = String(scope ?? '').trim().toLowerCase();
+  const normalizedUserRef = String(userRef ?? '').trim().toLowerCase();
+  if (!normalizedScope || !normalizedUserRef) {
+    return null;
+  }
+  return `dmis_operations_queue_seen:${normalizedScope}:${normalizedUserRef}`;
+}
+
+export function readOperationsQueueSeenEntries(
+  storageKey: string | null | undefined,
+): Record<string, number[]> {
+  if (!storageKey) {
+    return {};
+  }
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!isOperationsRecord(parsed)) {
+      return {};
+    }
+
+    const entries: Record<string, number[]> = {};
+    for (const [filterKey, ids] of Object.entries(parsed)) {
+      const normalized = normalizeOperationsQueueIds(ids);
+      if (normalized.length) {
+        entries[filterKey] = normalized;
+      }
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
+export function mergeOperationsQueueSeenEntries(
+  current: Record<string, readonly number[]> | null | undefined,
+  filterKey: string,
+  ids: readonly number[],
+): Record<string, number[]> {
+  const normalizedFilterKey = String(filterKey ?? '').trim();
+  if (!normalizedFilterKey) {
+    return sanitizeOperationsQueueSeenEntries(current);
+  }
+
+  const existing = normalizeOperationsQueueIds(current?.[normalizedFilterKey]);
+  const incoming = normalizeOperationsQueueIds(ids);
+  if (!incoming.length) {
+    return sanitizeOperationsQueueSeenEntries(current);
+  }
+
+  const merged = normalizeOperationsQueueIds([...existing, ...incoming]);
+  return {
+    ...sanitizeOperationsQueueSeenEntries(current),
+    [normalizedFilterKey]: merged,
+  };
+}
+
+export function writeOperationsQueueSeenEntries(
+  storageKey: string | null | undefined,
+  entries: Record<string, readonly number[]> | null | undefined,
+): void {
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(sanitizeOperationsQueueSeenEntries(entries)));
+  } catch {
+    // localStorage can be unavailable or full; unread indicators can still work in-memory.
+  }
+}
+
+export function countOperationsUnreadIds(
+  ids: readonly number[],
+  seenIds: readonly number[] | null | undefined,
+): number {
+  const currentIds = normalizeOperationsQueueIds(ids);
+  if (!currentIds.length) {
+    return 0;
+  }
+
+  const seen = new Set(normalizeOperationsQueueIds(seenIds));
+  return currentIds.reduce((count, id) => count + (seen.has(id) ? 0 : 1), 0);
+}
+
 function getRovingRadioTargetIndex(
   key: string,
   currentIndex: number,
@@ -432,4 +528,38 @@ export function handleRovingRadioKeydown<T extends string>(
 
 function isOperationsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function sanitizeOperationsQueueSeenEntries(
+  entries: Record<string, readonly number[]> | null | undefined,
+): Record<string, number[]> {
+  if (!entries || !isOperationsRecord(entries)) {
+    return {};
+  }
+
+  const sanitized: Record<string, number[]> = {};
+  for (const [filterKey, ids] of Object.entries(entries)) {
+    const normalized = normalizeOperationsQueueIds(ids);
+    if (normalized.length) {
+      sanitized[filterKey] = normalized;
+    }
+  }
+  return sanitized;
+}
+
+function normalizeOperationsQueueIds(values: readonly number[] | unknown): number[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const unique = new Set<number>();
+  for (const value of values) {
+    const normalized = Number(value);
+    if (!Number.isInteger(normalized) || normalized <= 0 || unique.has(normalized)) {
+      continue;
+    }
+    unique.add(normalized);
+  }
+
+  return Array.from(unique).slice(-OPERATIONS_QUEUE_SEEN_LIMIT);
 }

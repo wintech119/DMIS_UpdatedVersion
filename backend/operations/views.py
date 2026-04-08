@@ -349,10 +349,12 @@ operations_package_staging_recommendation.required_permission = [
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_draft(request, reliefrqst_id: int):
     try:
+        payload = dict(request.data or {})
+        payload["draft_save"] = True
         return Response(
             operations_service.save_package(
                 reliefrqst_id,
-                payload=request.data or {},
+                payload=payload,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),

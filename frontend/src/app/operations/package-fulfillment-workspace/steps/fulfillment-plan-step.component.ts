@@ -12,13 +12,14 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { catchError, of } from 'rxjs';
 
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { FulfillmentItemListComponent } from './fulfillment-item-list.component';
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
-import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
 import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-warehouse-picker.component';
+import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
 
 @Component({
   selector: 'app-fulfillment-plan-step',
@@ -28,8 +29,8 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
     MatIconModule,
     FulfillmentItemListComponent,
     FulfillmentItemDetailComponent,
-    OpsStockAvailabilityStateComponent,
     OpsSourceWarehousePickerComponent,
+    OpsStockAvailabilityStateComponent,
   ],
   template: `
     <div class="plan-step">
@@ -40,6 +41,16 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
           inventory. The system orders batches by FEFO or FIFO when available.
         </p>
       </div>
+
+      @if (requiresSourceWarehouse()) {
+        <app-ops-source-warehouse-picker
+          [warehouseOptions]="warehouseOptions()"
+          [selectedId]="sourceWarehouseId()"
+          [overrideCount]="sourceWarehouseOverrideCount()"
+          [disabled]="readOnly || store.loading()"
+          (warehouseChange)="store.updateSourceWarehouse($event)"
+          (clearOverrides)="store.clearWarehouseOverrides()" />
+      }
 
       @if (readOnly) {
         <div class="plan-alert plan-alert--info" role="status">
@@ -58,23 +69,12 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
         </div>
       }
 
-      <app-ops-source-warehouse-picker
-        [warehouseOptions]="sourceWarehouseOptions()"
-        [selectedId]="sourceWarehouseId()"
-        [overrideCount]="store.overrideCount()"
-        [itemCount]="items().length"
-        [disabled]="readOnly || store.submitting()"
-        (warehouseChange)="onSourceWarehouseChange($event)"
-        (clearOverrides)="store.clearWarehouseOverrides()"
-      />
-
       <div class="plan-split">
         @if (items().length) {
           <app-fulfillment-item-list
             [items]="items()"
             [selectedItemId]="selectedItemId()"
             [store]="store"
-            [defaultWarehouseId]="sourceWarehouseId()"
             (itemSelected)="onItemSelected($event)"
           />
         } @else {
@@ -94,8 +94,6 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
               [item]="item"
               [readOnly]="readOnly"
               [store]="store"
-              [warehouseOptions]="sourceWarehouseOptions()"
-              [defaultWarehouseId]="sourceWarehouseId()"
               (back)="clearSelection()"
             />
           </div>
@@ -252,17 +250,24 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FulfillmentPlanStepComponent {
-  private readonly masterData = inject(MasterDataService);
-
   @Input() readOnly = false;
   @ViewChild('detailPanel', { read: ElementRef }) detailPanel?: ElementRef<HTMLElement>;
 
+  private readonly masterData = inject(MasterDataService);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly items = computed(() => this.store.options()?.items ?? []);
   readonly requestAvailabilityIssue = this.store.requestAvailabilityIssue;
+  readonly warehouseOptions = toSignal(
+    this.masterData.lookup('warehouses').pipe(catchError(() => of([]))),
+    { initialValue: [] },
+  );
+  readonly requiresSourceWarehouse = computed(
+    () => !this.store.packageDetail()?.request?.compatibility_bridge,
+  );
   readonly sourceWarehouseId = this.store.sourceWarehouseId;
-  private readonly allSourceWarehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
-  readonly sourceWarehouseOptions = computed(() => this.allSourceWarehouseOptions());
+  readonly sourceWarehouseOverrideCount = computed(
+    () => Object.keys(this.store.itemWarehouseOverrides()).length,
+  );
   readonly selectedItemId = signal<number | null>(null);
   readonly selectionCleared = signal(false);
 
@@ -295,9 +300,5 @@ export class FulfillmentPlanStepComponent {
   clearSelection(): void {
     this.selectionCleared.set(true);
     this.selectedItemId.set(null);
-  }
-
-  onSourceWarehouseChange(value: string): void {
-    this.store.updateSourceWarehouse(value);
   }
 }

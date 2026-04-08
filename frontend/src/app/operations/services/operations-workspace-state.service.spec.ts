@@ -219,6 +219,19 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
       staging_warehouse_id: '9501',
       staging_override_reason: '  Closer to field site  ',
     });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9001,
+          batch_id: 1001,
+          quantity: '3',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
 
     service.saveDraft().subscribe();
 
@@ -229,6 +242,17 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     expect(payload.to_inventory_id).toBe(9002);
     expect(payload.transport_mode).toBe('TRUCK');
     expect(payload.comments_text).toBe('Hold for consolidation');
+    expect(payload.allocations).toEqual([
+      {
+        item_id: 44,
+        inventory_id: 9001,
+        batch_id: 1001,
+        quantity: '3.0000',
+        source_type: 'ON_HAND',
+        source_record_id: null,
+        uom_code: 'EA',
+      },
+    ]);
     expect(payload.fulfillment_mode).toBe('PICKUP_AT_STAGING');
     expect(payload.staging_warehouse_id).toBe(9501);
     expect(payload.staging_override_reason).toBe('Closer to field site');
@@ -257,6 +281,71 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     expect(payload.staging_override_reason).toBeNull();
   });
 
+  it('derives the package source warehouse from selected allocation rows when the draft source is blank', () => {
+    const { service, saveSpy } = setUp();
+    service.patchDraft({
+      source_warehouse_id: '',
+      fulfillment_mode: 'DIRECT',
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9123,
+          batch_id: 1001,
+          quantity: '3.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    service.saveDraft().subscribe();
+
+    const [, payload] = saveSpy.calls.mostRecent().args as [number, PackageDraftPayload];
+    expect(payload.source_warehouse_id).toBe(9123);
+  });
+
+  it('does not collapse a mixed-warehouse draft to the first selected warehouse when no package source exists', () => {
+    const { service, saveSpy } = setUp();
+    service.packageDetail.set(buildPackageDetail({ source_warehouse_id: null }));
+    service.patchDraft({
+      source_warehouse_id: '',
+      fulfillment_mode: 'DIRECT',
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9123,
+          batch_id: 1001,
+          quantity: '3.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      45: [
+        {
+          item_id: 45,
+          inventory_id: 9456,
+          batch_id: 2001,
+          quantity: '1.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    service.saveDraft().subscribe();
+
+    const [, payload] = saveSpy.calls.mostRecent().args as [number, PackageDraftPayload];
+    expect(payload.source_warehouse_id).toBeUndefined();
+    expect(payload.allocations?.map((row) => row.inventory_id)).toEqual([9123, 9456]);
+  });
+
   it('hydrates packageDetail and reliefpkgId from the save response', () => {
     const { service, response } = setUp();
 
@@ -267,6 +356,458 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     // hydrateDraft should also have reflected the response transport/comments into the draft signal.
     expect(service.draft().transport_mode).toBe('TRUCK');
     expect(service.draft().comments_text).toBe('Saved from draft');
+  });
+});
+
+describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
+  const RELIEFRQST_ID = 95009;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('includes the current allocation rows when auto-saving fulfillment changes', () => {
+    const response = {
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'PICKUP_AT_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: 'Closer to field site',
+      },
+      items: [],
+      compatibility_only: false,
+    } as PackageDetailResponse;
+    const saveSpy = jasmine.createSpy('savePackageDraft').and.returnValue(of(response));
+    const getConsolidationLegsSpy = jasmine
+      .createSpy('getConsolidationLegs')
+      .and.returnValue(of({ results: [], package: null }));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: getConsolidationLegsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.patchDraft({
+      source_warehouse_id: '9001',
+      fulfillment_mode: 'DIRECT',
+    });
+    service.options.set({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      items: [],
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9001,
+          batch_id: 1001,
+          quantity: '3',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    service.saveFulfillmentModeDraft('PICKUP_AT_STAGING', 9501, 'Closer to field site').subscribe();
+
+    const [, payload] = saveSpy.calls.mostRecent().args as [number, PackageDraftPayload];
+    expect(payload.allocations).toEqual([
+      {
+        item_id: 44,
+        inventory_id: 9001,
+        batch_id: 1001,
+        quantity: '3.0000',
+        source_type: 'ON_HAND',
+        source_record_id: null,
+        uom_code: 'EA',
+      },
+    ]);
+    expect(payload.fulfillment_mode).toBe('PICKUP_AT_STAGING');
+    expect(payload.staging_warehouse_id).toBe(9501);
+    expect(payload.staging_override_reason).toBe('Closer to field site');
+  });
+});
+
+describe('OperationsWorkspaceStateService.load', () => {
+  const RELIEFRQST_ID = 95009;
+  const SOURCE_WAREHOUSE_ID = 9001;
+
+  function buildPackageDetail(): PackageDetailResponse {
+    return {
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: SOURCE_WAREHOUSE_ID,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DIRECT',
+        staging_warehouse_id: null,
+        staging_override_reason: null,
+      },
+      items: [],
+      compatibility_only: false,
+    };
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('rehydrates allocation options from the saved source warehouse on initial load', () => {
+    const packageDetail = buildPackageDetail();
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(packageDetail));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValue(of({ request: packageDetail.request, items: [] } as AllocationOptionsResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getPackage: getPackageSpy,
+            getAllocationOptions: getAllocationOptionsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+
+    service.load(RELIEFRQST_ID, true);
+
+    expect(getPackageSpy).toHaveBeenCalledWith(RELIEFRQST_ID);
+    expect(getAllocationOptionsSpy).toHaveBeenCalledWith(RELIEFRQST_ID, SOURCE_WAREHOUSE_ID);
+    expect(service.draft().source_warehouse_id).toBe(String(SOURCE_WAREHOUSE_ID));
+  });
+
+  it('populates itemWarehouseOverrides when committed lines reference a different warehouse', () => {
+    const ITEM_ID = 101;
+    const OVERRIDE_WAREHOUSE_ID = 9002;
+    const packageDetail = buildPackageDetail();
+    packageDetail.allocation = {
+      allocation_lines: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: OVERRIDE_WAREHOUSE_ID,
+          batch_id: 5001,
+          quantity: '3.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      reserved_stock_summary: { line_count: 1, total_qty: '3.0000' },
+      waybill_no: null,
+    };
+
+    const optionsResponse: AllocationOptionsResponse = {
+      request: packageDetail.request,
+      items: [
+        {
+          item_id: ITEM_ID,
+          item_code: 'TARP001',
+          item_name: 'Tarpaulin',
+          request_qty: '5.0000',
+          issue_qty: '0.0000',
+          remaining_qty: '5.0000',
+          urgency_ind: 'H',
+          candidates: [
+            {
+              batch_id: 3001,
+              inventory_id: SOURCE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '2',
+              reserved_qty: '0',
+              available_qty: '2',
+              source_type: 'ON_HAND',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+              warehouse_name: 'Seeded Warehouse',
+            },
+            {
+              batch_id: 5001,
+              inventory_id: OVERRIDE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '4',
+              reserved_qty: '0',
+              available_qty: '4',
+              source_type: 'ON_HAND',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+              warehouse_name: 'Override Warehouse',
+            },
+          ],
+          suggested_allocations: [],
+          remaining_after_suggestion: '5.0000',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          compliance_markers: [],
+          override_required: false,
+          source_warehouse_id: SOURCE_WAREHOUSE_ID,
+          remaining_shortfall_qty: '5.0000',
+          continuation_recommended: false,
+          alternate_warehouses: [],
+        },
+      ],
+    };
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(packageDetail));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValue(of(optionsResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getPackage: getPackageSpy,
+            getAllocationOptions: getAllocationOptionsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+
+    service.load(RELIEFRQST_ID, true);
+
+    expect(service.itemWarehouseOverrides()).toEqual({ [ITEM_ID]: String(OVERRIDE_WAREHOUSE_ID) });
+    expect(service.effectiveWarehouseForItem(ITEM_ID)).toBe(String(OVERRIDE_WAREHOUSE_ID));
+    expect(service.selectedRowsByItem()[ITEM_ID]).toEqual([
+      jasmine.objectContaining({
+        item_id: ITEM_ID,
+        inventory_id: OVERRIDE_WAREHOUSE_ID,
+        batch_id: 5001,
+        quantity: '3.0000',
+      }),
+    ]);
+    expect(service.seededWarehousesByItem()[ITEM_ID]).toBe(String(SOURCE_WAREHOUSE_ID));
+  });
+
+  it('leaves itemWarehouseOverrides empty when committed lines match the seeded warehouse', () => {
+    const ITEM_ID = 101;
+    const packageDetail = buildPackageDetail();
+    packageDetail.allocation = {
+      allocation_lines: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: SOURCE_WAREHOUSE_ID,
+          batch_id: 3001,
+          quantity: '2.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      reserved_stock_summary: { line_count: 1, total_qty: '2.0000' },
+      waybill_no: null,
+    };
+
+    const optionsResponse: AllocationOptionsResponse = {
+      request: packageDetail.request,
+      items: [
+        {
+          item_id: ITEM_ID,
+          item_code: 'TARP001',
+          item_name: 'Tarpaulin',
+          request_qty: '5.0000',
+          issue_qty: '0.0000',
+          remaining_qty: '5.0000',
+          urgency_ind: 'H',
+          candidates: [
+            {
+              batch_id: 3001,
+              inventory_id: SOURCE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '4',
+              reserved_qty: '0',
+              available_qty: '4',
+              source_type: 'ON_HAND',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+              warehouse_name: 'Seeded Warehouse',
+            },
+          ],
+          suggested_allocations: [],
+          remaining_after_suggestion: '3.0000',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          compliance_markers: [],
+          override_required: false,
+          source_warehouse_id: SOURCE_WAREHOUSE_ID,
+          remaining_shortfall_qty: '3.0000',
+          continuation_recommended: false,
+          alternate_warehouses: [],
+        },
+      ],
+    };
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(packageDetail));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValue(of(optionsResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getPackage: getPackageSpy,
+            getAllocationOptions: getAllocationOptionsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+
+    service.load(RELIEFRQST_ID, true);
+
+    expect(service.itemWarehouseOverrides()).toEqual({});
+    expect(service.effectiveWarehouseForItem(ITEM_ID)).toBe(String(SOURCE_WAREHOUSE_ID));
+  });
+});
+
+describe('OperationsWorkspaceStateService.updateItemWarehouse', () => {
+  const RELIEFRQST_ID = 7001;
+  const ITEM_ID = 44;
+  const PRIMARY_WAREHOUSE_ID = 9001;
+  const SECONDARY_WAREHOUSE_ID = 9002;
+
+  function buildCandidate(inventoryId: number, batchId: number): AllocationCandidate {
+    return {
+      batch_id: batchId,
+      inventory_id: inventoryId,
+      item_id: ITEM_ID,
+      usable_qty: '10',
+      reserved_qty: '0',
+      available_qty: '10',
+      source_type: 'ON_HAND',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      warehouse_name: `Warehouse ${inventoryId}`,
+    };
+  }
+
+  function buildItemGroup(sourceWarehouseId: number): AllocationItemGroup {
+    return {
+      item_id: ITEM_ID,
+      item_code: 'WATER-044',
+      item_name: 'Portable Water Container',
+      request_qty: '6.0000',
+      issue_qty: '0.0000',
+      remaining_qty: '6.0000',
+      urgency_ind: 'H',
+      candidates: [buildCandidate(sourceWarehouseId, sourceWarehouseId === PRIMARY_WAREHOUSE_ID ? 1001 : 2001)],
+      suggested_allocations: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: sourceWarehouseId,
+          batch_id: sourceWarehouseId === PRIMARY_WAREHOUSE_ID ? 1001 : 2001,
+          quantity: '6.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      remaining_after_suggestion: '0.0000',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      compliance_markers: [],
+      override_required: false,
+      source_warehouse_id: sourceWarehouseId,
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+    };
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('clears the override when the operator switches back to the original seeded warehouse', () => {
+    const getItemAllocationOptionsSpy = jasmine
+      .createSpy('getItemAllocationOptions')
+      .and.returnValues(
+        of(buildItemGroup(SECONDARY_WAREHOUSE_ID)),
+        of(buildItemGroup(PRIMARY_WAREHOUSE_ID)),
+      );
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getItemAllocationOptions: getItemAllocationOptionsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.patchDraft({ source_warehouse_id: '' });
+    service.options.set({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      items: [buildItemGroup(PRIMARY_WAREHOUSE_ID)],
+    });
+    service.seededWarehousesByItem.set({ [ITEM_ID]: String(PRIMARY_WAREHOUSE_ID) });
+
+    service.updateItemWarehouse(ITEM_ID, String(SECONDARY_WAREHOUSE_ID));
+    expect(service.itemWarehouseOverrides()).toEqual({ [ITEM_ID]: String(SECONDARY_WAREHOUSE_ID) });
+
+    service.updateItemWarehouse(ITEM_ID, String(PRIMARY_WAREHOUSE_ID));
+
+    expect(service.itemWarehouseOverrides()).toEqual({});
+    expect(service.effectiveWarehouseForItem(ITEM_ID)).toBe(String(PRIMARY_WAREHOUSE_ID));
   });
 });
 
@@ -332,6 +873,178 @@ describe('tryParsePackageLockConflict', () => {
     expect(conflict?.lock_owner_user_id).toBeNull();
     expect(conflict?.lock_owner_role_code).toBeNull();
     expect(conflict?.lock_expires_at).toBeNull();
+  });
+});
+
+describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
+  const RELIEFRQST_ID = 7001;
+  const ITEM_ID = 44;
+  const PRIMARY_WAREHOUSE_ID = 9001;
+  const SECONDARY_WAREHOUSE_ID = 9002;
+
+  function buildCandidate(overrides: Partial<AllocationCandidate> = {}): AllocationCandidate {
+    return {
+      batch_id: 1,
+      inventory_id: PRIMARY_WAREHOUSE_ID,
+      item_id: ITEM_ID,
+      usable_qty: '10',
+      reserved_qty: '0',
+      available_qty: '10',
+      source_type: 'ON_HAND',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      ...overrides,
+    };
+  }
+
+  function buildItemGroup(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
+    return {
+      item_id: ITEM_ID,
+      item_code: 'WATER-044',
+      item_name: 'Portable Water Container',
+      request_qty: '6.0000',
+      issue_qty: '0.0000',
+      remaining_qty: '6.0000',
+      urgency_ind: 'H',
+      candidates: [buildCandidate()],
+      suggested_allocations: [],
+      remaining_after_suggestion: '2.0000',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      compliance_markers: [],
+      override_required: false,
+      source_warehouse_id: PRIMARY_WAREHOUSE_ID,
+      remaining_shortfall_qty: '2.0000',
+      continuation_recommended: true,
+      alternate_warehouses: [
+        {
+          warehouse_id: SECONDARY_WAREHOUSE_ID,
+          warehouse_name: 'Warehouse 9002',
+          available_qty: '2.0000',
+          suggested_qty: '2.0000',
+          can_fully_cover: true,
+        },
+      ],
+      draft_selected_qty: '4.0000',
+      effective_remaining_qty: '2.0000',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('recomputes draft-aware metrics after auto-adding another warehouse', () => {
+    const additivePreview = buildItemGroup({
+      candidates: [
+        buildCandidate({
+          batch_id: 2,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          available_qty: '2.0000',
+          usable_qty: '2.0000',
+        }),
+      ],
+      suggested_allocations: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          batch_id: 2,
+          quantity: '2.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      source_warehouse_id: SECONDARY_WAREHOUSE_ID,
+      remaining_shortfall_qty: '2.0000',
+      continuation_recommended: true,
+      alternate_warehouses: [],
+      draft_selected_qty: '4.0000',
+      effective_remaining_qty: '2.0000',
+    });
+    const refreshedPreview = buildItemGroup({
+      candidates: additivePreview.candidates,
+      suggested_allocations: additivePreview.suggested_allocations,
+      source_warehouse_id: SECONDARY_WAREHOUSE_ID,
+      remaining_after_suggestion: '0.0000',
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      draft_selected_qty: '6.0000',
+      effective_remaining_qty: '0.0000',
+    });
+    const previewSpy = jasmine
+      .createSpy('previewItemAllocationOptions')
+      .and.returnValues(of(additivePreview), of(refreshedPreview));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: previewSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.options.set({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      items: [buildItemGroup()],
+    });
+    service.selectedRowsByItem.set({
+      [ITEM_ID]: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: PRIMARY_WAREHOUSE_ID,
+          batch_id: 1,
+          quantity: '4.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+    service.loadedWarehousesByItem.set({ [ITEM_ID]: [PRIMARY_WAREHOUSE_ID] });
+
+    service.addItemWarehouse(ITEM_ID, SECONDARY_WAREHOUSE_ID);
+
+    expect(previewSpy).toHaveBeenCalledTimes(2);
+    const secondCall = previewSpy.calls.argsFor(1);
+    expect(secondCall[0]).toBe(RELIEFRQST_ID);
+    expect(secondCall[1]).toBe(ITEM_ID);
+    expect(secondCall[2].source_warehouse_id).toBe(SECONDARY_WAREHOUSE_ID);
+    expect(secondCall[2].draft_allocations).toEqual([
+      {
+        item_id: ITEM_ID,
+        inventory_id: PRIMARY_WAREHOUSE_ID,
+        batch_id: 1,
+        quantity: '4.0000',
+        source_type: 'ON_HAND',
+        source_record_id: null,
+        uom_code: 'EA',
+      },
+      {
+        item_id: ITEM_ID,
+        inventory_id: SECONDARY_WAREHOUSE_ID,
+        batch_id: 2,
+        quantity: '2.0000',
+        source_type: 'ON_HAND',
+        source_record_id: null,
+        uom_code: 'EA',
+      },
+    ]);
+
+    const updatedItem = service.options()?.items[0];
+    expect(updatedItem?.draft_selected_qty).toBe('6.0000');
+    expect(updatedItem?.effective_remaining_qty).toBe('0.0000');
+    expect(updatedItem?.remaining_shortfall_qty).toBe('0.0000');
+    expect(updatedItem?.continuation_recommended).toBeFalse();
+    expect(service.getSelectedTotalForItem(ITEM_ID)).toBe(6);
   });
 });
 
