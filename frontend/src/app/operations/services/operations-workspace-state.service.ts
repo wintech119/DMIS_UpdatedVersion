@@ -1061,15 +1061,9 @@ export class OperationsWorkspaceStateService {
         // Merge the item group: keep prior fields, update continuation hints from the
         // server response, and replace the candidate list with the merged one.
         const mergedItem: AllocationItemGroup = {
-          ...existing,
+          ...this.mergePreviewState(existing, newGroup),
           candidates: mergedCandidates,
           source_warehouse_id: existing.source_warehouse_id ?? newGroup.source_warehouse_id,
-          remaining_shortfall_qty: newGroup.remaining_shortfall_qty,
-          continuation_recommended: newGroup.continuation_recommended,
-          alternate_warehouses: newGroup.alternate_warehouses,
-          warehouse_cards: newGroup.warehouse_cards,
-          draft_selected_qty: newGroup.draft_selected_qty,
-          effective_remaining_qty: newGroup.effective_remaining_qty,
         };
 
         this.options.set({
@@ -1148,15 +1142,7 @@ export class OperationsWorkspaceStateService {
           if (currentOptions) {
             const updatedItems = currentOptions.items.map((existing) =>
               existing.item_id === itemId
-                ? {
-                    ...existing,
-                    remaining_shortfall_qty: preview.remaining_shortfall_qty,
-                    continuation_recommended: preview.continuation_recommended,
-                    alternate_warehouses: preview.alternate_warehouses,
-                    warehouse_cards: preview.warehouse_cards,
-                    draft_selected_qty: preview.draft_selected_qty,
-                    effective_remaining_qty: preview.effective_remaining_qty,
-                  }
+                ? this.mergePreviewState(existing, preview)
                 : existing,
             );
             this.options.set({ ...currentOptions, items: updatedItems });
@@ -1292,6 +1278,24 @@ export class OperationsWorkspaceStateService {
     this.previewItemAllocations(itemId, previewWarehouseId);
   }
 
+  private mergePreviewState(
+    existing: AllocationItemGroup,
+    preview: AllocationItemGroup,
+  ): AllocationItemGroup {
+    return {
+      ...existing,
+      issue_qty: preview.issue_qty,
+      remaining_qty: preview.remaining_qty,
+      fully_issued: preview.fully_issued,
+      remaining_shortfall_qty: preview.remaining_shortfall_qty,
+      continuation_recommended: preview.continuation_recommended,
+      alternate_warehouses: preview.alternate_warehouses,
+      warehouse_cards: preview.warehouse_cards,
+      draft_selected_qty: preview.draft_selected_qty,
+      effective_remaining_qty: preview.effective_remaining_qty,
+    };
+  }
+
   getSelectedRows(itemId: number): AllocationSelectionPayload[] {
     return this.selectedRowsByItem()[itemId] ?? [];
   }
@@ -1364,6 +1368,13 @@ export class OperationsWorkspaceStateService {
   getItemValidationMessage(item: AllocationItemGroup): string | null {
     const selected = this.getSelectedTotalForItem(item.item_id);
     const remaining = this.toNumber(item.remaining_qty);
+    if (item.fully_issued) {
+      if (selected > 0) {
+        return 'This item is already fully issued by a prior package. Cancel the previous package to free this quantity before re-allocating.';
+      }
+      // Nothing selected AND fully issued — no action required for this item.
+      return null;
+    }
     if (selected <= 0) {
       return 'Select at least one stock line before continuing.';
     }

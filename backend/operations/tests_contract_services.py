@@ -229,6 +229,12 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_name="Food For The Poor",
             tenant_type="EXTERNAL",
         )
+        fully_dispatched_patcher = patch(
+            "operations.contract_services._request_fully_dispatched",
+            return_value=False,
+        )
+        fully_dispatched_patcher.start()
+        self.addCleanup(fully_dispatched_patcher.stop)
 
     def _request_stub(self, *, reliefrqst_id: int, agency_id: int, status_code: int = 3) -> SimpleNamespace:
         return SimpleNamespace(
@@ -1619,6 +1625,53 @@ class OperationsWorkflowContractTests(TestCase):
             raised.exception.errors["staging_warehouse_id"]["required_permission"],
             PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
         )
+        save_package_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services._request_fully_dispatched", return_value=True)
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_save_package_rejects_when_all_items_already_fully_issued(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        _request_fully_dispatched_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        """Regression guard for PK95025-style empty drafts.
+
+        Even when legacy ``reliefrqst.status_code`` has drifted to PART_FILLED
+        (because an upstream write path failed to flip it to FILLED after the
+        prior package dispatched every item), the contract service must refuse
+        to create or mutate another package: there is nothing left to allocate.
+        """
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self._package_stub(
+            reliefpkg_id=90,
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code="D",
+            dispatch_dtime=datetime(2026, 3, 24, 16, 28, 14),
+        )
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.save_package(
+                70,
+                payload={
+                    "allocations": [
+                        {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                    ],
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertIn("request", raised.exception.errors)
+        self.assertIn("already fully issued", raised.exception.errors["request"])
         save_package_mock.assert_not_called()
 
     def test_sync_package_preserves_operations_only_statuses_when_legacy_is_still_pending(self) -> None:
@@ -5080,6 +5133,12 @@ class ItemAllocationOptionsTests(TestCase):
             review_dtime=None,
             status_code=3,
         )
+        fully_dispatched_patcher = patch(
+            "operations.contract_services._request_fully_dispatched",
+            return_value=False,
+        )
+        fully_dispatched_patcher.start()
+        self.addCleanup(fully_dispatched_patcher.stop)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
@@ -5345,8 +5404,81 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(result["remaining_shortfall_qty"], "0.0000")
         self.assertFalse(result["continuation_recommended"])
         self.assertEqual(result["alternate_warehouses"], [])
+        self.assertFalse(result["fully_issued"])
         get_warehouses_with_stock_mock.assert_not_called()
         can_access_warehouse_mock.assert_not_called()
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse")
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "40.0000", "issue_qty": "40.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_preview_flags_fully_issued_item_when_issue_qty_matches_request_qty(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        """Regression: previously-dispatched items (issue_qty == request_qty) must
+        surface a ``fully_issued`` flag so the UI can show an "Already Issued" state
+        instead of the misleading "Over-Allocated" label when the operator tries to
+        add any reservation from another batch."""
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="HADR-0058",
+            item_name="Battery AA",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        fetch_candidates_mock.return_value = [
+            {
+                "batch_id": 2058,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "HADR-2-58",
+                "batch_date": date(2025, 11, 28),
+                "expiry_date": None,
+                "usable_qty": Decimal("1000.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("1000.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "ODPEM Marcus Garvey Warehouse",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "HADR-0058",
+                "item_name": "Battery AA",
+            }
+        ]
+        # ``build_item_warehouse_cards`` unconditionally calls
+        # ``data_access.get_warehouses_with_stock`` at the top of its body, so
+        # the mock must return a real (dict, list) tuple instead of the default
+        # MagicMock that cannot be unpacked.
+        get_warehouses_with_stock_mock.return_value = ({}, [])
+
+        result = operations_service.get_item_allocation_preview(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["request_qty"], "40.0000")
+        self.assertEqual(result["issue_qty"], "40.0000")
+        self.assertEqual(result["remaining_qty"], "0.0000")
+        self.assertTrue(result["fully_issued"])
+        self.assertEqual(result["effective_remaining_qty"], "0.0000")
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse")
@@ -6902,6 +7034,12 @@ class MultiWarehouseDualWriteTests(TestCase):
             version_nbr=1,
             save=lambda **kwargs: None,
         )
+        fully_dispatched_patcher = patch(
+            "operations.contract_services._request_fully_dispatched",
+            return_value=False,
+        )
+        fully_dispatched_patcher.start()
+        self.addCleanup(fully_dispatched_patcher.stop)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")

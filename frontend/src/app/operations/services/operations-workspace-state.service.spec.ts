@@ -144,6 +144,33 @@ describe('OperationsWorkspaceStateService.maybeRefreshContinuationPreview', () =
     const [, , payload] = previewSpy.calls.mostRecent().args;
     expect(payload.source_warehouse_id).toBe(SECONDARY_WAREHOUSE_ID);
   });
+
+  it('refreshes fully-issued state from the latest preview response', () => {
+    const staleItem = buildItemGroup({
+      issue_qty: '0',
+      remaining_qty: '42',
+      fully_issued: false,
+    });
+    const refreshedPreview = buildItemGroup({
+      issue_qty: '42',
+      remaining_qty: '0',
+      fully_issued: true,
+    });
+    const { service } = setUp({
+      item: staleItem,
+      loadedWarehouses: [PRIMARY_WAREHOUSE_ID],
+    });
+    const previewSpy = TestBed.inject(OperationsService)
+      .previewItemAllocationOptions as jasmine.Spy;
+    previewSpy.and.returnValue(of(refreshedPreview));
+
+    service.setCandidateQuantity(ITEM_ID, staleItem.candidates[0], 5);
+
+    const updatedItem = service.options()?.items[0];
+    expect(updatedItem?.issue_qty).toBe('42');
+    expect(updatedItem?.remaining_qty).toBe('0');
+    expect(updatedItem?.fully_issued).toBeTrue();
+  });
 });
 
 describe('OperationsWorkspaceStateService.saveDraft', () => {
@@ -1426,6 +1453,98 @@ describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
     expect(updatedItem?.continuation_recommended).toBeFalse();
     expect(service.getSelectedTotalForItem(ITEM_ID)).toBe(6);
   });
+
+  it('refreshes fully-issued state when the additive warehouse preview is merged back', () => {
+    const additivePreview = buildItemGroup({
+      issue_qty: '6.0000',
+      remaining_qty: '0.0000',
+      fully_issued: true,
+      candidates: [
+        buildCandidate({
+          batch_id: 2,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          available_qty: '2.0000',
+          usable_qty: '2.0000',
+        }),
+      ],
+      suggested_allocations: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          batch_id: 2,
+          quantity: '2.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      source_warehouse_id: SECONDARY_WAREHOUSE_ID,
+      draft_selected_qty: '6.0000',
+      effective_remaining_qty: '0.0000',
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+    });
+    const refreshPreview = buildItemGroup({
+      issue_qty: '6.0000',
+      remaining_qty: '0.0000',
+      fully_issued: true,
+      draft_selected_qty: '6.0000',
+      effective_remaining_qty: '0.0000',
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+    });
+    const previewSpy = jasmine
+      .createSpy('previewItemAllocationOptions')
+      .and.returnValues(of(additivePreview), of(refreshPreview));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: previewSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.options.set({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      items: [
+        buildItemGroup({
+          issue_qty: '4.0000',
+          remaining_qty: '2.0000',
+          fully_issued: false,
+        }),
+      ],
+    });
+    service.selectedRowsByItem.set({
+      [ITEM_ID]: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: PRIMARY_WAREHOUSE_ID,
+          batch_id: 1,
+          quantity: '4.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+    service.loadedWarehousesByItem.set({ [ITEM_ID]: [PRIMARY_WAREHOUSE_ID] });
+
+    service.addItemWarehouse(ITEM_ID, SECONDARY_WAREHOUSE_ID);
+
+    const updatedItem = service.options()?.items[0];
+    expect(updatedItem?.issue_qty).toBe('6.0000');
+    expect(updatedItem?.remaining_qty).toBe('0.0000');
+    expect(updatedItem?.fully_issued).toBeTrue();
+  });
 });
 
 describe('OperationsWorkspaceStateService lock conflict interception', () => {
@@ -1586,5 +1705,104 @@ describe('OperationsWorkspaceStateService lock conflict interception', () => {
     expect(service.lockConflict()).toBeNull();
     // No-op response should NOT trigger a package reload.
     expect(getPackageSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationsWorkspaceStateService.getItemValidationMessage (fully_issued)', () => {
+  const ITEM_ID = 101;
+  const WAREHOUSE_ID = 9001;
+
+  function buildCandidate(): AllocationCandidate {
+    return {
+      batch_id: 1,
+      inventory_id: WAREHOUSE_ID,
+      item_id: ITEM_ID,
+      batch_no: 'HADR-2-58',
+      usable_qty: '1000',
+      reserved_qty: '0',
+      available_qty: '1000',
+      source_type: 'ON_HAND',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+    };
+  }
+
+  function buildItemGroup(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
+    return {
+      item_id: ITEM_ID,
+      item_code: 'HADR-0058',
+      item_name: 'Battery AA',
+      request_qty: '40',
+      issue_qty: '40',
+      remaining_qty: '0',
+      fully_issued: true,
+      urgency_ind: 'H',
+      candidates: [buildCandidate()],
+      suggested_allocations: [],
+      remaining_after_suggestion: '0',
+      can_expire_flag: false,
+      issuance_order: 'FIFO',
+      compliance_markers: [],
+      override_required: false,
+      source_warehouse_id: WAREHOUSE_ID,
+      remaining_shortfall_qty: '0',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      warehouse_cards: [],
+      ...overrides,
+    };
+  }
+
+  function makeService(): OperationsWorkspaceStateService {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        { provide: OperationsService, useValue: {} as Partial<OperationsService> },
+      ],
+    });
+    return TestBed.inject(OperationsWorkspaceStateService);
+  }
+
+  it('returns null when the item is fully_issued AND no selection was made', () => {
+    const service = makeService();
+    const item = buildItemGroup();
+
+    expect(service.getItemValidationMessage(item)).toBeNull();
+  });
+
+  it('returns a dedicated "already fully issued" message when the operator tries to reserve against a fully_issued item', () => {
+    const service = makeService();
+    const item = buildItemGroup();
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [item],
+    });
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 10);
+
+    const message = service.getItemValidationMessage(item);
+
+    expect(message).not.toBeNull();
+    expect(message).toContain('already fully issued');
+    // Regression guard: the old misleading message must NOT fire for fully_issued items.
+    expect(message).not.toContain('more than the item still needs');
+  });
+
+  it('still returns the over-allocated message for normal (non-fully_issued) items when reserving exceeds remaining', () => {
+    const service = makeService();
+    const item = buildItemGroup({
+      issue_qty: '0',
+      remaining_qty: '5',
+      fully_issued: false,
+    });
+    service.options.set({
+      request: { reliefrqst_id: 7001 } as unknown as RequestSummary,
+      items: [item],
+    });
+    service.setCandidateQuantity(ITEM_ID, item.candidates[0], 10);
+
+    const message = service.getItemValidationMessage(item);
+
+    expect(message).toBe('You cannot allocate more than the item still needs.');
   });
 });

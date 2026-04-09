@@ -166,6 +166,15 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </p>
       }
 
+      <!-- Already-issued informational banner — precedes warehouse picker. -->
+      @if (item().fully_issued) {
+        <p class="detail__notice detail__notice--info" role="status">
+          <mat-icon aria-hidden="true">info</mat-icon>
+          This item is already fully issued ({{ item().issue_qty | number:'1.0-2' }} / {{ item().request_qty | number:'1.0-2' }}).
+          Cancel the previous package to free this quantity before re-allocating from another batch.
+        </p>
+      }
+
       <!-- Multi-warehouse continuation callout — only when backend recommends it. -->
       @if (continuationVisible()) {
         <section
@@ -307,7 +316,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                           type="number"
                           min="0"
                           step="any"
-                          [disabled]="readOnly()"
+                          [disabled]="readOnly() || item().fully_issued"
                           [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                           (ngModelChange)="onQtyChange(c, $event)"
                           [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
@@ -349,7 +358,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                   type="number"
                   min="0"
                   step="any"
-                  [disabled]="readOnly()"
+                  [disabled]="readOnly() || item().fully_issued"
                   [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                   (ngModelChange)="onQtyChange(c, $event)"
                 />
@@ -578,6 +587,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: #8c1d13;
     }
 
+    .metric-card__value--status[data-status='fully_issued'] {
+      color: #17447f;
+    }
+
     .metric-card--status[data-status='partial'] {
       background: rgba(253, 232, 177, 0.25);
     }
@@ -588,6 +601,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
 
     .metric-card--status[data-status='over_allocated'] {
       background: rgba(253, 221, 216, 0.25);
+    }
+
+    .metric-card--status[data-status='fully_issued'] {
+      background: rgba(219, 234, 254, 0.45);
     }
 
     /* ── Progress bar ── */
@@ -618,6 +635,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     .metric-card__bar-fill[data-status='over_allocated'] {
       background: #dc3545;
       animation: bar-pulse 1.5s ease-in-out infinite;
+    }
+
+    .metric-card__bar-fill[data-status='fully_issued'] {
+      background: #2563eb;
     }
 
     @keyframes bar-pulse {
@@ -663,6 +684,11 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     .detail__notice--warning {
       background: #fffbeb;
       color: #92400e;
+    }
+
+    .detail__notice--info {
+      background: #eff6ff;
+      color: #17447f;
     }
 
     /* ── Section eyebrow ── */
@@ -1075,7 +1101,8 @@ export class FulfillmentItemDetailComponent {
     return Math.min(this.reservingQty() / remaining, 1);
   });
 
-  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated'>(() => {
+  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated' | 'fully_issued'>(() => {
+    if (this.item().fully_issued) return 'fully_issued';
     const remaining = this.remainingQty();
     const reserving = this.reservingQty();
     if (reserving <= 0) return 'not_started';
@@ -1090,6 +1117,7 @@ export class FulfillmentItemDetailComponent {
       case 'partial': return 'Partly Filled';
       case 'filled': return 'Filled';
       case 'over_allocated': return 'Over-Allocated';
+      case 'fully_issued': return 'Already Issued';
     }
   });
 

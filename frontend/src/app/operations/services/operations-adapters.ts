@@ -403,6 +403,7 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     request_qty: asString(source['request_qty'], '0'),
     issue_qty: asString(source['issue_qty'], '0'),
     remaining_qty: asString(source['remaining_qty'], '0'),
+    fully_issued: asBoolean(source['fully_issued']),
     urgency_ind: asNullableString(source['urgency_ind']) as AllocationItemGroup['urgency_ind'],
     candidates,
     suggested_allocations: asArray(source['suggested_allocations']).map(normalizeSuggestedAllocationLine),

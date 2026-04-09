@@ -23,6 +23,7 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
           class="item-card"
           type="button"
           [class.item-card--selected]="selectedItemId() === item.item_id"
+          [class.item-card--issued]="item.fully_issued"
           (click)="itemSelected.emit(item.item_id)">
           <div class="item-card__header">
             <strong>{{ item.item_name || ('Item ' + item.item_id) }}</strong>
@@ -32,9 +33,21 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
           </div>
           <span class="item-card__code">{{ item.item_code || ('ID ' + item.item_id) }}</span>
           <div class="item-card__meta">
-            <span>Req: {{ item.request_qty | number:'1.0-2' }}</span>
-            <span>Rem: {{ item.remaining_qty | number:'1.0-2' }}</span>
+            @if (item.fully_issued) {
+              <span class="item-card__issued-meta">
+                {{ item.issue_qty | number:'1.0-2' }} / {{ item.request_qty | number:'1.0-2' }} issued
+              </span>
+            } @else {
+              <span>Req: {{ item.request_qty | number:'1.0-2' }}</span>
+              <span>Rem: {{ item.remaining_qty | number:'1.0-2' }}</span>
+            }
           </div>
+          @if (item.fully_issued) {
+            <span class="item-card__issued-chip">
+              <mat-icon aria-hidden="true">task_alt</mat-icon>
+              Already Issued
+            </span>
+          }
           @if (isItemOverridden(item.item_id)) {
             <span class="item-card__warehouse-override">
               <mat-icon aria-hidden="true">swap_horiz</mat-icon>
@@ -92,6 +105,15 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
       box-shadow: 0 2px 8px rgba(55, 53, 47, 0.14);
     }
 
+    .item-card--issued {
+      background: #f6f8fc;
+      border-color: rgba(37, 99, 235, 0.28);
+    }
+
+    .item-card--issued .item-card__header strong {
+      color: #17447f;
+    }
+
     .item-card__header {
       display: flex;
       align-items: center;
@@ -138,6 +160,26 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
       font-size: 0.76rem;
       color: var(--color-text-secondary);
       font-variant-numeric: tabular-nums;
+    }
+
+    .item-card__issued-meta {
+      font-variant-numeric: tabular-nums;
+      color: var(--color-info, #17447f);
+    }
+
+    .item-card__issued-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 1px;
+      font-size: 0.65rem;
+      color: var(--color-info, #17447f);
+    }
+
+    .item-card__issued-chip mat-icon {
+      font-size: 13px;
+      width: 13px;
+      height: 13px;
     }
 
     .item-card__bypass {

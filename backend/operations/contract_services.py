@@ -2750,6 +2750,15 @@ def _ensure_package(reliefrqst_id: int, *, actor_id: str, payload: Mapping[str, 
     raw_destination = _optional_positive_int(payload.get("to_inventory_id"), "to_inventory_id")
     request = _load_request(reliefrqst_id, for_update=True)
     package = _current_package_for_request(reliefrqst_id, for_update=True)
+    if _request_fully_dispatched(int(request.reliefrqst_id)):
+        raise OperationValidationError(
+            {
+                "request": (
+                    "All items on this request are already fully issued. "
+                    "Cancel a dispatched package to free quantity before creating a new one."
+                )
+            }
+        )
     if package is not None:
         if (
             int(request.status_code or STATUS_DRAFT) == STATUS_PART_FILLED
@@ -3219,6 +3228,7 @@ def _build_item_allocation_response(
 
     item = Item.objects.filter(item_id=item_id).first()
     base_remaining_qty = max(Decimal("0"), _quantize_qty(row["request_qty"]) - _quantize_qty(row["issue_qty"]))
+    fully_issued = _quantize_qty(row["issue_qty"]) >= _quantize_qty(row["request_qty"]) and _quantize_qty(row["request_qty"]) > Decimal("0")
     normalized_draft_allocations = _normalized_item_draft_allocations(draft_allocations, item_id=item_id)
     draft_selected_qty = sum((_quantize_qty(allocation["quantity"]) for allocation in normalized_draft_allocations), Decimal("0"))
     effective_remaining_qty = max(Decimal("0"), _quantize_qty(base_remaining_qty) - draft_selected_qty)
@@ -3282,6 +3292,7 @@ def _build_item_allocation_response(
         "request_qty": str(_quantize_qty(row["request_qty"])),
         "issue_qty": str(_quantize_qty(row["issue_qty"])),
         "remaining_qty": str(base_remaining_qty.quantize(Decimal("0.0001"))),
+        "fully_issued": fully_issued,
         "urgency_ind": row.get("urgency_ind"),
         "candidates": [
             {
@@ -5045,6 +5056,15 @@ def save_package(
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_probe = _request_access_probe_from_legacy(request)
     _ensure_fulfillment_request_access(request_probe, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context, write=True)
+    if _request_fully_dispatched(int(request.reliefrqst_id)):
+        raise OperationValidationError(
+            {
+                "request": (
+                    "All items on this request are already fully issued. "
+                    "Cancel a dispatched package to free quantity before creating a new one."
+                )
+            }
+        )
     request_record = _sync_operations_request(request, actor_id=actor_id)
     package = legacy_service._current_package_for_request(reliefrqst_id)
     package_locked_before_save = package is not None

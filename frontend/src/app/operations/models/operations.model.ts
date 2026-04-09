@@ -356,6 +356,14 @@ export interface AllocationItemGroup {
   request_qty: string;
   issue_qty: string;
   remaining_qty: string;
+  /**
+   * True when the backend reports that this item is already fully issued
+   * (`issue_qty >= request_qty`). The Stock-Aware Selection step uses this
+   * flag to show an "Already Issued" state and disable the qty inputs
+   * instead of letting the operator run into a misleading "Over-Allocated"
+   * validation error.
+   */
+  fully_issued?: boolean;
   urgency_ind: UrgencyCode | null;
   candidates: AllocationCandidate[];
   suggested_allocations: SuggestedAllocationLine[];

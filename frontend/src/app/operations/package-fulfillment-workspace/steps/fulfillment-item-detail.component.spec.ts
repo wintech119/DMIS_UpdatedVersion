@@ -351,4 +351,131 @@ describe('FulfillmentItemDetailComponent', () => {
       expect(cardNames.slice(1)).toEqual(['ODPEM Portland', 'ODPEM St. Ann']);
     });
   });
+
+  /**
+   * Regression tests for the "fully issued" UX guardrail. When a prior package
+   * dispatch has already satisfied `reliefrqst_item.issue_qty >= request_qty`,
+   * the backend now returns `fully_issued: true` and the Stock-Aware Selection
+   * step must surface that state clearly (chip + disabled inputs + info banner)
+   * instead of letting the operator hit a misleading "Over-Allocated" toast on
+   * any new reservation attempt. See plan `jolly-zooming-flame.md`.
+   */
+  describe('fully_issued UX guardrail', () => {
+    function makeFullyIssuedCandidate(): AllocationCandidate {
+      return {
+        batch_id: 258,
+        inventory_id: 9001,
+        item_id: 44,
+        usable_qty: '60',
+        reserved_qty: '0',
+        available_qty: '60',
+        source_type: 'ON_HAND',
+        can_expire_flag: false,
+        issuance_order: 'FIFO',
+        warehouse_name: 'ODPEM Marcus Garvey',
+        batch_no: 'HADR-2-58',
+      };
+    }
+
+    function buildFullyIssuedItem(): AllocationItemGroup {
+      return {
+        ...baseItem,
+        request_qty: '40',
+        issue_qty: '40',
+        remaining_qty: '0',
+        remaining_shortfall_qty: '0',
+        fully_issued: true,
+        candidates: [makeFullyIssuedCandidate()],
+      };
+    }
+
+    it('renders "Already Issued" in the Status metric card when fully_issued is true', async () => {
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', buildFullyIssuedItem());
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      const statusValue = fixture.nativeElement.querySelector(
+        '.metric-card__value--status',
+      ) as HTMLElement;
+      expect(statusValue).toBeTruthy();
+      expect(statusValue.getAttribute('data-status')).toBe('fully_issued');
+      expect((statusValue.textContent ?? '').trim()).toBe('Already Issued');
+    });
+
+    it('disables every qty-input when the item is fully_issued', async () => {
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      const item = buildFullyIssuedItem();
+      fixture.componentRef.setInput('item', item);
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const qtyInputs = fixture.nativeElement.querySelectorAll(
+        'input.qty-input',
+      ) as NodeListOf<HTMLInputElement>;
+      expect(qtyInputs.length).toBeGreaterThan(0);
+      qtyInputs.forEach((input) => {
+        expect(input.disabled).toBeTrue();
+      });
+    });
+
+    it('renders the already-issued info banner with the request/issue quantities', async () => {
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', buildFullyIssuedItem());
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector(
+        '.detail__notice--info',
+      ) as HTMLElement;
+      expect(banner).toBeTruthy();
+      const text = (banner.textContent ?? '').replace(/\s+/g, ' ').trim();
+      expect(text).toContain('This item is already fully issued');
+      expect(text).toContain('40');
+      expect(text).toContain('Cancel the previous package');
+    });
+
+    it('does not render the info banner or disable inputs when fully_issued is false', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        candidates: [makeFullyIssuedCandidate()],
+      };
+
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', item);
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.detail__notice--info')).toBeNull();
+      const qtyInputs = fixture.nativeElement.querySelectorAll(
+        'input.qty-input',
+      ) as NodeListOf<HTMLInputElement>;
+      expect(qtyInputs.length).toBeGreaterThan(0);
+      qtyInputs.forEach((input) => {
+        expect(input.disabled).toBeFalse();
+      });
+      const statusValue = fixture.nativeElement.querySelector(
+        '.metric-card__value--status',
+      ) as HTMLElement;
+      expect((statusValue.textContent ?? '').trim()).not.toBe('Already Issued');
+    });
+  });
 });
