@@ -20,13 +20,7 @@ import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-s
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
-import {
-  DmisReasonDialogComponent,
-  DmisReasonDialogData,
-  DmisReasonDialogResult,
-} from '../../replenishment/shared/dmis-reason-dialog/dmis-reason-dialog.component';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
-import { OpsConsolidationPanelComponent } from '../shared/ops-consolidation-panel.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsPackageLockStateComponent } from '../shared/ops-package-lock-state.component';
 import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
@@ -34,7 +28,6 @@ import { OperationsService } from '../services/operations.service';
 import { OperationsWorkspaceStateService } from '../services/operations-workspace-state.service';
 import {
   AllocationCommitResponse,
-  ConsolidationLeg,
   PackageAbandonDraftResponse,
   PackageLockReleaseResponse,
 } from '../models/operations.model';
@@ -61,7 +54,6 @@ interface FulfillmentConfirmationState {
     MatIconModule,
     MatStepperModule,
     OpsMetricStripComponent,
-    OpsConsolidationPanelComponent,
     OpsPackageLockStateComponent,
     OpsSplitBannerComponent,
     FulfillmentPlanStepComponent,
@@ -675,68 +667,6 @@ export class PackageFulfillmentWorkspaceComponent {
     // The backend enforces this — the frontend provides a best-effort hint
     // by checking if the current user appears in the request metadata
     return false;
-  }
-
-  openConsolidationLeg(leg: ConsolidationLeg): void {
-    const pkgId = this.store.reliefpkgId();
-    if (!pkgId) {
-      return;
-    }
-    this.router.navigate(['/operations/consolidation', pkgId, 'leg', leg.leg_id]);
-  }
-
-  onRequestPartialRelease(): void {
-    const dialogRef = this.dialog.open<
-      DmisReasonDialogComponent,
-      DmisReasonDialogData,
-      DmisReasonDialogResult
-    >(DmisReasonDialogComponent, {
-      width: '520px',
-      data: {
-        title: 'Request partial release',
-        actionLabel: 'Request release',
-      },
-    });
-
-    dialogRef.afterClosed().subscribe((result) => {
-      if (!result?.reason) {
-        return;
-      }
-      this.store.requestPartialRelease({ reason: result.reason.trim() }).subscribe({
-        next: () => this.notifications.showSuccess('Partial release requested.'),
-        error: () => this.notifications.showError('Failed to request partial release.'),
-      });
-    });
-  }
-
-  onApprovePartialRelease(): void {
-    const dialogRef = this.dialog.open<
-      DmisReasonDialogComponent,
-      DmisReasonDialogData,
-      DmisReasonDialogResult
-    >(DmisReasonDialogComponent, {
-      width: '520px',
-      data: {
-        title: 'Approve partial release',
-        actionLabel: 'Approve',
-      },
-    });
-
-    dialogRef.afterClosed().subscribe((result) => {
-      if (!result?.reason) {
-        return;
-      }
-      this.store.approvePartialRelease({ approval_reason: result.reason.trim() }).subscribe({
-        next: (response) => {
-          this.notifications.showSuccess(
-            response.released?.tracking_no
-              ? `Partial release approved. Released: ${response.released.tracking_no}`
-              : 'Partial release approved.',
-          );
-        },
-        error: () => this.notifications.showError('Failed to approve partial release.'),
-      });
-    });
   }
 
   private extractError(error: HttpErrorResponse, fallback: string): string {

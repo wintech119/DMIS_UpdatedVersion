@@ -1503,6 +1503,81 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.get_package", return_value={"package": {"reliefpkg_id": 90}})
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_draft_save_allows_blank_staging_hub(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        _get_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record()
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "DRAFT", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with patch("operations.contract_services._sync_operations_request", return_value=request_record):
+            contract_services.save_package(
+                70,
+                payload={
+                    "draft_save": True,
+                    "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                    "staging_warehouse_id": None,
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+            )
+
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.fulfillment_mode, FULFILLMENT_MODE_DELIVER_FROM_STAGING)
+        self.assertIsNone(package_record.staging_warehouse_id)
+        save_package_mock.assert_called_once()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
+    def test_staged_package_commit_requires_selected_staging_hub(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.save_package(
+                70,
+                payload={
+                    "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+                    "staging_warehouse_id": None,
+                    "allocations": [
+                        {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
+                    ],
+                },
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
+            )
+
+        self.assertEqual(
+            raised.exception.errors["staging_warehouse_id"],
+            "A staging warehouse is required before staged fulfillment can be committed.",
+        )
+        save_package_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.save_package")
@@ -1580,37 +1655,32 @@ class OperationsWorkflowContractTests(TestCase):
         save_package_mock.assert_not_called()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
-    @patch("operations.contract_services.recommend_staging_hub")
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.save_package")
-    def test_staged_package_commit_requires_override_permission_for_non_recommended_hub(
+    def test_staged_package_commit_accepts_operator_selected_hub_without_recommendation_override(
         self,
         save_package_mock,
         load_request_mock,
         current_package_mock,
-        recommend_staging_hub_mock,
         get_agency_scope_mock,
     ) -> None:
+        request_record = self._create_operations_request_record()
         load_request_mock.return_value = self.fulfillment_request
         current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
         get_agency_scope_mock.return_value = self.agency_scope
-        recommend_staging_hub_mock.return_value = SimpleNamespace(
-            recommended_staging_warehouse_id=55,
-            staging_selection_basis="SAME_PARISH",
-        )
 
-        with patch(
-            "operations.contract_services.get_staging_hub_details",
-            return_value={"warehouse_id": 77, "warehouse_name": "ODPEM Hub 77", "parish_code": "02"},
-        ):
-            with self.assertRaises(OperationValidationError) as raised:
+        with patch("operations.contract_services._sync_operations_request", return_value=request_record):
+            with patch(
+                "operations.contract_services.get_staging_hub_details",
+                return_value={"warehouse_id": 77, "warehouse_name": "ODPEM Hub 77", "parish_code": "02"},
+            ):
                 contract_services.save_package(
                     70,
                     payload={
                         "fulfillment_mode": FULFILLMENT_MODE_DELIVER_FROM_STAGING,
                         "staging_warehouse_id": 77,
-                        "staging_override_reason": "Road closure detour",
                         "allocations": [
                             {"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"},
                         ],
@@ -1621,11 +1691,9 @@ class OperationsWorkflowContractTests(TestCase):
                     permissions=[PERM_OPERATIONS_FULFILLMENT_MODE_SET],
                 )
 
-        self.assertEqual(
-            raised.exception.errors["staging_warehouse_id"]["required_permission"],
-            PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
-        )
-        save_package_mock.assert_not_called()
+        package_record = OperationsPackage.objects.get(package_id=90)
+        self.assertEqual(package_record.staging_warehouse_id, 77)
+        save_package_mock.assert_called_once()
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services._request_fully_dispatched", return_value=True)

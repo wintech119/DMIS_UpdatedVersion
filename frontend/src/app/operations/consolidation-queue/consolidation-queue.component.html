@@ -1,0 +1,224 @@
+<div class="ops-page-shell">
+  <header class="ops-hero">
+    <div>
+      <p class="ops-hero__eyebrow">
+        <mat-icon aria-hidden="true">warehouse</mat-icon>
+        Operations / Consolidation
+      </p>
+      <h1 class="ops-hero__title">Consolidation Queue</h1>
+      <p class="ops-hero__copy">
+        Staged packages arriving at your hubs. Track shadow-transfer legs from source warehouses and release
+        packages once every leg has landed.
+      </p>
+      <app-ops-status-chip label="Hub Monitor" tone="info" />
+    </div>
+
+    <div class="ops-hero__actions">
+      <button mat-flat-button color="primary" type="button" (click)="setFilter('ready')">
+        <mat-icon>check_circle</mat-icon>
+        Show Ready
+      </button>
+      <button mat-stroked-button type="button" (click)="refreshQueue()">
+        <mat-icon>refresh</mat-icon>
+        Refresh Queue
+      </button>
+    </div>
+  </header>
+
+  <app-ops-metric-strip [items]="queueMetrics()" />
+
+  <div class="ops-grid ops-grid--split">
+    <section class="ops-panel">
+      <div class="ops-panel__header">
+        <div>
+          <p class="ops-section__eyebrow">Queue</p>
+          <h2 class="ops-section__title">Staged Consolidation Work</h2>
+          <p class="ops-section__copy">
+            Monitor leg arrivals at staging hubs. Packages stay here until every shadow transfer lands, then flow
+            on to the Dispatch Queue.
+          </p>
+        </div>
+        <span class="ops-table-shell__meta">
+          {{ filteredItems().length }} package{{ filteredItems().length === 1 ? '' : 's' }}
+        </span>
+      </div>
+
+      <div class="ops-panel__body">
+        <div class="ops-toolbar">
+          <label class="ops-toolbar__search" aria-label="Search consolidation queue">
+            <mat-icon aria-hidden="true">search</mat-icon>
+            <input
+              #searchBox
+              type="search"
+              placeholder="Search by tracking number, agency, event, or hub"
+              [value]="searchTerm()"
+              (input)="onSearch(searchBox.value)"
+            />
+          </label>
+          <div class="ops-toolbar__filters" role="radiogroup" aria-label="Filter consolidation queue by stage">
+            @for (filter of filterOptions; track filter.value) {
+              <button
+                class="ops-chip"
+                [class.ops-chip--active]="activeFilter() === filter.value"
+                type="button"
+                role="radio"
+                [attr.aria-checked]="activeFilter() === filter.value"
+                [attr.aria-label]="filter.label"
+                [attr.tabindex]="activeFilter() === filter.value ? 0 : -1"
+                (click)="setFilter(filter.value)"
+                (keydown)="onFilterKeydown($event, $index)">
+                <span>{{ filter.label }}</span>
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (loading()) {
+          <dmis-skeleton-loader variant="table-row" [count]="5" />
+        } @else if (filteredItems().length === 0) {
+          <dmis-empty-state
+            icon="warehouse"
+            title="No consolidation work"
+            message="No staged packages are currently awaiting leg arrivals at your hubs."
+          />
+        } @else {
+          <div class="ops-row-list">
+            @for (row of filteredItems(); track trackByRequestId($index, row)) {
+              <article
+                class="ops-row ops-row--interactive"
+                tabindex="0"
+                role="button"
+                (click)="openConsolidation(row)"
+                (keydown.enter)="openConsolidation(row)"
+                (keydown.space)="openConsolidation(row); $event.preventDefault()">
+                <div class="ops-row__lead">
+                  <div class="ops-row__header">
+                    <p class="ops-row__title">
+                      {{ row.current_package?.tracking_no ?? ('PKG-' + row.current_package?.reliefpkg_id) }}
+                    </p>
+                    <app-ops-status-chip
+                      [label]="formatLegProgress(legSummary(row))"
+                      [tone]="chipTone(legProgressTone(legSummary(row)))" />
+                    @if (row.current_package?.consolidation_status; as status) {
+                      <app-ops-status-chip
+                        [label]="formatConsolidationStatus(status)"
+                        [tone]="chipTone(getConsolidationStatusTone(status))" />
+                    }
+                    @if (row.current_package?.fulfillment_mode; as mode) {
+                      <app-ops-status-chip
+                        [label]="formatFulfillmentMode(mode)"
+                        tone="soft" />
+                    }
+                    <app-ops-status-chip
+                      [label]="formatUrgency(row.urgency_ind)"
+                      [tone]="chipTone(getUrgencyTone(row.urgency_ind))" />
+                  </div>
+                  <div class="ops-row__meta">
+                    <span>{{ row.tracking_no ?? ('REQ-' + row.reliefrqst_id) }}</span>
+                    <span aria-hidden="true">|</span>
+                    <span>{{ row.agency_name ?? ('Agency ' + row.agency_id) }}</span>
+                    <span aria-hidden="true">|</span>
+                    <span>{{ row.event_name ?? 'No event' }}</span>
+                    @if (row.current_package?.destination_warehouse_name; as hub) {
+                      <span aria-hidden="true">|</span>
+                      <span>Hub: {{ hub }}</span>
+                    }
+                  </div>
+                </div>
+
+                <div class="ops-row__actions">
+                  <app-ops-status-chip
+                    [label]="formatAge(row.create_dtime ?? row.request_date)"
+                    tone="neutral"
+                    [showDot]="false" />
+                  <mat-icon aria-hidden="true">chevron_right</mat-icon>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      </div>
+    </section>
+
+    <aside class="ops-grid">
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">Workload</p>
+            <h2 class="ops-section__title">Hub breakdown</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-summary-grid">
+            <div class="ops-summary-card">
+              <span class="ops-summary-card__label">Total shown</span>
+              <p class="ops-summary-card__value">{{ sidebarSummary().total }}</p>
+            </div>
+            @for (hub of sidebarSummary().hubs; track hub.hubId) {
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">{{ hub.label }}</span>
+                <p class="ops-summary-card__value">{{ hub.count }}</p>
+              </div>
+            } @empty {
+              <div class="ops-summary-card">
+                <span class="ops-summary-card__label">No active hubs</span>
+                <p class="ops-summary-card__value">--</p>
+              </div>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-card">
+        <div class="ops-card__header">
+          <div>
+            <p class="ops-section__eyebrow">Guidance</p>
+            <h2 class="ops-section__title">Consolidation phases</h2>
+          </div>
+        </div>
+        <div class="ops-card__body">
+          <div class="ops-timeline">
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #1e3a8a;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Awaiting legs.</p>
+                <div class="ops-timeline__meta">
+                  <span>Shadow transfers are planned but source warehouses have not yet dispatched.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #92400e;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">In transit.</p>
+                <div class="ops-timeline__meta">
+                  <span>Legs are en route to the staging hub.</span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #7c3aed;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Partially received.</p>
+                <div class="ops-timeline__meta">
+                  <span>
+                    Some legs have landed. Open the package to request a partial release if the operation cannot wait.
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="ops-timeline__step">
+              <span class="ops-timeline__dot" style="background: #065f46;"></span>
+              <div class="ops-timeline__content">
+                <p class="ops-timeline__title">Ready to dispatch.</p>
+                <div class="ops-timeline__meta">
+                  <span>All legs received. The package moves to the Dispatch Queue for onward handoff.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>

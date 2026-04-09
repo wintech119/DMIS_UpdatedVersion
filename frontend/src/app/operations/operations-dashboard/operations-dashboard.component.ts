@@ -67,7 +67,7 @@ export class OperationsDashboardComponent implements OnInit {
   readonly dashboardSubtitle = signal('Operations command center for relief requests, eligibility review, packing, and dispatch.');
   readonly recentTasks = signal<DashboardQueueItem[]>([]);
 
-  readonly heroStats = computed(() => this.metrics().slice(0, 4));
+  readonly heroStats = computed(() => this.metrics().slice(0, 5));
   readonly heroMetricItems = computed<readonly OpsMetricStripItem[]>(() =>
     this.heroStats().map((metric) => ({
       label: metric.label,
@@ -111,6 +111,17 @@ export class OperationsDashboardComponent implements OnInit {
         const draftCount = requestRows.filter((row) => row.status_code === 'DRAFT').length;
         const reviewCount = eligibility.results.length;
         const packageCount = packages.results.length;
+        const consolidationCount = packages.results.filter((row) => {
+          const pkg = row.current_package;
+          if (!pkg) {
+            return false;
+          }
+          const mode = String(pkg.fulfillment_mode ?? '').toUpperCase();
+          if (!mode || mode === 'DIRECT') {
+            return false;
+          }
+          return (pkg.leg_summary?.total_legs ?? 0) > 0;
+        }).length;
         const dispatchCount = dispatch.results.length;
         const urgentCount = requestRows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'C').length;
         const highCount = requestRows.filter((row) => String(row.urgency_ind ?? '').toUpperCase() === 'H').length;
@@ -140,6 +151,16 @@ export class OperationsDashboardComponent implements OnInit {
             route: '/operations/package-fulfillment',
             icon: 'inventory_2',
             tone: 'draft',
+          },
+          {
+            label: 'Consolidation',
+            value: consolidationCount,
+            note: consolidationCount === 0
+              ? 'No staged packages awaiting legs'
+              : `${consolidationCount} staged package${consolidationCount === 1 ? '' : 's'} with active legs`,
+            route: '/operations/consolidation',
+            icon: 'warehouse',
+            tone: consolidationCount > 0 ? 'review' : 'muted',
           },
           {
             label: 'Dispatch Queue',
@@ -237,6 +258,14 @@ export class OperationsDashboardComponent implements OnInit {
             note: 'Unavailable',
             route: '/operations/package-fulfillment',
             icon: 'inventory_2',
+            tone: 'muted',
+          },
+          {
+            label: 'Consolidation',
+            value: 0,
+            note: 'Unavailable',
+            route: '/operations/consolidation',
+            icon: 'warehouse',
             tone: 'muted',
           },
           {

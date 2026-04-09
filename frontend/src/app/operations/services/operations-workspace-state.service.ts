@@ -79,7 +79,9 @@ interface WorkspaceDraft {
   comments_text: string;
   override_reason_code: string;
   override_note: string;
-  fulfillment_mode: FulfillmentMode;
+  // Empty string = user has not chosen a mode yet (no default pre-selection).
+  // Kemar picks DIRECT, DELIVER_FROM_STAGING, or PICKUP_AT_STAGING explicitly.
+  fulfillment_mode: FulfillmentMode | '';
   staging_warehouse_id: string;
   staging_override_reason: string;
 }
@@ -100,7 +102,7 @@ const DEFAULT_DRAFT: WorkspaceDraft = {
   comments_text: '',
   override_reason_code: '',
   override_note: '',
-  fulfillment_mode: 'DIRECT',
+  fulfillment_mode: '',
   staging_warehouse_id: '',
   staging_override_reason: '',
 };
@@ -844,7 +846,7 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
       transport_mode: draft.transport_mode.trim() || undefined,
       comments_text: draft.comments_text.trim() || undefined,
-      fulfillment_mode: draft.fulfillment_mode,
+      fulfillment_mode: draft.fulfillment_mode ? (draft.fulfillment_mode as FulfillmentMode) : undefined,
       staging_warehouse_id: draft.staging_warehouse_id
         ? Number(draft.staging_warehouse_id)
         : undefined,
@@ -1414,6 +1416,9 @@ export class OperationsWorkspaceStateService {
   buildCommitPayload(): { payload: AllocationCommitPayload | null; errors: string[] } {
     const errors: string[] = [];
     const allocations = this.buildDraftAllocationSelections();
+    const currentFulfillmentMode = this.draft().fulfillment_mode;
+    const isStagedDraft =
+      !!currentFulfillmentMode && currentFulfillmentMode !== 'DIRECT';
 
     if (!allocations.length) {
       errors.push('Select at least one stock line to reserve.');
@@ -1436,6 +1441,13 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: this.draft().to_inventory_id ? Number(this.draft().to_inventory_id) : undefined,
       transport_mode: this.draft().transport_mode.trim() || undefined,
       comments_text: this.draft().comments_text.trim() || undefined,
+      fulfillment_mode: currentFulfillmentMode || undefined,
+      staging_warehouse_id: isStagedDraft
+        ? (this.draft().staging_warehouse_id ? Number(this.draft().staging_warehouse_id) : null)
+        : undefined,
+      staging_override_reason: isStagedDraft
+        ? (this.draft().staging_override_reason.trim() || null)
+        : undefined,
       override_reason_code: this.planRequiresOverride() ? (this.draft().override_reason_code.trim() || undefined) : undefined,
       override_note: this.planRequiresOverride() ? (this.draft().override_note.trim() || undefined) : undefined,
     };
@@ -1495,7 +1507,9 @@ export class OperationsWorkspaceStateService {
       transport_mode: d.transport_mode || pkg.transport_mode || '',
       comments_text: d.comments_text || pkg.comments_text || '',
       override_reason_code: d.override_reason_code || storedOverrideReason,
-      fulfillment_mode: (pkg.fulfillment_mode ?? d.fulfillment_mode ?? 'DIRECT') as FulfillmentMode,
+      // Respect backend mode if present; otherwise keep the existing draft choice
+      // (which may be '' for a fresh package where the user has not picked a mode yet).
+      fulfillment_mode: (pkg.fulfillment_mode ?? d.fulfillment_mode ?? '') as FulfillmentMode | '',
       staging_warehouse_id:
         pkg.staging_warehouse_id != null
           ? String(pkg.staging_warehouse_id)
@@ -1694,7 +1708,9 @@ export class OperationsWorkspaceStateService {
       to_inventory_id: draft.to_inventory_id ? Number(draft.to_inventory_id) : undefined,
       transport_mode: draft.transport_mode.trim() || undefined,
       comments_text: draft.comments_text.trim() || undefined,
-      fulfillment_mode: draft.fulfillment_mode,
+      // Omit the mode when empty so the backend doesn't persist a default the
+      // user never picked. Only send the field when Kemar has actively chosen.
+      fulfillment_mode: draft.fulfillment_mode ? (draft.fulfillment_mode as FulfillmentMode) : undefined,
       staging_warehouse_id: draft.staging_warehouse_id ? Number(draft.staging_warehouse_id) : null,
       staging_override_reason: draft.staging_override_reason.trim() || null,
     };
@@ -1769,6 +1785,15 @@ export class OperationsWorkspaceStateService {
     const directMessage = typeof error.error?.message === 'string' ? error.error.message.trim() : '';
     const fallbackDetail = typeof error.error?.detail === 'string' ? error.error.detail.trim() : '';
     return directMessage || fallbackDetail || fallback;
+  }
+
+  /**
+   * Public surface over the internal error parser. Component-level write callers
+   * (e.g. mode-switch radios in the details step) use this to surface the real
+   * backend field error instead of a hardcoded generic toast string.
+   */
+  extractWriteError(error: HttpErrorResponse, fallback: string): string {
+    return this.extractError(error, fallback);
   }
 }
 

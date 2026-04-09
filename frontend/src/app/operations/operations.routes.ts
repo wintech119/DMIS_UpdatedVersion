@@ -14,6 +14,7 @@ import { DispatchWaybillComponent } from './dispatch-waybill/dispatch-waybill.co
 import { ReceiptConfirmationComponent } from './receipt-confirmation/receipt-confirmation.component';
 import { TaskCenterComponent } from './task-center/task-center.component';
 import { OpsStockAvailabilityPreviewComponent } from './shared/ops-stock-availability-preview.component';
+import { ConsolidationQueueComponent } from './consolidation-queue/consolidation-queue.component';
 import { ConsolidationPackageComponent } from './consolidation/consolidation-package.component';
 import { ConsolidationLegWorkspaceComponent } from './consolidation/consolidation-leg-workspace.component';
 import { PickupReleaseComponent } from './consolidation/pickup-release.component';
@@ -31,6 +32,7 @@ export const OPERATIONS_ROUTES: Routes = [
   { path: 'eligibility-review/:reliefrqstId', component: EligibilityReviewDetailComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.eligibility' } },
   { path: 'package-fulfillment', component: PackageFulfillmentQueueComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'package-fulfillment/:reliefrqstId', component: PackageFulfillmentWorkspaceComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
+  { path: 'consolidation', component: ConsolidationQueueComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'consolidation/:reliefpkgId', component: ConsolidationPackageComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'consolidation/:reliefpkgId/leg/:legId', component: ConsolidationLegWorkspaceComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.fulfillment' } },
   { path: 'pickup-release/:reliefpkgId', component: PickupReleaseComponent, canActivate: [appAccessGuard], data: { accessKey: 'operations.dispatch' } },

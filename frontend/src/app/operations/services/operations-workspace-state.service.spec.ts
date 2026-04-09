@@ -620,6 +620,48 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
     expect(payload.staging_warehouse_id).toBe(9501);
     expect(payload.staging_override_reason).toBe('Closer to field site');
   });
+
+  it('includes the current staged fulfillment draft values in the commit payload', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        { provide: OperationsService, useValue: {} },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.patchDraft({
+      source_warehouse_id: '9001',
+      to_inventory_id: '9002',
+      fulfillment_mode: 'DELIVER_FROM_STAGING',
+      staging_warehouse_id: '9501',
+      staging_override_reason: 'Use the manually selected hub',
+    });
+    service.selectedRowsByItem.set({
+      44: [
+        {
+          item_id: 44,
+          inventory_id: 9001,
+          batch_id: 1001,
+          quantity: '2',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+
+    const result = service.buildCommitPayload();
+
+    expect(result.errors).toEqual([]);
+    expect(result.payload).toEqual(
+      jasmine.objectContaining<AllocationCommitPayload>({
+        fulfillment_mode: 'DELIVER_FROM_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: 'Use the manually selected hub',
+      }),
+    );
+  });
 });
 
 describe('OperationsWorkspaceStateService.load', () => {

@@ -60,18 +60,6 @@
       [parent]="store.parentSplitInfo()"
       [children]="store.splitChildren()" />
 
-    @if (store.isStagedFulfillment()) {
-      <app-ops-consolidation-panel
-        [package]="detail.package"
-        [legs]="store.consolidationLegs()"
-        [legsLoading]="store.legsLoading()"
-        [legsError]="store.legsError()"
-        (legClick)="openConsolidationLeg($event)"
-        (requestPartial)="onRequestPartialRelease()"
-        (approvePartial)="onApprovePartialRelease()"
-        (refresh)="store.refreshConsolidationLegs()" />
-    }
-
     <button
       type="button"
       class="ops-context-toggle"

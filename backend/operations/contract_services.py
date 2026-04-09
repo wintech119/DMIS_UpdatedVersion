@@ -89,7 +89,6 @@ from operations.constants import (
     ROLE_LOGISTICS_OFFICER,
     ROLE_LOGISTICS_MANAGER,
     ROLE_SYSTEM_ADMINISTRATOR,
-    STAGING_SELECTION_BASIS_MANUAL_OVERRIDE,
     STATUS_LABELS,
     normalize_role_codes,
 )
@@ -1814,6 +1813,7 @@ def _resolved_staging_configuration(
     payload: Mapping[str, Any],
     existing_package_record: OperationsPackage | None,
     permissions: Iterable[str] | None,
+    draft_save: bool,
 ) -> dict[str, Any]:
     existing_mode = (
         existing_package_record.fulfillment_mode
@@ -1835,20 +1835,6 @@ def _resolved_staging_configuration(
         existing_package_record.staging_warehouse_id if existing_package_record is not None else None
     )
     requested_staging_id = _optional_positive_int_payload_value(payload, "staging_warehouse_id")
-    should_resolve_recommendation = bool(
-        _is_staged_fulfillment_mode(fulfillment_mode)
-        or existing_staging_id not in (None, "")
-        or requested_staging_id is not _UNSET
-        or payload.get("staging_override_reason")
-    )
-    if should_resolve_recommendation:
-        parish_code = beneficiary_parish_code_for_request(int(reliefrqst_id))
-        recommendation = recommend_staging_hub(beneficiary_parish_code=parish_code)
-        recommended_id = recommendation.recommended_staging_warehouse_id
-        recommendation_basis = recommendation.staging_selection_basis
-    else:
-        recommended_id = None
-        recommendation_basis = None
     staging_override_reason = str(
         payload.get("staging_override_reason")
         or (existing_package_record.staging_override_reason if existing_package_record is not None else "")
@@ -1857,66 +1843,56 @@ def _resolved_staging_configuration(
     staging_warehouse_id = existing_staging_id
     if requested_staging_id is not _UNSET:
         staging_warehouse_id = requested_staging_id
-    elif staging_warehouse_id in (None, ""):
-        staging_warehouse_id = recommended_id
-
     staging_selection_basis = (
-        recommendation_basis
-        or (
-            existing_package_record.staging_selection_basis
-            if existing_package_record is not None
-            else None
-        )
+        existing_package_record.staging_selection_basis
+        if existing_package_record is not None
+        else None
     )
 
     if _is_staged_fulfillment_mode(fulfillment_mode):
-        if staging_warehouse_id is None:
-            raise OperationValidationError(
-                {"staging_warehouse_id": "A staging warehouse is required for staged fulfillment."}
-            )
-        staging_hub = get_staging_hub_details(int(staging_warehouse_id))
-        if staging_hub is None:
-            raise OperationValidationError(
-                {
-                    "staging_warehouse_id": (
-                        "Selected staging warehouse must be an active ODPEM-owned SUB-HUB."
-                    )
-                }
-            )
-        if recommended_id is not None and int(staging_warehouse_id) != int(recommended_id):
-            _require_permission(
-                permissions,
-                PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
-                field_name="staging_warehouse_id",
-                message=(
-                    "Selecting a non-recommended staging warehouse requires "
-                    "operations.staging_warehouse.override."
-                ),
-            )
-            if not staging_override_reason:
+        if staging_warehouse_id in (None, ""):
+            if draft_save:
+                staging_selection_basis = None
+            else:
                 raise OperationValidationError(
                     {
-                        "staging_override_reason": (
-                            "A manual override reason is required when the selected staging "
-                            "warehouse differs from the recommendation."
+                        "staging_warehouse_id": (
+                            "A staging warehouse is required before staged fulfillment can be committed."
                         )
                     }
                 )
-            staging_selection_basis = STAGING_SELECTION_BASIS_MANUAL_OVERRIDE
+        if staging_warehouse_id not in (None, ""):
+            staging_hub = get_staging_hub_details(int(staging_warehouse_id))
+            if staging_hub is None:
+                raise OperationValidationError(
+                    {
+                        "staging_warehouse_id": (
+                            "Selected staging warehouse must be an active ODPEM-owned SUB-HUB."
+                        )
+                    }
+                )
     else:
         staging_warehouse_id = None
         staging_selection_basis = None
         staging_override_reason = None
 
+    if _is_staged_fulfillment_mode(fulfillment_mode) and not draft_save:
+        # The staged commit path no longer auto-selects a hub. If the user has
+        # not chosen one yet, fail fast before legacy save/commit work starts.
+        if staging_warehouse_id in (None, ""):
+            raise OperationValidationError(
+                {"staging_warehouse_id": "A staging warehouse is required before staged fulfillment can be committed."}
+            )
+
     return {
         "fulfillment_mode": fulfillment_mode,
-        "recommended_staging_warehouse_id": recommended_id,
+        "recommended_staging_warehouse_id": None,
         "staging_warehouse_id": staging_warehouse_id,
         "staging_selection_basis": staging_selection_basis,
         "staging_override_reason": staging_override_reason,
         "recommendation": {
-            "recommended_staging_warehouse_id": recommended_id,
-            "staging_selection_basis": recommendation_basis,
+            "recommended_staging_warehouse_id": None,
+            "staging_selection_basis": None,
         },
     }
 
@@ -3452,9 +3428,9 @@ def _save_package_allocation(
     override_required = bool(approval_markers) and not manager_direct_commit
     override_reason_code = str(payload.get("override_reason_code") or "").strip() or None
     override_note = str(payload.get("override_note") or "").strip() or None
-    if override_markers and not override_reason_code:
+    if approval_markers and not override_reason_code:
         raise OverrideApprovalError(
-            "Override reason code is required for non-compliant allocations.",
+            "Override reason code is required for allocations that require approval.",
             code="override_details_missing",
         )
     if approval_markers:
@@ -5080,6 +5056,7 @@ def save_package(
         payload=payload,
         existing_package_record=package_record,
         permissions=permissions,
+        draft_save=draft_save,
     )
     legacy_payload = {
         key: value

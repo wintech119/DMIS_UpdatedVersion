@@ -316,7 +316,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                           type="number"
                           min="0"
                           step="any"
-                          [disabled]="readOnly() || item().fully_issued"
+                          [disabled]="readOnly() || !!item().fully_issued"
                           [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                           (ngModelChange)="onQtyChange(c, $event)"
                           [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
@@ -358,7 +358,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                   type="number"
                   min="0"
                   step="any"
-                  [disabled]="readOnly() || item().fully_issued"
+                  [disabled]="readOnly() || !!item().fully_issued"
                   [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                   (ngModelChange)="onQtyChange(c, $event)"
                 />

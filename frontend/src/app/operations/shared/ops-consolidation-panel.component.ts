@@ -38,6 +38,9 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
         <div>
           <span class="ops-consolidation__eyebrow">Consolidation</span>
           <h3 class="ops-consolidation__title">Staging hub progress</h3>
+          <p class="ops-consolidation__copy">
+            Track staged inbound legs once the package has been committed.
+          </p>
         </div>
         @if (consolidationStatus()) {
           <app-ops-status-chip
@@ -46,7 +49,9 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
         }
       </header>
 
-      <app-ops-metric-strip [items]="metrics()" />
+      @if (showMetrics()) {
+        <app-ops-metric-strip [items]="metrics()" />
+      }
 
       @if (legsLoading()) {
         <dmis-skeleton-loader variant="table-row" />
@@ -59,10 +64,13 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
           actionIcon="refresh"
           (action)="refresh.emit()" />
       } @else if (!legs().length) {
-        <dmis-empty-state
-          icon="inventory_2"
-          title="No consolidation legs yet"
-          message="Legs appear here once the staged plan is committed." />
+        <div class="ops-consolidation__empty">
+          <mat-icon aria-hidden="true">inventory_2</mat-icon>
+          <div>
+            <strong>No consolidation legs yet</strong>
+            <p>Legs will appear here after the staged package is committed.</p>
+          </div>
+        </div>
       } @else {
         <ul class="ops-consolidation__legs" role="list">
           @for (leg of legs(); track leg.leg_id) {
@@ -153,10 +161,43 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
 
     .ops-consolidation__title {
       margin: 4px 0 0;
-      font-size: 1.15rem;
+      font-size: 1rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       color: var(--ops-ink, #37352F);
+    }
+
+    .ops-consolidation__copy {
+      margin: 4px 0 0;
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-consolidation__empty {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px;
+      border: 1px dashed var(--ops-outline, rgba(55, 53, 47, 0.12));
+      border-radius: var(--ops-radius-md, 10px);
+      background: color-mix(in srgb, var(--ops-surface, #ffffff) 88%, var(--ops-card, #fbfaf7));
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-consolidation__empty strong {
+      display: block;
+      font-size: 0.9rem;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-consolidation__empty p {
+      margin: 2px 0 0;
+      font-size: 0.8rem;
+    }
+
+    .ops-consolidation__empty mat-icon {
+      margin-top: 2px;
+      color: var(--ops-ink-subtle, #908d87);
     }
 
     .ops-consolidation__legs {
@@ -281,6 +322,18 @@ export class OpsConsolidationPanelComponent {
       { label: 'In transit', value: String(inTransit) },
       { label: 'Received', value: `${received} / ${total}` },
     ];
+  });
+  readonly showMetrics = computed(() => {
+    const summary = this.legSummary();
+    if (!summary) {
+      return false;
+    }
+    return (
+      (summary.total_legs ?? 0) > 0
+      || (summary.planned_legs ?? 0) > 0
+      || (summary.in_transit_legs ?? 0) > 0
+      || (summary.received_legs ?? 0) > 0
+    );
   });
 
   readonly canRequestPartial = computed(() => this.state.canRequestPartialRelease());

@@ -22,9 +22,11 @@ import {
   formatOperationsPackageStatus,
   formatOperationsAge,
   formatOperationsDateTime,
+  formatLegProgressLabel,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
   getOperationsPackageTone,
+  getLegProgressTone,
   handleRovingRadioKeydown,
   mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
@@ -140,7 +142,9 @@ export class DispatchQueueComponent implements OnInit {
   readonly formatPackageStatus = formatOperationsPackageStatus;
   readonly formatAge = formatOperationsAge;
   readonly formatDateTime = formatOperationsDateTime;
+  readonly formatLegProgress = formatLegProgressLabel;
   readonly getPackageTone = getOperationsPackageTone;
+  readonly legProgressTone = getLegProgressTone;
 
   ngOnInit(): void {
     this.auth.ensureLoaded().subscribe(() => {

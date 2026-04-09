@@ -418,6 +418,9 @@ export interface AllocationCommitPayload {
   to_inventory_id?: number;
   transport_mode?: string;
   comments_text?: string;
+  fulfillment_mode?: FulfillmentMode;
+  staging_warehouse_id?: number | null;
+  staging_override_reason?: string | null;
   override_reason_code?: string;
   override_note?: string;
   allocations: AllocationSelectionPayload[];

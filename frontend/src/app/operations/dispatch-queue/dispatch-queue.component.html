@@ -99,6 +99,11 @@
                     } @else if (row.fulfillment_mode === 'DELIVER_FROM_STAGING') {
                       <app-ops-status-chip label="Deliver from staging" tone="info" />
                     }
+                    @if (row.fulfillment_mode && row.fulfillment_mode !== 'DIRECT' && row.leg_summary) {
+                      <app-ops-status-chip
+                        [label]="formatLegProgress(row.leg_summary)"
+                        [tone]="chipTone(legProgressTone(row.leg_summary))" />
+                    }
                     @if (row.transport_mode) {
                       <app-ops-status-chip [label]="row.transport_mode" tone="soft" />
                     }

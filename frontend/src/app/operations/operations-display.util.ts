@@ -1,4 +1,4 @@
-import { PackageSummary, RequestSummary } from './models/operations.model';
+import { PackageLegSummary, PackageSummary, RequestSummary } from './models/operations.model';
 
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
 
@@ -327,6 +327,70 @@ export function getOperationsConsolidationLegTone(code: string | null | undefine
 export function formatOperationsFulfillmentMode(code: string | null | undefined): string {
   const normalized = String(code ?? '').trim().toUpperCase();
   return FULFILLMENT_MODE_LABELS[normalized] ?? 'Not set';
+}
+
+/**
+ * Format a leg progress label like "2 / 4 legs" for staged consolidation
+ * packages. Returns "No legs planned" when the package has no legs yet
+ * (either direct fulfillment or staged but not yet committed).
+ */
+export function formatLegProgressLabel(
+  summary: PackageLegSummary | null | undefined,
+): string {
+  if (!summary || summary.total_legs === 0) {
+    return 'No legs planned';
+  }
+  return `${summary.received_legs} / ${summary.total_legs} legs`;
+}
+
+/**
+ * Map a leg summary to a status tone for the queue chip.
+ * - success when all legs received (ready to dispatch)
+ * - warning when partially received (some legs still missing)
+ * - review when legs are in transit
+ * - draft when nothing has been dispatched from source warehouses yet
+ */
+export function getLegProgressTone(
+  summary: PackageLegSummary | null | undefined,
+): OperationsTone {
+  if (!summary || summary.total_legs === 0) {
+    return 'muted';
+  }
+  if (summary.all_received) {
+    return 'success';
+  }
+  if (summary.received_legs > 0) {
+    return 'warning';
+  }
+  if (summary.in_transit_legs > 0) {
+    return 'review';
+  }
+  return 'draft';
+}
+
+/**
+ * Classify a package's consolidation stage for filter/count logic on the
+ * Consolidation queue. Works from the leg_summary rollup so the queue does
+ * not need a second roundtrip per row.
+ */
+export type ConsolidationStage = 'awaiting' | 'in_transit' | 'partial' | 'ready';
+
+export function getConsolidationStageFromLegs(
+  summary: PackageLegSummary | null | undefined,
+): ConsolidationStage {
+  if (!summary || summary.total_legs === 0) {
+    return 'awaiting';
+  }
+  if (summary.all_received) {
+    return 'ready';
+  }
+  if (summary.received_legs > 0) {
+    return 'partial';
+  }
+  if (summary.in_transit_legs > 0) {
+    return 'in_transit';
+  }
+  return 'awaiting';
 }
 
 export function formatOperationsUrgency(code: string | null | undefined): string {
