@@ -3240,9 +3240,22 @@ def _build_item_allocation_response(
                     continue
                 seen_keys.add(key)
                 candidates.append(extra_candidate)
+    # Compute the greedy "additional capacity beyond the draft" suggestion over
+    # adjusted quantities (draft commitments subtracted). The UI-facing candidates
+    # list, however, must reflect the pre-draft physical state so every warehouse
+    # the draft committed to still renders a card on reload — including batches the
+    # draft fully consumed. See plan unified-weaving-chipmunk.md for the RQ95009
+    # multi-warehouse reload regression this addresses.
     adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, normalized_draft_allocations)
-    sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
-    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(sorted_candidates, effective_remaining_qty)
+    sorted_for_suggestion = sort_batch_candidates(
+        item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date
+    )
+    suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
+        sorted_for_suggestion, effective_remaining_qty
+    )
+    sorted_candidates = sort_batch_candidates(
+        item or {"issuance_order": "FIFO"}, candidates, as_of_date=as_of_date
+    )
     remaining_shortfall_qty = _quantize_qty(remaining_after_suggestion)
     alternate_warehouses = _build_alternate_warehouse_options(
         item_id=item_id,

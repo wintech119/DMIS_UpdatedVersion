@@ -5727,6 +5727,157 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(fetched_warehouses, [3, 5])
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch("operations.services._load_request")
+    @patch("operations.services._request_summary", return_value={"reliefrqst_id": 80})
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "12.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_package_options_preserve_candidates_fully_consumed_by_draft(
+        self,
+        _request_rows_mock,
+        _request_summary_mock,
+        load_request_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        """Reload must still expose both warehouse candidates even when the draft
+        allocation fully consumes every batch at both warehouses.
+
+        Regression: a draft that reserved the entire available quantity of a batch
+        used to have that candidate silently dropped on reload, which made the
+        corresponding warehouse card disappear in the fulfillment workspace and
+        triggered false OVERRIDDEN / Rule Bypass badges (RQ95009 tarpaulin bug).
+        """
+        load_request_mock.return_value = self.request_stub
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="TARP001",
+            item_name="Tarpaulin",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = MagicMock()
+        item_queryset.__iter__.return_value = iter([item])
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = ({101: []}, [])
+
+        self._create_draft_package_record(
+            relief_request_id=80,
+            package_id=92,
+            source_warehouse_id=3,
+        )
+        OperationsAllocationLine.objects.create(
+            package_id=92,
+            item_id=101,
+            source_warehouse_id=3,
+            batch_id=3001,
+            quantity=Decimal("4.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package_id=92,
+            item_id=101,
+            source_warehouse_id=5,
+            batch_id=5001,
+            quantity=Decimal("6.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        warehouse_candidates = {
+            3: [
+                {
+                    "batch_id": 3001,
+                    "inventory_id": 3,
+                    "item_id": 101,
+                    "batch_no": "B-3001",
+                    "batch_date": date(2026, 3, 24),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("4.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 3",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+            5: [
+                {
+                    "batch_id": 5001,
+                    "inventory_id": 5,
+                    "item_id": 101,
+                    "batch_no": "B-5001",
+                    "batch_date": date(2026, 3, 23),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("6.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("6.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 5",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        result = operations_service.get_package_allocation_options(
+            80,
+            source_warehouse_id=3,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(len(result["items"]), 1)
+        item_group = result["items"][0]
+        self.assertEqual(item_group["source_warehouse_id"], 3)
+        self.assertEqual(item_group["draft_selected_qty"], "10.0000")
+        self.assertEqual(item_group["effective_remaining_qty"], "0.0000")
+        self.assertEqual(item_group["remaining_shortfall_qty"], "0.0000")
+        self.assertFalse(item_group["continuation_recommended"])
+        self.assertEqual(item_group["suggested_allocations"], [])
+        self.assertEqual(
+            sorted(
+                (candidate["inventory_id"], candidate["batch_id"])
+                for candidate in item_group["candidates"]
+            ),
+            [(3, 3001), (5, 5001)],
+        )
+        candidates_by_warehouse = {
+            candidate["inventory_id"]: candidate for candidate in item_group["candidates"]
+        }
+        # The response must advertise the pre-draft physical availability so the
+        # frontend can render every warehouse card and replay the greedy plan.
+        self.assertEqual(candidates_by_warehouse[3]["available_qty"], "4.0000")
+        self.assertEqual(candidates_by_warehouse[3]["usable_qty"], "4.0000")
+        self.assertEqual(candidates_by_warehouse[5]["available_qty"], "6.0000")
+        self.assertEqual(candidates_by_warehouse[5]["usable_qty"], "6.0000")
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse")
     @patch("operations.services._fetch_batch_candidates")
     @patch("operations.services.Item.objects.filter")
@@ -6102,9 +6253,19 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(result["remaining_after_suggestion"], "2.0000")
         self.assertEqual(result["remaining_shortfall_qty"], "2.0000")
         self.assertTrue(result["continuation_recommended"])
-        self.assertEqual(len(result["candidates"]), 1)
-        self.assertEqual(result["candidates"][0]["batch_id"], 1001)
-        self.assertEqual(result["candidates"][0]["available_qty"], "3.0000")
+        # Candidates reflect the pre-draft physical state so the UI can still
+        # render every warehouse card, including batches the draft fully
+        # consumed (batch 1002 has usable_qty=2 and draft qty=2 but must not
+        # disappear from the response). The greedy suggestion below still
+        # uses the adjusted quantities.
+        self.assertEqual(len(result["candidates"]), 2)
+        candidates_by_batch = {
+            candidate["batch_id"]: candidate for candidate in result["candidates"]
+        }
+        self.assertEqual(candidates_by_batch[1001]["available_qty"], "4.0000")
+        self.assertEqual(candidates_by_batch[1001]["usable_qty"], "4.0000")
+        self.assertEqual(candidates_by_batch[1002]["available_qty"], "2.0000")
+        self.assertEqual(candidates_by_batch[1002]["usable_qty"], "2.0000")
         self.assertEqual(result["suggested_allocations"][0]["quantity"], "3.0000")
         self.assertEqual(
             result["alternate_warehouses"],
@@ -6291,29 +6452,57 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(result["remaining_after_suggestion"], "2.0000")
         self.assertEqual(result["remaining_shortfall_qty"], "2.0000")
         self.assertTrue(result["continuation_recommended"])
+        # Candidates reflect the pre-draft physical state so the UI can still
+        # render every warehouse card, including batches the draft fully
+        # consumed. Batch 1002 has usable_qty=2 and draft qty=2 but must not
+        # disappear from the response.
+        self.assertEqual(len(result["candidates"]), 2)
+        candidates_by_batch = {
+            candidate["batch_id"]: candidate for candidate in result["candidates"]
+        }
         self.assertEqual(
-            result["candidates"],
-            [
-                {
-                    "batch_id": 1001,
-                    "inventory_id": 1,
-                    "item_id": 101,
-                    "batch_no": "B-1001",
-                    "batch_date": "2026-03-25",
-                    "expiry_date": None,
-                    "usable_qty": "3.0000",
-                    "reserved_qty": "0.0000",
-                    "available_qty": "3.0000",
-                    "uom_code": "EA",
-                    "source_type": "ON_HAND",
-                    "source_record_id": None,
-                    "warehouse_name": "Warehouse 1",
-                    "can_expire_flag": False,
-                    "issuance_order": "FIFO",
-                    "item_code": "MASK001",
-                    "item_name": "Face Mask",
-                }
-            ],
+            candidates_by_batch[1001],
+            {
+                "batch_id": 1001,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "B-1001",
+                "batch_date": "2026-03-25",
+                "expiry_date": None,
+                "usable_qty": "4.0000",
+                "reserved_qty": "0.0000",
+                "available_qty": "4.0000",
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            },
+        )
+        self.assertEqual(
+            candidates_by_batch[1002],
+            {
+                "batch_id": 1002,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "B-1002",
+                "batch_date": "2026-03-26",
+                "expiry_date": None,
+                "usable_qty": "2.0000",
+                "reserved_qty": "0.0000",
+                "available_qty": "2.0000",
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            },
         )
         self.assertEqual(len(result["suggested_allocations"]), 1)
         self.assertEqual(result["suggested_allocations"][0]["item_id"], 101)

@@ -1599,14 +1599,15 @@ export class OperationsWorkspaceStateService {
 
       if (committedWarehouseIds.length) {
         nextLoadedWarehouses[item.item_id] = committedWarehouseIds;
-        // Rehydrate the per-item override so the draft's non-default warehouse is
-        // visible on reload (fixes the handoff bug where the warehouse card was
-        // hidden even though the committed allocation lines were preserved).
-        const overrideWarehouseId = committedWarehouseIds.find(
-          (warehouseId) => !hasSeed || warehouseId !== seededWarehouseId,
-        );
-        if (overrideWarehouseId != null) {
-          nextOverrides[item.item_id] = String(overrideWarehouseId);
+        // Only clear the per-item override when the seeded warehouse remains the
+        // primary committed warehouse. The seed can still appear later in a valid
+        // split after the operator intentionally switched away from it, so reload
+        // must follow the primary committed warehouse instead of falling back to a
+        // package/global default source warehouse.
+        const primaryCommittedWarehouseId = committedWarehouseIds[0] ?? 0;
+        const seedIsPrimaryCommitted = hasSeed && primaryCommittedWarehouseId === seededWarehouseId;
+        if (hasSeed && !seedIsPrimaryCommitted) {
+          nextOverrides[item.item_id] = String(committedWarehouseIds[0]);
         }
         if (hasSeed) {
           // Capture the original seed so a later rollback via updateItemWarehouse
