@@ -14,6 +14,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { catchError, of } from 'rxjs';
 
+import { LookupItem } from '../../../master-data/models/master-data.models';
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { FulfillmentItemListComponent } from './fulfillment-item-list.component';
@@ -42,16 +43,6 @@ import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-avail
         </p>
       </div>
 
-      @if (requiresSourceWarehouse()) {
-        <app-ops-source-warehouse-picker
-          [warehouseOptions]="warehouseOptions()"
-          [selectedId]="sourceWarehouseId()"
-          [overrideCount]="sourceWarehouseOverrideCount()"
-          [disabled]="readOnly || store.loading()"
-          (warehouseChange)="store.updateSourceWarehouse($event)"
-          (clearOverrides)="store.clearWarehouseOverrides()" />
-      }
-
       @if (readOnly) {
         <div class="plan-alert plan-alert--info" role="status">
           <mat-icon aria-hidden="true">lock</mat-icon>
@@ -67,6 +58,19 @@ import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-avail
           <mat-icon aria-hidden="true">warning</mat-icon>
           <span>{{ store.optionsError() }}</span>
         </div>
+      }
+
+      @if (showSourceWarehousePicker()) {
+        <app-ops-source-warehouse-picker
+          class="plan-step__warehouse"
+          [warehouseOptions]="warehouseOptions()"
+          [selectedId]="sourceWarehouseId()"
+          [overrideCount]="warehouseOverrideCount()"
+          [itemCount]="items().length"
+          [disabled]="readOnly || store.loading() || store.submitting()"
+          (warehouseChange)="onSourceWarehouseChange($event)"
+          (clearOverrides)="resetWarehouseOverrides()"
+        />
       }
 
       <div class="plan-split">
@@ -167,6 +171,10 @@ import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-avail
       align-items: start;
     }
 
+    .plan-step__warehouse {
+      margin-bottom: 2px;
+    }
+
     .plan-split__detail:focus {
       outline: none;
     }
@@ -255,21 +263,22 @@ export class FulfillmentPlanStepComponent {
 
   private readonly masterData = inject(MasterDataService);
   readonly store = inject(OperationsWorkspaceStateService);
-  readonly items = computed(() => this.store.options()?.items ?? []);
-  readonly requestAvailabilityIssue = this.store.requestAvailabilityIssue;
   readonly warehouseOptions = toSignal(
-    this.masterData.lookup('warehouses').pipe(catchError(() => of([]))),
+    this.masterData.lookup('warehouses').pipe(catchError(() => of([] as LookupItem[]))),
     { initialValue: [] },
   );
-  readonly requiresSourceWarehouse = computed(
-    () => !this.store.packageDetail()?.request?.compatibility_bridge,
-  );
-  readonly sourceWarehouseId = this.store.sourceWarehouseId;
-  readonly sourceWarehouseOverrideCount = computed(
-    () => Object.keys(this.store.itemWarehouseOverrides()).length,
-  );
+  readonly items = computed(() => this.store.options()?.items ?? []);
+  readonly requestAvailabilityIssue = this.store.requestAvailabilityIssue;
   readonly selectedItemId = signal<number | null>(null);
   readonly selectionCleared = signal(false);
+  readonly sourceWarehouseId = this.store.sourceWarehouseId;
+  readonly warehouseOverrideCount = computed(
+    () => Object.keys(this.store.itemWarehouseOverrides()).length,
+  );
+  readonly showSourceWarehousePicker = computed(() =>
+    this.requestAvailabilityIssue()?.kind === 'missing-warehouse'
+    && (this.warehouseOptions() ?? []).length > 0,
+  );
 
   readonly selectedItem = computed(() => {
     const id = this.selectedItemId();
@@ -300,5 +309,17 @@ export class FulfillmentPlanStepComponent {
   clearSelection(): void {
     this.selectionCleared.set(true);
     this.selectedItemId.set(null);
+  }
+
+  onSourceWarehouseChange(sourceWarehouseId: string): void {
+    this.store.updateSourceWarehouse(sourceWarehouseId);
+  }
+
+  resetWarehouseOverrides(): void {
+    const sourceWarehouseId = this.sourceWarehouseId();
+    if (!sourceWarehouseId) {
+      return;
+    }
+    this.store.updateSourceWarehouse(sourceWarehouseId);
   }
 }

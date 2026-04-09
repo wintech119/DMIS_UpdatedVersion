@@ -1,7 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
-import { AllocationItemGroup } from '../../models/operations.model';
+import {
+  AllocationCandidate,
+  AllocationItemGroup,
+  WarehouseAllocationCard,
+} from '../../models/operations.model';
 
 describe('FulfillmentItemDetailComponent', () => {
   const storeStub = {
@@ -39,6 +43,7 @@ describe('FulfillmentItemDetailComponent', () => {
     remaining_shortfall_qty: '42',
     continuation_recommended: false,
     alternate_warehouses: [],
+    warehouse_cards: [],
   };
 
   function buildItemWithAlternates(overrides: Partial<AllocationItemGroup> = {}): AllocationItemGroup {
@@ -204,5 +209,146 @@ describe('FulfillmentItemDetailComponent', () => {
     const badge = fixture.nativeElement.querySelector('.detail__alternate-badge') as HTMLElement;
     expect(title.textContent ?? '').toContain('Other eligible warehouses available');
     expect(badge.textContent ?? '').toContain('Eligible');
+  });
+
+  /**
+   * Regression tests for the multi-warehouse stacked layout added in the
+   * Stock-Aware Selection redesign. Before this change, the step seeded one
+   * warehouse per item and drove everything through a single dropdown; the
+   * new layout groups candidates by warehouse and honours the FEFO/FIFO rank
+   * supplied by the backend via `warehouse_cards`.
+   */
+  describe('stacked warehouse card layout', () => {
+    function makeCandidate(
+      warehouseId: number,
+      batchId: number,
+      warehouseName: string,
+      availableQty: string,
+    ): AllocationCandidate {
+      return {
+        batch_id: batchId,
+        inventory_id: warehouseId,
+        item_id: 44,
+        usable_qty: availableQty,
+        reserved_qty: '0',
+        available_qty: availableQty,
+        source_type: 'ON_HAND',
+        can_expire_flag: false,
+        issuance_order: 'FIFO',
+        warehouse_name: warehouseName,
+        batch_no: `BT-${batchId}`,
+      };
+    }
+
+    function makeWarehouseCard(
+      warehouseId: number,
+      warehouseName: string,
+      rank: number,
+    ): WarehouseAllocationCard {
+      return {
+        warehouse_id: warehouseId,
+        warehouse_name: warehouseName,
+        rank,
+        issuance_order: 'FIFO',
+        total_available: '100',
+        suggested_qty: '0',
+        batches: [],
+      };
+    }
+
+    it('renders one warehouse card per unique inventory_id grouped from candidates', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        candidates: [
+          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
+          makeCandidate(9001, 1002, 'ODPEM Kingston', '10'),
+          makeCandidate(9002, 2001, 'ODPEM Montego Bay', '15'),
+        ],
+      };
+
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', item);
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      const cards = fixture.nativeElement.querySelectorAll(
+        '.warehouse-card',
+      ) as NodeListOf<HTMLElement>;
+      expect(cards.length).toBe(2);
+      // Both Kingston batches land inside the first group.
+      expect(cards[0].querySelectorAll('tbody tr').length).toBe(2);
+      expect(cards[0].textContent).toContain('ODPEM Kingston');
+      expect(cards[0].textContent).toContain('2 batches');
+      // Montego Bay has one batch and renders as the second group.
+      expect(cards[1].querySelectorAll('tbody tr').length).toBe(1);
+      expect(cards[1].textContent).toContain('ODPEM Montego Bay');
+    });
+
+    it('orders the warehouse cards by the backend-supplied FEFO/FIFO rank', async () => {
+      // Insertion order of candidates puts 9002 first, but the card rank says
+      // 9001 is the primary. The stacked layout must follow the rank.
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        candidates: [
+          makeCandidate(9002, 2001, 'ODPEM Montego Bay', '15'),
+          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
+        ],
+        warehouse_cards: [
+          makeWarehouseCard(9001, 'ODPEM Kingston', 0),
+          makeWarehouseCard(9002, 'ODPEM Montego Bay', 1),
+        ],
+      };
+
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', item);
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      const cardNames = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          '.warehouse-card__name',
+        ) as NodeListOf<HTMLElement>,
+      ).map((el) => (el.textContent ?? '').trim());
+      expect(cardNames).toEqual(['ODPEM Kingston', 'ODPEM Montego Bay']);
+    });
+
+    it('sends unranked warehouses to the end while preserving their insertion order', async () => {
+      const item: AllocationItemGroup = {
+        ...baseItem,
+        candidates: [
+          // Ranked card is listed second in the candidates array.
+          makeCandidate(9004, 4001, 'ODPEM Portland', '8'),
+          makeCandidate(9001, 1001, 'ODPEM Kingston', '20'),
+          makeCandidate(9003, 3001, 'ODPEM St. Ann', '5'),
+        ],
+        warehouse_cards: [makeWarehouseCard(9001, 'ODPEM Kingston', 0)],
+      };
+
+      await TestBed.configureTestingModule({
+        imports: [FulfillmentItemDetailComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(FulfillmentItemDetailComponent);
+      fixture.componentRef.setInput('item', item);
+      fixture.componentRef.setInput('store', storeStub as never);
+      fixture.detectChanges();
+
+      const cardNames = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          '.warehouse-card__name',
+        ) as NodeListOf<HTMLElement>,
+      ).map((el) => (el.textContent ?? '').trim());
+      // Ranked warehouse first, then the two unranked ones in first-seen order.
+      expect(cardNames[0]).toBe('ODPEM Kingston');
+      expect(cardNames.slice(1)).toEqual(['ODPEM Portland', 'ODPEM St. Ann']);
+    });
   });
 });

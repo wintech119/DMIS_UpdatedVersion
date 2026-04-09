@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { throwError, of } from 'rxjs';
 
+import { AppAccessService } from '../../core/app-access.service';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { EligibilityReviewDetailComponent } from './eligibility-review-detail.component';
 import { OperationsService } from '../services/operations.service';
@@ -14,6 +15,7 @@ describe('EligibilityReviewDetailComponent', () => {
   let operationsService: jasmine.SpyObj<OperationsService>;
   let dialog: jasmine.SpyObj<MatDialog>;
   let notifications: jasmine.SpyObj<DmisNotificationService>;
+  let appAccess: jasmine.SpyObj<AppAccessService>;
 
   const detailResponse = {
     reliefrqst_id: 70,
@@ -61,6 +63,8 @@ describe('EligibilityReviewDetailComponent', () => {
       'showWarning',
       'showSuccess',
     ]);
+    appAccess = jasmine.createSpyObj<AppAccessService>('AppAccessService', ['canAccessNavKey']);
+    appAccess.canAccessNavKey.and.returnValue(true);
 
     operationsService.getEligibilityDetail.and.returnValue(of(detailResponse));
     operationsService.submitEligibilityDecision.and.returnValue(of({
@@ -77,6 +81,7 @@ describe('EligibilityReviewDetailComponent', () => {
         { provide: OperationsService, useValue: operationsService },
         { provide: MatDialog, useValue: dialog },
         { provide: DmisNotificationService, useValue: notifications },
+        { provide: AppAccessService, useValue: appAccess },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -150,6 +155,64 @@ describe('EligibilityReviewDetailComponent', () => {
       jasmine.objectContaining({
         detail: 'Ready for packing',
         tone: 'success',
+      }),
+    );
+  });
+
+  it('shows a disabled open-fulfillment action for users without fulfillment access', () => {
+    appAccess.canAccessNavKey.and.returnValue(false);
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'APPROVED_FOR_FULFILLMENT',
+      status_label: 'Approved',
+    });
+
+    expect(component.fulfillmentEntryAction()).toEqual(
+      jasmine.objectContaining({
+        label: 'Open Fulfillment',
+        disabled: true,
+      }),
+    );
+  });
+
+  it('switches the fulfillment CTA to continue when package work already exists', () => {
+    component.detail.set({
+      ...detailResponse,
+      decision_made: true,
+      can_edit: false,
+      status_code: 'APPROVED_FOR_FULFILLMENT',
+      status_label: 'Approved',
+      reliefpkg_id: 301,
+      packages: [
+        {
+          reliefpkg_id: 301,
+          tracking_no: 'PKG-00301',
+          reliefrqst_id: 70,
+          agency_id: 501,
+          eligible_event_id: 12,
+          source_warehouse_id: 11,
+          to_inventory_id: 12,
+          destination_warehouse_name: 'Kingston Warehouse',
+          status_code: 'DRAFT',
+          status_label: 'Draft',
+          dispatch_dtime: null,
+          received_dtime: null,
+          transport_mode: null,
+          comments_text: null,
+          version_nbr: 1,
+          execution_status: null,
+          needs_list_id: null,
+          compatibility_bridge: false,
+        },
+      ],
+    });
+
+    expect(component.fulfillmentEntryAction()).toEqual(
+      jasmine.objectContaining({
+        label: 'Continue from Stock-Aware Selection',
+        disabled: false,
       }),
     );
   });

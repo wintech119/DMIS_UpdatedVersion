@@ -293,6 +293,62 @@ export interface AlternateWarehouseOption {
   can_fully_cover: boolean;
 }
 
+/**
+ * Batch detail carried inside a {@link WarehouseAllocationCard}. These are
+ * pre-sorted by the item's FEFO/FIFO rule on the server, so the frontend never
+ * re-sorts.
+ */
+export interface WarehouseAllocationBatch {
+  batch_id: number;
+  inventory_id: number;
+  batch_no?: string | null;
+  batch_date?: string | null;
+  expiry_date?: string | null;
+  available_qty: string;
+  usable_qty: string;
+  reserved_qty: string;
+  uom_code?: string | null;
+  source_type: AllocationSourceType | string;
+  source_record_id?: number | null;
+}
+
+/**
+ * Response shape for the non-terminal abandon-draft endpoint.
+ */
+export interface PackageAbandonDraftResponse {
+  reliefpkg_id?: number;
+  package_id?: number;
+  status?: string;
+  status_code?: string;
+  abandoned: boolean;
+  request_status: string;
+  reason: string | null;
+  previous_status_code?: string;
+  released?: {
+    line_count: number;
+    total_qty: string;
+  };
+}
+
+/**
+ * One warehouse's contribution toward an item, as the backend pre-ranked and
+ * pre-filled it for the Stock-Aware step. Every warehouse card in the payload
+ * represents a warehouse that currently holds stock of the item — the
+ * frontend renders them stacked in the order delivered.
+ */
+export interface WarehouseAllocationCard {
+  warehouse_id: number;
+  warehouse_name: string;
+  /** Zero-based rank within the FEFO/FIFO-ordered list of cards. */
+  rank: number;
+  issuance_order: 'FEFO' | 'FIFO' | string;
+  /** Total available usable stock for this item at this warehouse. */
+  total_available: string;
+  /** Server-suggested greedy fill against the item's remaining requested qty. */
+  suggested_qty: string;
+  batches: WarehouseAllocationBatch[];
+}
+
 export interface AllocationItemGroup {
   item_id: number;
   item_code?: string | null;
@@ -316,6 +372,12 @@ export interface AllocationItemGroup {
   continuation_recommended: boolean;
   /** Alternate warehouses that could cover the remaining shortfall. */
   alternate_warehouses: AlternateWarehouseOption[];
+  /**
+   * Ranked, pre-suggested list of warehouses that currently hold stock of
+   * this item. Drives the Stock-Aware step's stacked card layout. Order is
+   * FEFO/FIFO per the item's issuance rule.
+   */
+  warehouse_cards: WarehouseAllocationCard[];
   /** Total quantity already chosen across draft selections (POST preview only). */
   draft_selected_qty?: string;
   /** Remaining qty after subtracting draft selections (POST preview only). */

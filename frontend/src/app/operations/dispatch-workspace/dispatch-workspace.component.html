@@ -5,7 +5,9 @@
         <mat-icon aria-hidden="true">local_shipping</mat-icon>
         Operations / Dispatch
       </p>
-      <h1 id="dispatch-title" class="ops-hero__title">Dispatch and Transport Log</h1>
+      <h1 id="dispatch-title" class="ops-hero__title">
+        {{ dispatchStateVisible() ? 'Dispatch and Transport Log' : 'Dispatch Preparation' }}
+      </h1>
       <p class="ops-hero__description">
         Confirm the handoff, preserve the dispatch record, and expose the deterministic waybill rebuild before the
         receiving-agency confirmation arrives later.
@@ -13,10 +15,14 @@
     </div>
 
     <div class="ops-hero__actions">
-      <button mat-stroked-button type="button" (click)="openFulfillment()">
-        <mat-icon>inventory</mat-icon>
-        Open Fulfillment
-      </button>
+      @if (fulfillmentEntryAction(); as action) {
+        <span [matTooltip]="action.disabledReason">
+          <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="action.disabled">
+            <mat-icon>inventory</mat-icon>
+            {{ action.label }}
+          </button>
+        </span>
+      }
       <button mat-stroked-button type="button" (click)="refresh()">
         <mat-icon>refresh</mat-icon>
         Refresh
@@ -58,103 +64,136 @@
       [attr.aria-hidden]="contextExpanded() ? null : 'true'"
       [attr.inert]="contextExpanded() ? null : ''">
       <div class="ops-context-collapse__inner">
-        <div class="ops-split">
-          <section class="ops-pane ops-pane--wide" aria-labelledby="dispatch-context-title">
+        @if (dispatchStateVisible()) {
+          <div class="ops-split">
+            <section class="ops-pane ops-pane--wide" aria-labelledby="dispatch-context-title">
+              <div class="ops-pane__header">
+                <div>
+                  <p class="ops-pane__eyebrow">Dispatch context</p>
+                  <h2 id="dispatch-context-title">Request and package metadata</h2>
+                </div>
+                <div class="ops-pane__actions">
+                  <button mat-stroked-button type="button" (click)="openWaybill()" [disabled]="!waybillReadback() && !detail.waybill">
+                    <mat-icon>description</mat-icon>
+                    Waybill
+                  </button>
+                  <button mat-stroked-button type="button" (click)="openReceiptConfirmation()">
+                    <mat-icon>fact_check</mat-icon>
+                    Receipt
+                  </button>
+                </div>
+              </div>
+
+              <div class="ops-context-grid">
+                <article class="ops-context-card">
+                  <span class="ops-context-card__label">Agency</span>
+                  <strong>{{ detail.request.agency_name || ('Agency ' + detail.agency_id) }}</strong>
+                  <p>{{ detail.request.event_name || 'No event set' }}</p>
+                </article>
+                <article class="ops-context-card">
+                  <span class="ops-context-card__label">Destination</span>
+                  <strong>{{ (detail.destination_warehouse_name && detail.destination_warehouse_name !== 'null') ? detail.destination_warehouse_name : 'Not set' }}</strong>
+                  <p>{{ detail.transport_mode || 'Transport mode pending' }}</p>
+                </article>
+                <article class="ops-context-card">
+                  <span class="ops-context-card__label">Dispatch Time</span>
+                  <strong>{{ detail.dispatch_dtime ? (detail.dispatch_dtime | date:'medium') : 'Pending dispatch' }}</strong>
+                  <p>{{ detail.received_dtime ? ('Received ' + (detail.received_dtime | date:'medium')) : 'Receipt not yet confirmed' }}</p>
+                </article>
+                <article class="ops-context-card">
+                  <span class="ops-context-card__label">Waybill State</span>
+                  <strong>{{ detail.waybill ? 'Available' : 'Pending' }}</strong>
+                  <p>Updated automatically from the dispatch record.</p>
+                </article>
+              </div>
+
+              @if (displayConfirmation(); as confirmation) {
+                <div class="ops-callout" role="status">
+                  <mat-icon aria-hidden="true">info</mat-icon>
+                  <span>{{ confirmation.message }}</span>
+                </div>
+              }
+            </section>
+
+            <aside class="ops-pane ops-pane--rail" aria-labelledby="dispatch-rail-title">
+              <div class="ops-pane__header">
+                <div>
+                  <p class="ops-pane__eyebrow">Transport log</p>
+                  <h2 id="dispatch-rail-title">Dispatch State</h2>
+                </div>
+              </div>
+
+              <div class="ops-rail-stack">
+                <article class="ops-dispatch-state-card" [attr.data-tone]="dispatchStateSummary().tone">
+                  <div class="ops-dispatch-state-card__header">
+                    <mat-icon aria-hidden="true">{{ dispatchStateSummary().icon }}</mat-icon>
+                    <strong>{{ dispatchStateSummary().label }}</strong>
+                  </div>
+                  <ul class="ops-dispatch-state-card__checks">
+                    @for (check of dispatchStateSummary().checks; track check.label) {
+                      <li>
+                        <mat-icon aria-hidden="true" [class.check--met]="check.met" [class.check--unmet]="!check.met">
+                          {{ check.met ? 'check_circle' : 'radio_button_unchecked' }}
+                        </mat-icon>
+                        <span>{{ check.label }}</span>
+                      </li>
+                    }
+                  </ul>
+                </article>
+
+                <article class="ops-rail-card">
+                  <span class="ops-rail-card__label">Stock & Waybill</span>
+                  <div class="ops-rail-card__row">
+                    <mat-icon aria-hidden="true" class="check--{{ alreadyDispatched() ? 'met' : 'unmet' }}">
+                      {{ alreadyDispatched() ? 'check_circle' : 'schedule' }}
+                    </mat-icon>
+                    <span>Stock {{ alreadyDispatched() ? 'deducted at dispatch' : 'deduction pending' }}</span>
+                  </div>
+                  <div class="ops-rail-card__row">
+                    <mat-icon aria-hidden="true" class="check--{{ detail.waybill ? 'met' : 'unmet' }}">
+                      {{ detail.waybill ? 'description' : 'schedule' }}
+                    </mat-icon>
+                    <span>Waybill {{ detail.waybill ? 'available' : 'pending' }}</span>
+                  </div>
+                </article>
+              </div>
+            </aside>
+          </div>
+        } @else {
+          <section class="ops-pane ops-pane--wide ops-dispatch-awaiting" aria-labelledby="dispatch-awaiting-title">
             <div class="ops-pane__header">
               <div>
-                <p class="ops-pane__eyebrow">Dispatch context</p>
-                <h2 id="dispatch-context-title">Request and package metadata</h2>
+                <p class="ops-pane__eyebrow">Awaiting reservation</p>
+                <h2 id="dispatch-awaiting-title">
+                  Dispatch details become available after the reservation is committed
+                </h2>
               </div>
+            </div>
+            <p class="ops-dispatch-awaiting__copy">
+              Once the fulfillment team commits stock and the package is approved for dispatch,
+              the dispatch log, transport log, and waybill will appear here.
+            </p>
+            @if (fulfillmentEntryAction(); as action) {
               <div class="ops-pane__actions">
-                <button mat-stroked-button type="button" (click)="openWaybill()" [disabled]="!waybillReadback() && !detail.waybill">
-                  <mat-icon>description</mat-icon>
-                  Waybill
-                </button>
-                <button mat-stroked-button type="button" (click)="openReceiptConfirmation()">
-                  <mat-icon>fact_check</mat-icon>
-                  Receipt
-                </button>
-              </div>
-            </div>
-
-            <div class="ops-context-grid">
-              <article class="ops-context-card">
-                <span class="ops-context-card__label">Agency</span>
-                <strong>{{ detail.request.agency_name || ('Agency ' + detail.agency_id) }}</strong>
-                <p>{{ detail.request.event_name || 'No event set' }}</p>
-              </article>
-              <article class="ops-context-card">
-                <span class="ops-context-card__label">Destination</span>
-                <strong>{{ (detail.destination_warehouse_name && detail.destination_warehouse_name !== 'null') ? detail.destination_warehouse_name : 'Not set' }}</strong>
-                <p>{{ detail.transport_mode || 'Transport mode pending' }}</p>
-              </article>
-              <article class="ops-context-card">
-                <span class="ops-context-card__label">Dispatch Time</span>
-                <strong>{{ detail.dispatch_dtime ? (detail.dispatch_dtime | date:'medium') : 'Pending dispatch' }}</strong>
-                <p>{{ detail.received_dtime ? ('Received ' + (detail.received_dtime | date:'medium')) : 'Receipt not yet confirmed' }}</p>
-              </article>
-              <article class="ops-context-card">
-                <span class="ops-context-card__label">Waybill State</span>
-                <strong>{{ detail.waybill ? 'Available' : 'Pending' }}</strong>
-                <p>Updated automatically from the dispatch record.</p>
-              </article>
-            </div>
-
-            @if (displayConfirmation(); as confirmation) {
-              <div class="ops-callout" role="status">
-                <mat-icon aria-hidden="true">info</mat-icon>
-                <span>{{ confirmation.message }}</span>
+                <span [matTooltip]="action.disabledReason">
+                  <button
+                    mat-flat-button
+                    color="primary"
+                    type="button"
+                    (click)="openFulfillment()"
+                    [disabled]="action.disabled">
+                    <mat-icon>inventory</mat-icon>
+                    {{ action.label }}
+                  </button>
+                </span>
               </div>
             }
           </section>
-
-          <aside class="ops-pane ops-pane--rail" aria-labelledby="dispatch-rail-title">
-            <div class="ops-pane__header">
-              <div>
-                <p class="ops-pane__eyebrow">Transport log</p>
-                <h2 id="dispatch-rail-title">Dispatch State</h2>
-              </div>
-            </div>
-
-            <div class="ops-rail-stack">
-              <article class="ops-dispatch-state-card" [attr.data-tone]="dispatchStateSummary().tone">
-                <div class="ops-dispatch-state-card__header">
-                  <mat-icon aria-hidden="true">{{ dispatchStateSummary().icon }}</mat-icon>
-                  <strong>{{ dispatchStateSummary().label }}</strong>
-                </div>
-                <ul class="ops-dispatch-state-card__checks">
-                  @for (check of dispatchStateSummary().checks; track check.label) {
-                    <li>
-                      <mat-icon aria-hidden="true" [class.check--met]="check.met" [class.check--unmet]="!check.met">
-                        {{ check.met ? 'check_circle' : 'radio_button_unchecked' }}
-                      </mat-icon>
-                      <span>{{ check.label }}</span>
-                    </li>
-                  }
-                </ul>
-              </article>
-
-              <article class="ops-rail-card">
-                <span class="ops-rail-card__label">Stock & Waybill</span>
-                <div class="ops-rail-card__row">
-                  <mat-icon aria-hidden="true" class="check--{{ alreadyDispatched() ? 'met' : 'unmet' }}">
-                    {{ alreadyDispatched() ? 'check_circle' : 'schedule' }}
-                  </mat-icon>
-                  <span>Stock {{ alreadyDispatched() ? 'deducted at dispatch' : 'deduction pending' }}</span>
-                </div>
-                <div class="ops-rail-card__row">
-                  <mat-icon aria-hidden="true" class="check--{{ detail.waybill ? 'met' : 'unmet' }}">
-                    {{ detail.waybill ? 'description' : 'schedule' }}
-                  </mat-icon>
-                  <span>Waybill {{ detail.waybill ? 'available' : 'pending' }}</span>
-                </div>
-              </article>
-            </div>
-          </aside>
-        </div>
+        }
       </div>
     </div>
 
+    @if (dispatchStateVisible()) {
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
@@ -171,7 +210,13 @@
             [transportForm]="transportForm"
             [itemNameMap]="itemNameMap()" />
           <div class="ops-step-actions">
-            <button mat-stroked-button type="button" (click)="openFulfillment()">Back to Fulfillment</button>
+            @if (fulfillmentEntryAction(); as action) {
+              <span [matTooltip]="action.disabledReason">
+                <button mat-stroked-button type="button" (click)="openFulfillment()" [disabled]="action.disabled">
+                  {{ action.label }}
+                </button>
+              </span>
+            }
             <button mat-flat-button color="primary" type="button" (click)="goToDispatchReview()">Continue</button>
           </div>
         </div>
@@ -238,5 +283,6 @@
         </div>
       </mat-step>
     </mat-stepper>
+    }
   }
 </div>

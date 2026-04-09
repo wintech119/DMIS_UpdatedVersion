@@ -54,6 +54,17 @@
               <mat-icon>send</mat-icon>
               @if (submitting()) { Submitting... } @else { Submit for Review }
             </button>
+          } @else if (fulfillmentEntryAction(); as action) {
+            <span [matTooltip]="action.disabledReason">
+              <button
+                mat-stroked-button
+                type="button"
+                (click)="openFulfillment()"
+                [disabled]="action.disabled">
+                <mat-icon>inventory_2</mat-icon>
+                {{ action.label }}
+              </button>
+            </span>
           }
         </div>
       </div>
@@ -215,9 +226,17 @@
                       </td>
                       <td>{{ pkg.dispatch_dtime ? formatOperationsDateTime(pkg.dispatch_dtime) : 'Pending' }}</td>
                       <td>
-                        <button mat-icon-button type="button" aria-label="Open dispatch workspace" (click)="openDispatch(pkg)">
-                          <mat-icon>open_in_new</mat-icon>
-                        </button>
+                        @let dispatchAction = packageDispatchAction(pkg);
+                        <span [matTooltip]="dispatchAction.disabledReason ?? ''">
+                          <button
+                            mat-icon-button
+                            type="button"
+                            aria-label="Open dispatch workspace"
+                            [disabled]="dispatchAction.disabled"
+                            (click)="openDispatch(pkg)">
+                            <mat-icon>open_in_new</mat-icon>
+                          </button>
+                        </span>
                       </td>
                     </tr>
                   }

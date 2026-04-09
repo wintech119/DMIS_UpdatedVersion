@@ -1050,6 +1050,7 @@ def _sync_operations_package(
     status_code: str | None = None,
     override_status_code: str | None | object = _UNSET,
     source_warehouse_id: int | None | object = _UNSET,
+    status_transition_reason: str | None = None,
 ) -> OperationsPackage:
     record, created = OperationsPackage.objects.get_or_create(
         package_id=int(package.reliefpkg_id),
@@ -1112,6 +1113,7 @@ def _sync_operations_package(
             from_status=None,
             to_status=record.status_code,
             actor_id=actor_id,
+            reason_text=status_transition_reason,
         )
     elif status_code and status_code != original_status:
         record_status_transition(
@@ -1120,6 +1122,7 @@ def _sync_operations_package(
             from_status=original_status,
             to_status=status_code,
             actor_id=actor_id,
+            reason_text=status_transition_reason,
         )
     return record
 
@@ -2994,6 +2997,131 @@ def _warehouse_usable_surplus_for_item(
     return sum((_quantize_qty(candidate["available_qty"]) for candidate in sorted_candidates), Decimal("0"))
 
 
+def build_item_warehouse_cards(
+    *,
+    item_id: int,
+    remaining_qty: Decimal,
+    item: Item | Mapping[str, Any] | None,
+    tenant_context: TenantContext | None,
+    as_of_date: date | None = None,
+    draft_allocations: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return every warehouse that holds stock of ``item_id``, ranked by the
+    item's FEFO/FIFO rule, with a greedy ``suggested_qty`` pre-filled across
+    the ranked warehouses up to ``remaining_qty``.
+
+    The returned shape is the contract consumed by the frontend's
+    ``WarehouseAllocationCardComponent`` — each entry contains everything the
+    card needs to render without re-querying batches on the client.
+    """
+
+    as_of = as_of_date or timezone.localdate()
+    if item is None:
+        raw_issuance = "FIFO"
+    elif isinstance(item, Mapping):
+        raw_issuance = item.get("issuance_order") or "FIFO"
+    else:
+        raw_issuance = getattr(item, "issuance_order", None) or "FIFO"
+    issuance_order = str(raw_issuance).upper() or "FIFO"
+
+    # Pull every warehouse that has any stock for the item (exclude_warehouse_id=0
+    # means no warehouse is excluded — 0 is never a valid warehouse id).
+    warehouse_rows, _warnings = data_access.get_warehouses_with_stock([item_id], 0)
+    warehouse_entries = warehouse_rows.get(item_id, [])
+
+    cards_raw: list[dict[str, Any]] = []
+    for warehouse_row in warehouse_entries:
+        warehouse_id = int(warehouse_row["warehouse_id"])
+        if tenant_context is not None and not can_access_warehouse(
+            tenant_context, warehouse_id, write=True
+        ):
+            continue
+        raw_candidates = _fetch_batch_candidates(warehouse_id, item_id, as_of_date=as_of)
+        adjusted = _adjust_candidates_for_draft_allocations(
+            raw_candidates, draft_allocations or ()
+        )
+        sorted_batches = sort_batch_candidates(
+            item or {"issuance_order": issuance_order},
+            adjusted,
+            as_of_date=as_of,
+        )
+        total_available = sum(
+            (_quantize_qty(c.get("available_qty")) for c in sorted_batches),
+            Decimal("0"),
+        )
+        if total_available <= 0 or not sorted_batches:
+            continue
+        first_batch = sorted_batches[0]
+        rank_key: tuple[Any, ...]
+        if issuance_order == "FEFO":
+            rank_key = (
+                first_batch.get("expiry_date") is None,
+                first_batch.get("expiry_date") or date.max,
+                first_batch.get("batch_date") or date.max,
+                int(first_batch.get("inventory_id") or 0),
+                int(first_batch.get("batch_id") or 0),
+            )
+        else:
+            rank_key = (
+                first_batch.get("batch_date") or date.min,
+                int(first_batch.get("inventory_id") or 0),
+                int(first_batch.get("batch_id") or 0),
+            )
+        cards_raw.append(
+            {
+                "warehouse_id": warehouse_id,
+                "warehouse_name": str(
+                    warehouse_row.get("warehouse_name")
+                    or first_batch.get("warehouse_name")
+                    or f"Warehouse {warehouse_id}"
+                ).strip(),
+                "total_available": total_available,
+                "batches": sorted_batches,
+                "rank_key": rank_key,
+            }
+        )
+
+    cards_raw.sort(key=lambda c: c["rank_key"])
+
+    remaining = _quantize_qty(remaining_qty) if remaining_qty is not None else Decimal("0")
+    if remaining < 0:
+        remaining = Decimal("0")
+
+    cards: list[dict[str, Any]] = []
+    for rank_index, raw in enumerate(cards_raw):
+        suggested = min(raw["total_available"], remaining)
+        if suggested < 0:
+            suggested = Decimal("0")
+        remaining = max(Decimal("0"), remaining - suggested)
+        cards.append(
+            {
+                "warehouse_id": raw["warehouse_id"],
+                "warehouse_name": raw["warehouse_name"],
+                "rank": rank_index,
+                "issuance_order": issuance_order,
+                "total_available": str(_quantize_qty(raw["total_available"])),
+                "suggested_qty": str(_quantize_qty(suggested)),
+                "batches": [
+                    {
+                        "batch_id": int(batch["batch_id"]),
+                        "inventory_id": int(batch["inventory_id"]),
+                        "batch_no": batch.get("batch_no"),
+                        "batch_date": _as_iso(batch.get("batch_date")),
+                        "expiry_date": _as_iso(batch.get("expiry_date")),
+                        "available_qty": str(_quantize_qty(batch.get("available_qty"))),
+                        "usable_qty": str(_quantize_qty(batch.get("usable_qty"))),
+                        "reserved_qty": str(_quantize_qty(batch.get("reserved_qty"))),
+                        "uom_code": batch.get("uom_code"),
+                        "source_type": batch.get("source_type") or "ON_HAND",
+                        "source_record_id": batch.get("source_record_id"),
+                    }
+                    for batch in raw["batches"]
+                ],
+            }
+        )
+    return cards
+
+
 def _build_alternate_warehouse_options(
     *,
     item_id: int,
@@ -3126,6 +3254,14 @@ def _build_item_allocation_response(
         draft_allocations=normalized_draft_allocations,
         excluded_warehouse_ids=merged_warehouse_ids,
     )
+    warehouse_cards = build_item_warehouse_cards(
+        item_id=item_id,
+        remaining_qty=effective_remaining_qty,
+        item=item,
+        tenant_context=tenant_context,
+        as_of_date=as_of_date,
+        draft_allocations=normalized_draft_allocations,
+    )
     response = {
         "item_id": item_id,
         "item_code": getattr(item, "item_code", None),
@@ -3154,6 +3290,7 @@ def _build_item_allocation_response(
         "remaining_shortfall_qty": str(remaining_shortfall_qty),
         "continuation_recommended": remaining_shortfall_qty > 0 and bool(alternate_warehouses),
         "alternate_warehouses": alternate_warehouses,
+        "warehouse_cards": warehouse_cards,
     }
     if include_draft_metrics:
         response["draft_selected_qty"] = str(_quantize_qty(draft_selected_qty))
@@ -4458,6 +4595,7 @@ def reset_package_allocations(
     reliefpkg_id: int,
     *,
     actor_id: str,
+    status_transition_reason: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
     package = legacy_service._load_package(reliefpkg_id, for_update=True)
@@ -4534,6 +4672,7 @@ def reset_package_allocations(
         status_code=PACKAGE_STATUS_DRAFT,
         override_status_code=None,
         source_warehouse_id=package_record.source_warehouse_id,
+        status_transition_reason=status_transition_reason,
     )
     _update_package_workflow_fields(
         package_record,
@@ -4586,6 +4725,125 @@ def reset_package_allocations(
             else {"line_count": 0, "total_qty": "0.0000"}
         ),
     }
+
+
+@transaction.atomic
+def abandon_package_draft(
+    reliefpkg_id: int,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    actor_id: str,
+    actor_roles: Iterable[str] | None,
+    tenant_context: TenantContext,
+) -> dict[str, Any]:
+    """
+    Abandon a work-in-progress fulfillment draft.
+
+    Unlike ``cancel_package()`` (which moves the package to the terminal CANCELLED
+    status), this is a **non-terminal** abandon: the package is reset to DRAFT,
+    reserved stock is released, any planned consolidation legs are cancelled, the
+    package lock is released, and the parent relief request stays in
+    ``APPROVED_FOR_FULFILLMENT`` so another operator can start fresh.
+
+    Refuses to run if the package has already advanced past a revertible state
+    (dispatch-approved / dispatched / received / split / cancelled) or if any
+    leg is already in transit or received.
+    """
+    actor_id = _require_actor_id(actor_id)
+    _require_roles(
+        actor_roles,
+        FULFILLMENT_ROLE_CODES,
+        message="Only fulfillment roles may abandon a draft.",
+    )
+
+    # Validate optional reason (max 500 chars, trimmed)
+    reason_text = ""
+    if payload:
+        raw_reason = payload.get("reason")
+        if raw_reason not in (None, ""):
+            reason_text = str(raw_reason).strip()
+            if len(reason_text) > 500:
+                raise OperationValidationError(
+                    {"reason": "Reason must be 500 characters or fewer."}
+                )
+
+    # Load with tenant + access guard (write lock)
+    package, request, request_record, package_record = _package_context_by_package_id(
+        reliefpkg_id,
+        actor_id=actor_id,
+        actor_roles=actor_roles,
+        tenant_context=tenant_context,
+        write=True,
+    )
+    del package, request  # used only for write-lock side effects
+
+    if package_record.status_code in {
+        PACKAGE_STATUS_COMMITTED,
+        PACKAGE_STATUS_READY_FOR_DISPATCH,
+        PACKAGE_STATUS_READY_FOR_PICKUP,
+        PACKAGE_STATUS_DISPATCHED,
+        PACKAGE_STATUS_RECEIVED,
+        PACKAGE_STATUS_SPLIT,
+        PACKAGE_STATUS_CANCELLED,
+    }:
+        raise OperationValidationError(
+            {"abandon": "This fulfillment can no longer be abandoned."}
+        )
+
+    # Any in-flight or received legs block the abandon so we don't lose shipment state
+    legs = list(
+        package_record.consolidation_legs.select_for_update().order_by("leg_sequence")
+    )
+    if any(
+        leg.status_code
+        in {
+            CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+        }
+        for leg in legs
+    ):
+        raise OperationValidationError(
+            {
+                "abandon": (
+                    "Packages with in-transit or received consolidation legs cannot be abandoned."
+                )
+            }
+        )
+
+    # Cancel any still-planned legs so reset_package_allocations is satisfied
+    now = timezone.now()
+    for leg in legs:
+        if leg.status_code == CONSOLIDATION_LEG_STATUS_CANCELLED:
+            continue
+        record_status_transition(
+            entity_type=ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(leg.leg_id),
+            from_status=leg.status_code,
+            to_status=CONSOLIDATION_LEG_STATUS_CANCELLED,
+            actor_id=actor_id,
+        )
+        leg.status_code = CONSOLIDATION_LEG_STATUS_CANCELLED
+        leg.update_by_id = actor_id
+        leg.update_dtime = now
+        leg.version_nbr = int(leg.version_nbr or 0) + 1
+        leg.save(
+            update_fields=["status_code", "update_by_id", "update_dtime", "version_nbr"]
+        )
+
+    previous_status_code = package_record.status_code
+
+    # Delegate the actual revert + stock-release to the existing helper
+    result = reset_package_allocations(
+        int(package_record.package_id),
+        actor_id=actor_id,
+        status_transition_reason=reason_text or None,
+    )
+
+    result["abandoned"] = True
+    result["request_status"] = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
+    result["reason"] = reason_text or None
+    result["previous_status_code"] = previous_status_code
+    return result
 
 
 def get_staging_recommendation(
@@ -6080,9 +6338,19 @@ def get_dispatch_package(reliefpkg_id: int, *, actor_id: str | None = None, acto
     request_record = _sync_operations_request(request, actor_id=actor_id)
     package_record = _sync_operations_package(package, request_record=request_record, actor_id=actor_id)
     _ensure_package_access(package_record, actor_id=actor_id, actor_roles=actor_roles or (), tenant_context=tenant_context)
-    dispatch = _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
+    # Only materialize a dispatch record once the package is committed. Viewing the
+    # dispatch page must not side-effect a dispatch_no or status transition for a
+    # package that has not yet been committed/approved for dispatch.
+    dispatch = None
+    if package_record.status_code in {
+        PACKAGE_STATUS_COMMITTED,
+        PACKAGE_STATUS_READY_FOR_DISPATCH,
+        PACKAGE_STATUS_DISPATCHED,
+        PACKAGE_STATUS_RECEIVED,
+    }:
+        dispatch = _ensure_dispatch_record(package=package, package_record=package_record, actor_id=actor_id)
     payload = get_package(int(package.reliefrqst_id), actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
-    payload["dispatch"] = _dispatch_payload(package, dispatch)
+    payload["dispatch"] = _dispatch_payload(package, dispatch) if dispatch else None
     payload["request"] = _request_summary_payload(request, request_record)
     payload["waybill"] = get_waybill(reliefpkg_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context) if package.dispatch_dtime else None
     return payload

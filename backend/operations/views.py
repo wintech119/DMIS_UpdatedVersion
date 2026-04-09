@@ -682,6 +682,34 @@ def operations_package_cancel(request, reliefpkg_id: int):
 operations_package_cancel.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
 
 
+@api_view(["POST"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated, OperationsPermission])
+def operations_package_abandon_draft(request, reliefpkg_id: int):
+    """Non-terminal abandon: release stock + locks, revert to DRAFT.
+
+    Distinct from ``operations_package_cancel`` which moves the package to the
+    terminal CANCELLED status. Abandon releases the fulfillment so another
+    officer can pick up the parent relief request (which stays in
+    APPROVED_FOR_FULFILLMENT).
+    """
+    try:
+        return Response(
+            operations_service.abandon_package_draft(
+                reliefpkg_id,
+                payload=request.data or {},
+                actor_id=_actor_id(request),
+                actor_roles=_roles(request),
+                tenant_context=_tenant_context(request),
+            )
+        )
+    except Exception as exc:
+        return _service_error_response(exc)
+
+
+operations_package_abandon_draft.required_permission = PERM_OPERATIONS_PACKAGE_ALLOCATE
+
+
 @api_view(["GET"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([IsAuthenticated, OperationsPermission])

@@ -1,4 +1,12 @@
+import { PackageSummary, RequestSummary } from './models/operations.model';
+
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
+
+export interface FulfillmentEntryAction {
+  label: 'Open Fulfillment' | 'Continue from Stock-Aware Selection';
+  disabled: boolean;
+  disabledReason: string | null;
+}
 
 const OPERATIONS_QUEUE_SEEN_LIMIT = 250;
 
@@ -116,6 +124,62 @@ const URGENCY_TONES: Record<string, OperationsTone> = {
   L: 'muted',
 };
 
+const FULFILLMENT_ENTRY_REQUEST_STATUSES = new Set([
+  'APPROVED_FOR_FULFILLMENT',
+  'PARTIALLY_FULFILLED',
+  'FULFILLED',
+]);
+
+const FULFILLMENT_RESUME_PACKAGE_STATUSES = new Set([
+  'A',
+  'P',
+  'D',
+  'C',
+  'DRAFT',
+  'PENDING_OVERRIDE_APPROVAL',
+  'COMMITTED',
+  'CONSOLIDATING',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+  'SPLIT',
+]);
+
+const NON_CANCELABLE_FULFILLMENT_STATUSES = new Set([
+  'D',
+  'C',
+  'COMMITTED',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+  'SPLIT',
+  'CANCELLED',
+]);
+
+// Packages may enter the dispatch workspace only after stock has been committed.
+// DRAFT / PENDING_OVERRIDE_APPROVAL / CONSOLIDATING packages must be kept out —
+// opening the dispatch workspace for them would show a meaningless empty state
+// and previously caused the backend to materialize an orphan dispatch record.
+const DISPATCH_READY_PACKAGE_STATUSES = new Set([
+  // Legacy single-char codes (D=Dispatched, C=Completed/Received)
+  'D',
+  'C',
+  // Operations-layer status codes
+  'COMMITTED',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+]);
+
+const FULFILLMENT_ACCESS_DISABLED_REASON =
+  'Only fulfillment logistics roles can open the package workspace.';
+
+const PACKAGE_DISPATCH_NOT_READY_REASON =
+  'Dispatch preparation unlocks after the package is committed in fulfillment.';
+
 export function formatOperationsRequestStatus(code: number | string | null | undefined): string {
   const normalized = String(code ?? '').trim().toUpperCase();
   return REQUEST_STATUS_LABELS[normalized] ?? 'Unknown';
@@ -158,6 +222,86 @@ export function getOperationsPackageTone(
 ): OperationsTone {
   const normalized = normalizeOperationsPackageStatus(code, executionStatus);
   return PACKAGE_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function getFulfillmentEntryAction(options: {
+  requestStatus: string | null | undefined;
+  packageStatus?: string | null | undefined;
+  executionStatus?: string | null | undefined;
+  hasExistingPackage?: boolean;
+  hasFulfillmentAccess?: boolean;
+}): FulfillmentEntryAction | null {
+  const requestStatus = String(options.requestStatus ?? '').trim().toUpperCase();
+  const packageStatus = normalizeOperationsPackageStatus(options.packageStatus, options.executionStatus);
+  const hasFulfillmentAccess = options.hasFulfillmentAccess ?? true;
+  const hasExistingPackage = Boolean(options.hasExistingPackage) || Boolean(packageStatus);
+
+  if (!FULFILLMENT_ENTRY_REQUEST_STATUSES.has(requestStatus) && !hasExistingPackage) {
+    return null;
+  }
+
+  const shouldContinue = requestStatus === 'PARTIALLY_FULFILLED'
+    || requestStatus === 'FULFILLED'
+    || (hasExistingPackage && FULFILLMENT_RESUME_PACKAGE_STATUSES.has(packageStatus));
+
+  return {
+    label: shouldContinue ? 'Continue from Stock-Aware Selection' : 'Open Fulfillment',
+    disabled: !hasFulfillmentAccess,
+    disabledReason: hasFulfillmentAccess ? null : FULFILLMENT_ACCESS_DISABLED_REASON,
+  };
+}
+
+export function getRequestFulfillmentEntryAction(
+  request: Pick<RequestSummary, 'status_code' | 'reliefpkg_id'> & {
+    packages?: readonly Pick<PackageSummary, 'status_code' | 'execution_status'>[];
+  },
+  hasFulfillmentAccess = true,
+): FulfillmentEntryAction | null {
+  const currentPackage = request.packages?.[0];
+  return getFulfillmentEntryAction({
+    requestStatus: request.status_code,
+    packageStatus: currentPackage?.status_code,
+    executionStatus: currentPackage?.execution_status,
+    hasExistingPackage: Boolean(request.reliefpkg_id) || Boolean(request.packages?.length),
+    hasFulfillmentAccess,
+  });
+}
+
+export function isFulfillmentCancellationAllowed(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): boolean {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
+  if (!normalized) {
+    return true;
+  }
+  return !NON_CANCELABLE_FULFILLMENT_STATUSES.has(normalized);
+}
+
+export function isPackageDispatchReady(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): boolean {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
+  return DISPATCH_READY_PACKAGE_STATUSES.has(normalized);
+}
+
+export interface PackageDispatchAction {
+  disabled: boolean;
+  disabledReason: string | null;
+}
+
+export function getPackageDispatchAction(
+  pkg: Pick<PackageSummary, 'status_code' | 'execution_status'> | null | undefined,
+): PackageDispatchAction {
+  if (!pkg) {
+    return { disabled: true, disabledReason: PACKAGE_DISPATCH_NOT_READY_REASON };
+  }
+  const ready = isPackageDispatchReady(pkg.status_code, pkg.execution_status);
+  return {
+    disabled: !ready,
+    disabledReason: ready ? null : PACKAGE_DISPATCH_NOT_READY_REASON,
+  };
 }
 
 export function formatOperationsConsolidationStatus(code: string | null | undefined): string {

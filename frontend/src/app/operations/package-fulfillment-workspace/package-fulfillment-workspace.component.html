@@ -181,6 +181,18 @@
           <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
+            <span class="ops-step-actions__spacer"></span>
+            <button
+              mat-stroked-button
+              color="warn"
+              type="button"
+              class="ops-step-actions__cancel"
+              aria-label="Cancel fulfillment"
+              [disabled]="!canCancel()"
+              (click)="cancelFulfillment()">
+              <mat-icon>cancel</mat-icon>
+              Cancel
+            </button>
             @if (canSaveDraft()) {
               <button
                 mat-stroked-button
@@ -202,6 +214,18 @@
           <app-fulfillment-details-step [lockOperationalFields]="lockOperationalFields()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <span class="ops-step-actions__spacer"></span>
+            <button
+              mat-stroked-button
+              color="warn"
+              type="button"
+              class="ops-step-actions__cancel"
+              aria-label="Cancel fulfillment"
+              [disabled]="!canCancel()"
+              (click)="cancelFulfillment()">
+              <mat-icon>cancel</mat-icon>
+              Cancel
+            </button>
             @if (canSaveDraft()) {
               <button
                 mat-stroked-button
@@ -226,6 +250,18 @@
             [canApproveOverride]="canApprovePendingOverride()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <span class="ops-step-actions__spacer"></span>
+            <button
+              mat-stroked-button
+              color="warn"
+              type="button"
+              class="ops-step-actions__cancel"
+              aria-label="Cancel fulfillment"
+              [disabled]="!canCancel()"
+              (click)="cancelFulfillment()">
+              <mat-icon>cancel</mat-icon>
+              Cancel
+            </button>
             @if (canSaveDraft()) {
               <button
                 mat-stroked-button
@@ -267,6 +303,18 @@
 
                 <div class="ops-step-actions">
                   <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                  <span class="ops-step-actions__spacer"></span>
+                  <button
+                    mat-stroked-button
+                    color="warn"
+                    type="button"
+                    class="ops-step-actions__cancel"
+                    aria-label="Cancel fulfillment"
+                    [disabled]="!canCancel()"
+                    (click)="cancelFulfillment()">
+                    <mat-icon>cancel</mat-icon>
+                    Cancel
+                  </button>
                   @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
                     <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
                       Open Dispatch Workspace

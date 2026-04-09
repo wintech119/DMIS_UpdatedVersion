@@ -57,6 +57,7 @@ describe('OperationsWorkspaceStateService.maybeRefreshContinuationPreview', () =
       remaining_shortfall_qty: '32',
       continuation_recommended: true,
       alternate_warehouses: [],
+      warehouse_cards: [],
       ...overrides,
     };
   }
@@ -282,7 +283,12 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     expect(payload.staging_override_reason).toBeNull();
   });
 
-  it('derives the package source warehouse from selected allocation rows when the draft source is blank', () => {
+  it('does not fabricate a package source warehouse from a single-warehouse selection when the draft source is blank', () => {
+    // Per-item warehouse selection is first-class in the stock-aware redesign —
+    // the backend no longer expects a collapsed package-level source when the
+    // user never picked one. Even if every selected row happens to come from
+    // the same inventory_id, the payload must send source_warehouse_id
+    // undefined so the backend keeps the package row at NULL.
     const { service, saveSpy } = setUp();
     service.patchDraft({
       source_warehouse_id: '',
@@ -305,7 +311,8 @@ describe('OperationsWorkspaceStateService.saveDraft', () => {
     service.saveDraft().subscribe();
 
     const [, payload] = saveSpy.calls.mostRecent().args as [number, PackageDraftPayload];
-    expect(payload.source_warehouse_id).toBe(9123);
+    expect(payload.source_warehouse_id).toBeUndefined();
+    expect(payload.allocations?.[0]?.inventory_id).toBe(9123);
   });
 
   it('does not collapse a mixed-warehouse draft to the first selected warehouse when no package source exists', () => {
@@ -410,6 +417,7 @@ describe('OperationsWorkspaceStateService.buildCommitPayload', () => {
       remaining_shortfall_qty: '0',
       continuation_recommended: false,
       alternate_warehouses: [],
+      warehouse_cards: [],
     };
   }
 
@@ -722,6 +730,7 @@ describe('OperationsWorkspaceStateService.load', () => {
           remaining_shortfall_qty: '5.0000',
           continuation_recommended: false,
           alternate_warehouses: [],
+          warehouse_cards: [],
         },
       ],
     };
@@ -814,6 +823,7 @@ describe('OperationsWorkspaceStateService.load', () => {
           remaining_shortfall_qty: '3.0000',
           continuation_recommended: false,
           alternate_warehouses: [],
+          warehouse_cards: [],
         },
       ],
     };
@@ -895,6 +905,7 @@ describe('OperationsWorkspaceStateService.updateItemWarehouse', () => {
       remaining_shortfall_qty: '0.0000',
       continuation_recommended: false,
       alternate_warehouses: [],
+      warehouse_cards: [],
     };
   }
 
@@ -1055,6 +1066,7 @@ describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
           can_fully_cover: true,
         },
       ],
+      warehouse_cards: [],
       draft_selected_qty: '4.0000',
       effective_remaining_qty: '2.0000',
       ...overrides,

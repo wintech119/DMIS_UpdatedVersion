@@ -142,6 +142,16 @@
   color: var(--color-accent);
 }
 
+.ops-dispatch-awaiting__copy {
+  margin: 0 0 18px;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.ops-dispatch-awaiting .ops-pane__actions {
+  margin-top: 4px;
+}
+
 .ops-rail-stack {
   display: grid;
   gap: 12px;

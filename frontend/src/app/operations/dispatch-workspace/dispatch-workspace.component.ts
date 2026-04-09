@@ -7,8 +7,10 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { startWith } from 'rxjs';
 
+import { AppAccessService } from '../../core/app-access.service';
 import { OpsDispatchReadinessStepComponent } from './steps/dispatch-readiness-step.component';
 import { OpsDispatchReviewStepComponent } from './steps/dispatch-review-step.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
@@ -27,6 +29,7 @@ import {
   formatExecutionStatus,
   formatPackageStatus,
 } from '../models/operations-status.util';
+import { getFulfillmentEntryAction, isPackageDispatchReady } from '../operations-display.util';
 
 function combineDateAndTime(date: Date | string | null, time: string | null): Date | null {
   const normalizedTime = time?.trim() ?? '';
@@ -109,6 +112,7 @@ interface DispatchStateSummary {
     MatButtonModule,
     MatIconModule,
     MatStepperModule,
+    MatTooltipModule,
     OpsMetricStripComponent,
     OpsDispatchReadinessStepComponent,
     OpsDispatchReviewStepComponent,
@@ -127,6 +131,7 @@ export class OpsDispatchWorkspaceComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly fb = inject(FormBuilder);
+  private readonly appAccess = inject(AppAccessService);
   private readonly operationsService = inject(OperationsService);
   private readonly notifications = inject(DmisNotificationService);
 
@@ -197,8 +202,11 @@ export class OpsDispatchWorkspaceComponent {
   });
 
   readonly hasCommittedAllocation = computed(() => {
-    const alloc = this.dispatchDetail()?.allocation;
-    return (alloc?.allocation_lines?.length ?? 0) > 0;
+    const detail = this.dispatchDetail();
+    if (!detail) {
+      return false;
+    }
+    return isPackageDispatchReady(detail.status_code, detail.execution_status);
   });
 
   readonly hasPendingOverride = computed(() => {
@@ -220,6 +228,16 @@ export class OpsDispatchWorkspaceComponent {
     && !this.hasPendingOverride()
     && !this.alreadyDispatched()
     && this.transportFormStatus() === 'VALID'
+  );
+
+  /**
+   * Dispatch context, transport log, and tracking metadata are only meaningful
+   * once the package has been committed (or already dispatched). Pre-commit, the
+   * page must show an "awaiting reservation" empty state instead of leaking the
+   * dispatch workspace UI for an unapproved package.
+   */
+  readonly dispatchStateVisible = computed(() =>
+    this.hasCommittedAllocation() || this.alreadyDispatched()
   );
 
   readonly dispatchStateSummary = computed<DispatchStateSummary>(() => {
@@ -282,6 +300,19 @@ export class OpsDispatchWorkspaceComponent {
     }
     return 'Dispatch Not Ready';
   });
+  readonly fulfillmentEntryAction = computed(() => {
+    const detail = this.dispatchDetail();
+    if (!detail) {
+      return null;
+    }
+    return getFulfillmentEntryAction({
+      requestStatus: detail.request.status_code,
+      packageStatus: detail.status_code,
+      executionStatus: detail.execution_status,
+      hasExistingPackage: true,
+      hasFulfillmentAccess: this.appAccess.canAccessNavKey('operations.fulfillment'),
+    });
+  });
 
   readonly displayConfirmation = computed<DispatchConfirmationState | null>(() => {
     const explicit = this.confirmationState();
@@ -300,6 +331,7 @@ export class OpsDispatchWorkspaceComponent {
 
   readonly workspaceMetrics = computed<readonly OpsMetricStripItem[]>(() => {
     const detail = this.dispatchDetail();
+    const stateVisible = this.dispatchStateVisible();
     return [
       {
         label: 'Request Tracking Number',
@@ -308,7 +340,7 @@ export class OpsDispatchWorkspaceComponent {
       },
       {
         label: 'Package Tracking Number',
-        value: detail?.tracking_no || 'Pending',
+        value: stateVisible ? (detail?.tracking_no || 'Pending') : 'Pending',
         hint: 'Package-level status reference.',
       },
       {
@@ -349,7 +381,7 @@ export class OpsDispatchWorkspaceComponent {
 
   openFulfillment(): void {
     const reliefrqstId = this.dispatchDetail()?.request?.reliefrqst_id;
-    if (reliefrqstId) {
+    if (reliefrqstId && !this.fulfillmentEntryAction()?.disabled) {
       this.router.navigate(['/operations/package-fulfillment', reliefrqstId]);
     }
   }

@@ -1067,6 +1067,7 @@ export class OperationsWorkspaceStateService {
           remaining_shortfall_qty: newGroup.remaining_shortfall_qty,
           continuation_recommended: newGroup.continuation_recommended,
           alternate_warehouses: newGroup.alternate_warehouses,
+          warehouse_cards: newGroup.warehouse_cards,
           draft_selected_qty: newGroup.draft_selected_qty,
           effective_remaining_qty: newGroup.effective_remaining_qty,
         };
@@ -1152,6 +1153,7 @@ export class OperationsWorkspaceStateService {
                     remaining_shortfall_qty: preview.remaining_shortfall_qty,
                     continuation_recommended: preview.continuation_recommended,
                     alternate_warehouses: preview.alternate_warehouses,
+                    warehouse_cards: preview.warehouse_cards,
                     draft_selected_qty: preview.draft_selected_qty,
                     effective_remaining_qty: preview.effective_remaining_qty,
                   }

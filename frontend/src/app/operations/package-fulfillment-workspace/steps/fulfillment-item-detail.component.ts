@@ -1149,10 +1149,12 @@ export class FulfillmentItemDetailComponent {
   readonly warehouseGroups = computed<WarehouseGroup[]>(() => {
     const candidates = this.item().candidates;
     const map = new Map<number, WarehouseGroup>();
+    const insertionIndexByInventoryId = new Map<number, number>();
 
     for (const c of candidates) {
       const key = c.inventory_id;
       if (!map.has(key)) {
+        insertionIndexByInventoryId.set(key, insertionIndexByInventoryId.size);
         map.set(key, {
           name: c.warehouse_name || `Inventory ${c.inventory_id}`,
           inventoryId: c.inventory_id,
@@ -1167,7 +1169,26 @@ export class FulfillmentItemDetailComponent {
       group.candidates.push(c);
     }
 
-    return [...map.values()];
+    // Respect the backend's FEFO/FIFO warehouse ranking when the
+    // `warehouse_cards` payload is present. Cards provide the canonical
+    // rank for each inventory_id; any loaded warehouse not covered by
+    // the ranking falls to the end but keeps its relative insertion order.
+    const rankByInventoryId = new Map<number, number>();
+    for (const card of this.item().warehouse_cards ?? []) {
+      rankByInventoryId.set(card.warehouse_id, card.rank);
+    }
+    const unranked = Number.MAX_SAFE_INTEGER;
+    return [...map.values()].sort((left, right) => {
+      const leftRank = rankByInventoryId.get(left.inventoryId) ?? unranked;
+      const rightRank = rankByInventoryId.get(right.inventoryId) ?? unranked;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return (
+        (insertionIndexByInventoryId.get(left.inventoryId) ?? unranked)
+        - (insertionIndexByInventoryId.get(right.inventoryId) ?? unranked)
+      );
+    });
   });
 
   onQtyChange(candidate: AllocationCandidate, value: number | string): void {

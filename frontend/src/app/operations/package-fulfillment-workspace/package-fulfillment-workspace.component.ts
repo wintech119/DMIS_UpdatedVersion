@@ -35,6 +35,7 @@ import { OperationsWorkspaceStateService } from '../services/operations-workspac
 import {
   AllocationCommitResponse,
   ConsolidationLeg,
+  PackageAbandonDraftResponse,
   PackageLockReleaseResponse,
 } from '../models/operations.model';
 import {
@@ -43,6 +44,7 @@ import {
   formatPackageStatus,
   formatUrgency,
 } from '../models/operations-status.util';
+import { isFulfillmentCancellationAllowed } from '../operations-display.util';
 
 interface FulfillmentConfirmationState {
   title: string;
@@ -112,6 +114,20 @@ export class PackageFulfillmentWorkspaceComponent {
     && !this.store.hasPendingOverride()
     && !this.confirmationState()
   );
+
+  readonly canCancel = computed(() => {
+    const pkg = this.packageDetail()?.package;
+    if (!this.store.reliefpkgId() || !pkg) {
+      return false;
+    }
+    if (this.store.submitting() || this.savingDraft() || this.store.loading()) {
+      return false;
+    }
+    if (this.confirmationState()) {
+      return false;
+    }
+    return isFulfillmentCancellationAllowed(pkg.status_code, pkg.execution_status);
+  });
 
   readonly hasOperationsAccess = computed(() =>
     PackageFulfillmentWorkspaceComponent.OPERATIONS_ACCESS_PERMISSIONS.some((permission) =>
@@ -304,6 +320,67 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
     this.router.navigate(['/operations/relief-requests', reliefrqstId]);
+  }
+
+  cancelFulfillment(): void {
+    if (!this.canCancel()) {
+      return;
+    }
+    const reliefpkgId = this.store.reliefpkgId();
+    if (!reliefpkgId) {
+      return;
+    }
+
+    const dialogRef = this.dialog.open<DmisConfirmDialogComponent, ConfirmDialogData, boolean>(
+      DmisConfirmDialogComponent,
+      {
+        width: '480px',
+        data: {
+          title: 'Cancel this fulfillment?',
+          message:
+            'This releases all reserved stock and returns the request to the queue '
+            + 'so another officer can start fresh. This cannot be undone.',
+          confirmLabel: 'Yes, cancel fulfillment',
+          cancelLabel: 'Keep working',
+          icon: 'warning_amber',
+          confirmColor: 'warn',
+        },
+      },
+    );
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.runCancelFulfillment(reliefpkgId);
+      });
+  }
+
+  private runCancelFulfillment(reliefpkgId: number): void {
+    this.store.setSubmitting(true);
+    this.operationsService.abandonDraft(reliefpkgId)
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.store.setSubmitting(false)),
+      )
+      .subscribe({
+        next: (_response: PackageAbandonDraftResponse) => {
+          this.notifications.showSuccess('Fulfillment released. The request is back in the queue.');
+          const reliefrqstId = this.reliefrqstId();
+          if (reliefrqstId) {
+            this.router.navigate(['/operations/relief-requests', reliefrqstId]);
+          } else {
+            this.router.navigate(['/operations/packages']);
+          }
+        },
+        error: (error: HttpErrorResponse) => {
+          this.notifications.showError(
+            this.extractError(error, 'Failed to cancel fulfillment. Please try again.'),
+          );
+        },
+      });
   }
 
   openDispatch(): void {

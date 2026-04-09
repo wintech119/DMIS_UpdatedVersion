@@ -24,6 +24,7 @@ import {
   EligibilityDetailResponse,
   OperationsTaskListResponse,
   OverrideApprovalPayload,
+  PackageAbandonDraftResponse,
   PackageDetailResponse,
   PackageDraftPayload,
   PackageLockReleaseResponse,
@@ -171,6 +172,26 @@ export class OperationsService {
     return this.http.post<PackageLockReleaseResponse>(
       `${this.apiUrl}/packages/${reliefrqstId}/unlock`,
       { force },
+    );
+  }
+
+  /**
+   * Non-terminal abandon: releases reserved stock, cancels planned legs, drops
+   * the package lock, and leaves the parent relief request in
+   * APPROVED_FOR_FULFILLMENT so another officer can start fresh. Distinct from
+   * the terminal cancel path.
+   */
+  abandonDraft(
+    reliefpkgId: number,
+    reason?: string,
+  ): Observable<PackageAbandonDraftResponse> {
+    const body: { reason?: string } = {};
+    if (reason && reason.trim().length > 0) {
+      body.reason = reason.trim().slice(0, 500);
+    }
+    return this.http.post<PackageAbandonDraftResponse>(
+      `${this.apiUrl}/packages/${reliefpkgId}/abandon-draft`,
+      body,
     );
   }
 

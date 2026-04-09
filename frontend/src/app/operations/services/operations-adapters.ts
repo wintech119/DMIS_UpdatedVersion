@@ -35,6 +35,8 @@ import {
   StagingRecommendationResponse,
   StagingSelectionBasis,
   SuggestedAllocationLine,
+  WarehouseAllocationBatch,
+  WarehouseAllocationCard,
   WaybillResponse,
 } from '../models/operations.model';
 import { formatPackageStatus, formatRequestStatus } from '../models/operations-status.util';
@@ -353,6 +355,36 @@ export function normalizeAlternateWarehouseOption(raw: unknown): AlternateWareho
   };
 }
 
+export function normalizeWarehouseAllocationBatch(raw: unknown): WarehouseAllocationBatch {
+  const source = asRecord(raw);
+  return {
+    batch_id: asNumber(source['batch_id']),
+    inventory_id: asNumber(source['inventory_id']),
+    batch_no: asNullableString(source['batch_no']),
+    batch_date: asNullableString(source['batch_date']),
+    expiry_date: asNullableString(source['expiry_date']),
+    available_qty: asString(source['available_qty'], '0'),
+    usable_qty: asString(source['usable_qty'], '0'),
+    reserved_qty: asString(source['reserved_qty'], '0'),
+    uom_code: asNullableString(source['uom_code']),
+    source_type: asString(source['source_type'], 'ON_HAND'),
+    source_record_id: asNullableNumber(source['source_record_id']),
+  };
+}
+
+export function normalizeWarehouseAllocationCard(raw: unknown): WarehouseAllocationCard {
+  const source = asRecord(raw);
+  return {
+    warehouse_id: asNumber(source['warehouse_id']),
+    warehouse_name: asString(source['warehouse_name'], ''),
+    rank: asNumber(source['rank']),
+    issuance_order: asString(source['issuance_order'], 'FIFO').toUpperCase(),
+    total_available: asString(source['total_available'], '0'),
+    suggested_qty: asString(source['suggested_qty'], '0'),
+    batches: asArray(source['batches']).map(normalizeWarehouseAllocationBatch),
+  };
+}
+
 export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup {
   const source = asRecord(raw);
   const candidates = asArray(source['candidates']).map(normalizeAllocationCandidate);
@@ -383,6 +415,7 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     remaining_shortfall_qty: asString(source['remaining_shortfall_qty'], '0'),
     continuation_recommended: asBoolean(source['continuation_recommended']),
     alternate_warehouses: asArray(source['alternate_warehouses']).map(normalizeAlternateWarehouseOption),
+    warehouse_cards: asArray(source['warehouse_cards']).map(normalizeWarehouseAllocationCard),
     draft_selected_qty:
       source['draft_selected_qty'] != null ? asString(source['draft_selected_qty'], '0') : undefined,
     effective_remaining_qty:

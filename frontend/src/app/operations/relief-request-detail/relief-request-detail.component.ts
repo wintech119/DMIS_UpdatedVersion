@@ -10,6 +10,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { AppAccessService } from '../../core/app-access.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
@@ -24,7 +25,10 @@ import {
   formatOperationsPackageStatus,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
+  getPackageDispatchAction,
+  getRequestFulfillmentEntryAction,
   OperationsTone,
+  PackageDispatchAction,
   extractOperationsErrorMessage,
   getOperationsPackageTone,
   getOperationsRequestTone,
@@ -64,6 +68,7 @@ export class ReliefRequestDetailComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(DmisNotificationService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly appAccess = inject(AppAccessService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -80,6 +85,13 @@ export class ReliefRequestDetailComponent implements OnInit {
   readonly getOperationsPackageTone = getOperationsPackageTone;
 
   readonly statusTone = computed(() => this.getOperationsRequestTone(this.request()?.status_code));
+  readonly fulfillmentEntryAction = computed(() => {
+    const request = this.request();
+    if (!request) {
+      return null;
+    }
+    return getRequestFulfillmentEntryAction(request, this.appAccess.canAccessNavKey('operations.fulfillment'));
+  });
 
   readonly workflow = computed<WorkflowStep[]>(() => {
     const request = this.request();
@@ -181,8 +193,30 @@ export class ReliefRequestDetailComponent implements OnInit {
     this.router.navigate(['/operations/relief-requests', request.reliefrqst_id, 'edit']);
   }
 
+  /**
+   * Returns the disabled/tooltip state for the "Open dispatch workspace" action
+   * on a package row. Packages in DRAFT / PENDING_OVERRIDE_APPROVAL / CONSOLIDATING
+   * have no dispatch record and must not open the dispatch workspace — doing so
+   * previously led users to a shell page where no transport details could be
+   * confirmed because stock had never been committed.
+   */
+  packageDispatchAction(pkg: PackageSummary): PackageDispatchAction {
+    return getPackageDispatchAction(pkg);
+  }
+
   openDispatch(pkg: PackageSummary): void {
+    if (this.packageDispatchAction(pkg).disabled) {
+      return;
+    }
     this.router.navigate(['/operations/dispatch', pkg.reliefpkg_id]);
+  }
+
+  openFulfillment(): void {
+    const request = this.request();
+    if (!request || this.fulfillmentEntryAction()?.disabled) {
+      return;
+    }
+    this.router.navigate(['/operations/package-fulfillment', request.reliefrqst_id]);
   }
 
   chipTone(tone: OperationsTone): 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline' {

@@ -29,6 +29,7 @@ from operations.constants import (
     PACKAGE_STATUS_COMMITTED,
     PACKAGE_STATUS_CONSOLIDATING,
     PACKAGE_STATUS_DISPATCHED,
+    PACKAGE_STATUS_DRAFT,
     PACKAGE_STATUS_PENDING_OVERRIDE_APPROVAL,
     PACKAGE_STATUS_READY_FOR_DISPATCH,
     PACKAGE_STATUS_READY_FOR_PICKUP,
@@ -995,6 +996,118 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(dispatch.destination_agency_id, 777)
         self.assertEqual(dispatch.update_by_id, "sync-1")
         self.assertEqual(dispatch.version_nbr, 2)
+
+    def test_get_dispatch_package_does_not_create_dispatch_for_uncommitted_package(self) -> None:
+        """Viewing the dispatch page for a DRAFT package must not side-effect a dispatch row."""
+        self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_DRAFT,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
+
+        self.assertEqual(OperationsDispatch.objects.filter(package_id=90).count(), 0)
+
+        with (
+            patch(
+                "operations.contract_services.legacy_service._load_package",
+                return_value=self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="X"),
+            ),
+            patch(
+                "operations.contract_services.legacy_service._load_request",
+                return_value=self.request,
+            ),
+            patch(
+                "operations.contract_services._sync_operations_request",
+                return_value=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            ),
+            patch(
+                "operations.contract_services._sync_operations_package",
+                return_value=package_record,
+            ),
+            patch("operations.contract_services._ensure_package_access"),
+            patch("operations.contract_services.get_package", return_value={"reliefpkg_id": 90}),
+            patch("operations.contract_services._request_summary_payload", return_value={"reliefrqst_id": 70}),
+        ):
+            payload = contract_services.get_dispatch_package(
+                90,
+                actor_id="manager-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertIsNone(payload["dispatch"])
+        self.assertIsNone(payload["waybill"])
+        self.assertEqual(OperationsDispatch.objects.filter(package_id=90).count(), 0)
+
+    def test_get_dispatch_package_materializes_dispatch_when_committed(self) -> None:
+        """A COMMITTED package returns a populated dispatch and reuses the existing row."""
+        self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request_id=70,
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
+
+        self.assertEqual(OperationsDispatch.objects.filter(package_id=90).count(), 0)
+
+        with (
+            patch(
+                "operations.contract_services.legacy_service._load_package",
+                return_value=self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501, status_code="P"),
+            ),
+            patch(
+                "operations.contract_services.legacy_service._load_request",
+                return_value=self.request,
+            ),
+            patch(
+                "operations.contract_services._sync_operations_request",
+                return_value=SimpleNamespace(beneficiary_tenant_id=20, beneficiary_agency_id=501),
+            ),
+            patch(
+                "operations.contract_services._sync_operations_package",
+                return_value=package_record,
+            ),
+            patch("operations.contract_services._ensure_package_access"),
+            patch("operations.contract_services.get_package", return_value={"reliefpkg_id": 90}),
+            patch("operations.contract_services._request_summary_payload", return_value={"reliefrqst_id": 70}),
+        ):
+            first_payload = contract_services.get_dispatch_package(
+                90,
+                actor_id="manager-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+            self.assertIsNotNone(first_payload["dispatch"])
+            self.assertEqual(first_payload["dispatch"]["dispatch_no"], OperationsDispatch.objects.get(package_id=90).dispatch_no)
+            self.assertEqual(OperationsDispatch.objects.filter(package_id=90).count(), 1)
+
+            second_payload = contract_services.get_dispatch_package(
+                90,
+                actor_id="manager-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+            self.assertIsNotNone(second_payload["dispatch"])
+            self.assertEqual(
+                second_payload["dispatch"]["dispatch_id"],
+                first_payload["dispatch"]["dispatch_id"],
+            )
+            self.assertEqual(OperationsDispatch.objects.filter(package_id=90).count(), 1)
 
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -2031,6 +2144,283 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(
             OperationsPackageLock.objects.get(package_id=int(package_record.package_id)).lock_status,
             "RELEASED",
+        )
+
+    @patch("operations.contract_services.record_status_transition")
+    @patch("operations.contract_services.reset_package_allocations")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_abandon_package_draft_cancels_planned_legs_and_delegates_to_reset(
+        self,
+        package_context_mock,
+        reset_mock,
+        record_transition_mock,
+    ) -> None:
+        """Happy-path abandon cancels planned legs for still-revertible staged packages, then delegates the reset."""
+        request_record = self._create_operations_request_record(relief_request_id=92)
+        package_record = OperationsPackage.objects.create(
+            package_id=392,
+            package_no="PK00392",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        planned_leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        package_stub = self._package_stub(
+            reliefpkg_id=392,
+            reliefrqst_id=92,
+            agency_id=501,
+            status_code="P",
+        )
+        request_stub = self._request_stub(
+            reliefrqst_id=92,
+            agency_id=501,
+            status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+        )
+        package_context_mock.return_value = (
+            package_stub,
+            request_stub,
+            request_record,
+            package_record,
+        )
+        reset_mock.return_value = {
+            "status": PACKAGE_STATUS_DRAFT,
+            "reliefrqst_id": 92,
+            "reliefpkg_id": 392,
+            "request_no": "RQ00092",
+            "package_no": "PK00392",
+            "operations_allocation_lines_deleted": 1,
+            "legacy_allocation_lines_deleted": 1,
+            "released_stock_summary": {"line_count": 1, "total_qty": "2.0000"},
+        }
+
+        result = contract_services.abandon_package_draft(
+            392,
+            payload={"reason": "  Wrong warehouse pre-selection  "},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        planned_leg.refresh_from_db()
+        self.assertTrue(result["abandoned"])
+        # Reason is trimmed and stored
+        self.assertEqual(result["reason"], "Wrong warehouse pre-selection")
+        self.assertEqual(result["previous_status_code"], PACKAGE_STATUS_CONSOLIDATING)
+        self.assertEqual(result["status"], PACKAGE_STATUS_DRAFT)
+        self.assertEqual(result["request_status"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
+        # The planned leg is cancelled up-front, before reset_package_allocations runs,
+        # because reset refuses to touch packages with active legs.
+        self.assertEqual(planned_leg.status_code, CONSOLIDATION_LEG_STATUS_CANCELLED)
+        # The actual revert (stock release, lock release, DRAFT transition) is delegated.
+        reset_mock.assert_called_once_with(
+            392,
+            actor_id="logistics-manager-1",
+            status_transition_reason="Wrong warehouse pre-selection",
+        )
+        # Abandon should not write a second package DRAFT transition on top of the
+        # delegated reset; only the planned-leg cancellation is recorded here.
+        record_transition_mock.assert_called_once_with(
+            entity_type=contract_services.ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(planned_leg.leg_id),
+            from_status=CONSOLIDATION_LEG_STATUS_PLANNED,
+            to_status=CONSOLIDATION_LEG_STATUS_CANCELLED,
+            actor_id="logistics-manager-1",
+        )
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_abandon_package_draft_rejects_committed_package(
+        self,
+        package_context_mock,
+    ) -> None:
+        """Committed packages are already approved for dispatch and cannot be abandoned."""
+        request_record = self._create_operations_request_record(relief_request_id=931)
+        package_record = OperationsPackage.objects.create(
+            package_id=3931,
+            package_no="PK03931",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_COMMITTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=3931, reliefrqst_id=931, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=931, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                3931,
+                payload=None,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["abandon"],
+            "This fulfillment can no longer be abandoned.",
+        )
+
+        package_record.refresh_from_db()
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_COMMITTED)
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_abandon_package_draft_rejects_dispatched_package(
+        self,
+        package_context_mock,
+    ) -> None:
+        """Packages that have already been dispatched cannot be abandoned."""
+        request_record = self._create_operations_request_record(relief_request_id=93)
+        package_record = OperationsPackage.objects.create(
+            package_id=393,
+            package_no="PK00393",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_DISPATCHED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=393, reliefrqst_id=93, agency_id=501, status_code="D"),
+            self._request_stub(reliefrqst_id=93, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                393,
+                payload=None,
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["abandon"],
+            "This fulfillment can no longer be abandoned.",
+        )
+
+        package_record.refresh_from_db()
+        self.assertEqual(package_record.status_code, PACKAGE_STATUS_DISPATCHED)
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_abandon_package_draft_rejects_in_transit_consolidation_leg(
+        self,
+        package_context_mock,
+    ) -> None:
+        """In-transit legs block the abandon so we never lose shipment state."""
+        request_record = self._create_operations_request_record(relief_request_id=94)
+        package_record = OperationsPackage.objects.create(
+            package_id=394,
+            package_no="PK00394",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=394, reliefrqst_id=94, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=94, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED),
+            request_record,
+            package_record,
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                394,
+                payload={},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertIn("in-transit", raised.exception.errors["abandon"].lower())
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_abandon_package_draft_idor_cross_tenant_returns_validation_error(
+        self,
+        package_context_mock,
+    ) -> None:
+        """Officer from a different tenant cannot abandon another tenant's draft.
+
+        The real ``_package_context_by_package_id`` raises
+        ``OperationValidationError({"scope": ...})`` from ``_ensure_package_access``
+        when a caller's tenant context does not cover the package's tenants. We
+        mock it here to avoid exercising the legacy-table lookup chain (``agency``,
+        ``reliefpkg``, ``reliefrqst``) that is not provisioned in the test DB.
+        """
+        package_context_mock.side_effect = OperationValidationError(
+            {"scope": "Request is outside the active tenant or workflow assignment scope."}
+        )
+        foreign_tenant_context = _tenant_context(
+            tenant_id=999,
+            tenant_code="OTHER-TENANT",
+            tenant_type="EXTERNAL",
+        )
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                395,
+                payload={"reason": "attempting cross-tenant abandon"},
+                actor_id="rogue-officer-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=foreign_tenant_context,
+            )
+
+        self.assertIn("scope", raised.exception.errors)
+        package_context_mock.assert_called_once()
+        call_kwargs = package_context_mock.call_args.kwargs
+        self.assertEqual(call_kwargs["actor_id"], "rogue-officer-1")
+        self.assertIs(call_kwargs["tenant_context"], foreign_tenant_context)
+        self.assertTrue(call_kwargs["write"])
+
+    def test_abandon_package_draft_rejects_oversized_reason(self) -> None:
+        """Reason strings longer than 500 characters are rejected up front."""
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                396,
+                payload={"reason": "x" * 501},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors["reason"],
+            "Reason must be 500 characters or fewer.",
         )
 
     @patch("operations.contract_services._delete_legacy_allocation_lines")
@@ -5974,6 +6364,303 @@ class ItemAllocationOptionsTests(TestCase):
                 actor_roles=["LOGISTICS_OFFICER"],
                 tenant_context=self.tenant_ctx,
             )
+
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.can_access_warehouse", return_value=True)
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    def test_build_item_warehouse_cards_ranks_fefo(
+        self,
+        get_warehouses_with_stock_mock,
+        _can_access_warehouse_mock,
+        fetch_candidates_mock,
+    ) -> None:
+        """FEFO items order warehouses by earliest-expiring batch, not alphabetically."""
+        item = SimpleNamespace(
+            item_id=202,
+            item_code="MEDS001",
+            item_name="Medical kit",
+            issuance_order="FEFO",
+            can_expire_flag=True,
+        )
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                202: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 50.0},
+                    {"warehouse_id": 2, "warehouse_name": "Warehouse 2", "available_qty": 50.0},
+                    {"warehouse_id": 3, "warehouse_name": "Warehouse 3", "available_qty": 50.0},
+                ]
+            },
+            [],
+        )
+
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1101,
+                    "inventory_id": 1,
+                    "item_id": 202,
+                    "batch_no": "B-1101",
+                    "batch_date": date(2026, 3, 1),
+                    "expiry_date": date(2026, 12, 31),  # latest expiry
+                    "usable_qty": Decimal("50.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("50.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": True,
+                    "issuance_order": "FEFO",
+                    "item_code": "MEDS001",
+                    "item_name": "Medical kit",
+                }
+            ],
+            2: [
+                {
+                    "batch_id": 2201,
+                    "inventory_id": 2,
+                    "item_id": 202,
+                    "batch_no": "B-2201",
+                    "batch_date": date(2026, 3, 1),
+                    "expiry_date": date(2026, 5, 15),  # earliest expiry
+                    "usable_qty": Decimal("50.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("50.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 2",
+                    "can_expire_flag": True,
+                    "issuance_order": "FEFO",
+                    "item_code": "MEDS001",
+                    "item_name": "Medical kit",
+                }
+            ],
+            3: [
+                {
+                    "batch_id": 3301,
+                    "inventory_id": 3,
+                    "item_id": 202,
+                    "batch_no": "B-3301",
+                    "batch_date": date(2026, 3, 1),
+                    "expiry_date": date(2026, 8, 10),  # middle expiry
+                    "usable_qty": Decimal("50.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("50.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 3",
+                    "can_expire_flag": True,
+                    "issuance_order": "FEFO",
+                    "item_code": "MEDS001",
+                    "item_name": "Medical kit",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        cards = contract_services.build_item_warehouse_cards(
+            item_id=202,
+            remaining_qty=Decimal("60"),
+            item=item,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(len(cards), 3)
+        # FEFO ranks warehouses by earliest expiry date: warehouse 2 → 3 → 1
+        self.assertEqual([c["warehouse_id"] for c in cards], [2, 3, 1])
+        self.assertEqual([c["rank"] for c in cards], [0, 1, 2])
+        self.assertTrue(all(c["issuance_order"] == "FEFO" for c in cards))
+
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.can_access_warehouse", return_value=True)
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    def test_build_item_warehouse_cards_greedy_suggested_qty(
+        self,
+        get_warehouses_with_stock_mock,
+        _can_access_warehouse_mock,
+        fetch_candidates_mock,
+    ) -> None:
+        """The top-ranked warehouse is greedily filled first; subsequent cards take the remainder."""
+        item = SimpleNamespace(
+            item_id=303,
+            item_code="TARP001",
+            item_name="Tarpaulin",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                303: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 30.0},
+                    {"warehouse_id": 2, "warehouse_name": "Warehouse 2", "available_qty": 80.0},
+                    {"warehouse_id": 3, "warehouse_name": "Warehouse 3", "available_qty": 200.0},
+                ]
+            },
+            [],
+        )
+
+        warehouse_candidates = {
+            1: [
+                {
+                    "batch_id": 1301,
+                    "inventory_id": 1,
+                    "item_id": 303,
+                    "batch_no": "B-1301",
+                    "batch_date": date(2026, 1, 10),  # earliest batch → ranks first FIFO
+                    "expiry_date": None,
+                    "usable_qty": Decimal("30.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("30.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 1",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+            2: [
+                {
+                    "batch_id": 2301,
+                    "inventory_id": 2,
+                    "item_id": 303,
+                    "batch_no": "B-2301",
+                    "batch_date": date(2026, 2, 15),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("80.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("80.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 2",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+            3: [
+                {
+                    "batch_id": 3301,
+                    "inventory_id": 3,
+                    "item_id": 303,
+                    "batch_no": "B-3301",
+                    "batch_date": date(2026, 3, 20),  # most recent batch → last FIFO
+                    "expiry_date": None,
+                    "usable_qty": Decimal("200.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("200.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 3",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "TARP001",
+                    "item_name": "Tarpaulin",
+                }
+            ],
+        }
+        fetch_candidates_mock.side_effect = (
+            lambda warehouse_id, _item_id, as_of_date=None: list(
+                warehouse_candidates.get(warehouse_id, [])
+            )
+        )
+
+        cards = contract_services.build_item_warehouse_cards(
+            item_id=303,
+            remaining_qty=Decimal("150"),
+            item=item,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(len(cards), 3)
+        self.assertEqual([c["warehouse_id"] for c in cards], [1, 2, 3])
+        # Greedy fill: 30 (all of WH1) + 80 (all of WH2) + 40 (remainder from WH3) = 150
+        self.assertEqual(cards[0]["suggested_qty"], "30.0000")
+        self.assertEqual(cards[1]["suggested_qty"], "80.0000")
+        self.assertEqual(cards[2]["suggested_qty"], "40.0000")
+        self.assertEqual(cards[0]["total_available"], "30.0000")
+        self.assertEqual(cards[1]["total_available"], "80.0000")
+        self.assertEqual(cards[2]["total_available"], "200.0000")
+        self.assertTrue(all(c["issuance_order"] == "FIFO" for c in cards))
+        # Greedy should have stopped at the requested qty, never over-allocating
+        total_suggested = sum(Decimal(c["suggested_qty"]) for c in cards)
+        self.assertEqual(total_suggested, Decimal("150.0000"))
+
+    @patch("operations.contract_services._fetch_batch_candidates")
+    @patch("operations.contract_services.can_access_warehouse")
+    @patch("operations.contract_services.data_access.get_warehouses_with_stock")
+    def test_build_item_warehouse_cards_excludes_unauthorized_warehouses(
+        self,
+        get_warehouses_with_stock_mock,
+        can_access_warehouse_mock,
+        fetch_candidates_mock,
+    ) -> None:
+        """Warehouses outside the caller's tenant scope never reach the card list."""
+        item = SimpleNamespace(
+            item_id=404,
+            item_code="WATER001",
+            item_name="Water purification tablet",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                404: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 20.0},
+                    {"warehouse_id": 9, "warehouse_name": "Warehouse 9", "available_qty": 40.0},
+                ]
+            },
+            [],
+        )
+        # Warehouse 9 is the forbidden one (different tenant)
+        can_access_warehouse_mock.side_effect = (
+            lambda _ctx, warehouse_id, write=False: warehouse_id != 9
+        )
+        fetch_candidates_mock.return_value = [
+            {
+                "batch_id": 1401,
+                "inventory_id": 1,
+                "item_id": 404,
+                "batch_no": "B-1401",
+                "batch_date": date(2026, 3, 1),
+                "expiry_date": None,
+                "usable_qty": Decimal("20.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("20.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "WATER001",
+                "item_name": "Water purification tablet",
+            }
+        ]
+
+        cards = contract_services.build_item_warehouse_cards(
+            item_id=404,
+            remaining_qty=Decimal("30"),
+            item=item,
+            tenant_context=self.tenant_ctx,
+        )
+
+        card_ids = [c["warehouse_id"] for c in cards]
+        self.assertIn(1, card_ids)
+        self.assertNotIn(9, card_ids)
+        # Remaining (30) exceeds available (20) → suggested is capped at total_available
+        self.assertEqual(cards[0]["suggested_qty"], "20.0000")
 
 
 class MultiWarehouseDualWriteTests(TestCase):
