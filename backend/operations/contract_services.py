@@ -951,6 +951,13 @@ def _driver_license_last4(value: Any) -> str | None:
     return trimmed[-4:] if trimmed else None
 
 
+def _collector_id_last4(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    trimmed = str(value).strip()
+    return trimmed[-4:] if trimmed else None
+
+
 def _parse_transport_datetime(value: Any, field_name: str) -> datetime | None:
     if value in (None, ""):
         return None
@@ -5839,7 +5846,9 @@ def pickup_release(
     released_by_name = str(payload.get("released_by_name") or actor_id).strip()
     release_notes = str(payload.get("release_notes") or "").strip() or None
     collected_by_name = str(payload.get("collected_by_name") or "").strip() or None
-    collected_by_id_ref = str(payload.get("collected_by_id_ref") or "").strip() or None
+    collected_by_id_last4 = _collector_id_last4(
+        payload.get("collected_by_id_last4") or payload.get("collected_by_id_ref")
+    )
     pickup_tenant_id = (
         request_record.beneficiary_tenant_id
         or package_record.destination_tenant_id
@@ -5863,7 +5872,7 @@ def pickup_release(
         staging_warehouse_id=package_record.staging_warehouse_id,
         tenant_id=pickup_tenant_id,
         collected_by_name=collected_by_name,
-        collected_by_id_ref=collected_by_id_ref,
+        collected_by_id_last4=collected_by_id_last4,
         released_by_user_id=actor_id,
         released_by_name=released_by_name,
         released_at=now,
@@ -5872,7 +5881,7 @@ def pickup_release(
             "staging_warehouse_id": package_record.staging_warehouse_id,
             "tenant_id": pickup_tenant_id,
             "collected_by_name": collected_by_name,
-            "collected_by_id_ref": collected_by_id_ref,
+            "collected_by_id_last4": collected_by_id_last4,
             "released_by_user_id": actor_id,
             "released_by_name": released_by_name,
             "released_at": now.isoformat(),
@@ -6568,7 +6577,7 @@ def submit_dispatch(
     dispatch.status_code = DISPATCH_STATUS_IN_TRANSIT
     dispatch.dispatch_at = timezone.now()
     dispatch.dispatched_by_id = actor_id
-    dispatch.source_warehouse_id = package_record.source_warehouse_id
+    dispatch.source_warehouse_id = package_record.effective_dispatch_source_warehouse_id
     dispatch.destination_tenant_id = package_record.destination_tenant_id
     dispatch.destination_agency_id = package_record.destination_agency_id
     dispatch.update_by_id = actor_id

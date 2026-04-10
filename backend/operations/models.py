@@ -348,7 +348,7 @@ class OperationsPickupRelease(models.Model):
     staging_warehouse_id = models.IntegerField(blank=True, null=True)
     tenant_id = models.IntegerField(blank=True, null=True)
     collected_by_name = models.CharField(max_length=120, blank=True, null=True)
-    collected_by_id_ref = models.CharField(max_length=50, blank=True, null=True)
+    collected_by_id_last4 = models.CharField(max_length=4, blank=True, null=True)
     released_by_user_id = models.CharField(max_length=50)
     released_by_name = models.CharField(max_length=120, blank=True, null=True)
     released_at = models.DateTimeField(default=timezone.now)

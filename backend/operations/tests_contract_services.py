@@ -293,23 +293,6 @@ class OperationsWorkflowContractTests(TestCase):
             tenant_type="EXTERNAL",
         )
 
-    def _create_operations_request_record(self, request_id: int = 70) -> OperationsReliefRequest:
-        return OperationsReliefRequest.objects.create(
-            relief_request_id=request_id,
-            request_no=f"RQ{request_id:05d}",
-            requesting_tenant_id=20,
-            requesting_agency_id=501,
-            beneficiary_tenant_id=20,
-            beneficiary_agency_id=501,
-            origin_mode=ORIGIN_MODE_SELF,
-            event_id=12,
-            request_date=date(2026, 3, 26),
-            urgency_code="H",
-            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
-            create_by_id="tester",
-            update_by_id="tester",
-        )
-
     @patch("operations.contract_services.get_lookup")
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
     def test_request_reference_data_filters_agencies_to_allowed_scope(
@@ -2257,7 +2240,7 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(pickup_release_record.staging_warehouse_id, 55)
         self.assertEqual(pickup_release_record.tenant_id, 20)
         self.assertEqual(pickup_release_record.collected_by_name, "Community Driver")
-        self.assertEqual(pickup_release_record.collected_by_id_ref, "NID-7788")
+        self.assertEqual(pickup_release_record.collected_by_id_last4, "7788")
         self.assertEqual(pickup_release_record.released_by_name, "Receiver")
         self.assertEqual(pickup_release_record.release_notes, "Pickup at gate")
         self.assertEqual(
@@ -2266,7 +2249,7 @@ class OperationsWorkflowContractTests(TestCase):
                 "staging_warehouse_id": 55,
                 "tenant_id": 20,
                 "collected_by_name": "Community Driver",
-                "collected_by_id_ref": "NID-7788",
+                "collected_by_id_last4": "7788",
                 "released_by_user_id": "logistics-manager-1",
                 "released_by_name": "Receiver",
                 "released_at": pickup_release_record.released_at.isoformat(),
@@ -2354,7 +2337,7 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(result["status"], "RECEIVED")
         self.assertEqual(package_record.status_code, PACKAGE_STATUS_RECEIVED)
         self.assertIsNone(pickup_release_record.collected_by_name)
-        self.assertIsNone(pickup_release_record.collected_by_id_ref)
+        self.assertIsNone(pickup_release_record.collected_by_id_last4)
         self.assertEqual(pickup_release_record.staging_warehouse_id, 56)
         self.assertEqual(pickup_release_record.tenant_id, 20)
         self.assertEqual(
@@ -2362,7 +2345,7 @@ class OperationsWorkflowContractTests(TestCase):
             None,
         )
         self.assertEqual(
-            pickup_release_record.release_artifact_json["collected_by_id_ref"],
+            pickup_release_record.release_artifact_json["collected_by_id_last4"],
             None,
         )
         apply_stock_delta_mock.assert_called_once()
@@ -2403,6 +2386,7 @@ class OperationsWorkflowContractTests(TestCase):
         with self.assertRaises(OperationValidationError) as raised:
             contract_services.cancel_package(
                 290,
+                payload=None,
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
@@ -2475,6 +2459,7 @@ class OperationsWorkflowContractTests(TestCase):
 
         result = contract_services.cancel_package(
             291,
+            payload=None,
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
@@ -3759,6 +3744,20 @@ class OperationsWorkflowContractTests(TestCase):
             "waybill_payload": {"line_items": [{"item_id": 101}]},
         }
         get_agency_scope_mock.return_value = self.agency_scope
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            status_code=PACKAGE_STATUS_READY_FOR_DISPATCH,
+            create_by_id="seed-user",
+            update_by_id="seed-user",
+        )
 
         result = contract_services.submit_dispatch(
             90,
@@ -3781,6 +3780,11 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(transport_record.driver_license_last4, "6789")
         self.assertTrue(OperationsWaybill.objects.filter(waybill_no="WB-PK00090").exists())
         self.assertTrue(OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_RECEIPT, entity_id=90).exists())
+        dispatch_record = OperationsDispatch.objects.get(dispatch_id=result["dispatch"]["dispatch_id"])
+        self.assertEqual(
+            dispatch_record.source_warehouse_id,
+            package_record.effective_dispatch_source_warehouse_id,
+        )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service._load_request")
