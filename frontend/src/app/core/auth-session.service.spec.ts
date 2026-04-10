@@ -73,6 +73,7 @@ describe('AuthSessionService', () => {
     const init = service.initializeApp();
 
     expectConfigRequest().flush(oidcConfig);
+    await flushAsyncBootstrapStep();
     expectWhoamiRequest().flush(
       { detail: 'Unauthorized' },
       { status: 401, statusText: 'Unauthorized' },
@@ -89,6 +90,7 @@ describe('AuthSessionService', () => {
     const init = service.initializeApp();
 
     expectConfigRequest().flush(oidcConfig);
+    await flushAsyncBootstrapStep();
     expectWhoamiRequest().flush(
       { detail: 'Backend unavailable' },
       { status: 503, statusText: 'Service Unavailable' },
@@ -111,11 +113,13 @@ describe('AuthSessionService', () => {
     const init = service.initializeApp();
 
     expectConfigRequest().flush(oidcConfig);
+    await flushAsyncBootstrapStep();
     expectDiscoveryRequest().flush({
       authorization_endpoint: 'https://issuer.example.com/authorize',
       token_endpoint: 'https://issuer.example.com/token',
       end_session_endpoint: 'https://issuer.example.com/logout',
     });
+    await flushAsyncBootstrapStep();
     const tokenRequest = httpMock.expectOne('https://issuer.example.com/token');
     expect(tokenRequest.request.method).toBe('POST');
     expect(tokenRequest.request.body).toContain('grant_type=authorization_code');
@@ -127,6 +131,7 @@ describe('AuthSessionService', () => {
       expires_in: 3600,
       scope: 'openid profile email',
     });
+    await flushAsyncBootstrapStep();
     expectWhoamiRequest().flush({
       user_id: 'EMP-123',
       username: 'ops.user',
@@ -196,6 +201,11 @@ describe('AuthSessionService', () => {
   function readStoredSession(): StoredOidcSession | null {
     const raw = sessionStorage.getItem('dmis_oidc_session');
     return raw ? JSON.parse(raw) as StoredOidcSession : null;
+  }
+
+  async function flushAsyncBootstrapStep(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
   }
 });
 

@@ -27,9 +27,45 @@ describe('AppComponent', () => {
       logout: jasmine.createSpy('logout').and.returnValue(Promise.resolve()),
     };
     const authRbac = {
+      load: jasmine.createSpy('load'),
+      ensureLoaded: jasmine.createSpy('ensureLoaded').and.returnValue(of(void 0)),
       currentUserRef: signal('local_system_admin_tst'),
       actorRef: signal('27'),
       roles: signal(['SYSTEM_ADMINISTRATOR']),
+      permissions: signal([
+        'masterdata.view',
+        'operations.queue.view',
+        'replenishment.needs_list.preview',
+      ]),
+      tenantContext: signal({
+        requested_tenant_id: null,
+        active_tenant_id: 2,
+        active_tenant_code: 'ODPEM-NEOC',
+        active_tenant_type: 'NATIONAL',
+        is_neoc: true,
+        can_read_all_tenants: true,
+        can_act_cross_tenant: true,
+        memberships: [
+          {
+            tenant_id: 2,
+            tenant_code: 'ODPEM-NEOC',
+            tenant_name: 'ODPEM NEOC',
+            tenant_type: 'NATIONAL',
+            is_primary: true,
+            access_level: 'FULL',
+          },
+        ],
+      }),
+      operationsCapabilities: signal({
+        can_create_relief_request: true,
+        can_create_relief_request_on_behalf: true,
+        relief_request_submission_mode: 'for_subordinate' as const,
+        default_requesting_tenant_id: 2,
+        allowed_origin_modes: ['for_subordinate' as const],
+      }),
+      hasPermission(permission: string) {
+        return this.permissions().includes(permission.toLowerCase());
+      },
     };
 
     await TestBed.configureTestingModule({
@@ -166,6 +202,6 @@ describe('AppComponent', () => {
   });
 });
 
-  function flushInitialRequests(httpMock: HttpTestingController): void {
+function flushInitialRequests(httpMock: HttpTestingController): void {
   httpMock.expectOne('/api/v1/auth/local-harness/').flush({ enabled: false });
 }

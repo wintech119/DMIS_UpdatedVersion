@@ -64,7 +64,7 @@ describe('masterDataAccessGuard', () => {
     expect(result).toBeTrue();
   });
 
-  it('redirects unauthenticated users to the login route before evaluating access', async () => {
+  it('redirects unauthenticated users to the login route before evaluating access using the normalized route path', async () => {
     const { access, router } = setup({
       authState: {
         status: 'unauthenticated',
@@ -80,7 +80,7 @@ describe('masterDataAccessGuard', () => {
     expect(router.createUrlTree).toHaveBeenCalledWith(['/auth/login'], {
       queryParams: {
         reason: 'unauthenticated',
-        returnUrl: '/items/new',
+        returnUrl: '/items',
       },
     });
     expect(result).toEqual(jasmine.objectContaining({
@@ -88,7 +88,7 @@ describe('masterDataAccessGuard', () => {
     }));
   });
 
-  it('redirects authenticated but unauthorized routes to access denied', async () => {
+  it('redirects authenticated but unauthorized routes to access denied using the normalized route path', async () => {
     const { access, router } = setup({ canEdit: false });
 
     const result = await resolveGuard({
@@ -99,7 +99,7 @@ describe('masterDataAccessGuard', () => {
     expect(access.canEditRoutePath).toHaveBeenCalledWith('events');
     expect(router.createUrlTree).toHaveBeenCalledWith(['/access-denied'], {
       queryParams: {
-        returnUrl: '/events/:pk/edit',
+        returnUrl: '/events',
       },
     });
     expect(result).toEqual(jasmine.objectContaining({
