@@ -20,28 +20,7 @@
         }
       </div>
       <div class="topbar-actions">
-        @if (canSwitchLocalHarnessUser()) {
-          <label for="dev-user-select" class="dev-user-label">Local test mode</label>
-          <select
-            id="dev-user-select"
-            class="dev-user-select"
-            [value]="selectedLocalHarnessUser()"
-            (change)="switchLocalHarnessUser($any($event.target).value)">
-            <option value="">{{ localHarnessDefaultLabel() }}</option>
-            @for (user of localHarnessUsers(); track user.username) {
-              <option [value]="user.username">
-                {{ formatLocalHarnessUserLabel(user) }}
-              </option>
-            }
-          </select>
-          <button
-            type="button"
-            class="dev-user-clear"
-            [disabled]="!selectedLocalHarnessUser()"
-            (click)="clearLocalHarnessUser()">
-            Reset
-          </button>
-        }
+        <dmis-local-harness-switcher />
       </div>
     </header>
 

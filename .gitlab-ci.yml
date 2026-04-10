@@ -20,6 +20,145 @@ secret_detection:
 dependency_scanning:
   before_script: ''
   stage: test
+
+auth_posture_validation:
+  stage: test
+  script:
+    - |
+      python - <<'PY'
+      import os
+      import subprocess
+      import sys
+
+      backend_cwd = os.path.join(os.getcwd(), "backend")
+      base_env = os.environ.copy()
+      common_env = {
+          "DJANGO_SECRET_KEY": "ci-auth-posture-secret",
+          "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1,shared-dev.dmis.example.org,staging.dmis.example.org,dmis.example.org",
+          "AUTH_ISSUER": "https://idp.example/realms/dmis",
+          "AUTH_AUDIENCE": "dmis-web",
+          "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",
+          "AUTH_USER_ID_CLAIM": "sub",
+          "AUTH_USERNAME_CLAIM": "preferred_username",
+          "AUTH_USE_DB_RBAC": "1",
+          "DB_NAME": "dmis",
+          "DB_USER": "dmis",
+          "DB_PASSWORD": "dmis",
+          "DB_HOST": "db",
+          "DB_PORT": "5432",
+      }
+
+      cases = [
+          (
+              "shared-dev baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "shared-dev infers auth enabled from runtime env",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "prod-like-local baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "prod-like-local",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "shared-dev rejects dev auth",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "1",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "staging rejects local harness",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "staging",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "1",
+              },
+          ),
+          (
+              "production rejects debug mode",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "1",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "production rejects auth disabled",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "0",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+          (
+              "missing runtime env fails closed",
+              False,
+              {
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+              },
+          ),
+      ]
+
+      for name, expect_success, updates in cases:
+          env = base_env.copy()
+          env.update(common_env)
+          env.update(updates)
+          result = subprocess.run(
+              [sys.executable, "-c", "import dmis_api.settings"],
+              cwd=backend_cwd,
+              env=env,
+              capture_output=True,
+              text=True,
+          )
+          succeeded = result.returncode == 0
+          if succeeded != expect_success:
+              print(f"[FAIL] {name}")
+              print("stdout:")
+              print(result.stdout)
+              print("stderr:")
+              print(result.stderr)
+              raise SystemExit(1)
+          verdict = "passed" if expect_success else "failed as expected"
+          print(f"[OK] {name}: {verdict}")
+      PY
 #----- DAST SCAN
 dast_api:
   stage: dast

@@ -45,7 +45,6 @@
   background: var(--color-surface-muted);
 }
 
-// Top bar — clean white breadcrumb style
 .app-topbar {
   display: flex;
   align-items: center;
@@ -102,58 +101,6 @@
   align-items: center;
   gap: 0.625rem;
   font-size: var(--text-sm);
-}
-
-.dev-user-label {
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-
-.dev-user-select {
-  min-width: 200px;
-  max-width: 300px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  padding: 0.25rem 0.5rem;
-  font-size: var(--text-xs);
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 1px var(--color-accent-shadow);
-  }
-}
-
-.dev-user-clear {
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  padding: 0.25rem 0.625rem;
-  font-size: var(--text-xs);
-  cursor: pointer;
-  transition: background 0.12s ease;
-
-  &:hover {
-    background: var(--color-hover);
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-}
-
-@media (width <= 900px) {
-  .topbar-actions {
-    gap: 0.375rem;
-  }
-
-  .dev-user-select {
-    min-width: 150px;
-  }
 }
 
 .app-shell {

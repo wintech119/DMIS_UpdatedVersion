@@ -6,6 +6,7 @@ from unittest.mock import patch
 from api import rbac
 from api.authentication import Principal
 from api.permissions import NeedsListPermission
+from dmis_api import settings as dmis_settings
 
 
 class HealthEndpointTests(TestCase):
@@ -15,6 +16,98 @@ class HealthEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+
+class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
+    def test_shared_dev_defaults_auth_enabled(self) -> None:
+        self.assertTrue(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="shared-dev",
+                testing=False,
+            )
+        )
+
+    def test_local_harness_defaults_auth_disabled(self) -> None:
+        self.assertFalse(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="local-harness",
+                testing=False,
+            )
+        )
+
+    def test_tests_keep_auth_disabled_by_default(self) -> None:
+        self.assertFalse(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="shared-dev",
+                testing=True,
+            )
+        )
+
+    def test_local_harness_mode_accepts_local_only_flags(self) -> None:
+        dmis_settings.validate_runtime_auth_configuration(
+            runtime_env="local-harness",
+            debug=True,
+            auth_enabled=False,
+            dev_auth_enabled=True,
+            local_auth_harness_enabled=True,
+            testing=False,
+        )
+
+    def test_shared_dev_requires_auth_enabled(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires AUTH_ENABLED=1.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="shared-dev",
+                debug=False,
+                auth_enabled=False,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
+
+    def test_shared_dev_rejects_dev_auth(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DEV_AUTH_ENABLED=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="shared-dev",
+                debug=False,
+                auth_enabled=True,
+                dev_auth_enabled=True,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
+
+    def test_production_rejects_local_harness_flag(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production requires LOCAL_AUTH_HARNESS_ENABLED=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="production",
+                debug=False,
+                auth_enabled=True,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=True,
+                testing=False,
+            )
+
+    def test_prod_like_local_rejects_debug_mode(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires DJANGO_DEBUG=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="prod-like-local",
+                debug=True,
+                auth_enabled=True,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
 
 
 class AuthWhoAmITests(TestCase):
@@ -159,6 +252,59 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_whoami_rejects_local_harness_header_when_harness_disabled(self) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DMIS_LOCAL_USER="local_odpem_logistics_manager_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("X-DMIS-Local-User", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_whoami_rejects_legacy_dev_user_header(self) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DEV_USER="local_system_admin_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("X-Dev-User", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_local_auth_harness_route_is_hidden_when_auth_is_mandatory(self) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=[
             "local_system_admin_tst",
@@ -227,6 +373,11 @@ class AuthWhoAmITests(TestCase):
         )
         self.assertEqual(len(body["users"]), 1)
         self.assertEqual(body["users"][0]["username"], "local_system_admin_tst")
+
+    def test_legacy_dev_users_route_is_not_exposed(self) -> None:
+        response = self.client.get("/api/v1/auth/dev-users/")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class RbacResolutionTests(TestCase):

@@ -1,5 +1,8 @@
 <# 
-Run Angular + Django dev servers in separate PowerShell windows.
+Run Angular + Django local-harness dev servers in separate PowerShell windows.
+
+This script is development-only. It is not a staging, production, or production-like
+startup path. Use it only for the local multi-user harness workflow.
 
 Usage:
   .\scripts\run_new_stack.ps1
@@ -34,21 +37,76 @@ $dbUserLiteral = if ($DbUser) { $DbUser } else { "" }
 $dbHostLiteral = if ($DbHost) { $DbHost } else { "localhost" }
 $dbPortLiteral = if ($DbPort) { $DbPort } else { "5432" }
 
-$envFilePath = $EnvFile
-if (-not $envFilePath) {
-  $candidate = Join-Path $backendPath ".env"
-  if (Test-Path $candidate) {
-    $envFilePath = $candidate
-  } else {
-    $candidate = Join-Path $repoRoot ".env"
-    if (Test-Path $candidate) { $envFilePath = $candidate }
+function Add-EnvFileIfPresent {
+  param(
+    [System.Collections.Generic.List[string]]$Files,
+    [string]$Path
+  )
+
+  if (-not $Path -or -not (Test-Path $Path)) {
+    return
+  }
+
+  $resolvedPath = (Resolve-Path $Path).Path
+  if (-not $Files.Contains($resolvedPath)) {
+    $Files.Add($resolvedPath) | Out-Null
   }
 }
-$envFileLiteral = if ($envFilePath) { $envFilePath } else { "" }
+
+function Resolve-EnvFilePaths {
+  param([string]$PrimaryEnvFile)
+
+  $files = New-Object 'System.Collections.Generic.List[string]'
+
+  if ($PrimaryEnvFile) {
+    Add-EnvFileIfPresent -Files $files -Path $PrimaryEnvFile
+    if ((Split-Path $PrimaryEnvFile -Leaf) -eq ".env") {
+      Add-EnvFileIfPresent -Files $files -Path (Join-Path (Split-Path $PrimaryEnvFile -Parent) ".env.local")
+    }
+    return $files.ToArray()
+  }
+
+  Add-EnvFileIfPresent -Files $files -Path (Join-Path $backendPath ".env")
+  Add-EnvFileIfPresent -Files $files -Path (Join-Path $backendPath ".env.local")
+
+  if ($files.Count -eq 0) {
+    Add-EnvFileIfPresent -Files $files -Path (Join-Path $repoRoot ".env")
+    Add-EnvFileIfPresent -Files $files -Path (Join-Path $repoRoot ".env.local")
+  }
+
+  return $files.ToArray()
+}
+
+function Import-EnvFiles {
+  param([string[]]$Paths)
+
+  foreach ($envPath in $Paths) {
+    Get-Content $envPath | ForEach-Object {
+      $line = $_.Trim()
+      if (-not $line -or $line.StartsWith("#")) { return }
+      if ($line.StartsWith("export ")) { $line = $line.Substring(7).Trim() }
+      $parts = $line.Split("=", 2)
+      if ($parts.Length -ne 2) { return }
+      $key = $parts[0].Trim()
+      $val = $parts[1].Trim()
+      if ($val.StartsWith('"') -and $val.EndsWith('"')) { $val = $val.Substring(1, $val.Length - 2) }
+      elseif ($val.StartsWith("'") -and $val.EndsWith("'")) { $val = $val.Substring(1, $val.Length - 2) }
+      if ($key) { [System.Environment]::SetEnvironmentVariable($key, $val) }
+    }
+  }
+}
+
+$envFilePaths = Resolve-EnvFilePaths -PrimaryEnvFile $EnvFile
+Import-EnvFiles -Paths $envFilePaths
+$envFilesLiteral = if ($envFilePaths.Count -gt 0) {
+  "@('" + (($envFilePaths | ForEach-Object { $_.Replace("'", "''") }) -join "','") + "')"
+} else {
+  "@()"
+}
 
 $envFileHasDbPassword = $false
-if ($envFilePath -and (Test-Path $envFilePath)) {
-  $envFileHasDbPassword = Select-String -Path $envFilePath -Pattern '^\s*(export\s+)?DB_PASSWORD\s*=' -Quiet
+if ($envFilePaths.Count -gt 0) {
+  $envFileHasDbPassword = Select-String -Path $envFilePaths -Pattern '^\s*(export\s+)?DB_PASSWORD\s*=' -Quiet
 }
 
 if (-not $env:DB_PASSWORD -and -not $DbPassword -and -not $envFileHasDbPassword) {
@@ -70,8 +128,12 @@ $host.ui.RawUI.WindowTitle = "DMIS Django API"
 Set-Location -Path "__BACKEND_PATH__"
 if (-not (Test-Path ".venv\Scripts\Activate.ps1")) { python -m venv .venv }
 . .\.venv\Scripts\Activate.ps1
-if ("__ENV_FILE__" -and (Test-Path "__ENV_FILE__")) {
-  Get-Content "__ENV_FILE__" | ForEach-Object {
+$envFiles = __ENV_FILES__
+foreach ($envFile in $envFiles) {
+  if (-not $envFile -or -not (Test-Path $envFile)) {
+    continue
+  }
+  Get-Content $envFile | ForEach-Object {
     $line = $_.Trim()
     if (-not $line -or $line.StartsWith("#")) { return }
     if ($line.StartsWith("export ")) { $line = $line.Substring(7).Trim() }
@@ -83,7 +145,7 @@ if ("__ENV_FILE__" -and (Test-Path "__ENV_FILE__")) {
     elseif ($val.StartsWith("'") -and $val.EndsWith("'")) { $val = $val.Substring(1, $val.Length - 2) }
     if ($key) { [System.Environment]::SetEnvironmentVariable($key, $val) }
   }
-  Write-Host "Loaded env file: __ENV_FILE__"
+  Write-Host "Loaded env file: $envFile"
 }
 if (-not $env:DJANGO_SECRET_KEY) { $env:DJANGO_SECRET_KEY = "dev-only" }
 if (-not $env:DJANGO_DEBUG) { $env:DJANGO_DEBUG = "1" }
@@ -105,7 +167,37 @@ if ($missing.Count -gt 0) {
   exit 1
 }
 
+if (-not $env:DMIS_RUNTIME_ENV) { $env:DMIS_RUNTIME_ENV = "local-harness" }
+if ($env:DMIS_RUNTIME_ENV -ne "local-harness") {
+  Write-Host "scripts/run_new_stack.ps1 is local-harness only. Current DMIS_RUNTIME_ENV=$env:DMIS_RUNTIME_ENV"
+  Write-Host "Use a separate prod-like local workflow for AUTH_ENABLED=1 smoke testing."
+  Pause
+  exit 1
+}
+if (-not $env:AUTH_ENABLED) { $env:AUTH_ENABLED = "0" }
+if ($env:AUTH_ENABLED -ne "0") {
+  Write-Host "scripts/run_new_stack.ps1 refuses to start with AUTH_ENABLED=$env:AUTH_ENABLED."
+  Write-Host "This script is reserved for the local developer harness only."
+  Pause
+  exit 1
+}
 if (-not $env:DEV_AUTH_ENABLED) { $env:DEV_AUTH_ENABLED = "1" }
+if ($env:DEV_AUTH_ENABLED -ne "1") {
+  Write-Host "scripts/run_new_stack.ps1 requires DEV_AUTH_ENABLED=1."
+  Pause
+  exit 1
+}
+if (-not $env:LOCAL_AUTH_HARNESS_ENABLED) { $env:LOCAL_AUTH_HARNESS_ENABLED = "1" }
+if ($env:LOCAL_AUTH_HARNESS_ENABLED -ne "1") {
+  Write-Host "scripts/run_new_stack.ps1 requires LOCAL_AUTH_HARNESS_ENABLED=1."
+  Pause
+  exit 1
+}
+if ($env:DJANGO_DEBUG -ne "1") {
+  Write-Host "scripts/run_new_stack.ps1 requires DJANGO_DEBUG=1 for local-harness mode."
+  Pause
+  exit 1
+}
 if (-not $env:DEV_AUTH_USER_ID) { $env:DEV_AUTH_USER_ID = "dev-user" }
 if (-not $env:DEV_AUTH_ROLES) { $env:DEV_AUTH_ROLES = "LOGISTICS" }
 if (-not $env:DEV_AUTH_PERMISSIONS) {
@@ -129,7 +221,7 @@ $backendCmd = $backendCmd.Replace("__BACKEND_PATH__", $backendPath).
   Replace("__INSTALL_FLAG__", $installFlagLiteral).
   Replace("__RUN_MIGRATIONS__", $runMigrationsLiteral).
   Replace("__APPLY_SCHEMA__", $applySchemaLiteral).
-  Replace("__ENV_FILE__", $envFileLiteral).
+  Replace("__ENV_FILES__", $envFilesLiteral).
   Replace("__DB_NAME__", $dbNameLiteral).
   Replace("__DB_USER__", $dbUserLiteral).
   Replace("__DB_HOST__", $dbHostLiteral).

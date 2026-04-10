@@ -4,11 +4,18 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 
 import { AppComponent } from './app.component';
+import {
+  isLocalAuthHarnessHost,
+  localAuthHarnessBuildEnabled,
+  localAuthHarnessClientEnabled
+} from './core/dev-user.interceptor';
 
 describe('AppComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
+    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = true;
+
     await TestBed.configureTestingModule({
       imports: [AppComponent],
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
@@ -20,6 +27,7 @@ describe('AppComponent', () => {
   afterEach(() => {
     httpMock.verify();
     localStorage.clear();
+    delete (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__;
   });
 
   it('should create the app', () => {
@@ -114,6 +122,37 @@ describe('AppComponent', () => {
     expect(select?.options[2].textContent).toContain('ODPEM-NEOC');
     expect(select?.options[3].textContent).toContain('AGENCY_DISTRIBUTOR');
     expect(select?.options[3].textContent).toContain('JRC');
+  });
+
+  it('does not load the local harness UI when the build flag is disabled', () => {
+    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = false;
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/v1/auth/whoami/').flush({
+      user_id: '27',
+      username: 'shared.dev.operator',
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['masterdata.view'],
+    });
+    httpMock.expectNone('/api/v1/auth/local-harness/');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.dev-user-label')).toBeNull();
+  });
+
+  it('limits the local harness client gate to local browser hosts', () => {
+    delete (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__;
+
+    expect(localAuthHarnessBuildEnabled()).toBeFalse();
+    expect(localAuthHarnessClientEnabled({ hostname: 'localhost' })).toBeFalse();
+
+    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = true;
+    expect(localAuthHarnessBuildEnabled()).toBeTrue();
+    expect(localAuthHarnessClientEnabled({ hostname: 'localhost' })).toBeTrue();
+    expect(isLocalAuthHarnessHost({ hostname: 'shared-dev.dmis.example.org' })).toBeFalse();
+    expect(localAuthHarnessClientEnabled({ hostname: 'shared-dev.dmis.example.org' })).toBeFalse();
   });
 });
 

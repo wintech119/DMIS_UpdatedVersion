@@ -85,12 +85,97 @@ def _build_debug_secret_key() -> str:
 
 
 _LOCAL_ENV_COMMANDS = {"runserver", "shell", "dbshell"}
+_RUNTIME_ENVIRONMENTS = {
+    "local-harness",
+    "prod-like-local",
+    "shared-dev",
+    "staging",
+    "production",
+}
+_REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS = {
+    "prod-like-local",
+    "shared-dev",
+    "staging",
+    "production",
+}
 
 
 def _should_load_local_env() -> bool:
+    if _get_bool_env("DMIS_SKIP_LOCAL_ENV", False):
+        return False
     if _get_bool_env("DMIS_LOAD_LOCAL_ENV", False):
         return True
     return any(arg in _LOCAL_ENV_COMMANDS for arg in sys.argv[1:])
+
+
+def _normalize_runtime_environment(*, testing: bool) -> str:
+    raw = os.getenv("DMIS_RUNTIME_ENV", "").strip().lower()
+    if testing:
+        return raw or "test"
+    if raw not in _RUNTIME_ENVIRONMENTS:
+        allowed = ", ".join(sorted(_RUNTIME_ENVIRONMENTS))
+        raise RuntimeError(
+            "DMIS_RUNTIME_ENV must be set to one of: "
+            + allowed
+            + ". Shared dev, staging, and production must declare their runtime posture explicitly."
+        )
+    return raw
+
+
+def validate_runtime_auth_configuration(
+    *,
+    runtime_env: str,
+    debug: bool,
+    auth_enabled: bool,
+    dev_auth_enabled: bool,
+    local_auth_harness_enabled: bool,
+    testing: bool,
+) -> None:
+    if testing:
+        return
+
+    if runtime_env == "local-harness":
+        if auth_enabled:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=local-harness requires AUTH_ENABLED=0."
+            )
+        if not dev_auth_enabled:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=local-harness requires DEV_AUTH_ENABLED=1."
+            )
+        if not local_auth_harness_enabled:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=local-harness requires LOCAL_AUTH_HARNESS_ENABLED=1."
+            )
+        if not debug:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=local-harness requires DJANGO_DEBUG=1."
+            )
+        return
+
+    if runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS:
+        if not auth_enabled:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires AUTH_ENABLED=1."
+            )
+        if dev_auth_enabled:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DEV_AUTH_ENABLED=0."
+            )
+        if local_auth_harness_enabled:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires LOCAL_AUTH_HARNESS_ENABLED=0."
+            )
+        if debug:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_DEBUG=0."
+            )
+
+
+def default_auth_enabled_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
+    if testing:
+        return False
+    return runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS
 
 
 _load_env_file(BASE_DIR / ".env")
@@ -100,6 +185,7 @@ if _should_load_local_env():
 _env_secret_key = os.getenv("DJANGO_SECRET_KEY", "").strip()
 SECRET_KEY = _env_secret_key or _build_debug_secret_key()
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
+DMIS_RUNTIME_ENV = _normalize_runtime_environment(testing=TESTING)
 ENABLE_TEST_ROLES = os.getenv("ENABLE_TEST_ROLES", "0") == "1"
 _allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS")
 ALLOWED_HOSTS = [
@@ -251,7 +337,10 @@ else:
     }
 
 # AuthN/AuthZ configuration (env-driven; no claim-name assumptions).
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
+AUTH_ENABLED = _get_bool_env(
+    "AUTH_ENABLED",
+    default_auth_enabled_for_runtime_env(runtime_env=DMIS_RUNTIME_ENV, testing=TESTING),
+)
 AUTH_ISSUER = os.getenv("AUTH_ISSUER", "")
 AUTH_AUDIENCE = os.getenv("AUTH_AUDIENCE", "")
 AUTH_JWKS_URL = os.getenv("AUTH_JWKS_URL", "")
@@ -312,6 +401,14 @@ LOCAL_AUTH_HARNESS_USERNAMES = [
     for value in os.getenv("LOCAL_AUTH_HARNESS_USERNAMES", "").split(",")
     if value.strip()
 ]
+validate_runtime_auth_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    debug=DEBUG,
+    auth_enabled=AUTH_ENABLED,
+    dev_auth_enabled=DEV_AUTH_ENABLED,
+    local_auth_harness_enabled=LOCAL_AUTH_HARNESS_ENABLED,
+    testing=TESTING,
+)
 
 # Tenant-scope rollout control.
 # Default is disabled for backward compatibility until tenant mappings are complete.

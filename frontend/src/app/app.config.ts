@@ -4,13 +4,13 @@ import { provideRouter } from '@angular/router';
 import { provideAnimations } from '@angular/platform-browser/animations';
 
 import { routes } from './app.routes';
-import { devUserInterceptor } from './core/dev-user.interceptor';
+import { DMIS_HTTP_INTERCEPTORS } from './core/http-interceptors';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([devUserInterceptor])),
+    provideHttpClient(withInterceptors(DMIS_HTTP_INTERCEPTORS)),
     provideAnimations()
   ]
 };

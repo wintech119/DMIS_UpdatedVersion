@@ -3,6 +3,31 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.checks import Error, Warning, register
 from django.db import DatabaseError, connection
+from dmis_api import settings as dmis_settings
+
+
+@register()
+def check_dmis_auth_runtime_posture(app_configs, **kwargs):
+    messages = []
+
+    try:
+        dmis_settings.validate_runtime_auth_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            debug=bool(getattr(settings, "DEBUG", False)),
+            auth_enabled=bool(getattr(settings, "AUTH_ENABLED", False)),
+            dev_auth_enabled=bool(getattr(settings, "DEV_AUTH_ENABLED", False)),
+            local_auth_harness_enabled=bool(getattr(settings, "LOCAL_AUTH_HARNESS_ENABLED", False)),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E002",
+            )
+        )
+
+    return messages
 
 
 @register()

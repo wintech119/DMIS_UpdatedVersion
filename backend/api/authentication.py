@@ -92,10 +92,27 @@ def _configured_local_auth_harness_users() -> set[str]:
 
 
 def _requested_local_auth_harness_user(request) -> str:
-    primary = str(request.META.get(LOCAL_AUTH_HARNESS_HEADER, "")).strip()
-    if primary:
-        return primary
-    return str(request.META.get(LEGACY_DEV_AUTH_HEADER, "")).strip()
+    return str(request.META.get(LOCAL_AUTH_HARNESS_HEADER, "")).strip()
+
+
+def _enforce_dev_override_header_policy(request) -> None:
+    legacy_header_value = str(request.META.get(LEGACY_DEV_AUTH_HEADER, "")).strip()
+    if legacy_header_value:
+        logger.warning("Rejected deprecated X-Dev-User header for DMIS auth flow.")
+        raise AuthenticationFailed(
+            "X-Dev-User is no longer supported. Use the local auth harness flow only in explicit local-harness mode."
+        )
+
+    local_harness_header_value = _requested_local_auth_harness_user(request)
+    if local_harness_header_value and not local_auth_harness_enabled():
+        runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
+        logger.warning(
+            "Rejected local auth harness header outside local-harness mode (env=%s).",
+            runtime_env,
+        )
+        raise AuthenticationFailed(
+            "X-DMIS-Local-User is disabled outside DMIS local-harness mode."
+        )
 
 
 def _resolve_dev_override_principal(request) -> Principal | None:
@@ -188,6 +205,8 @@ class LegacyCompatAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request) -> Optional[Tuple[Principal, None]]:
+        _enforce_dev_override_header_policy(request)
+
         if settings.DEV_AUTH_ENABLED and settings.AUTH_ENABLED:
             raise AuthenticationFailed(
                 "Invalid auth configuration: DEV_AUTH_ENABLED cannot be true when AUTH_ENABLED is true."

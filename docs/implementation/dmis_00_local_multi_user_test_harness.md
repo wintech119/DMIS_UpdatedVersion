@@ -1,6 +1,6 @@
 # DMIS-00 Local Multi-User Test Harness
 
-Last updated: 2026-04-09
+Last updated: 2026-04-10
 Status: Implemented local-only developer harness
 
 ## Purpose
@@ -176,14 +176,17 @@ This harness is intentionally blocked outside local development:
 
 ## Risks and Follow-Ups For DMIS-01
 
-DMIS-01 should treat this harness as a temporary local development tool and finish the production hardening split:
+DMIS-01 now hardens the production split further:
 
-1. Remove the legacy `/api/v1/auth/dev-users/` alias once the local harness route is the only supported local selector source.
-2. Strip local-harness code from non-local frontend bundles instead of relying only on runtime host checks.
-3. Make `AUTH_ENABLED=1` mandatory in all non-local environments and add explicit deploy-time checks for incompatible local harness flags.
-4. Replace the current tenant-admin surrogate with a canonical tenant-admin role and permission bundle.
-5. Audit whether any local-only header names or storage keys remain referenced outside the dedicated harness path.
-6. Ensure the eventual production OIDC path fully replaces all header-based local user switching.
+1. `X-Dev-User` and `/api/v1/auth/dev-users/` are removed from the supported path.
+2. Non-local environments now require explicit runtime classification and fail closed when auth flags are incompatible.
+3. Production-style Angular builds file-replace the local harness selector/interceptor path with no-op implementations.
+
+Remaining follow-ups:
+
+1. Replace the current tenant-admin surrogate with a canonical tenant-admin role and permission bundle.
+2. Complete the Angular OIDC login/logout/token flow so end-to-end production-auth validation can be exercised without any local harness assumptions.
+3. Confirm the final prod-like-local smoke-test workflow once the Angular OIDC integration is complete.
 
 ## Related Baseline Documents
 

@@ -179,19 +179,12 @@ def _local_auth_harness_payload() -> dict[str, object]:
 
 
 @api_view(["GET"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([IsAuthenticated])
 def local_auth_harness(request):
     if not local_auth_harness_enabled():
         return Response({"detail": "Not found."}, status=404)
+    authenticator = LegacyCompatAuthentication()
+    auth_result = authenticator.authenticate(request)
+    if auth_result is None:
+        return Response({"detail": "Authentication credentials were not provided."}, status=401)
+    request.user = auth_result[0]
     return Response(_local_auth_harness_payload())
-
-
-@api_view(["GET"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([IsAuthenticated])
-def dev_users(request):
-    if not local_auth_harness_enabled():
-        return Response({"detail": "Not found."}, status=404)
-    payload = _local_auth_harness_payload()
-    return Response({"users": payload["users"]})
