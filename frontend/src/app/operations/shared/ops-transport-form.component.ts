@@ -5,6 +5,7 @@ import {
   FormGroup,
   ReactiveFormsModule,
   ValidationErrors,
+  ValidatorFn,
   Validators,
 } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -206,7 +207,7 @@ export class OpsTransportFormComponent {
 
   readonly form: FormGroup = this.fb.nonNullable.group(
     {
-      driver_name: ['', [Validators.required, Validators.maxLength(120)]],
+      driver_name: ['', [trimRequiredAndMaxLength(120)]],
       driver_license_last4: ['', [Validators.maxLength(4)]],
       vehicle_id: ['', [Validators.maxLength(30)]],
       vehicle_registration: ['', [Validators.maxLength(30)]],
@@ -254,4 +255,23 @@ function arrivalAfterDepartureValidator(
     return null;
   }
   return a > d ? null : { arrivalBeforeDeparture: true };
+}
+
+function trimRequiredAndMaxLength(maxLength: number): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null => {
+    const value = String(control.value ?? '');
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return { required: true };
+    }
+    if (trimmed.length > maxLength) {
+      return {
+        maxlength: {
+          requiredLength: maxLength,
+          actualLength: trimmed.length,
+        },
+      };
+    }
+    return null;
+  };
 }

@@ -348,8 +348,8 @@ export class PickupReleaseComponent implements OnInit {
   }
 
   goBack(): void {
-    const reliefrqstId = this.state.reliefrqstId();
-    if (reliefrqstId) {
+    const reliefrqstId = this.state.packageDetail()?.package?.reliefrqst_id;
+    if (reliefrqstId != null) {
       this.router.navigate(['/operations/package-fulfillment', reliefrqstId]);
       return;
     }

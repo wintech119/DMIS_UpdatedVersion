@@ -464,6 +464,7 @@ export class OpsDispatchWorkspaceComponent {
       .subscribe({
         next: (detail: DispatchDetailResponse) => {
           if (detail.fulfillment_mode === 'PICKUP_AT_STAGING') {
+            this.loading.set(false);
             this.router.navigate(['/operations/pickup-release', reliefpkgId]);
             return;
           }

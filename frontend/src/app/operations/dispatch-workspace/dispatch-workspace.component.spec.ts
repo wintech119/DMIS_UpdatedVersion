@@ -158,6 +158,21 @@ describe('OpsDispatchWorkspaceComponent', () => {
     expect(host.querySelector('tbody .ops-readiness__table-num')?.textContent).toContain('1.2345');
   });
 
+  it('clears loading before redirecting pickup-at-staging packages', () => {
+    const router = TestBed.inject(Router) as jasmine.SpyObj<Router>;
+    operationsService.getDispatchDetail.and.returnValue(of({
+      reliefpkg_id: 90,
+      reliefrqst_id: 12,
+      tracking_no: 'PKG-00090',
+      fulfillment_mode: 'PICKUP_AT_STAGING',
+    } as any));
+
+    component['loadDetail'](90);
+
+    expect(component.loading()).toBeFalse();
+    expect(router.navigate).toHaveBeenCalledWith(['/operations/pickup-release', 90]);
+  });
+
   it('submits the backend-aligned dispatch payload keys', async () => {
     const departureDate = new Date(2026, 2, 26);
     const arrivalDate = new Date(2026, 2, 26);

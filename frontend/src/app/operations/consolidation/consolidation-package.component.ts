@@ -148,8 +148,13 @@ export class ConsolidationPackageComponent implements OnInit {
 
   goBack(): void {
     const reliefpkgId = this.state.reliefpkgId();
+    const reliefrqstId = this.state.reliefrqstId();
     if (reliefpkgId) {
-      this.router.navigate(['/operations/package-fulfillment', this.state.reliefrqstId() || reliefpkgId]);
+      if (reliefrqstId > 0) {
+        this.router.navigate(['/operations/package-fulfillment', reliefrqstId]);
+        return;
+      }
+      this.router.navigate(['/operations/package-fulfillment']);
       return;
     }
     this.router.navigate(['/operations/package-fulfillment']);

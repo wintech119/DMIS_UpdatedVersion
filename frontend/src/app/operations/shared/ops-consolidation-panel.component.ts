@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import {
@@ -17,6 +18,7 @@ import { OperationsWorkspaceStateService } from '../services/operations-workspac
 import {
   getOperationsConsolidationLegTone,
   getOperationsConsolidationStatusTone,
+  mapOperationsToneToChipTone,
 } from '../operations-display.util';
 import { OpsMetricStripComponent, OpsMetricStripItem } from './ops-metric-strip.component';
 import { OpsStatusChipComponent } from './ops-status-chip.component';
@@ -95,8 +97,8 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
                   @if (leg.vehicle_registration) {
                     <span>Vehicle: {{ leg.vehicle_registration }}</span>
                   }
-                  @if (leg.expected_arrival_at) {
-                    <span>ETA: {{ leg.expected_arrival_at }}</span>
+                  @if (leg.estimated_arrival_dtime || leg.expected_arrival_at) {
+                    <span>ETA: {{ leg.estimated_arrival_dtime || leg.expected_arrival_at }}</span>
                   }
                 </div>
               </div>
@@ -285,6 +287,7 @@ import { OpsStatusChipComponent } from './ops-status-chip.component';
 })
 export class OpsConsolidationPanelComponent {
   readonly state = inject(OperationsWorkspaceStateService);
+  private readonly auth = inject(AuthRbacService);
 
   readonly package = input<PackageSummary | null>(null);
   readonly legs = input<readonly ConsolidationLeg[]>([]);
@@ -303,7 +306,7 @@ export class OpsConsolidationPanelComponent {
     formatConsolidationStatus(this.consolidationStatus()),
   );
   readonly consolidationStatusTone = computed(() =>
-    mapTone(getOperationsConsolidationStatusTone(this.consolidationStatus())),
+    mapOperationsToneToChipTone(getOperationsConsolidationStatusTone(this.consolidationStatus())),
   );
 
   readonly legSummary = computed<PackageLegSummary | null>(
@@ -336,29 +339,20 @@ export class OpsConsolidationPanelComponent {
     );
   });
 
-  readonly canRequestPartial = computed(() => this.state.canRequestPartialRelease());
-  readonly canApprovePartial = computed(() => this.state.canApprovePartialRelease());
+  readonly canRequestPartial = computed(() =>
+    this.state.canRequestPartialRelease()
+    && this.auth.hasPermission('operations.partial_release.request'),
+  );
+  readonly canApprovePartial = computed(() =>
+    this.state.canApprovePartialRelease()
+    && this.auth.hasPermission('operations.partial_release.approve'),
+  );
 
   legLabel(leg: ConsolidationLeg): string {
     return leg.status_label || formatConsolidationLegStatus(leg.status_code);
   }
 
-  legTone(leg: ConsolidationLeg): ReturnType<typeof mapTone> {
-    return mapTone(getOperationsConsolidationLegTone(leg.status_code));
-  }
-}
-
-type ChipTone = 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline';
-
-function mapTone(tone: string): ChipTone {
-  switch (tone) {
-    case 'draft': return 'outline';
-    case 'review': return 'info';
-    case 'success': return 'success';
-    case 'warning': return 'warning';
-    case 'danger': return 'critical';
-    case 'muted':
-    default:
-      return 'neutral';
+  legTone(leg: ConsolidationLeg): ReturnType<typeof mapOperationsToneToChipTone> {
+    return mapOperationsToneToChipTone(getOperationsConsolidationLegTone(leg.status_code));
   }
 }

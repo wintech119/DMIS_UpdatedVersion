@@ -684,6 +684,9 @@ export interface ConsolidationLeg {
   transport_notes: string | null;
   dispatched_by_id: string | null;
   dispatched_at: string | null;
+  departure_dtime: string | null;
+  estimated_arrival_dtime: string | null;
+  route_override_reason: string | null;
   expected_arrival_at: string | null;
   received_by_user_id: string | null;
   received_at: string | null;

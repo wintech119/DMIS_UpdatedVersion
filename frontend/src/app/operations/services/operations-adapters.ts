@@ -719,8 +719,19 @@ export function normalizeConsolidationLeg(raw: unknown): ConsolidationLeg {
     transport_mode: asNullableString(source['transport_mode']),
     transport_notes: asNullableString(source['transport_notes']),
     dispatched_by_id: asNullableString(source['dispatched_by_id']),
-    dispatched_at: asNullableString(source['dispatched_at']),
-    expected_arrival_at: asNullableString(source['expected_arrival_at']),
+    dispatched_at:
+      asNullableString(source['dispatched_at'])
+      ?? asNullableString(source['departure_dtime']),
+    departure_dtime:
+      asNullableString(source['departure_dtime'])
+      ?? asNullableString(source['dispatched_at']),
+    estimated_arrival_dtime:
+      asNullableString(source['estimated_arrival_dtime'])
+      ?? asNullableString(source['expected_arrival_at']),
+    route_override_reason: asNullableString(source['route_override_reason']),
+    expected_arrival_at:
+      asNullableString(source['expected_arrival_at'])
+      ?? asNullableString(source['estimated_arrival_dtime']),
     received_by_user_id: asNullableString(source['received_by_user_id']),
     received_at: asNullableString(source['received_at']),
     items: asArray(source['items']).map(normalizeConsolidationLegItem),
@@ -739,7 +750,7 @@ export function normalizeConsolidationLegsResponse(raw: unknown): ConsolidationL
 export function normalizeConsolidationLegDispatchResponse(raw: unknown): ConsolidationLegDispatchResponse {
   const source = asRecord(raw);
   return {
-    status: 'IN_TRANSIT',
+    status: asString(source['status'], 'IN_TRANSIT') as ConsolidationLegDispatchResponse['status'],
     package: normalizePackageSummary(source['package']),
     leg: normalizeConsolidationLeg(source['leg']),
   };
@@ -748,7 +759,7 @@ export function normalizeConsolidationLegDispatchResponse(raw: unknown): Consoli
 export function normalizeConsolidationLegReceiveResponse(raw: unknown): ConsolidationLegReceiveResponse {
   const source = asRecord(raw);
   return {
-    status: 'RECEIVED_AT_STAGING',
+    status: asString(source['status'], 'RECEIVED_AT_STAGING') as ConsolidationLegReceiveResponse['status'],
     package: normalizePackageSummary(source['package']),
     leg: normalizeConsolidationLeg(source['leg']),
   };

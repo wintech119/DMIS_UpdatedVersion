@@ -325,8 +325,12 @@ export function getOperationsConsolidationLegTone(code: string | null | undefine
 }
 
 export function formatOperationsFulfillmentMode(code: string | null | undefined): string {
-  const normalized = String(code ?? '').trim().toUpperCase();
-  return FULFILLMENT_MODE_LABELS[normalized] ?? 'Not set';
+  const raw = String(code ?? '').trim();
+  if (!raw) {
+    return 'Not set';
+  }
+  const normalized = raw.toUpperCase();
+  return FULFILLMENT_MODE_LABELS[normalized] ?? `Unknown (${normalized})`;
 }
 
 /**

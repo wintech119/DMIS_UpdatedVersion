@@ -477,7 +477,7 @@ export class OperationsWorkspaceStateService {
             return this.buildStandalonePackageDetail(response.package);
           });
           this.reliefpkgId.set(response.package.reliefpkg_id);
-          if (response.package.reliefrqst_id) {
+          if (response.package.reliefrqst_id != null) {
             this.reliefrqstId.set(response.package.reliefrqst_id);
           }
         }
@@ -552,6 +552,7 @@ export class OperationsWorkspaceStateService {
     }
     const workspaceGeneration = this.latestWorkspaceGeneration;
     const requestId = ++this.latestRecommendationRequestId;
+    this.stagingRecommendation.set(null);
     this.recommendationLoading.set(true);
     this.recommendationError.set(null);
 
@@ -573,6 +574,7 @@ export class OperationsWorkspaceStateService {
         ) {
           return;
         }
+        this.stagingRecommendation.set(null);
         this.recommendationLoading.set(false);
         this.recommendationError.set(
           this.extractError(error, 'Failed to load staging recommendation.'),
@@ -699,18 +701,28 @@ export class OperationsWorkspaceStateService {
     stagingOverrideReason: string | null,
   ): Observable<PackageDetailResponse> {
     const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId) {
+      return EMPTY as unknown as Observable<PackageDetailResponse>;
+    }
+    const requestReliefrqstId = reliefrqstId;
+    const draftPatch = {
+      fulfillment_mode: fulfillmentMode,
+      staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
+      staging_override_reason: stagingOverrideReason ?? '',
+    } as const;
     const payload = this.buildPackageDraftPayload({
-      fulfillment_mode: fulfillmentMode,
-      staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
-      staging_override_reason: stagingOverrideReason ?? '',
-    });
-    this.patchDraft({
-      fulfillment_mode: fulfillmentMode,
-      staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
-      staging_override_reason: stagingOverrideReason ?? '',
+      ...draftPatch,
     });
     return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
       tap((detail) => {
+        if (
+          this.reliefrqstId() !== requestReliefrqstId
+          || (detail.request?.reliefrqst_id != null
+            && detail.request.reliefrqst_id !== requestReliefrqstId)
+        ) {
+          return;
+        }
+        this.patchDraft({ ...draftPatch });
         this.packageDetail.set(detail);
         this.hydrateDraft(detail);
         if (detail.package) {

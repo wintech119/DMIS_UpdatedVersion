@@ -93,7 +93,7 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'DISPATCHED': return 'status-submitted';
     case 'C':
     case 'RECEIVED': return 'status-filled';
-    case 'SPLIT':
+    case 'SPLIT': return 'status-split';
     case 'CANCELLED': return 'status-cancelled';
     default: return 'status-unknown';
   }

@@ -25,8 +25,12 @@ import { formatConsolidationLegStatus } from '../models/operations-status.util';
 import {
   ConsolidationLeg,
   ConsolidationLegReceivePayload,
+  ConsolidationWaybillResponse,
 } from '../models/operations.model';
-import { getOperationsConsolidationLegTone } from '../operations-display.util';
+import {
+  getOperationsConsolidationLegTone,
+  mapOperationsToneToChipTone,
+} from '../operations-display.util';
 import { OperationsService } from '../services/operations.service';
 import { OperationsWorkspaceStateService } from '../services/operations-workspace-state.service';
 import {
@@ -34,8 +38,6 @@ import {
   OpsTransportFormValue,
 } from '../shared/ops-transport-form.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
-
-type ChipTone = 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info' | 'outline';
 
 @Component({
   selector: 'app-consolidation-leg-workspace',
@@ -146,7 +148,7 @@ type ChipTone = 'neutral' | 'soft' | 'critical' | 'warning' | 'success' | 'info'
                 </div>
                 <div>
                   <dt>Expected arrival</dt>
-                  <dd>{{ leg()?.expected_arrival_at || '—' }}</dd>
+                  <dd>{{ leg()?.estimated_arrival_dtime || leg()?.expected_arrival_at || '—' }}</dd>
                 </div>
               </dl>
             </section>
@@ -413,7 +415,7 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   readonly state = inject(OperationsWorkspaceStateService);
 
   private reliefpkgId = 0;
-  private legId = 0;
+  private readonly legId = signal<number | null>(null);
 
   readonly dispatching = signal(false);
   readonly receiving = signal(false);
@@ -421,16 +423,20 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   readonly waybillError = signal<string | null>(null);
 
   readonly leg = computed<ConsolidationLeg | null>(() => {
+    const legId = this.legId();
+    if (!legId) {
+      return null;
+    }
     const legs = this.state.consolidationLegs();
-    return legs.find((entry) => entry.leg_id === this.legId) ?? null;
+    return legs.find((entry) => entry.leg_id === legId) ?? null;
   });
 
   readonly legStatusLabel = computed(() =>
     formatConsolidationLegStatus(this.leg()?.status_code),
   );
 
-  readonly legStatusTone = computed<ChipTone>(() =>
-    mapTone(getOperationsConsolidationLegTone(this.leg()?.status_code)),
+  readonly legStatusTone = computed(() =>
+    mapOperationsToneToChipTone(getOperationsConsolidationLegTone(this.leg()?.status_code)),
   );
 
   readonly receiptForm: FormGroup = this.fb.nonNullable.group({
@@ -442,7 +448,8 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
     const pkgRaw = this.route.snapshot.paramMap.get('reliefpkgId');
     const legRaw = this.route.snapshot.paramMap.get('legId');
     this.reliefpkgId = Number(pkgRaw);
-    this.legId = Number(legRaw);
+    const legId = Number(legRaw);
+    this.legId.set(legId > 0 ? legId : null);
     if (this.reliefpkgId > 0) {
       this.state.loadConsolidationLegs(this.reliefpkgId);
     }
@@ -463,11 +470,12 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   }
 
   onDispatch(value: OpsTransportFormValue): void {
-    if (!this.legId) {
+    const legId = this.legId();
+    if (!legId) {
       return;
     }
     this.dispatching.set(true);
-    this.state.dispatchLeg(this.legId, value).subscribe({
+    this.state.dispatchLeg(legId, value).subscribe({
       next: () => {
         this.dispatching.set(false);
         this.notifications.showSuccess('Leg dispatched to staging.');
@@ -480,7 +488,8 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   }
 
   onReceive(): void {
-    if (!this.legId || this.receiptForm.invalid) {
+    const legId = this.legId();
+    if (!legId || this.receiptForm.invalid) {
       this.receiptForm.markAllAsTouched();
       return;
     }
@@ -493,7 +502,7 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
       receipt_notes: raw.receipt_notes.trim() || undefined,
     };
     this.receiving.set(true);
-    this.state.receiveLeg(this.legId, payload).subscribe({
+    this.state.receiveLeg(legId, payload).subscribe({
       next: () => {
         this.receiving.set(false);
         this.notifications.showSuccess('Leg received at staging.');
@@ -506,15 +515,30 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   }
 
   onDownloadWaybill(): void {
-    if (!this.reliefpkgId || !this.legId) {
+    const legId = this.legId();
+    if (!this.reliefpkgId || !legId) {
       return;
     }
     this.waybillLoading.set(true);
     this.waybillError.set(null);
-    this.operationsService.getConsolidationLegWaybill(this.reliefpkgId, this.legId).subscribe({
+    this.operationsService.getConsolidationLegWaybill(this.reliefpkgId, legId).subscribe({
       next: (response) => {
+        const artifact = buildWaybillDownloadArtifact(response);
         this.waybillLoading.set(false);
-        this.notifications.showSuccess(`Waybill ${response.waybill_no} ready.`);
+        if (!artifact) {
+          this.waybillError.set('Waybill content is missing.');
+          return;
+        }
+        const url = URL.createObjectURL(artifact.blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = artifact.filename;
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+        this.notifications.showSuccess(`Waybill ${response.waybill_no} downloaded.`);
       },
       error: () => {
         this.waybillLoading.set(false);
@@ -524,15 +548,88 @@ export class ConsolidationLegWorkspaceComponent implements OnInit {
   }
 }
 
-function mapTone(tone: string): ChipTone {
-  switch (tone) {
-    case 'draft': return 'outline';
-    case 'review': return 'info';
-    case 'success': return 'success';
-    case 'warning': return 'warning';
-    case 'danger': return 'critical';
-    case 'muted':
+function buildWaybillDownloadArtifact(
+  response: ConsolidationWaybillResponse,
+): { blob: Blob; filename: string } | null {
+  const payload = response.waybill_payload as unknown;
+  if (payload == null) {
+    return null;
+  }
+  const safeWaybillNo = (response.waybill_no || 'consolidation-waybill').replace(/[^\w.-]+/g, '_');
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      return {
+        blob: new Blob([trimmed], { type: 'application/json' }),
+        filename: `${safeWaybillNo}.json`,
+      };
+    }
+    if (trimmed.startsWith('data:')) {
+      const match = trimmed.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        return null;
+      }
+      try {
+        return {
+          blob: new Blob([decodeBase64(match[2])], { type: match[1] || 'application/pdf' }),
+          filename: `${safeWaybillNo}.${extensionForMimeType(match[1])}`,
+        };
+      } catch {
+        return null;
+      }
+    }
+    try {
+      return {
+        blob: new Blob([decodeBase64(trimmed)], { type: 'application/pdf' }),
+        filename: `${safeWaybillNo}.pdf`,
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (payload instanceof ArrayBuffer) {
+    return {
+      blob: new Blob([payload], { type: 'application/pdf' }),
+      filename: `${safeWaybillNo}.pdf`,
+    };
+  }
+  if (ArrayBuffer.isView(payload)) {
+    return {
+      blob: new Blob([arrayBufferFromView(payload)], { type: 'application/pdf' }),
+      filename: `${safeWaybillNo}.pdf`,
+    };
+  }
+  return {
+    blob: new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+    filename: `${safeWaybillNo}.json`,
+  };
+}
+
+function decodeBase64(encoded: string): ArrayBuffer {
+  const binary = window.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function arrayBufferFromView(view: ArrayBufferView): ArrayBuffer {
+  const bytes = new Uint8Array(view.byteLength);
+  bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+  return bytes.buffer;
+}
+
+function extensionForMimeType(mimeType: string | null | undefined): string {
+  switch ((mimeType ?? '').toLowerCase()) {
+    case 'application/pdf':
+      return 'pdf';
+    case 'application/json':
+      return 'json';
     default:
-      return 'neutral';
+      return 'bin';
   }
 }

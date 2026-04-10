@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 
 import {
   OperationsWorkspaceStateService,
@@ -17,6 +17,7 @@ import {
   PackageLockReleaseResponse,
   PackageSummary,
   RequestSummary,
+  StagingRecommendationResponse,
 } from '../models/operations.model';
 
 describe('OperationsWorkspaceStateService.maybeRefreshContinuationPreview', () => {
@@ -661,6 +662,184 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
         staging_override_reason: 'Use the manually selected hub',
       }),
     );
+  });
+
+  it('keeps the current draft in place until the save succeeds', () => {
+    const response$ = new Subject<PackageDetailResponse>();
+    const saveSpy = jasmine.createSpy('savePackageDraft').and.returnValue(response$.asObservable());
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: jasmine.createSpy('getConsolidationLegs').and.returnValue(
+              of({ results: [], package: null }),
+            ),
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.patchDraft({
+      fulfillment_mode: 'DIRECT',
+      staging_warehouse_id: '',
+      staging_override_reason: '',
+    });
+
+    service.saveFulfillmentModeDraft('PICKUP_AT_STAGING', 9501, 'Closer to field site').subscribe();
+
+    expect(service.draft().fulfillment_mode).toBe('DIRECT');
+    expect(service.draft().staging_warehouse_id).toBe('');
+    expect(service.draft().staging_override_reason).toBe('');
+
+    response$.next({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'PICKUP_AT_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: 'Closer to field site',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+    response$.complete();
+
+    expect(service.draft().fulfillment_mode).toBe('PICKUP_AT_STAGING');
+    expect(service.draft().staging_warehouse_id).toBe('9501');
+    expect(service.draft().staging_override_reason).toBe('Closer to field site');
+  });
+
+  it('ignores stale fulfillment-mode save responses after the request context changes', () => {
+    const response$ = new Subject<PackageDetailResponse>();
+    const saveSpy = jasmine.createSpy('savePackageDraft').and.returnValue(response$.asObservable());
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: jasmine.createSpy('getConsolidationLegs').and.returnValue(
+              of({ results: [], package: null }),
+            ),
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+
+    service.saveFulfillmentModeDraft('PICKUP_AT_STAGING', 9501, 'Closer to field site').subscribe();
+    service.reliefrqstId.set(RELIEFRQST_ID + 1);
+
+    response$.next({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'PICKUP_AT_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: 'Closer to field site',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+    response$.complete();
+
+    expect(service.packageDetail()).toBeNull();
+    expect(service.reliefpkgId()).toBe(0);
+    expect(service.draft().fulfillment_mode).toBe('');
+  });
+});
+
+describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {
+  const RELIEFRQST_ID = 95009;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('clears stale recommendations while loading and after errors', () => {
+    const response$ = new Subject<StagingRecommendationResponse>();
+    const getStagingRecommendationSpy = jasmine
+      .createSpy('getStagingRecommendation')
+      .and.returnValue(response$.asObservable());
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getStagingRecommendation: getStagingRecommendationSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.stagingRecommendation.set({
+      reliefrqst_id: RELIEFRQST_ID,
+      recommended_staging_warehouse_id: 9101,
+      recommended_staging_warehouse_name: 'Old recommendation',
+      recommended_staging_parish_code: '01',
+      staging_selection_basis: null,
+    });
+
+    service.loadStagingRecommendation(RELIEFRQST_ID);
+
+    expect(service.stagingRecommendation()).toBeNull();
+    expect(service.recommendationLoading()).toBeTrue();
+
+    response$.error(new HttpErrorResponse({
+      status: 500,
+      error: { detail: 'Backend failure' },
+    }));
+
+    expect(service.stagingRecommendation()).toBeNull();
+    expect(service.recommendationLoading()).toBeFalse();
+    expect(service.recommendationError()).toContain('Backend failure');
   });
 });
 
