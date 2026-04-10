@@ -106,6 +106,7 @@ describe('SidenavComponent', () => {
       'Relief Requests',
       'Eligibility Review',
       'Package Fulfillment',
+      'Consolidation',
       'Task Center',
     ]);
   });

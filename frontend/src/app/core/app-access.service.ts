@@ -320,7 +320,7 @@ export class AppAccessService {
 
   private canAccessEligibility(): boolean {
     return this.hasAnyPermission(OPERATIONS_ELIGIBILITY_PERMISSIONS)
-      && this.hasAnyRole(OPERATIONS_ELIGIBILITY_ROLE_CODES);
+      && (this.isSystemAdministrator() || this.hasAnyRole(OPERATIONS_ELIGIBILITY_ROLE_CODES));
   }
 
   private canAccessAnyMasterData(): boolean {

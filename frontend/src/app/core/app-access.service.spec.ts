@@ -187,6 +187,15 @@ describe('AppAccessService', () => {
     expect(roleWithoutPermission.canAccessNavKey('operations.eligibility')).toBeFalse();
   });
 
+  it('allows system administrators into the eligibility lane when backend RBAC grants the permission', () => {
+    const sysadminAccess = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(sysadminAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+  });
+
   it('maps replenishment execution and procurement lanes to the backend RBAC permissions', () => {
     const access = setup({
       permissions: [
