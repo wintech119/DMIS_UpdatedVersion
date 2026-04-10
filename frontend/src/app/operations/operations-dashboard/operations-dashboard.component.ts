@@ -66,6 +66,7 @@ const EMPTY_TASK_FEED: OperationsTaskListResponse = {
 };
 
 const EMPTY_REQUEST_FEED: RequestListResponse = { results: [] };
+const EMPTY_ELIGIBILITY_QUEUE: RequestListResponse = { results: [] };
 const EMPTY_PACKAGE_QUEUE: PackageQueueResponse = { results: [] };
 const EMPTY_DISPATCH_QUEUE: DispatchQueueResponse = { results: [] };
 
@@ -334,8 +335,8 @@ export class OperationsDashboardComponent implements OnInit {
         ? this.operationsService.listRequests().pipe(this.recoverDashboardFeed(EMPTY_REQUEST_FEED))
         : of(EMPTY_REQUEST_FEED),
       eligibility: canAccessEligibility
-        ? this.operationsService.getEligibilityQueue().pipe(this.recoverDashboardFeed({ results: [] }))
-        : of({ results: [] }),
+        ? this.operationsService.getEligibilityQueue().pipe(this.recoverDashboardFeed(EMPTY_ELIGIBILITY_QUEUE))
+        : of(EMPTY_ELIGIBILITY_QUEUE),
       packages: laneAccess.fulfillment
         ? this.operationsService.getPackagesQueue().pipe(this.recoverDashboardFeed(EMPTY_PACKAGE_QUEUE))
         : of(EMPTY_PACKAGE_QUEUE),

@@ -8,7 +8,6 @@ import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
 @Component({
   selector: 'dmis-auth-login-page',
   standalone: true,
-  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="auth-page">

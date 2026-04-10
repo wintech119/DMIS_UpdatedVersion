@@ -427,7 +427,7 @@ export class AuthSessionService {
       await this.router.navigate(['/auth/login'], {
         queryParams: {
           reason: 'expired_or_invalid_token',
-          returnUrl: normalizeReturnUrl(pendingLogin?.returnUrl),
+          returnUrl: normalizeReturnUrl(pendingLogin?.returnUrl ?? DEFAULT_AUTH_RETURN_URL),
         },
         replaceUrl: true,
       });

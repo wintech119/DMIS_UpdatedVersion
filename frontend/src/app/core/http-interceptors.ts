@@ -11,12 +11,6 @@ import {
 } from './auth-session.service';
 import { devUserInterceptor } from './dev-user.interceptor';
 
-export const DMIS_HTTP_INTERCEPTORS: HttpInterceptorFn[] = [
-  devUserInterceptor,
-  authTokenInterceptor,
-  authFailureClassifierInterceptor,
-];
-
 export const authTokenInterceptor: HttpInterceptorFn = (req, next) => {
   const authSession = inject(AuthSessionService);
 
@@ -56,6 +50,12 @@ export const authFailureClassifierInterceptor: HttpInterceptorFn = (req, next) =
     }),
   );
 };
+
+export const DMIS_HTTP_INTERCEPTORS: HttpInterceptorFn[] = [
+  devUserInterceptor,
+  authTokenInterceptor,
+  authFailureClassifierInterceptor,
+];
 
 function isDmisApiRequest(url: string): boolean {
   return String(url ?? '').startsWith('/api/');
