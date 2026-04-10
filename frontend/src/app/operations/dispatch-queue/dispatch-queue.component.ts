@@ -25,6 +25,7 @@ import {
   formatLegProgressLabel,
   buildOperationsQueueSeenStorageKey,
   countOperationsUnreadIds,
+  getOperationsDispatchStage,
   getOperationsPackageTone,
   getLegProgressTone,
   handleRovingRadioKeydown,
@@ -187,7 +188,7 @@ export class DispatchQueueComponent implements OnInit {
   }
 
   viewDispatch(item: DispatchQueueItem): void {
-    if (item.fulfillment_mode === 'PICKUP_AT_STAGING') {
+    if (this.isPickupRelease(item)) {
       this.router.navigate(['/operations/pickup-release', item.reliefpkg_id]);
       return;
     }
@@ -195,13 +196,13 @@ export class DispatchQueueComponent implements OnInit {
   }
 
   primaryActionLabel(item: DispatchQueueItem): string {
-    return item.fulfillment_mode === 'PICKUP_AT_STAGING'
+    return this.isPickupRelease(item)
       ? 'Open pickup release'
       : 'Open dispatch';
   }
 
   primaryActionIcon(item: DispatchQueueItem): string {
-    return item.fulfillment_mode === 'PICKUP_AT_STAGING' ? 'front_hand' : 'local_shipping';
+    return this.isPickupRelease(item) ? 'front_hand' : 'local_shipping';
   }
 
   trackByPackageId(_index: number, item: DispatchQueueItem): number {
@@ -213,20 +214,7 @@ export class DispatchQueueComponent implements OnInit {
   }
 
   private getDispatchStage(row: DispatchQueueItem): DispatchStage {
-    const s = String(row.status_code ?? '').trim().toUpperCase();
-    if (row.received_dtime) {
-      return 'completed';
-    }
-    if (s === 'P' || s === 'COMMITTED' || s === 'READY_FOR_DISPATCH') {
-      return 'ready';
-    }
-    if (s === 'D' || s === 'DISPATCHED') {
-      return 'in_transit';
-    }
-    if (s === 'C' || s === 'RECEIVED') {
-      return 'completed';
-    }
-    return 'unknown';
+    return getOperationsDispatchStage(row);
   }
 
   private summarizeDispatchStages(rows: readonly DispatchQueueItem[]): {
@@ -310,5 +298,10 @@ export class DispatchQueueComponent implements OnInit {
     return rows
       .filter((row) => this.getDispatchStage(row) === filter)
       .map((row) => row.reliefpkg_id);
+  }
+
+  private isPickupRelease(item: Pick<DispatchQueueItem, 'fulfillment_mode' | 'status_code' | 'execution_status'>): boolean {
+    return item.fulfillment_mode === 'PICKUP_AT_STAGING'
+      || String(item.execution_status ?? item.status_code ?? '').trim().toUpperCase() === 'READY_FOR_PICKUP';
   }
 }

@@ -86,6 +86,8 @@ const OPERATIONS_ANY_PERMISSIONS = [
   'operations.request.create.on_behalf_bridge',
   'operations.request.edit.draft',
   'operations.request.submit',
+  'operations.eligibility',
+  'operations.eligibility.*',
   'operations.eligibility.review',
   'operations.eligibility.approve',
   'operations.eligibility.reject',
@@ -111,6 +113,8 @@ const OPERATIONS_REQUEST_PERMISSIONS = [
 ];
 
 const OPERATIONS_ELIGIBILITY_PERMISSIONS = [
+  'operations.eligibility',
+  'operations.eligibility.*',
   'operations.eligibility.review',
   'operations.eligibility.approve',
   'operations.eligibility.reject',

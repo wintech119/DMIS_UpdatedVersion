@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -101,10 +102,16 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
-def _boolean_payload_flag(payload: object, field_name: str, *, default: bool = False) -> bool:
+def _payload_object(payload: object) -> dict[str, Any]:
+    if payload is None:
+        return {}
     if not isinstance(payload, Mapping):
-        raise OperationValidationError({field_name: f"{field_name} payload must be an object."})
-    raw_value = payload.get(field_name, default)
+        raise OperationValidationError({"body": "Request body must be a JSON object."})
+    return dict(payload)
+
+
+def _boolean_payload_flag(payload: object, field_name: str, *, default: bool = False) -> bool:
+    raw_value = _payload_object(payload).get(field_name, default)
     if isinstance(raw_value, bool):
         return raw_value
     if raw_value in (None, ""):
@@ -133,7 +140,7 @@ def operations_requests(request):
             )
         return Response(
             operations_service.create_request(
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
@@ -194,7 +201,7 @@ def operations_request_detail(request, reliefrqst_id: int):
         return Response(
             operations_service.update_request(
                 reliefrqst_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
@@ -276,7 +283,7 @@ def operations_eligibility_decision(request, reliefrqst_id: int):
         return Response(
             operations_service.submit_eligibility_decision(
                 reliefrqst_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -356,7 +363,7 @@ operations_package_staging_recommendation.required_permission = [
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_draft(request, reliefrqst_id: int):
     try:
-        payload = dict(request.data or {})
+        payload = _payload_object(request.data)
         payload["draft_save"] = True
         return Response(
             operations_service.save_package(
@@ -380,7 +387,7 @@ operations_package_draft.required_permission = [PERM_OPERATIONS_PACKAGE_CREATE, 
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_unlock(request, reliefrqst_id: int):
     try:
-        payload = request.data if request.data is not None else {}
+        payload = _payload_object(request.data)
         return Response(
             operations_service.release_package_lock(
                 reliefrqst_id,
@@ -458,7 +465,7 @@ def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int
             operations_service.get_item_allocation_preview(
                 reliefrqst_id,
                 item_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -479,7 +486,7 @@ def operations_package_commit_allocation(request, reliefrqst_id: int):
         return Response(
             operations_service.save_package(
                 reliefrqst_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -501,7 +508,7 @@ def operations_package_override_approve(request, reliefrqst_id: int):
         return Response(
             operations_service.approve_override(
                 reliefrqst_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -546,7 +553,7 @@ def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: in
             operations_service.dispatch_consolidation_leg(
                 reliefpkg_id,
                 leg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -568,7 +575,7 @@ def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int
             operations_service.receive_consolidation_leg(
                 reliefpkg_id,
                 leg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -610,7 +617,7 @@ def operations_partial_release_request(request, reliefpkg_id: int):
         return Response(
             operations_service.request_partial_release(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -631,7 +638,7 @@ def operations_partial_release_approve(request, reliefpkg_id: int):
         return Response(
             operations_service.approve_partial_release(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -652,7 +659,7 @@ def operations_pickup_release(request, reliefpkg_id: int):
         return Response(
             operations_service.pickup_release(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -673,7 +680,7 @@ def operations_package_cancel(request, reliefpkg_id: int):
         return Response(
             operations_service.cancel_package(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -701,7 +708,7 @@ def operations_package_abandon_draft(request, reliefpkg_id: int):
         return Response(
             operations_service.abandon_package_draft(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -761,7 +768,7 @@ def operations_dispatch_handoff(request, reliefpkg_id: int):
         return Response(
             operations_service.submit_dispatch(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -802,7 +809,7 @@ def operations_receipt_confirm(request, reliefpkg_id: int):
         return Response(
             operations_service.confirm_receipt(
                 reliefpkg_id,
-                payload=request.data or {},
+                payload=_payload_object(request.data),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),

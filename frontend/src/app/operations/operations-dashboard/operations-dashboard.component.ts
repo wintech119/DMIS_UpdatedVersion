@@ -10,7 +10,12 @@ import { AuthRbacService } from '../../replenishment/services/auth-rbac.service'
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
 import { OpsStatusChipComponent } from '../shared/ops-status-chip.component';
 import { OperationsService } from '../services/operations.service';
-import { OperationsTaskListResponse } from '../models/operations.model';
+import {
+  DispatchQueueResponse,
+  OperationsTaskListResponse,
+  PackageQueueResponse,
+  RequestListResponse,
+} from '../models/operations.model';
 import {
   formatOperationsAge,
   formatOperationsRequestStatus,
@@ -46,6 +51,144 @@ const EMPTY_TASK_FEED: OperationsTaskListResponse = {
   notifications: [],
   results: [],
 };
+
+const EMPTY_REQUEST_FEED: RequestListResponse = { results: [] };
+const EMPTY_PACKAGE_QUEUE: PackageQueueResponse = { results: [] };
+const EMPTY_DISPATCH_QUEUE: DispatchQueueResponse = { results: [] };
+
+function buildDashboardMetrics(options: {
+  requestCount: number;
+  draftCount: number;
+  reviewCount: number;
+  packageCount: number;
+  consolidationCount: number;
+  dispatchCount: number;
+  highCount: number;
+  urgentCount: number;
+  openAssignments: number;
+  unreadNotifications: number;
+  canAccessEligibility: boolean;
+}): DashboardMetric[] {
+  const metrics: DashboardMetric[] = [
+    {
+      label: 'Open Requests',
+      value: options.requestCount,
+      note: options.canAccessEligibility
+        ? `${options.draftCount} drafts, ${options.reviewCount} awaiting review`
+        : `${options.draftCount} drafts ready for submission`,
+      route: '/operations/relief-requests',
+      icon: 'assignment',
+      tone: 'review',
+    },
+    {
+      label: 'Package Worklist',
+      value: options.packageCount,
+      note: `${options.highCount} high-urgency cases`,
+      route: '/operations/package-fulfillment',
+      icon: 'inventory_2',
+      tone: 'draft',
+    },
+    {
+      label: 'Consolidation',
+      value: options.consolidationCount,
+      note: options.consolidationCount === 0
+        ? 'No staged packages awaiting legs'
+        : `${options.consolidationCount} staged package${options.consolidationCount === 1 ? '' : 's'} with active legs`,
+      route: '/operations/consolidation',
+      icon: 'warehouse',
+      tone: options.consolidationCount > 0 ? 'review' : 'muted',
+    },
+    {
+      label: 'Dispatch Queue',
+      value: options.dispatchCount,
+      note: 'Handoffs waiting for transport sign-off',
+      route: '/operations/dispatch',
+      icon: 'local_shipping',
+      tone: 'success',
+    },
+    {
+      label: 'Action Items',
+      value: options.openAssignments + options.unreadNotifications,
+      note: `${options.openAssignments} live assignments, ${options.unreadNotifications} unread notifications`,
+      route: '/operations/tasks',
+      icon: 'notifications_active',
+      tone: 'warning',
+    },
+  ];
+
+  if (options.canAccessEligibility) {
+    metrics.splice(1, 0, {
+      label: 'Eligibility Queue',
+      value: options.reviewCount,
+      note: `${options.urgentCount} critical requests in line`,
+      route: '/operations/eligibility-review',
+      icon: 'verified_user',
+      tone: 'warning',
+    });
+    metrics.pop();
+  }
+
+  return metrics;
+}
+
+function buildUnavailableDashboardMetrics(canAccessEligibility: boolean): DashboardMetric[] {
+  const metrics: DashboardMetric[] = [
+    {
+      label: 'Open Requests',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/relief-requests',
+      icon: 'assignment',
+      tone: 'muted',
+    },
+    {
+      label: 'Package Worklist',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/package-fulfillment',
+      icon: 'inventory_2',
+      tone: 'muted',
+    },
+    {
+      label: 'Consolidation',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/consolidation',
+      icon: 'warehouse',
+      tone: 'muted',
+    },
+    {
+      label: 'Dispatch Queue',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/dispatch',
+      icon: 'local_shipping',
+      tone: 'muted',
+    },
+    {
+      label: 'Action Items',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/tasks',
+      icon: 'notifications_active',
+      tone: 'muted',
+    },
+  ];
+
+  if (canAccessEligibility) {
+    metrics.splice(1, 0, {
+      label: 'Eligibility Queue',
+      value: 0,
+      note: 'Unavailable',
+      route: '/operations/eligibility-review',
+      icon: 'verified_user',
+      tone: 'muted',
+    });
+    metrics.pop();
+  }
+
+  return metrics;
+}
 
 @Component({
   selector: 'app-operations-dashboard',
@@ -94,12 +237,12 @@ export class OperationsDashboardComponent implements OnInit {
     const canAccessEligibility = this.canAccessEligibility();
 
     forkJoin({
-      requests: this.operationsService.listRequests(),
+      requests: this.operationsService.listRequests().pipe(catchError(() => of(EMPTY_REQUEST_FEED))),
       eligibility: canAccessEligibility
         ? this.operationsService.getEligibilityQueue().pipe(catchError(() => of({ results: [] })))
         : of({ results: [] }),
-      packages: this.operationsService.getPackagesQueue(),
-      dispatch: this.operationsService.getDispatchQueue(),
+      packages: this.operationsService.getPackagesQueue().pipe(catchError(() => of(EMPTY_PACKAGE_QUEUE))),
+      dispatch: this.operationsService.getDispatchQueue().pipe(catchError(() => of(EMPTY_DISPATCH_QUEUE))),
       tasks: this.operationsService.getTasks().pipe(catchError(() => of(EMPTY_TASK_FEED))),
     }).subscribe({
       next: ({ requests, eligibility, packages, dispatch, tasks }) => {
@@ -133,66 +276,19 @@ export class OperationsDashboardComponent implements OnInit {
           + `${openAssignments} live assignments and ${unreadNotifications} unread notifications.`,
         );
 
-        const dashboardMetrics: DashboardMetric[] = [
-          {
-            label: 'Open Requests',
-            value: requestRows.length,
-            note: canAccessEligibility
-              ? `${draftCount} drafts, ${reviewCount} awaiting review`
-              : `${draftCount} drafts ready for submission`,
-            route: '/operations/relief-requests',
-            icon: 'assignment',
-            tone: 'review',
-          },
-          {
-            label: 'Package Worklist',
-            value: packageCount,
-            note: `${highCount} high-urgency cases`,
-            route: '/operations/package-fulfillment',
-            icon: 'inventory_2',
-            tone: 'draft',
-          },
-          {
-            label: 'Consolidation',
-            value: consolidationCount,
-            note: consolidationCount === 0
-              ? 'No staged packages awaiting legs'
-              : `${consolidationCount} staged package${consolidationCount === 1 ? '' : 's'} with active legs`,
-            route: '/operations/consolidation',
-            icon: 'warehouse',
-            tone: consolidationCount > 0 ? 'review' : 'muted',
-          },
-          {
-            label: 'Dispatch Queue',
-            value: dispatchCount,
-            note: 'Handoffs waiting for transport sign-off',
-            route: '/operations/dispatch',
-            icon: 'local_shipping',
-            tone: 'success',
-          },
-          {
-            label: 'Action Items',
-            value: openAssignments + unreadNotifications,
-            note: `${openAssignments} live assignments, ${unreadNotifications} unread notifications`,
-            route: '/operations/tasks',
-            icon: 'notifications_active',
-            tone: 'warning',
-          },
-        ];
-
-        if (canAccessEligibility) {
-          dashboardMetrics.splice(1, 0, {
-            label: 'Eligibility Queue',
-            value: reviewCount,
-            note: `${urgentCount} critical requests in line`,
-            route: '/operations/eligibility-review',
-            icon: 'verified_user',
-            tone: 'warning',
-          });
-          dashboardMetrics.pop();
-        }
-
-        this.metrics.set(dashboardMetrics);
+        this.metrics.set(buildDashboardMetrics({
+          requestCount: requestRows.length,
+          draftCount,
+          reviewCount,
+          packageCount,
+          consolidationCount,
+          dispatchCount,
+          highCount,
+          urgentCount,
+          openAssignments,
+          unreadNotifications,
+          canAccessEligibility,
+        }));
 
         const priorityRequests = requestRows
           .filter((row) => row.status_code !== 'FULFILLED')
@@ -243,62 +339,7 @@ export class OperationsDashboardComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        const fallbackMetrics: DashboardMetric[] = [
-          {
-            label: 'Open Requests',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/relief-requests',
-            icon: 'assignment',
-            tone: 'muted',
-          },
-          {
-            label: 'Package Worklist',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/package-fulfillment',
-            icon: 'inventory_2',
-            tone: 'muted',
-          },
-          {
-            label: 'Consolidation',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/consolidation',
-            icon: 'warehouse',
-            tone: 'muted',
-          },
-          {
-            label: 'Dispatch Queue',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/dispatch',
-            icon: 'local_shipping',
-            tone: 'muted',
-          },
-          {
-            label: 'Action Items',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/tasks',
-            icon: 'notifications_active',
-            tone: 'muted',
-          },
-        ];
-
-        if (canAccessEligibility) {
-          fallbackMetrics.splice(1, 0, {
-            label: 'Eligibility Queue',
-            value: 0,
-            note: 'Unavailable',
-            route: '/operations/eligibility-review',
-            icon: 'verified_user',
-            tone: 'muted',
-          });
-          fallbackMetrics.pop();
-        }
-
-        this.metrics.set(fallbackMetrics);
+        this.metrics.set(buildUnavailableDashboardMetrics(canAccessEligibility));
         this.priorityWork.set([]);
         this.dashboardSubtitle.set(
           `Operations command center for relief requests, ${canAccessEligibility ? 'eligibility review, ' : ''}packing, dispatch, and task coordination.`,

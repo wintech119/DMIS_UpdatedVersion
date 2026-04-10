@@ -3084,7 +3084,7 @@ def _warehouse_usable_surplus_for_item(
     sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
     return sum(
         (
-            _quantize_qty(candidate.get("usable_qty", candidate["available_qty"]))
+            _quantize_qty(candidate.get("available_qty"))
             for candidate in sorted_candidates
         ),
         Decimal("0"),
@@ -3318,13 +3318,21 @@ def _build_item_allocation_response(
     draft_selected_qty = sum((_quantize_qty(allocation["quantity"]) for allocation in normalized_draft_allocations), Decimal("0"))
     effective_remaining_qty = max(Decimal("0"), _quantize_qty(base_remaining_qty) - draft_selected_qty)
     as_of_date = timezone.localdate()
-    candidates = list(_fetch_batch_candidates(source_warehouse_id, item_id, as_of_date=as_of_date))
-    merged_warehouse_ids: list[int] = [int(source_warehouse_id)]
+    primary_warehouse_id = int(source_warehouse_id)
+    primary_warehouse_accessible = tenant_context is None or can_access_warehouse(
+        tenant_context, primary_warehouse_id, write=True
+    )
+    candidates = (
+        list(_fetch_batch_candidates(primary_warehouse_id, item_id, as_of_date=as_of_date))
+        if primary_warehouse_accessible
+        else []
+    )
+    merged_warehouse_ids: list[int] = [primary_warehouse_id] if primary_warehouse_accessible else []
+    seen_keys: set[tuple[int, int, str, int | None]] = {_allocation_line_key(candidate) for candidate in candidates}
     if additional_warehouse_ids:
-        seen_keys: set[tuple[int, int, str, int | None]] = {_allocation_line_key(candidate) for candidate in candidates}
         for extra_warehouse_id in additional_warehouse_ids:
             extra_int = int(extra_warehouse_id)
-            if extra_int <= 0 or extra_int == int(source_warehouse_id) or extra_int in merged_warehouse_ids:
+            if extra_int <= 0 or extra_int == primary_warehouse_id or extra_int in merged_warehouse_ids:
                 continue
             if tenant_context is not None and not can_access_warehouse(tenant_context, extra_int, write=True):
                 continue

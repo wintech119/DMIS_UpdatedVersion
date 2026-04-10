@@ -8,6 +8,8 @@ export interface FulfillmentEntryAction {
   disabledReason: string | null;
 }
 
+export type OperationsDispatchStage = 'ready' | 'in_transit' | 'completed' | 'unknown';
+
 const OPERATIONS_QUEUE_SEEN_LIMIT = 250;
 
 const REQUEST_STATUS_LABELS: Record<string, string> = {
@@ -302,6 +304,32 @@ export function getPackageDispatchAction(
     disabled: !ready,
     disabledReason: ready ? null : PACKAGE_DISPATCH_NOT_READY_REASON,
   };
+}
+
+export function getOperationsDispatchStage(pkg: {
+  status_code: string | null | undefined;
+  execution_status?: string | null | undefined;
+  received_dtime?: string | null | undefined;
+}): OperationsDispatchStage {
+  const normalized = normalizeOperationsPackageStatus(pkg.status_code, pkg.execution_status);
+  if (pkg.received_dtime) {
+    return 'completed';
+  }
+  if (normalized === 'D' || normalized === 'DISPATCHED') {
+    return 'in_transit';
+  }
+  if (normalized === 'C' || normalized === 'RECEIVED') {
+    return 'completed';
+  }
+  if (
+    normalized === 'P'
+    || normalized === 'COMMITTED'
+    || normalized === 'READY_FOR_DISPATCH'
+    || normalized === 'READY_FOR_PICKUP'
+  ) {
+    return 'ready';
+  }
+  return 'unknown';
 }
 
 export function formatOperationsConsolidationStatus(code: string | null | undefined): string {
@@ -679,7 +707,7 @@ export function countOperationsUnreadIds(
   ids: readonly number[],
   seenIds: readonly number[] | null | undefined,
 ): number {
-  const currentIds = normalizeOperationsQueueIds(ids);
+  const currentIds = normalizeOperationsQueueIds(ids, { cap: false });
   if (!currentIds.length) {
     return 0;
   }
@@ -759,7 +787,10 @@ function sanitizeOperationsQueueSeenEntries(
   return sanitized;
 }
 
-function normalizeOperationsQueueIds(values: readonly number[] | unknown): number[] {
+function normalizeOperationsQueueIds(
+  values: readonly number[] | unknown,
+  options?: { cap?: boolean },
+): number[] {
   if (!Array.isArray(values)) {
     return [];
   }
@@ -773,5 +804,9 @@ function normalizeOperationsQueueIds(values: readonly number[] | unknown): numbe
     unique.add(normalized);
   }
 
-  return Array.from(unique).slice(-OPERATIONS_QUEUE_SEEN_LIMIT);
+  const normalized = Array.from(unique);
+  if (options?.cap === false) {
+    return normalized;
+  }
+  return normalized.slice(-OPERATIONS_QUEUE_SEEN_LIMIT);
 }

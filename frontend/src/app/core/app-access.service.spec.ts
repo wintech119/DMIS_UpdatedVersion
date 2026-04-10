@@ -158,11 +158,32 @@ describe('AppAccessService', () => {
 
     expect(directorAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
 
+    const compatibilityAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility.*'],
+    });
+
+    expect(compatibilityAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
+    const compatibilitySinglePermissionAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility'],
+    });
+
+    expect(compatibilitySinglePermissionAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
     const logisticsAccess = setup({
       roles: ['LOGISTICS_MANAGER'],
       permissions: ['operations.eligibility.review'],
     });
 
     expect(logisticsAccess.canAccessNavKey('operations.eligibility')).toBeFalse();
+
+    const roleWithoutPermission = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: [],
+    });
+
+    expect(roleWithoutPermission.canAccessNavKey('operations.eligibility')).toBeFalse();
   });
 });

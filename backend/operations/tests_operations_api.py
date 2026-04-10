@@ -222,7 +222,9 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_options.call_args.kwargs["source_warehouse_id"], 1)
         self.assertEqual(mock_save.call_count, 2)
         self.assertEqual(mock_save.call_args_list[0].kwargs["payload"]["comments_text"], "Prep")
+        self.assertIs(mock_save.call_args_list[0].kwargs["payload"]["draft_save"], True)
         self.assertEqual(mock_save.call_args_list[1].kwargs["payload"]["allocations"][0]["item_id"], 101)
+        self.assertFalse(mock_save.call_args_list[1].kwargs["payload"].get("draft_save", False))
         self.assertEqual(mock_save.call_args_list[0].kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_save.call_args_list[0].kwargs["permissions"], [])
         self.assertEqual(mock_save.call_args_list[1].kwargs["permissions"], [])
@@ -332,8 +334,25 @@ class OperationsApiTests(SimpleTestCase):
         response = self.client.post("/api/v1/operations/packages/70/unlock", ["force"], format="json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["errors"]["force"], "force payload must be an object.")
+        self.assertEqual(response.json()["errors"]["body"], "Request body must be a JSON object.")
         mock_unlock.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.save_package")
+    def test_package_draft_rejects_non_object_payloads(
+        self,
+        mock_save_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post("/api/v1/operations/packages/70/draft", ["not-an-object"], format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"]["body"], "Request body must be a JSON object.")
+        mock_save_package.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
