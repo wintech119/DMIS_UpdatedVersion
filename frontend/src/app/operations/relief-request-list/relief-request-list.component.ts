@@ -177,9 +177,14 @@ export class ReliefRequestListComponent implements OnInit {
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe(() => {
-      this.loadSeenFilters();
-      this.loadRequests();
+    this.auth.ensureLoaded().subscribe({
+      next: () => {
+        this.loadSeenFilters();
+        this.loadRequests();
+      },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
