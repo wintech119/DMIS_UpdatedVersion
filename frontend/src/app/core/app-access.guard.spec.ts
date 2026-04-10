@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { firstValueFrom, isObservable, of } from 'rxjs';
+import { asyncScheduler, firstValueFrom, isObservable, of, scheduled } from 'rxjs';
 
 import { AppAccessService } from './app-access.service';
 import { AuthSessionService, AuthSessionState } from './auth-session.service';
@@ -134,5 +134,34 @@ describe('appAccessGuard', () => {
     expect(result).toEqual(jasmine.objectContaining({
       commands: ['/auth/login'],
     }));
+  });
+
+  it('keeps access checks working when auth initialization resolves asynchronously', async () => {
+    const { access, authSession } = setup({ canAccessNavKey: true });
+    authSession.ensureInitialized.and.returnValue(scheduled([void 0], asyncScheduler));
+
+    const guardResult = TestBed.runInInjectionContext(() =>
+      appAccessGuard(
+        { data: { accessKey: 'operations.relief-requests' } } as never,
+        { url: '/operations/relief-requests' } as never,
+      ),
+    );
+    const result = isObservable(guardResult) ? await firstValueFrom(guardResult) : guardResult;
+
+    expect(access.canAccessNavKey).toHaveBeenCalledWith('operations.relief-requests');
+    expect(result).toBeTrue();
+  });
+
+  it('keeps lazy-route access checks working when auth initialization resolves asynchronously', async () => {
+    const { access, authSession } = setup({ canAccessNavKey: true });
+    authSession.ensureInitialized.and.returnValue(scheduled([void 0], asyncScheduler));
+
+    const guardResult = TestBed.runInInjectionContext(() =>
+      appAccessMatchGuard({ data: { accessKey: 'master.any' }, path: 'master-data' } as never, []),
+    );
+    const result = isObservable(guardResult) ? await firstValueFrom(guardResult) : guardResult;
+
+    expect(access.canAccessNavKey).toHaveBeenCalledWith('master.any');
+    expect(result).toBeTrue();
   });
 });

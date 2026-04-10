@@ -11,17 +11,21 @@ import { map, Observable } from 'rxjs';
 import { AuthSessionService } from './auth-session.service';
 import { AppAccessService } from './app-access.service';
 
-export const appAccessGuard: CanActivateFn = (route, state) =>
-  evaluateProtectedRouteAccess(
+export const appAccessGuard: CanActivateFn = (route, state) => {
+  const access = inject(AppAccessService);
+  return evaluateProtectedRouteAccess(
     state.url,
-    () => isRouteAllowed(inject(AppAccessService), route.data ?? {}),
+    () => isRouteAllowed(access, route.data ?? {}),
   );
+};
 
-export const appAccessMatchGuard: CanMatchFn = (route, segments) =>
-  evaluateProtectedRouteAccess(
+export const appAccessMatchGuard: CanMatchFn = (route, segments) => {
+  const access = inject(AppAccessService);
+  return evaluateProtectedRouteAccess(
     normalizeRequestedUrl(segments, route.path),
-    () => isRouteAllowed(inject(AppAccessService), route.data ?? {}),
+    () => isRouteAllowed(access, route.data ?? {}),
   );
+};
 
 export function evaluateProtectedRouteAccess(
   requestedUrl: string,
