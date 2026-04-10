@@ -244,7 +244,7 @@ class OperationsConsolidationLeg(AuditedModel):
     status_code = models.CharField(max_length=30, db_index=True)
     shadow_transfer_id = models.IntegerField(blank=True, null=True)
     driver_name = models.CharField(max_length=120, blank=True, null=True)
-    driver_license_no = models.CharField(max_length=50, blank=True, null=True)
+    driver_license_last4 = models.CharField(max_length=4, blank=True, null=True)
     vehicle_id = models.CharField(max_length=50, blank=True, null=True)
     vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
     vehicle_type = models.CharField(max_length=50, blank=True, null=True)
@@ -390,7 +390,7 @@ class OperationsDispatchTransport(models.Model):
         related_name="transport_record",
     )
     driver_name = models.CharField(max_length=120)
-    driver_license_no = models.CharField(max_length=50, blank=True, null=True)
+    driver_license_last4 = models.CharField(max_length=4, blank=True, null=True)
     vehicle_id = models.CharField(max_length=50, blank=True, null=True)
     vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
     vehicle_type = models.CharField(max_length=50, blank=True, null=True)

@@ -20,13 +20,10 @@ class StagingRecommendation:
 
 
 def _fetch_rows(sql: str, params: list[object]) -> list[dict[str, object]]:
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, params)
-            columns = [column[0] for column in cursor.description or ()]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
-    except Exception:
-        return []
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        columns = [column[0] for column in cursor.description or ()]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
 def _staging_hub_rows(*, odpem_tenant_id: int) -> list[dict[str, object]]:

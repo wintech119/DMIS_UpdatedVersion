@@ -17,7 +17,7 @@ import { TRANSPORT_MODE_OPTIONS } from '../models/operations.model';
 
 export interface OpsTransportFormValue {
   driver_name: string;
-  driver_license_no?: string;
+  driver_license_last4?: string;
   vehicle_id?: string;
   vehicle_registration?: string;
   vehicle_type?: string;
@@ -62,11 +62,12 @@ export interface OpsTransportFormValue {
         </mat-form-field>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
-          <mat-label>Driver licence (optional)</mat-label>
+          <mat-label>Driver licence last 4 (optional)</mat-label>
           <input
             matInput
-            formControlName="driver_license_no"
-            maxlength="30" />
+            formControlName="driver_license_last4"
+            maxlength="4"
+            placeholder="Last 4 characters only" />
         </mat-form-field>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -206,7 +207,7 @@ export class OpsTransportFormComponent {
   readonly form: FormGroup = this.fb.nonNullable.group(
     {
       driver_name: ['', [Validators.required, Validators.maxLength(120)]],
-      driver_license_no: ['', [Validators.maxLength(30)]],
+      driver_license_last4: ['', [Validators.maxLength(4)]],
       vehicle_id: ['', [Validators.maxLength(30)]],
       vehicle_registration: ['', [Validators.maxLength(30)]],
       vehicle_type: ['', [Validators.maxLength(40)]],
@@ -226,7 +227,7 @@ export class OpsTransportFormComponent {
     const raw = this.form.getRawValue() as OpsTransportFormValue;
     const value: OpsTransportFormValue = {
       driver_name: raw.driver_name.trim(),
-      driver_license_no: raw.driver_license_no?.trim() || undefined,
+      driver_license_last4: raw.driver_license_last4?.trim() || undefined,
       vehicle_id: raw.vehicle_id?.trim() || undefined,
       vehicle_registration: raw.vehicle_registration?.trim() || undefined,
       vehicle_type: raw.vehicle_type?.trim() || undefined,

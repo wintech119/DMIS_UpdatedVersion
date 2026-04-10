@@ -23,7 +23,7 @@ PARISH_CODES = (
 )
 
 PARISH_GRAPH = {
-    "01": {"02"},
+    "01": {"02", "14"},
     "02": {"01", "03", "04", "05", "14"},
     "03": {"02", "04"},
     "04": {"02", "03", "05"},
@@ -40,12 +40,26 @@ PARISH_GRAPH = {
 }
 
 
+def _normalized_parish_graph() -> dict[str, set[str]]:
+    normalized = {
+        parish_code: set(PARISH_GRAPH.get(parish_code, ()))
+        for parish_code in PARISH_CODES
+    }
+    for parish_code, neighbors in tuple(normalized.items()):
+        for neighbor in tuple(neighbors):
+            if neighbor not in normalized:
+                continue
+            normalized[neighbor].add(parish_code)
+    return normalized
+
+
 def _distance_map(source_code: str) -> dict[str, int]:
+    graph = _normalized_parish_graph()
     queue = deque([(source_code, 0)])
     distances = {source_code: 0}
     while queue:
         current, distance = queue.popleft()
-        for neighbor in sorted(PARISH_GRAPH.get(current, ())):
+        for neighbor in sorted(graph.get(current, ())):
             if neighbor in distances:
                 continue
             distances[neighbor] = distance + 1

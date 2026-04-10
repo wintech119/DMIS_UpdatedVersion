@@ -19,6 +19,7 @@ from operations.constants import (
     CONSOLIDATION_LEG_STATUS_PLANNED,
     CONSOLIDATION_STATUS_ALL_RECEIVED,
     CONSOLIDATION_STATUS_AWAITING_LEGS,
+    CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
     DISPATCH_STATUS_IN_TRANSIT,
     FULFILLMENT_MODE_PICKUP_AT_STAGING,
     ELIGIBILITY_ROLE_CODES,
@@ -1428,6 +1429,89 @@ class OperationsWorkflowContractTests(TestCase):
             3,
         )
 
+    def test_create_consolidation_legs_retires_open_queue_assignments_before_rebuild(self) -> None:
+        request_record = self._create_operations_request_record()
+        package_record = OperationsPackage.objects.create(
+            package_id=190,
+            package_no="PK00190",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=CONSOLIDATION_STATUS_AWAITING_LEGS,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=4,
+            batch_id=1001,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=102,
+            source_warehouse_id=9,
+            batch_id=1002,
+            quantity=Decimal("1.0000"),
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        existing_leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLegItem.objects.create(
+            leg=existing_leg,
+            item_id=101,
+            batch_id=1001,
+            quantity="2",
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        dispatch_assignment = OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(existing_leg.leg_id),
+            assigned_role_code=ROLE_LOGISTICS_MANAGER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+        receipt_assignment = OperationsQueueAssignment.objects.create(
+            queue_code=QUEUE_CODE_STAGING_RECEIPT,
+            entity_type="CONSOLIDATION_LEG",
+            entity_id=int(existing_leg.leg_id),
+            assigned_role_code=ROLE_LOGISTICS_OFFICER,
+            assigned_tenant_id=20,
+            assignment_status="OPEN",
+        )
+
+        created_legs = contract_services._create_consolidation_legs(
+            package_record=package_record,
+            actor_id="tester",
+        )
+
+        self.assertEqual([leg.source_warehouse_id for leg in created_legs], [4, 9])
+        self.assertFalse(
+            OperationsConsolidationLeg.objects.filter(leg_id=int(existing_leg.leg_id)).exists()
+        )
+        dispatch_assignment.refresh_from_db()
+        receipt_assignment.refresh_from_db()
+        self.assertEqual(dispatch_assignment.assignment_status, "CANCELLED")
+        self.assertEqual(receipt_assignment.assignment_status, "CANCELLED")
+
     @patch("operations.contract_services.beneficiary_parish_code_for_request", return_value="01")
     @patch("operations.contract_services.recommend_staging_hub")
     @patch("operations.contract_services._sync_operations_request")
@@ -1500,6 +1584,51 @@ class OperationsWorkflowContractTests(TestCase):
                 queue_code=QUEUE_CODE_CONSOLIDATION_DISPATCH,
                 entity_type="CONSOLIDATION_LEG",
             ).exists()
+        )
+
+    def test_update_package_consolidation_status_preserves_partial_release_requested(self) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=82)
+        package_record = OperationsPackage.objects.create(
+            package_id=182,
+            package_no="PK00182",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            consolidation_status=CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=2,
+            source_warehouse_id=9,
+            staging_warehouse_id=55,
+            status_code=contract_services.CONSOLIDATION_LEG_STATUS_RECEIVED_AT_STAGING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        result = contract_services._update_package_consolidation_status(
+            package_record=package_record,
+            actor_id="tester",
+        )
+
+        package_record.refresh_from_db()
+        self.assertEqual(result, CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED)
+        self.assertEqual(
+            package_record.consolidation_status,
+            CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED,
         )
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
@@ -1922,6 +2051,7 @@ class OperationsWorkflowContractTests(TestCase):
             int(leg.leg_id),
             payload={
                 "driver_name": "Jane Driver",
+                "driver_license_no": "DL123456789",
                 "vehicle_registration": "1234AB",
                 "departure_dtime": "2026-03-26T09:00:00Z",
                 "estimated_arrival_dtime": "2026-03-26T10:00:00Z",
@@ -1932,6 +2062,9 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
         self.assertEqual(result["status"], CONSOLIDATION_LEG_STATUS_IN_TRANSIT)
+        leg.refresh_from_db()
+        self.assertEqual(leg.driver_license_last4, "6789")
+        self.assertEqual(result["leg"]["driver_license_last4"], "6789")
         self.assertEqual(
             set(
                 OperationsQueueAssignment.objects.filter(
@@ -1949,6 +2082,106 @@ class OperationsWorkflowContractTests(TestCase):
                 entity_id=int(leg.leg_id),
                 assigned_role_code=ROLE_INVENTORY_CLERK,
             ).exists()
+        )
+
+    @patch("operations.contract_services._consolidation_leg_payload", return_value={"leg_id": 1})
+    @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 192})
+    @patch("operations.contract_services._ensure_fulfillment_request_access")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_list_consolidation_legs_enforces_fulfillment_request_access(
+        self,
+        package_context_mock,
+        ensure_fulfillment_access_mock,
+        _package_summary_mock,
+        _leg_payload_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=92)
+        package_record = OperationsPackage.objects.create(
+            package_id=192,
+            package_no="PK00192",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=192, reliefrqst_id=92, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=92, agency_id=501),
+            request_record,
+            package_record,
+        )
+
+        contract_services.list_consolidation_legs(
+            192,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        ensure_fulfillment_access_mock.assert_called_once_with(
+            request_record,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+    @patch("operations.contract_services._ensure_fulfillment_request_access")
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_get_consolidation_leg_waybill_enforces_fulfillment_request_access(
+        self,
+        package_context_mock,
+        ensure_fulfillment_access_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=93)
+        package_record = OperationsPackage.objects.create(
+            package_id=193,
+            package_no="PK00193",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        contract_services.OperationsConsolidationWaybill.objects.create(
+            leg=leg,
+            waybill_no="LEG-WB-193",
+            artifact_payload_json={"leg_id": int(leg.leg_id)},
+            generated_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=193, reliefrqst_id=93, agency_id=501, status_code="P"),
+            self._request_stub(reliefrqst_id=93, agency_id=501),
+            request_record,
+            package_record,
+        )
+
+        contract_services.get_consolidation_leg_waybill(
+            193,
+            int(leg.leg_id),
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+        )
+
+        ensure_fulfillment_access_mock.assert_called_once_with(
+            request_record,
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
         )
 
     @patch("operations.contract_services._sync_operations_request")
@@ -3532,6 +3765,7 @@ class OperationsWorkflowContractTests(TestCase):
             payload={
                 "transport_mode": "TRUCK",
                 "driver_name": "Jane Driver",
+                "driver_license_no": "DL123456789",
                 "vehicle_registration": "1234AB",
                 "departure_dtime": "2026-03-26T10:00:00Z",
                 "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
@@ -3543,6 +3777,8 @@ class OperationsWorkflowContractTests(TestCase):
 
         self.assertEqual(result["dispatch"]["status_code"], DISPATCH_STATUS_IN_TRANSIT)
         self.assertTrue(OperationsDispatchTransport.objects.filter(dispatch_id=result["dispatch"]["dispatch_id"]).exists())
+        transport_record = OperationsDispatchTransport.objects.get(dispatch_id=result["dispatch"]["dispatch_id"])
+        self.assertEqual(transport_record.driver_license_last4, "6789")
         self.assertTrue(OperationsWaybill.objects.filter(waybill_no="WB-PK00090").exists())
         self.assertTrue(OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_RECEIPT, entity_id=90).exists())
 
@@ -3612,7 +3848,7 @@ class OperationsWorkflowContractTests(TestCase):
             "estimated_arrival_dtime cannot be earlier than departure_dtime.",
         )
 
-    def test_dispatch_payload_masks_driver_license_number(self) -> None:
+    def test_dispatch_payload_returns_driver_license_last4_only(self) -> None:
         self._create_operations_request_record()
         package = OperationsPackage.objects.create(
             package_id=90,
@@ -3639,15 +3875,15 @@ class OperationsWorkflowContractTests(TestCase):
         OperationsDispatchTransport.objects.create(
             dispatch_id=dispatch.dispatch_id,
             driver_name="Jane Driver",
-            driver_license_no="DL123456789",
+            driver_license_last4="6789",
             vehicle_registration="1234AB",
             transport_mode="TRUCK",
         )
 
         payload = contract_services._dispatch_payload(package, dispatch)
 
-        self.assertEqual(payload["transport"]["driver_license_no"], "*******6789")
-        self.assertNotEqual(payload["transport"]["driver_license_no"], "DL123456789")
+        self.assertEqual(payload["transport"]["driver_license_last4"], "6789")
+        self.assertNotIn("driver_license_no", payload["transport"])
 
     @patch("operations.contract_services._dispatch_payload", side_effect=lambda package, dispatch: {"dispatch_id": int(dispatch.dispatch_id), "status_code": dispatch.status_code})
     @patch("operations.contract_services._request_summary_payload", side_effect=lambda request, request_record: {"reliefrqst_id": int(request.reliefrqst_id)})

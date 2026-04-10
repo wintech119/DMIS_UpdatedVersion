@@ -480,7 +480,9 @@ function normalizeDispatchTransport(raw: unknown): DispatchTransportSummary {
   const source = asRecord(raw);
   return {
     driver_name: asNullableString(source['driver_name']),
-    driver_license_no: asNullableString(source['driver_license_no']),
+    driver_license_last4:
+      asNullableString(source['driver_license_last4']) ??
+      asNullableString(source['driver_license_no']),
     vehicle_id: asNullableString(source['vehicle_id']),
     vehicle_registration: asNullableString(source['vehicle_registration']),
     vehicle_type: asNullableString(source['vehicle_type']),
@@ -708,7 +710,9 @@ export function normalizeConsolidationLeg(raw: unknown): ConsolidationLeg {
     status_label: asString(source['status_label'], statusCode),
     shadow_transfer_id: asNullableNumber(source['shadow_transfer_id']),
     driver_name: asNullableString(source['driver_name']),
-    driver_license_no: asNullableString(source['driver_license_no']),
+    driver_license_last4:
+      asNullableString(source['driver_license_last4']) ??
+      asNullableString(source['driver_license_no']),
     vehicle_id: asNullableString(source['vehicle_id']),
     vehicle_registration: asNullableString(source['vehicle_registration']),
     vehicle_type: asNullableString(source['vehicle_type']),

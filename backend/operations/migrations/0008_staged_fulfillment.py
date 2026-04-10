@@ -14,8 +14,18 @@ def add_transfer_context_column(apps, schema_editor) -> None:
             column.name
             for column in connection.introspection.get_table_description(cursor, "transfer")
         }
-    if "transfer_context" not in columns:
-        schema_editor.execute("ALTER TABLE transfer ADD COLUMN transfer_context VARCHAR(30)")
+    missing_columns = {
+        "needs_list_id": "ALTER TABLE transfer ADD COLUMN needs_list_id INTEGER",
+        "transfer_context": "ALTER TABLE transfer ADD COLUMN transfer_context VARCHAR(30)",
+        "dispatched_at": "ALTER TABLE transfer ADD COLUMN dispatched_at TIMESTAMP WITH TIME ZONE",
+        "dispatched_by": "ALTER TABLE transfer ADD COLUMN dispatched_by VARCHAR(20)",
+        "expected_arrival": "ALTER TABLE transfer ADD COLUMN expected_arrival TIMESTAMP WITH TIME ZONE",
+        "received_at": "ALTER TABLE transfer ADD COLUMN received_at TIMESTAMP WITH TIME ZONE",
+        "received_by": "ALTER TABLE transfer ADD COLUMN received_by VARCHAR(20)",
+    }
+    for column_name, ddl in missing_columns.items():
+        if column_name not in columns:
+            schema_editor.execute(ddl)
 
 
 def noop_reverse(apps, schema_editor) -> None:

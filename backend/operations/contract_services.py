@@ -13,7 +13,6 @@ from django.utils import timezone
 from api.rbac import (
     PERM_OPERATIONS_FULFILLMENT_MODE_SET,
     PERM_OPERATIONS_PACKAGE_ALLOCATE,
-    PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
 )
 from api.tenancy import TenantContext, can_access_tenant, can_access_warehouse
 from masterdata.services.data_access import get_lookup
@@ -945,13 +944,11 @@ def _assign_if_changed(record: Any, field_name: str, value: Any, changed_fields:
         changed_fields.append(field_name)
 
 
-def _mask_sensitive_value(value: str | None) -> str | None:
-    if not value:
-        return value
+def _driver_license_last4(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
     trimmed = str(value).strip()
-    if len(trimmed) <= 4:
-        return trimmed
-    return f"{'*' * (len(trimmed) - 4)}{trimmed[-4:]}"
+    return trimmed[-4:] if trimmed else None
 
 
 def _parse_transport_datetime(value: Any, field_name: str) -> datetime | None:
@@ -2060,7 +2057,7 @@ def _dispatch_payload(package: ReliefPkg, dispatch: OperationsDispatch) -> dict[
     if transport is not None:
         payload["transport"] = {
             "driver_name": transport.driver_name,
-            "driver_license_no": _mask_sensitive_value(transport.driver_license_no),
+            "driver_license_last4": transport.driver_license_last4,
             "vehicle_id": transport.vehicle_id,
             "vehicle_registration": transport.vehicle_registration,
             "vehicle_type": transport.vehicle_type,
@@ -2089,7 +2086,7 @@ def _consolidation_leg_payload(leg: OperationsConsolidationLeg) -> dict[str, Any
         "status_label": STATUS_LABELS.get(leg.status_code, leg.status_code.title()),
         "shadow_transfer_id": leg.shadow_transfer_id,
         "driver_name": leg.driver_name,
-        "driver_license_no": _mask_sensitive_value(leg.driver_license_no),
+        "driver_license_last4": leg.driver_license_last4,
         "vehicle_id": leg.vehicle_id,
         "vehicle_registration": leg.vehicle_registration,
         "vehicle_type": leg.vehicle_type,
@@ -2227,11 +2224,19 @@ def _create_consolidation_legs(
             }
         )
     if existing_legs:
+        existing_leg_ids = [int(leg.leg_id) for leg in existing_legs]
+        for leg_id in existing_leg_ids:
+            complete_queue_assignments(
+                entity_type=ENTITY_CONSOLIDATION_LEG,
+                entity_id=leg_id,
+                actor_id=actor_id,
+                completion_status="CANCELLED",
+            )
         OperationsConsolidationLegItem.objects.filter(
-            leg_id__in=[int(leg.leg_id) for leg in existing_legs]
+            leg_id__in=existing_leg_ids
         ).delete()
         OperationsConsolidationLeg.objects.filter(
-            leg_id__in=[int(leg.leg_id) for leg in existing_legs]
+            leg_id__in=existing_leg_ids
         ).delete()
 
     allocation_lines = list(
@@ -2349,6 +2354,8 @@ def _update_package_consolidation_status(
     package_record: OperationsPackage,
     actor_id: str,
 ) -> str | None:
+    if package_record.consolidation_status == CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED:
+        return CONSOLIDATION_STATUS_PARTIAL_RELEASE_REQUESTED
     summary = _package_leg_summary(package_record)
     if summary["total_legs"] == 0:
         status = None
@@ -4872,14 +4879,13 @@ def abandon_package_draft(
                 )
 
     # Load with tenant + access guard (write lock)
-    package, request, request_record, package_record = _package_context_by_package_id(
+    _package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
         actor_roles=actor_roles,
         tenant_context=tenant_context,
         write=True,
     )
-    del package, request  # used only for write-lock side effects
 
     if package_record.status_code in {
         PACKAGE_STATUS_COMMITTED,
@@ -5008,16 +5014,21 @@ def list_consolidation_legs(
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
-    package, request, request_record, package_record = _package_context_by_package_id(
+    package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
         actor_roles=actor_roles,
         tenant_context=tenant_context,
     )
-    del package, request, request_record
+    _ensure_fulfillment_request_access(
+        request_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
+        tenant_context=tenant_context,
+    )
     return {
         "package": _package_summary_payload(
-            legacy_service._load_package(reliefpkg_id),
+            package,
             package_record,
         ),
         "results": [
@@ -5550,7 +5561,7 @@ def dispatch_consolidation_leg(
     transport_payload = _validated_transport_payload(payload)
     now = timezone.now()
     leg.driver_name = transport_payload["driver_name"]
-    leg.driver_license_no = transport_payload["driver_license_no"]
+    leg.driver_license_last4 = transport_payload["driver_license_last4"]
     leg.vehicle_id = transport_payload["vehicle_id"]
     leg.vehicle_registration = transport_payload["vehicle_registration"]
     leg.vehicle_type = transport_payload["vehicle_type"]
@@ -5756,10 +5767,16 @@ def get_consolidation_leg_waybill(
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
     actor_id = _require_actor_id(actor_id)
-    _, _, _, package_record = _package_context_by_package_id(
+    _, _, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
         actor_roles=actor_roles,
+        tenant_context=tenant_context,
+    )
+    _ensure_fulfillment_request_access(
+        request_record,
+        actor_id=actor_id,
+        actor_roles=actor_roles or (),
         tenant_context=tenant_context,
     )
     leg = package_record.consolidation_legs.filter(leg_id=int(leg_id)).first()
@@ -5897,14 +5914,13 @@ def request_partial_release(
     tenant_context: TenantContext,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may request partial release.")
-    package, request, request_record, package_record = _package_context_by_package_id(
+    _package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
         actor_id=actor_id,
         actor_roles=actor_roles,
         tenant_context=tenant_context,
         write=True,
     )
-    del package
     if not _is_staged_fulfillment_mode(package_record.fulfillment_mode):
         raise OperationValidationError({"partial_release": "Partial release is only supported for staged packages."})
     if package_record.status_code != PACKAGE_STATUS_CONSOLIDATING:
@@ -6472,6 +6488,9 @@ def get_dispatch_package(reliefpkg_id: int, *, actor_id: str | None = None, acto
 
 def _validated_transport_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     driver_name = str(payload.get("driver_name") or "").strip()
+    driver_license_last4 = _driver_license_last4(
+        payload.get("driver_license_last4") or payload.get("driver_license_no")
+    )
     vehicle_id = str(payload.get("vehicle_id") or "").strip() or None
     vehicle_registration = str(payload.get("vehicle_registration") or "").strip() or None
     vehicle_type = str(payload.get("vehicle_type") or "").strip() or None
@@ -6492,7 +6511,7 @@ def _validated_transport_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise OperationValidationError(errors)
     return {
         "driver_name": driver_name,
-        "driver_license_no": str(payload.get("driver_license_no") or "").strip() or None,
+        "driver_license_last4": driver_license_last4,
         "vehicle_id": vehicle_id,
         "vehicle_registration": vehicle_registration,
         "vehicle_type": vehicle_type,

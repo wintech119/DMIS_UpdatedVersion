@@ -448,7 +448,7 @@ export interface OverrideApprovalPayload {
 // Dispatch
 export interface DispatchTransportSummary {
   driver_name: string | null;
-  driver_license_no: string | null;
+  driver_license_last4: string | null;
   vehicle_id: string | null;
   vehicle_registration: string | null;
   vehicle_type: string | null;
@@ -675,8 +675,8 @@ export interface ConsolidationLeg {
   status_label: string;
   shadow_transfer_id: number | null;
   driver_name: string | null;
-  /** Masked by backend when returned to the client. */
-  driver_license_no: string | null;
+  /** Only the last 4 characters are persisted and returned by the backend. */
+  driver_license_last4: string | null;
   vehicle_id: string | null;
   vehicle_registration: string | null;
   vehicle_type: string | null;
@@ -698,7 +698,7 @@ export interface ConsolidationLegsResponse {
 
 export interface ConsolidationLegDispatchPayload {
   driver_name: string;
-  driver_license_no?: string;
+  driver_license_last4?: string;
   vehicle_id?: string;
   vehicle_registration?: string;
   vehicle_type?: string;

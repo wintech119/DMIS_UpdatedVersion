@@ -12,21 +12,35 @@ from operations.models import (
 )
 
 
-class OperationsReceiptModelTests(TestCase):
+class _OperationsRequestFactoryMixin:
+    request_no_prefix = "RQ"
+    requesting_tenant_id = 20
+    beneficiary_tenant_id = 20
+    request_date = date(2026, 4, 2)
+    urgency_code = "H"
+
     def _create_request(self, request_id: int) -> OperationsReliefRequest:
         return OperationsReliefRequest.objects.create(
             relief_request_id=request_id,
-            request_no=f"RR{request_id:05d}",
-            requesting_tenant_id=10,
-            beneficiary_tenant_id=20,
+            request_no=f"{self.request_no_prefix}{request_id:05d}",
+            requesting_tenant_id=self.requesting_tenant_id,
+            beneficiary_tenant_id=self.beneficiary_tenant_id,
             beneficiary_agency_id=501,
             origin_mode="SELF",
-            request_date=date(2026, 3, 27),
-            urgency_code="HIGH",
+            request_date=self.request_date,
+            urgency_code=self.urgency_code,
             status_code="APPROVED_FOR_FULFILLMENT",
             create_by_id="tester",
             update_by_id="tester",
         )
+
+
+class OperationsReceiptModelTests(_OperationsRequestFactoryMixin, TestCase):
+    request_no_prefix = "RR"
+    requesting_tenant_id = 10
+    beneficiary_tenant_id = 20
+    request_date = date(2026, 3, 27)
+    urgency_code = "HIGH"
 
     def _create_package(self, package_id: int, request: OperationsReliefRequest) -> OperationsPackage:
         return OperationsPackage.objects.create(
@@ -90,22 +104,7 @@ class OperationsReceiptModelTests(TestCase):
         self.assertIsNone(receipt.package)
 
 
-class OperationsPackageModelTests(TestCase):
-    def _create_request(self, request_id: int) -> OperationsReliefRequest:
-        return OperationsReliefRequest.objects.create(
-            relief_request_id=request_id,
-            request_no=f"RQ{request_id:05d}",
-            requesting_tenant_id=20,
-            beneficiary_tenant_id=20,
-            beneficiary_agency_id=501,
-            origin_mode="SELF",
-            request_date=date(2026, 4, 2),
-            urgency_code="H",
-            status_code="APPROVED_FOR_FULFILLMENT",
-            create_by_id="tester",
-            update_by_id="tester",
-        )
-
+class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
     def test_effective_dispatch_source_warehouse_uses_direct_source_for_direct_mode(self) -> None:
         request = self._create_request(80)
         package = OperationsPackage.objects.create(
