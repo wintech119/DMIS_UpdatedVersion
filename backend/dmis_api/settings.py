@@ -71,6 +71,13 @@ def _get_int_env(name: str, default: int | None) -> int | None:
         raise RuntimeError(f"Invalid {name} value: {raw!r}") from exc
 
 
+def _get_csv_env(name: str, default: list[str]) -> list[str]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def _build_debug_secret_key() -> str:
     seed = "|".join(
         [
@@ -98,6 +105,166 @@ _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS = {
     "staging",
     "production",
 }
+_LOCAL_ONLY_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"}
+_PLACEHOLDER_SECRET_KEYS = {
+    "",
+    "<generate-secure-random-key>",
+    "changeme",
+    "change-me",
+    "replace-me",
+    "replace_me",
+    "replace-with-a-long-random-secret",
+    "your-secret-key",
+    "your_secret_key",
+}
+_EXPECTED_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+_RUNTIME_SECURITY_PROFILES = {
+    "local-harness": {
+        "require_explicit_secret_key": False,
+        "require_explicit_allowed_hosts": False,
+        "require_non_loopback_allowed_hosts": False,
+        "secure_ssl_redirect_default": False,
+        "session_cookie_secure_default": False,
+        "csrf_cookie_secure_default": False,
+        "secure_hsts_seconds_default": 0,
+        "secure_hsts_include_subdomains_default": False,
+        "secure_hsts_preload_default": False,
+        "x_frame_options_default": "DENY",
+        "secure_referrer_policy_default": "same-origin",
+        "required_secure_ssl_redirect": None,
+        "required_session_cookie_secure": None,
+        "required_csrf_cookie_secure": None,
+        "required_secure_hsts_seconds": None,
+        "required_secure_hsts_include_subdomains": None,
+        "required_secure_hsts_preload": None,
+        "allow_hsts_preload_opt_in": False,
+        "required_x_frame_options": None,
+        "required_secure_referrer_policy": None,
+        "required_proxy_ssl_header": None,
+    },
+    "prod-like-local": {
+        "require_explicit_secret_key": True,
+        "require_explicit_allowed_hosts": True,
+        "require_non_loopback_allowed_hosts": False,
+        "secure_ssl_redirect_default": False,
+        "session_cookie_secure_default": False,
+        "csrf_cookie_secure_default": False,
+        "secure_hsts_seconds_default": 0,
+        "secure_hsts_include_subdomains_default": False,
+        "secure_hsts_preload_default": False,
+        "x_frame_options_default": "DENY",
+        "secure_referrer_policy_default": "same-origin",
+        "required_secure_ssl_redirect": None,
+        "required_session_cookie_secure": None,
+        "required_csrf_cookie_secure": None,
+        "required_secure_hsts_seconds": None,
+        "required_secure_hsts_include_subdomains": None,
+        "required_secure_hsts_preload": None,
+        "allow_hsts_preload_opt_in": False,
+        "required_x_frame_options": None,
+        "required_secure_referrer_policy": None,
+        "required_proxy_ssl_header": None,
+    },
+    "shared-dev": {
+        "require_explicit_secret_key": True,
+        "require_explicit_allowed_hosts": True,
+        "require_non_loopback_allowed_hosts": True,
+        "secure_ssl_redirect_default": True,
+        "session_cookie_secure_default": True,
+        "csrf_cookie_secure_default": True,
+        "secure_hsts_seconds_default": 3600,
+        "secure_hsts_include_subdomains_default": False,
+        "secure_hsts_preload_default": False,
+        "x_frame_options_default": "DENY",
+        "secure_referrer_policy_default": "strict-origin-when-cross-origin",
+        "required_secure_ssl_redirect": True,
+        "required_session_cookie_secure": True,
+        "required_csrf_cookie_secure": True,
+        "required_secure_hsts_seconds": 3600,
+        "required_secure_hsts_include_subdomains": False,
+        "required_secure_hsts_preload": False,
+        "allow_hsts_preload_opt_in": False,
+        "required_x_frame_options": "DENY",
+        "required_secure_referrer_policy": "strict-origin-when-cross-origin",
+        "required_proxy_ssl_header": _EXPECTED_PROXY_SSL_HEADER,
+    },
+    "staging": {
+        "require_explicit_secret_key": True,
+        "require_explicit_allowed_hosts": True,
+        "require_non_loopback_allowed_hosts": True,
+        "secure_ssl_redirect_default": True,
+        "session_cookie_secure_default": True,
+        "csrf_cookie_secure_default": True,
+        "secure_hsts_seconds_default": 86400,
+        "secure_hsts_include_subdomains_default": False,
+        "secure_hsts_preload_default": False,
+        "x_frame_options_default": "DENY",
+        "secure_referrer_policy_default": "strict-origin-when-cross-origin",
+        "required_secure_ssl_redirect": True,
+        "required_session_cookie_secure": True,
+        "required_csrf_cookie_secure": True,
+        "required_secure_hsts_seconds": 86400,
+        "required_secure_hsts_include_subdomains": False,
+        "required_secure_hsts_preload": False,
+        "allow_hsts_preload_opt_in": False,
+        "required_x_frame_options": "DENY",
+        "required_secure_referrer_policy": "strict-origin-when-cross-origin",
+        "required_proxy_ssl_header": _EXPECTED_PROXY_SSL_HEADER,
+    },
+    "production": {
+        "require_explicit_secret_key": True,
+        "require_explicit_allowed_hosts": True,
+        "require_non_loopback_allowed_hosts": True,
+        "secure_ssl_redirect_default": True,
+        "session_cookie_secure_default": True,
+        "csrf_cookie_secure_default": True,
+        "secure_hsts_seconds_default": 31536000,
+        "secure_hsts_include_subdomains_default": True,
+        "secure_hsts_preload_default": False,
+        "x_frame_options_default": "DENY",
+        "secure_referrer_policy_default": "strict-origin-when-cross-origin",
+        "required_secure_ssl_redirect": True,
+        "required_session_cookie_secure": True,
+        "required_csrf_cookie_secure": True,
+        "required_secure_hsts_seconds": 31536000,
+        "required_secure_hsts_include_subdomains": True,
+        "required_secure_hsts_preload": None,
+        "allow_hsts_preload_opt_in": True,
+        "required_x_frame_options": "DENY",
+        "required_secure_referrer_policy": "strict-origin-when-cross-origin",
+        "required_proxy_ssl_header": _EXPECTED_PROXY_SSL_HEADER,
+    },
+}
+
+
+def _get_runtime_security_profile(runtime_env: str) -> dict[str, object]:
+    if runtime_env == "test":
+        return _RUNTIME_SECURITY_PROFILES["local-harness"]
+    return _RUNTIME_SECURITY_PROFILES[runtime_env]
+
+
+def _is_placeholder_secret_key(secret_key: str) -> bool:
+    normalized = secret_key.strip().lower()
+    return normalized in _PLACEHOLDER_SECRET_KEYS or secret_key.startswith("debug-")
+
+
+def _is_url_shaped_allowed_host(host: str) -> bool:
+    normalized = host.strip().lower()
+    return "://" in normalized or "/" in normalized
+
+
+def _is_loopback_allowed_host(host: str) -> bool:
+    return host.strip().lower() in _LOCAL_ONLY_ALLOWED_HOSTS
+
+
+def _normalize_proxy_ssl_header(value) -> tuple[str, str] | None:
+    if not value:
+        return None
+    if isinstance(value, tuple) and len(value) == 2:
+        return value
+    if isinstance(value, list) and len(value) == 2:
+        return (str(value[0]), str(value[1]))
+    return None
 
 
 def _should_load_local_env() -> bool:
@@ -178,14 +345,170 @@ def default_auth_enabled_for_runtime_env(*, runtime_env: str, testing: bool) -> 
     return runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS
 
 
+def validate_runtime_security_configuration(
+    *,
+    runtime_env: str,
+    debug: bool,
+    secret_key: str,
+    secret_key_explicit: bool,
+    allowed_hosts: list[str],
+    allowed_hosts_explicit: bool,
+    secure_ssl_redirect: bool,
+    session_cookie_secure: bool,
+    csrf_cookie_secure: bool,
+    secure_hsts_seconds: int,
+    secure_hsts_include_subdomains: bool,
+    secure_hsts_preload: bool,
+    x_frame_options: str,
+    secure_referrer_policy: str,
+    csrf_trusted_origins: list[str],
+    secure_proxy_ssl_header,
+    use_x_forwarded_host: bool,
+    testing: bool,
+) -> None:
+    if testing or runtime_env == "test":
+        return
+
+    profile = _get_runtime_security_profile(runtime_env)
+
+    if profile["require_explicit_secret_key"]:
+        if not secret_key_explicit:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SECRET_KEY to be set explicitly."
+            )
+        if _is_placeholder_secret_key(secret_key):
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SECRET_KEY to be a real non-placeholder secret."
+            )
+
+    if profile["require_explicit_allowed_hosts"]:
+        if not allowed_hosts_explicit:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_ALLOWED_HOSTS to be set explicitly."
+            )
+        if not allowed_hosts:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_ALLOWED_HOSTS to list one or more hosts."
+            )
+
+    if allowed_hosts:
+        if any(host == "*" or host.startswith(".") for host in allowed_hosts):
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} does not allow wildcard DJANGO_ALLOWED_HOSTS entries."
+            )
+        if any(_is_url_shaped_allowed_host(host) for host in allowed_hosts):
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_ALLOWED_HOSTS entries without scheme or path."
+            )
+        if profile["require_non_loopback_allowed_hosts"] and not any(
+            not _is_loopback_allowed_host(host) for host in allowed_hosts
+        ):
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_ALLOWED_HOSTS to include at least one non-loopback host."
+            )
+
+    if secure_hsts_seconds < 0:
+        raise RuntimeError("DJANGO_SECURE_HSTS_SECONDS cannot be negative.")
+
+    if runtime_env != "local-harness" and any(
+        not origin.strip().lower().startswith("https://")
+        for origin in csrf_trusted_origins
+    ):
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_CSRF_TRUSTED_ORIGINS to use https:// origins only."
+        )
+
+    if use_x_forwarded_host:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires USE_X_FORWARDED_HOST=0."
+        )
+
+    required_proxy_ssl_header = profile["required_proxy_ssl_header"]
+    normalized_proxy_ssl_header = _normalize_proxy_ssl_header(secure_proxy_ssl_header)
+    if required_proxy_ssl_header is not None and normalized_proxy_ssl_header != required_proxy_ssl_header:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires SECURE_PROXY_SSL_HEADER={required_proxy_ssl_header!r}."
+        )
+
+    required_secure_ssl_redirect = profile["required_secure_ssl_redirect"]
+    if required_secure_ssl_redirect is not None and secure_ssl_redirect != required_secure_ssl_redirect:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SECURE_SSL_REDIRECT={int(required_secure_ssl_redirect)}."
+        )
+
+    required_session_cookie_secure = profile["required_session_cookie_secure"]
+    if (
+        required_session_cookie_secure is not None
+        and session_cookie_secure != required_session_cookie_secure
+    ):
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SESSION_COOKIE_SECURE={int(required_session_cookie_secure)}."
+        )
+
+    required_csrf_cookie_secure = profile["required_csrf_cookie_secure"]
+    if required_csrf_cookie_secure is not None and csrf_cookie_secure != required_csrf_cookie_secure:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_CSRF_COOKIE_SECURE={int(required_csrf_cookie_secure)}."
+        )
+
+    if profile["allow_hsts_preload_opt_in"] and secure_hsts_preload:
+        if secure_hsts_seconds < 31536000 or not secure_hsts_include_subdomains:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=production allows DJANGO_SECURE_HSTS_PRELOAD=1 only when "
+                "DJANGO_SECURE_HSTS_SECONDS>=31536000 and DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=1."
+            )
+
+    required_secure_hsts_seconds = profile["required_secure_hsts_seconds"]
+    if required_secure_hsts_seconds is not None and secure_hsts_seconds != required_secure_hsts_seconds:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SECURE_HSTS_SECONDS={required_secure_hsts_seconds}."
+        )
+
+    required_secure_hsts_include_subdomains = profile["required_secure_hsts_include_subdomains"]
+    if (
+        required_secure_hsts_include_subdomains is not None
+        and secure_hsts_include_subdomains != required_secure_hsts_include_subdomains
+    ):
+        raise RuntimeError(
+            "DMIS_RUNTIME_ENV="
+            f"{runtime_env} requires DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS="
+            f"{int(required_secure_hsts_include_subdomains)}."
+        )
+
+    required_secure_hsts_preload = profile["required_secure_hsts_preload"]
+    if required_secure_hsts_preload is not None and secure_hsts_preload != required_secure_hsts_preload:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_SECURE_HSTS_PRELOAD={int(required_secure_hsts_preload)}."
+        )
+
+    required_x_frame_options = profile["required_x_frame_options"]
+    if required_x_frame_options is not None and x_frame_options != required_x_frame_options:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DJANGO_X_FRAME_OPTIONS={required_x_frame_options}."
+        )
+
+    required_secure_referrer_policy = profile["required_secure_referrer_policy"]
+    if (
+        required_secure_referrer_policy is not None
+        and secure_referrer_policy != required_secure_referrer_policy
+    ):
+        raise RuntimeError(
+            "DMIS_RUNTIME_ENV="
+            f"{runtime_env} requires DJANGO_SECURE_REFERRER_POLICY={required_secure_referrer_policy}."
+        )
+
+
 _load_env_file(BASE_DIR / ".env")
 if _should_load_local_env():
     _load_env_file(BASE_DIR / ".env.local", override=True)
 
-_env_secret_key = os.getenv("DJANGO_SECRET_KEY", "").strip()
+_env_secret_key_raw = os.getenv("DJANGO_SECRET_KEY")
+_env_secret_key = (_env_secret_key_raw or "").strip()
 SECRET_KEY = _env_secret_key or _build_debug_secret_key()
+DMIS_SECRET_KEY_EXPLICIT = _env_secret_key_raw is not None
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 DMIS_RUNTIME_ENV = _normalize_runtime_environment(testing=TESTING)
+_runtime_security_profile = _get_runtime_security_profile(DMIS_RUNTIME_ENV)
 ENABLE_TEST_ROLES = os.getenv("ENABLE_TEST_ROLES", "0") == "1"
 _allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS")
 ALLOWED_HOSTS = [
@@ -193,12 +516,7 @@ ALLOWED_HOSTS = [
     for host in (_allowed_hosts_env or "localhost,127.0.0.1,[::1]").split(",")
     if host.strip()
 ]
-
-if not DEBUG:
-    if not _env_secret_key:
-        raise RuntimeError("DEBUG is False but DJANGO_SECRET_KEY is not set.")
-    if _allowed_hosts_env is None or not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
-        raise RuntimeError("DEBUG is False but DJANGO_ALLOWED_HOSTS is empty or contains '*'.")
+DMIS_ALLOWED_HOSTS_EXPLICIT = _allowed_hosts_env is not None
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -284,23 +602,41 @@ STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SECURE_CONTENT_TYPE_NOSNIFF = _get_bool_env("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", True)
-SECURE_SSL_REDIRECT = _get_bool_env("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
-SESSION_COOKIE_SECURE = _get_bool_env("DJANGO_SESSION_COOKIE_SECURE", not DEBUG)
-CSRF_COOKIE_SECURE = _get_bool_env("DJANGO_CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_SSL_REDIRECT = _get_bool_env(
+    "DJANGO_SECURE_SSL_REDIRECT",
+    bool(_runtime_security_profile["secure_ssl_redirect_default"]),
+)
+SESSION_COOKIE_SECURE = _get_bool_env(
+    "DJANGO_SESSION_COOKIE_SECURE",
+    bool(_runtime_security_profile["session_cookie_secure_default"]),
+)
+CSRF_COOKIE_SECURE = _get_bool_env(
+    "DJANGO_CSRF_COOKIE_SECURE",
+    bool(_runtime_security_profile["csrf_cookie_secure_default"]),
+)
 SECURE_HSTS_SECONDS = _get_int_env(
     "DJANGO_SECURE_HSTS_SECONDS",
-    31536000 if not DEBUG else 0,
+    int(_runtime_security_profile["secure_hsts_seconds_default"]),
 ) or 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = _get_bool_env(
     "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
-    SECURE_HSTS_SECONDS > 0 and not DEBUG,
+    bool(_runtime_security_profile["secure_hsts_include_subdomains_default"]),
 )
 SECURE_HSTS_PRELOAD = _get_bool_env(
     "DJANGO_SECURE_HSTS_PRELOAD",
-    SECURE_HSTS_SECONDS > 0 and not DEBUG,
+    bool(_runtime_security_profile["secure_hsts_preload_default"]),
 )
-X_FRAME_OPTIONS = os.getenv("DJANGO_X_FRAME_OPTIONS", "DENY").upper()
-SECURE_REFERRER_POLICY = os.getenv("DJANGO_SECURE_REFERRER_POLICY", "same-origin")
+X_FRAME_OPTIONS = os.getenv(
+    "DJANGO_X_FRAME_OPTIONS",
+    str(_runtime_security_profile["x_frame_options_default"]),
+).upper()
+SECURE_REFERRER_POLICY = os.getenv(
+    "DJANGO_SECURE_REFERRER_POLICY",
+    str(_runtime_security_profile["secure_referrer_policy_default"]),
+).strip().lower()
+CSRF_TRUSTED_ORIGINS = _get_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", [])
+SECURE_PROXY_SSL_HEADER = _runtime_security_profile["required_proxy_ssl_header"]
+USE_X_FORWARDED_HOST = False
 
 if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
     # Keep local and CI tests aligned with Django's default test client behavior.
@@ -409,6 +745,26 @@ validate_runtime_auth_configuration(
     local_auth_harness_enabled=LOCAL_AUTH_HARNESS_ENABLED,
     testing=TESTING,
 )
+validate_runtime_security_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    debug=DEBUG,
+    secret_key=SECRET_KEY,
+    secret_key_explicit=DMIS_SECRET_KEY_EXPLICIT,
+    allowed_hosts=ALLOWED_HOSTS,
+    allowed_hosts_explicit=DMIS_ALLOWED_HOSTS_EXPLICIT,
+    secure_ssl_redirect=SECURE_SSL_REDIRECT,
+    session_cookie_secure=SESSION_COOKIE_SECURE,
+    csrf_cookie_secure=CSRF_COOKIE_SECURE,
+    secure_hsts_seconds=SECURE_HSTS_SECONDS,
+    secure_hsts_include_subdomains=SECURE_HSTS_INCLUDE_SUBDOMAINS,
+    secure_hsts_preload=SECURE_HSTS_PRELOAD,
+    x_frame_options=X_FRAME_OPTIONS,
+    secure_referrer_policy=SECURE_REFERRER_POLICY,
+    csrf_trusted_origins=CSRF_TRUSTED_ORIGINS,
+    secure_proxy_ssl_header=SECURE_PROXY_SSL_HEADER,
+    use_x_forwarded_host=USE_X_FORWARDED_HOST,
+    testing=TESTING,
+)
 
 # Tenant-scope rollout control.
 # Default is disabled for backward compatibility until tenant mappings are complete.
@@ -418,12 +774,6 @@ if TESTING:
 else:
     TENANT_SCOPE_ENFORCEMENT = os.getenv("TENANT_SCOPE_ENFORCEMENT", "0") == "1"
 # Needs List Preview settings (TBD finalize from PRD/appendices).
-def _get_csv_env(name: str, default: list[str]) -> list[str]:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return [item.strip() for item in value.split(",") if item.strip()]
-
 def _get_float_env(name: str, default: float) -> float:
     raw = os.getenv(name)
     if raw is None or raw == "":

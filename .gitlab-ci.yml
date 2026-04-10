@@ -33,6 +33,7 @@ auth_posture_validation:
       backend_cwd = os.path.join(os.getcwd(), "backend")
       base_env = os.environ.copy()
       common_env = {
+          "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-auth-posture-secret",
           "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1,shared-dev.dmis.example.org,staging.dmis.example.org,dmis.example.org",
           "AUTH_ISSUER": "https://idp.example/realms/dmis",
@@ -142,7 +143,165 @@ auth_posture_validation:
           env.update(common_env)
           env.update(updates)
           result = subprocess.run(
-              [sys.executable, "-c", "import dmis_api.settings"],
+              [sys.executable, "manage.py", "shell", "-c", "import dmis_api.settings"],
+              cwd=backend_cwd,
+              env=env,
+              capture_output=True,
+              text=True,
+          )
+          succeeded = result.returncode == 0
+          if succeeded != expect_success:
+              print(f"[FAIL] {name}")
+              print("stdout:")
+              print(result.stdout)
+              print("stderr:")
+              print(result.stderr)
+              raise SystemExit(1)
+          verdict = "passed" if expect_success else "failed as expected"
+          print(f"[OK] {name}: {verdict}")
+      PY
+
+secure_posture_validation:
+  stage: test
+  script:
+    - |
+      python - <<'PY'
+      import os
+      import subprocess
+      import sys
+
+      backend_cwd = os.path.join(os.getcwd(), "backend")
+      base_env = os.environ.copy()
+      common_env = {
+          "PYTHONPATH": backend_cwd,
+          "DJANGO_SECRET_KEY": "ci-secure-posture-secret",
+          "AUTH_ISSUER": "https://idp.example/realms/dmis",
+          "AUTH_AUDIENCE": "dmis-web",
+          "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",
+          "AUTH_USER_ID_CLAIM": "sub",
+          "AUTH_USERNAME_CLAIM": "preferred_username",
+          "AUTH_USE_DB_RBAC": "1",
+          "DB_NAME": "dmis",
+          "DB_USER": "dmis",
+          "DB_PASSWORD": "dmis",
+          "DB_HOST": "db",
+          "DB_PORT": "5432",
+          "AUTH_ENABLED": "1",
+          "DEV_AUTH_ENABLED": "0",
+          "LOCAL_AUTH_HARNESS_ENABLED": "0",
+      }
+
+      cases = [
+          (
+              "prod-like-local secure baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "prod-like-local",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1",
+                  "DJANGO_SECURE_SSL_REDIRECT": "0",
+                  "DJANGO_SESSION_COOKIE_SECURE": "0",
+                  "DJANGO_CSRF_COOKIE_SECURE": "0",
+                  "DJANGO_SECURE_HSTS_SECONDS": "0",
+                  "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "0",
+                  "DJANGO_SECURE_HSTS_PRELOAD": "0",
+              },
+              [],
+          ),
+          (
+              "shared-dev secure baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "shared-dev.dmis.example.org",
+              },
+              [],
+          ),
+          (
+              "staging secure baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "staging",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "staging.dmis.example.org",
+              },
+              [],
+          ),
+          (
+              "production secure baseline",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "dmis.example.org",
+              },
+              [],
+          ),
+          (
+              "shared-dev rejects loopback-only hosts",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1",
+              },
+              [],
+          ),
+          (
+              "shared-dev rejects disabled https redirect",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "shared-dev.dmis.example.org",
+                  "DJANGO_SECURE_SSL_REDIRECT": "0",
+              },
+              [],
+          ),
+          (
+              "staging rejects weak hsts",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "staging",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "staging.dmis.example.org",
+                  "DJANGO_SECURE_HSTS_SECONDS": "3600",
+              },
+              [],
+          ),
+          (
+              "production rejects placeholder secret",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "dmis.example.org",
+                  "DJANGO_SECRET_KEY": "replace-with-a-long-random-secret",
+              },
+              [],
+          ),
+          (
+              "production rejects insecure csrf trusted origins",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "0",
+                  "DJANGO_ALLOWED_HOSTS": "dmis.example.org",
+                  "DJANGO_CSRF_TRUSTED_ORIGINS": "http://dmis.example.org",
+              },
+              [],
+          ),
+      ]
+
+      for name, expect_success, updates, removals in cases:
+          env = base_env.copy()
+          env.update(common_env)
+          env.update(updates)
+          for key in removals:
+              env.pop(key, None)
+          result = subprocess.run(
+              [sys.executable, "manage.py", "shell", "-c", "import dmis_api.settings"],
               cwd=backend_cwd,
               env=env,
               capture_output=True,

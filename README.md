@@ -22,7 +22,7 @@ DMIS is delivered as a Django + Angular application.
   - `docs/security/CONTROLS_MATRIX.md`
   - `docs/implementation/production_readiness_checklist.md`
 
-## Auth posture
+## Runtime posture
 
 - `scripts/run_new_stack.ps1` is a dev-only local harness helper. It is not a production, staging, shared-dev, or prod-like deployment path.
 - The local multi-user harness is local-only and uses `X-DMIS-Local-User` only when the app is running in explicit `local-harness` mode.
@@ -30,15 +30,15 @@ DMIS is delivered as a Django + Angular application.
 - Shared dev, staging, and production must use real Keycloak/OIDC/JWT auth only. Dev-auth and local-harness flags are rejected outside explicit local-harness mode.
 - Production-style Angular builds omit the local harness switcher/interceptor path rather than shipping it behind a runtime toggle.
 
-## Environment matrix
+## Runtime security matrix
 
-| Environment | `DMIS_RUNTIME_ENV` | Required auth flags | Intended use |
-|---|---|---|---|
-| Local developer harness | `local-harness` | `AUTH_ENABLED=0`, `DEV_AUTH_ENABLED=1`, `LOCAL_AUTH_HARNESS_ENABLED=1`, `DJANGO_DEBUG=1` | Local-only multi-user workflow testing. `run_new_stack.ps1` targets this mode. |
-| Prod-like local smoke test | `prod-like-local` | `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0`, `DJANGO_DEBUG=0` | Optional local smoke test with real auth config. Use `DMIS_SKIP_LOCAL_ENV=1` so `.env.local` does not re-enable the harness. |
-| Shared dev | `shared-dev` | `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0`, `DJANGO_DEBUG=0` | Shared environment with production-like auth posture. No local header switching. |
-| Staging | `staging` | `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0`, `DJANGO_DEBUG=0` | Production-like pre-release validation. No local header switching. |
-| Production | `production` | `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0`, `DJANGO_DEBUG=0` | Live posture. Real auth only, fail-closed on incompatible config. |
+| Environment | `DMIS_RUNTIME_ENV` | Debug / auth posture | HTTPS / cookie posture | HSTS posture | Proxy assumption | Intended use |
+|---|---|---|---|---|---|---|
+| Local developer harness | `local-harness` | `DJANGO_DEBUG=1`, `AUTH_ENABLED=0`, `DEV_AUTH_ENABLED=1`, `LOCAL_AUTH_HARNESS_ENABLED=1` | Local-friendly. HTTPS redirect and secure cookies may remain off. | Disabled. | No trusted reverse-proxy requirement. | Local-only multi-user workflow testing. `run_new_stack.ps1` targets this mode. |
+| Prod-like local smoke test | `prod-like-local` | `DJANGO_DEBUG=0`, `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0` | Local-friendly. HTTPS redirect, secure cookies, and HSTS may remain off. | Disabled. | No trusted reverse-proxy requirement. | Optional local smoke test with real auth config. Use `DMIS_SKIP_LOCAL_ENV=1` so `.env.local` does not re-enable the harness. |
+| Shared dev | `shared-dev` | `DJANGO_DEBUG=0`, real OIDC/JWT auth only | HTTPS redirect on, secure cookies on. | `3600` seconds, no subdomain include, no preload. | Trusted TLS-terminating ingress forwards `X-Forwarded-Proto`. | Shared environment with production-like security posture. No local header switching. |
+| Staging | `staging` | `DJANGO_DEBUG=0`, real OIDC/JWT auth only | HTTPS redirect on, secure cookies on. | `86400` seconds, no subdomain include, no preload. | Trusted TLS-terminating ingress forwards `X-Forwarded-Proto`. | Production-like pre-release validation. No local header switching. |
+| Production | `production` | `DJANGO_DEBUG=0`, real OIDC/JWT auth only | HTTPS redirect on, secure cookies on. | `31536000` seconds, `includeSubDomains=1`, preload opt-in only. | Trusted TLS-terminating ingress forwards `X-Forwarded-Proto`. | Live posture. Real auth only, fail-closed on incompatible config. |
 
 Frontend note: production-style builds file-replace the local harness switcher/interceptor with no-op implementations, but full end-to-end OIDC login validation still depends on completing the remaining Angular OIDC integration work.
 
@@ -120,9 +120,9 @@ Check migration status:
 | Variable | Description |
 |---|---|
 | `DMIS_RUNTIME_ENV` | One of `prod-like-local`, `shared-dev`, `staging`, or `production` for every non-local deployment |
-| `DJANGO_SECRET_KEY` | Long random string - never use the dev default |
+| `DJANGO_SECRET_KEY` | Long random string - never use the generated debug key or placeholder values |
 | `DJANGO_DEBUG` | Must be `0` |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames, e.g. `api.dmis.gov.jm` |
+| `DJANGO_ALLOWED_HOSTS` | Explicit comma-separated hostnames, e.g. `api.dmis.gov.jm` |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL connection |
 | `REDIS_URL` | Redis connection string, e.g. `redis://redis:6379/1` |
 | `AUTH_ENABLED` | Set to `1` to enforce Keycloak JWT validation |
@@ -132,8 +132,13 @@ Check migration status:
 | `AUTH_USER_ID_CLAIM` | JWT claim containing the user ID (e.g. `sub`) |
 | `AUTH_USERNAME_CLAIM` | JWT claim for display name |
 | `AUTH_ROLES_CLAIM` | JWT claim carrying role list (if not using DB RBAC) |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Optional HTTPS origins only, comma-separated, when the browser origin differs from the API origin |
 
 Non-local rule: `AUTH_ENABLED=1`, `DEV_AUTH_ENABLED=0`, `LOCAL_AUTH_HARNESS_ENABLED=0`, and no `X-DMIS-Local-User` / `X-Dev-User` override behavior.
+
+Non-local deployment rule: `shared-dev`, `staging`, and `production` assume a trusted TLS-terminating ingress that forwards `X-Forwarded-Proto`. Django now sets `SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")` for those runtimes and keeps `USE_X_FORWARDED_HOST=0`.
+
+Security-default rule: shared-dev, staging, and production now fail closed if secure cookies, HTTPS redirect, HSTS, secret key, or allowed-host posture are incompatible with the declared runtime environment.
 
 ### Redis cache
 
@@ -159,6 +164,18 @@ Django's `manage.py runserver` is not suitable for production. Use Gunicorn (or 
 pip install gunicorn
 gunicorn dmis_api.wsgi:application --workers 4 --bind 0.0.0.0:8000
 ```
+
+### Startup validation
+
+Run from `backend/` before promoting a non-local deployment:
+
+```bash
+python manage.py check --deploy
+```
+
+This complements the startup fail-closed validation in `dmis_api.settings`; it does not replace it.
+
+Django's deploy checks are broader than the DMIS runtime matrix and may still emit advisory warnings, for example when production keeps HSTS preload opt-in rather than mandatory. Treat the DMIS runtime validator as the enforced baseline and review any remaining Django warnings explicitly before promotion.
 
 ## IFRC Item Code Generator Agent (v3)
 

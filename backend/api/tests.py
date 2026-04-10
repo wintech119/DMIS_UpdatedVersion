@@ -3,6 +3,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
+from api import checks as api_checks
 from api import rbac
 from api.authentication import Principal
 from api.permissions import NeedsListPermission
@@ -108,6 +109,166 @@ class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
                 local_auth_harness_enabled=False,
                 testing=False,
             )
+
+
+class RuntimeSecurityConfigurationValidationTests(SimpleTestCase):
+    def _security_kwargs(self, runtime_env: str) -> dict[str, object]:
+        secure_transport_runtime_envs = {"shared-dev", "staging", "production"}
+        secure_hsts_seconds = {
+            "local-harness": 0,
+            "prod-like-local": 0,
+            "shared-dev": 3600,
+            "staging": 86400,
+            "production": 31536000,
+        }[runtime_env]
+        secure_hsts_include_subdomains = runtime_env == "production"
+
+        return {
+            "runtime_env": runtime_env,
+            "debug": runtime_env == "local-harness",
+            "secret_key": "ci-secure-runtime-secret",
+            "secret_key_explicit": runtime_env != "local-harness",
+            "allowed_hosts": (
+                ["localhost", "127.0.0.1"]
+                if runtime_env in {"local-harness", "prod-like-local"}
+                else [f"{runtime_env}.dmis.example.org"]
+            ),
+            "allowed_hosts_explicit": runtime_env != "local-harness",
+            "secure_ssl_redirect": runtime_env in secure_transport_runtime_envs,
+            "session_cookie_secure": runtime_env in secure_transport_runtime_envs,
+            "csrf_cookie_secure": runtime_env in secure_transport_runtime_envs,
+            "secure_hsts_seconds": secure_hsts_seconds,
+            "secure_hsts_include_subdomains": secure_hsts_include_subdomains,
+            "secure_hsts_preload": False,
+            "x_frame_options": "DENY",
+            "secure_referrer_policy": (
+                "same-origin"
+                if runtime_env in {"local-harness", "prod-like-local"}
+                else "strict-origin-when-cross-origin"
+            ),
+            "csrf_trusted_origins": [],
+            "secure_proxy_ssl_header": (
+                ("HTTP_X_FORWARDED_PROTO", "https")
+                if runtime_env in secure_transport_runtime_envs
+                else None
+            ),
+            "use_x_forwarded_host": False,
+            "testing": False,
+        }
+
+    def test_runtime_security_profiles_accept_expected_baselines(self) -> None:
+        for runtime_env in (
+            "local-harness",
+            "prod-like-local",
+            "shared-dev",
+            "staging",
+            "production",
+        ):
+            with self.subTest(runtime_env=runtime_env):
+                dmis_settings.validate_runtime_security_configuration(
+                    **self._security_kwargs(runtime_env)
+                )
+
+    def test_prod_like_local_requires_explicit_secret_key(self) -> None:
+        kwargs = self._security_kwargs("prod-like-local")
+        kwargs["secret_key"] = "debug-generated-secret"
+        kwargs["secret_key_explicit"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires DJANGO_SECRET_KEY to be set explicitly.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_rejects_loopback_only_allowed_hosts(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["allowed_hosts"] = ["localhost", "127.0.0.1"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_ALLOWED_HOSTS to include at least one non-loopback host.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_rejects_url_shaped_allowed_hosts(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["allowed_hosts"] = ["https://shared-dev.dmis.example.org"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_ALLOWED_HOSTS entries without scheme or path.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_requires_https_redirect(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["secure_ssl_redirect"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_SECURE_SSL_REDIRECT=1.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_staging_requires_expected_hsts_seconds(self) -> None:
+        kwargs = self._security_kwargs("staging")
+        kwargs["secure_hsts_seconds"] = 3600
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=staging requires DJANGO_SECURE_HSTS_SECONDS=86400.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_production_rejects_non_https_csrf_trusted_origins(self) -> None:
+        kwargs = self._security_kwargs("production")
+        kwargs["csrf_trusted_origins"] = ["http://dmis.example.org"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production requires DJANGO_CSRF_TRUSTED_ORIGINS to use https:// origins only.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_production_rejects_invalid_hsts_preload_opt_in(self) -> None:
+        kwargs = self._security_kwargs("production")
+        kwargs["secure_hsts_preload"] = True
+        kwargs["secure_hsts_include_subdomains"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production allows DJANGO_SECURE_HSTS_PRELOAD=1 only when DJANGO_SECURE_HSTS_SECONDS>=31536000 and DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=1.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+
+class RuntimeSecurityCheckTests(SimpleTestCase):
+    @override_settings(
+        TESTING=False,
+        DMIS_RUNTIME_ENV="shared-dev",
+        DEBUG=False,
+        SECRET_KEY="ci-secure-runtime-secret",
+        DMIS_SECRET_KEY_EXPLICIT=True,
+        ALLOWED_HOSTS=["shared-dev.dmis.example.org"],
+        DMIS_ALLOWED_HOSTS_EXPLICIT=True,
+        SECURE_SSL_REDIRECT=False,
+        SESSION_COOKIE_SECURE=True,
+        CSRF_COOKIE_SECURE=True,
+        SECURE_HSTS_SECONDS=3600,
+        SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
+        SECURE_HSTS_PRELOAD=False,
+        X_FRAME_OPTIONS="DENY",
+        SECURE_REFERRER_POLICY="strict-origin-when-cross-origin",
+        CSRF_TRUSTED_ORIGINS=[],
+        SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+        USE_X_FORWARDED_HOST=False,
+    )
+    def test_secure_runtime_check_reports_error_for_unsafe_non_local_settings(self) -> None:
+        messages = api_checks.check_dmis_secure_runtime_posture(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E003")
+        self.assertIn("DJANGO_SECURE_SSL_REDIRECT=1", messages[0].msg)
 
 
 class AuthWhoAmITests(TestCase):
