@@ -3,7 +3,9 @@ import hashlib
 import os
 import sys
 import warnings
+from importlib import import_module
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -105,6 +107,15 @@ _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS = {
     "staging",
     "production",
 }
+_REDIS_REQUIRED_RUNTIME_ENVIRONMENTS = {
+    "prod-like-local",
+    "shared-dev",
+    "staging",
+    "production",
+}
+_SUPPORTED_REDIS_URL_SCHEMES = {"redis", "rediss", "unix"}
+_REDIS_CACHE_BACKEND = "django_redis.cache.RedisCache"
+_LOCMEM_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
 _LOCAL_ONLY_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"}
 _PLACEHOLDER_SECRET_KEYS = {
     "",
@@ -343,6 +354,73 @@ def default_auth_enabled_for_runtime_env(*, runtime_env: str, testing: bool) -> 
     if testing:
         return False
     return runtime_env in _REAL_AUTH_ONLY_RUNTIME_ENVIRONMENTS
+
+
+def redis_required_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
+    if testing or runtime_env == "test":
+        return False
+    return runtime_env in _REDIS_REQUIRED_RUNTIME_ENVIRONMENTS
+
+
+def _validate_redis_url(redis_url: str, *, runtime_env: str) -> None:
+    parsed = urlparse(redis_url)
+    if parsed.scheme not in _SUPPORTED_REDIS_URL_SCHEMES:
+        allowed = ", ".join(sorted(_SUPPORTED_REDIS_URL_SCHEMES))
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL to use one of the supported schemes: {allowed}."
+        )
+    if parsed.scheme == "unix":
+        if not parsed.path:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL to include a unix socket path."
+            )
+        return
+    if not parsed.hostname:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL to include a hostname."
+        )
+
+
+def validate_runtime_redis_configuration(
+    *,
+    runtime_env: str,
+    redis_url: str,
+    cache_backend: str,
+    testing: bool,
+) -> None:
+    if testing or runtime_env == "test":
+        return
+
+    normalized_redis_url = redis_url.strip()
+    redis_required = redis_required_for_runtime_env(
+        runtime_env=runtime_env,
+        testing=testing,
+    )
+
+    if not normalized_redis_url:
+        if redis_required:
+            raise RuntimeError(
+                f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL because Redis is a mandatory runtime dependency."
+            )
+        if runtime_env == "local-harness" and cache_backend != _LOCMEM_CACHE_BACKEND:
+            raise RuntimeError(
+                "DMIS_RUNTIME_ENV=local-harness without REDIS_URL requires the default cache backend to remain LocMemCache."
+            )
+        return
+
+    _validate_redis_url(normalized_redis_url, runtime_env=runtime_env)
+
+    if cache_backend != _REDIS_CACHE_BACKEND:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} with REDIS_URL configured requires the default cache backend to be {_REDIS_CACHE_BACKEND}."
+        )
+
+    try:
+        import_module("django_redis.cache")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} with REDIS_URL configured requires the django-redis package to be installed."
+        ) from exc
 
 
 def validate_runtime_security_configuration(
@@ -647,18 +725,19 @@ if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
-# Cache — Redis in production/staging, LocMemCache fallback for dev without Redis.
-_redis_url = os.getenv("REDIS_URL", "")
+# Cache posture: Redis-backed whenever REDIS_URL is configured; LocMemCache is
+# only allowed for explicit local-harness degraded mode.
+_redis_url = os.getenv("REDIS_URL", "").strip()
 _running_tests = (
     TESTING
     or any("pytest" in arg.lower() for arg in sys.argv[1:])
-    or os.getenv("RUNNING_TESTS", "0") == "1"
 )
 _test_redis_cache_enabled = os.getenv("TEST_REDIS_CACHE_ENABLED", "0") == "1"
-if _redis_url and (not _running_tests or _test_redis_cache_enabled):
+_use_redis_cache = bool(_redis_url) and (not _running_tests or _test_redis_cache_enabled)
+if _use_redis_cache:
     CACHES = {
         "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
+            "BACKEND": _REDIS_CACHE_BACKEND,
             "LOCATION": _redis_url,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
@@ -668,9 +747,16 @@ if _redis_url and (not _running_tests or _test_redis_cache_enabled):
 else:
     CACHES = {
         "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "BACKEND": _LOCMEM_CACHE_BACKEND,
         }
     }
+DMIS_REDIS_URL = _redis_url
+DMIS_REDIS_REQUIRED = redis_required_for_runtime_env(
+    runtime_env=DMIS_RUNTIME_ENV,
+    testing=TESTING,
+)
+DMIS_REDIS_CONFIGURED = bool(_redis_url)
+DMIS_DEFAULT_CACHE_BACKEND = str(CACHES["default"]["BACKEND"])
 
 # AuthN/AuthZ configuration (env-driven; no claim-name assumptions).
 AUTH_ENABLED = _get_bool_env(
@@ -763,6 +849,12 @@ validate_runtime_security_configuration(
     csrf_trusted_origins=CSRF_TRUSTED_ORIGINS,
     secure_proxy_ssl_header=SECURE_PROXY_SSL_HEADER,
     use_x_forwarded_host=USE_X_FORWARDED_HOST,
+    testing=TESTING,
+)
+validate_runtime_redis_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    redis_url=DMIS_REDIS_URL,
+    cache_backend=DMIS_DEFAULT_CACHE_BACKEND,
     testing=TESTING,
 )
 

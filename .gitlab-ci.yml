@@ -318,6 +318,168 @@ secure_posture_validation:
           verdict = "passed" if expect_success else "failed as expected"
           print(f"[OK] {name}: {verdict}")
       PY
+
+redis_posture_validation:
+  stage: test
+  script:
+    - |
+      python - <<'PY'
+      import os
+      import subprocess
+      import sys
+
+      backend_cwd = os.path.join(os.getcwd(), "backend")
+      base_env = os.environ.copy()
+      common_env = {
+          "PYTHONPATH": backend_cwd,
+          "DJANGO_SECRET_KEY": "ci-redis-posture-secret",
+          "AUTH_ISSUER": "https://idp.example/realms/dmis",
+          "AUTH_AUDIENCE": "dmis-web",
+          "AUTH_JWKS_URL": "https://idp.example/realms/dmis/protocol/openid-connect/certs",
+          "AUTH_USER_ID_CLAIM": "sub",
+          "AUTH_USERNAME_CLAIM": "preferred_username",
+          "AUTH_USE_DB_RBAC": "1",
+          "DB_NAME": "dmis",
+          "DB_USER": "dmis",
+          "DB_PASSWORD": "dmis",
+          "DB_HOST": "db",
+          "DB_PORT": "5432",
+      }
+
+      cases = [
+          (
+              "local-harness without redis stays allowed",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "local-harness",
+                  "DJANGO_DEBUG": "1",
+                  "AUTH_ENABLED": "0",
+                  "DEV_AUTH_ENABLED": "1",
+                  "TEST_DEV_AUTH_ENABLED": "1",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "1",
+              },
+              ["REDIS_URL", "DJANGO_ALLOWED_HOSTS"],
+          ),
+          (
+              "local-harness accepts configured redis",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "local-harness",
+                  "DJANGO_DEBUG": "1",
+                  "AUTH_ENABLED": "0",
+                  "DEV_AUTH_ENABLED": "1",
+                  "TEST_DEV_AUTH_ENABLED": "1",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "1",
+                  "REDIS_URL": "redis://localhost:6379/1",
+              },
+              ["DJANGO_ALLOWED_HOSTS"],
+          ),
+          (
+              "prod-like-local requires redis and passes when configured",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "prod-like-local",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1",
+                  "REDIS_URL": "redis://localhost:6379/1",
+              },
+              [],
+          ),
+          (
+              "prod-like-local rejects missing redis",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "prod-like-local",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1",
+              },
+              ["REDIS_URL"],
+          ),
+          (
+              "shared-dev passes when redis is configured",
+              True,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "shared-dev.dmis.example.org",
+                  "REDIS_URL": "redis://redis:6379/1",
+              },
+              [],
+          ),
+          (
+              "shared-dev rejects missing redis",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "shared-dev",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "shared-dev.dmis.example.org",
+              },
+              ["REDIS_URL"],
+          ),
+          (
+              "staging rejects missing redis",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "staging",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "staging.dmis.example.org",
+              },
+              ["REDIS_URL"],
+          ),
+          (
+              "production rejects missing redis",
+              False,
+              {
+                  "DMIS_RUNTIME_ENV": "production",
+                  "DJANGO_DEBUG": "0",
+                  "AUTH_ENABLED": "1",
+                  "DEV_AUTH_ENABLED": "0",
+                  "LOCAL_AUTH_HARNESS_ENABLED": "0",
+                  "DJANGO_ALLOWED_HOSTS": "dmis.example.org",
+              },
+              ["REDIS_URL"],
+          ),
+      ]
+
+      for name, expect_success, updates, removals in cases:
+          env = base_env.copy()
+          env.update(common_env)
+          env.update(updates)
+          for key in removals:
+              env.pop(key, None)
+          result = subprocess.run(
+              [sys.executable, "manage.py", "shell", "-c", "import dmis_api.settings"],
+              cwd=backend_cwd,
+              env=env,
+              capture_output=True,
+              text=True,
+          )
+          succeeded = result.returncode == 0
+          if succeeded != expect_success:
+              print(f"[FAIL] {name}")
+              print("stdout:")
+              print(result.stdout)
+              print("stderr:")
+              print(result.stderr)
+              raise SystemExit(1)
+          verdict = "passed" if expect_success else "failed as expected"
+          print(f"[OK] {name}: {verdict}")
+      PY
 #----- DAST SCAN
 dast_api:
   stage: dast

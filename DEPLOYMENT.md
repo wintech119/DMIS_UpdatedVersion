@@ -25,6 +25,16 @@ This file is intentionally focused on deployment posture. It does not declare DM
 | Staging | `staging` | Real auth only | HTTPS redirect on, secure cookies on, HSTS `86400`, trusted reverse proxy required |
 | Production | `production` | Real auth only | HTTPS redirect on, secure cookies on, HSTS `31536000`, `includeSubDomains=1`, preload opt-in only, trusted reverse proxy required |
 
+## Redis runtime posture
+
+| Environment | Redis expectation | Degraded mode |
+| --- | --- | --- |
+| Local harness | Recommended and used by default in the documented harness workflow | Allowed only when `REDIS_URL` is intentionally unset for local-only development |
+| Prod-like local | Required | Not allowed |
+| Shared dev | Required | Not allowed |
+| Staging | Required | Not allowed |
+| Production | Required | Not allowed |
+
 Carry-forward note: Angular production-style builds now exclude the local harness path, but the full Angular OIDC login/logout/token flow is still incomplete. End-to-end production-auth validation remains a separate follow-up and is not resolved by this document.
 
 ## Backend environment variables
@@ -44,6 +54,7 @@ DB_USER=<postgres-user>
 DB_PASSWORD=<postgres-password>
 DB_HOST=<postgres-host>
 DB_PORT=5432
+REDIS_URL=redis://redis:6379/1
 
 AUTH_ENABLED=1
 DEV_AUTH_ENABLED=0
@@ -70,7 +81,8 @@ DMIS now enforces deployment defaults by `DMIS_RUNTIME_ENV` at Django startup:
 
 - `shared-dev`, `staging`, and `production` fail closed unless secure cookies, HTTPS redirect, HSTS, and reverse-proxy TLS handling match the expected profile.
 - `prod-like-local` still requires an explicit secret key and explicit allowed hosts, but it stays local-friendly and does not force internet-facing HTTPS assumptions.
-- `local-harness` remains local-only and should not be reused as a shared deployment baseline.
+- `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless `REDIS_URL` is configured and the default cache backend is Redis-backed.
+- `local-harness` remains local-only and should not be reused as a shared deployment baseline. It may run without Redis only as an explicit local-only degraded mode.
 
 For `shared-dev`, `staging`, and `production`, Django assumes a trusted TLS-terminating ingress that forwards:
 
@@ -122,6 +134,13 @@ This keeps the reverse-proxy example aligned with the same runtime matrix enforc
 
 If your CDN, WAF, or ingress layer injects security headers, keep those values aligned with the Django runtime environment declared in `DMIS_RUNTIME_ENV`.
 
+Health probe routing should preserve:
+
+- `GET /api/v1/health/` or `GET /api/v1/health/live/` for liveness
+- `GET /api/v1/health/ready/` for readiness
+
+Do not use the liveness probe as a readiness gate in shared-dev, staging, or production.
+
 ## Validation before promotion
 
 Run these checks from `backend/` before promoting any non-local deployment:
@@ -136,6 +155,7 @@ The repository CI now includes:
 
 - auth posture validation
 - secure deployment posture validation
+- Redis runtime posture validation
 
 These CI checks complement the startup fail-closed validation in `dmis_api.settings`; they do not replace it.
 

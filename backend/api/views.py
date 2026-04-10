@@ -1,4 +1,7 @@
+from typing import Any
+
 from django.conf import settings
+from django.core.cache import caches
 from django.db import DatabaseError, connection
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -12,7 +15,90 @@ from operations import policy as operations_policy
 
 @api_view(["GET"])
 def health(request):
-    return Response({"status": "ok"})
+    return Response(_liveness_payload())
+
+
+def _liveness_payload() -> dict[str, str]:
+    runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
+    return {
+        "status": "live",
+        "runtime_env": runtime_env,
+    }
+
+
+def _database_readiness_check() -> tuple[str, str | None]:
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except DatabaseError as exc:
+        return "failed", f"Database connectivity check failed ({exc.__class__.__name__})."
+    return "ok", None
+
+
+def _redis_readiness_check() -> tuple[str, str | None]:
+    redis_required = bool(getattr(settings, "DMIS_REDIS_REQUIRED", False))
+    redis_configured = bool(getattr(settings, "DMIS_REDIS_CONFIGURED", False))
+    cache_backend = str(getattr(settings, "DMIS_DEFAULT_CACHE_BACKEND", "")).strip()
+
+    if not redis_configured:
+        if redis_required:
+            return "failed", "Redis is required for this runtime but REDIS_URL is not configured."
+        return "skipped", "Redis is optional in local-harness when REDIS_URL is not set."
+
+    if cache_backend != "django_redis.cache.RedisCache":
+        return "failed", "The default cache backend is not Redis-backed."
+
+    try:
+        default_cache = caches["default"]
+        redis_client = default_cache.client.get_client(write=True)
+        redis_client.ping()
+    except Exception as exc:  # noqa: BLE001 - readiness should fail on any backend/protocol error.
+        return "failed", f"Redis connectivity check failed ({exc.__class__.__name__})."
+
+    return "ok", None
+
+
+def _readiness_payload() -> tuple[dict[str, Any], int]:
+    database_status, database_reason = _database_readiness_check()
+    redis_status, redis_reason = _redis_readiness_check()
+    redis_required = bool(getattr(settings, "DMIS_REDIS_REQUIRED", False))
+
+    checks: dict[str, dict[str, Any]] = {
+        "database": {
+            "required": True,
+            "status": database_status,
+        },
+        "redis": {
+            "required": redis_required,
+            "status": redis_status,
+        },
+    }
+    if database_reason:
+        checks["database"]["reason"] = database_reason
+    if redis_reason:
+        checks["redis"]["reason"] = redis_reason
+
+    runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
+    statuses = {check["status"] for check in checks.values()}
+    is_ready = "failed" not in statuses
+    payload = {
+        "status": "ready" if is_ready else "not_ready",
+        "runtime_env": runtime_env,
+        "checks": checks,
+    }
+    return payload, 200 if is_ready else 503
+
+
+@api_view(["GET"])
+def health_live(request):
+    return Response(_liveness_payload())
+
+
+@api_view(["GET"])
+def health_ready(request):
+    payload, status_code = _readiness_payload()
+    return Response(payload, status=status_code)
 
 
 @api_view(["GET"])

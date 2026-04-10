@@ -198,6 +198,10 @@ if ($env:DJANGO_DEBUG -ne "1") {
   Pause
   exit 1
 }
+if (-not $env:REDIS_URL) {
+  Write-Host "Warning: REDIS_URL is not set. local-harness will run in explicit local-only degraded cache mode."
+  Write-Host "Set REDIS_URL=redis://localhost:6379/1 to use the default Redis-backed harness posture."
+}
 if (-not $env:DEV_AUTH_USER_ID) { $env:DEV_AUTH_USER_ID = "dev-user" }
 if (-not $env:DEV_AUTH_ROLES) { $env:DEV_AUTH_ROLES = "LOGISTICS" }
 if (-not $env:DEV_AUTH_PERMISSIONS) {

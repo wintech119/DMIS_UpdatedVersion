@@ -70,6 +70,28 @@ def check_dmis_secure_runtime_posture(app_configs, **kwargs):
     return messages
 
 
+@register(deploy=True)
+def check_dmis_runtime_dependency_posture(app_configs, **kwargs):
+    messages = []
+
+    try:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            redis_url=str(getattr(settings, "DMIS_REDIS_URL", "")).strip(),
+            cache_backend=str(getattr(settings, "DMIS_DEFAULT_CACHE_BACKEND", "")).strip(),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E004",
+            )
+        )
+
+    return messages
+
+
 @register()
 def check_dmis_rbac_boundary(app_configs, **kwargs):
     messages = []

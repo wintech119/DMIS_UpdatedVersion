@@ -5,6 +5,9 @@
 # - Gunicorn serves Django on 127.0.0.1:8000 with:
 #     gunicorn dmis_api.wsgi:application --bind 127.0.0.1:8000 --workers 4
 # - TLS terminates at NGINX and NGINX forwards X-Forwarded-Proto to Django
+# - Kubernetes, load balancers, or other orchestrators should use:
+#     /api/v1/health/live/ for liveness
+#     /api/v1/health/ready/ for readiness
 #
 # Render this example with deployment tooling or replace these placeholders
 # directly before use:

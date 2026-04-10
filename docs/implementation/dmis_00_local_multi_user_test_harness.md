@@ -14,6 +14,7 @@ This harness is intentionally scoped to local development. It is not a staging f
 Use the existing Django dev-auth baseline only as the local bootstrap, then layer an explicit local harness on top of it:
 
 - `DEV_AUTH_ENABLED=1` keeps local development unblocked.
+- `REDIS_URL=redis://localhost:6379/1` keeps the harness aligned with the default Redis-backed local runtime posture.
 - `LOCAL_AUTH_HARNESS_ENABLED=1` explicitly turns on multi-user switching.
 - `LOCAL_AUTH_HARNESS_USERNAMES=...` limits switching to a curated, local-only allowlist.
 - `DEV_AUTH_USER_ID=local_system_admin_tst` makes the default browser session land on a stable local system-admin user.
@@ -83,6 +84,7 @@ The default example is already wired for the mixed ODPEM/JRC matrix:
 
 ```env
 DJANGO_DEBUG=1
+REDIS_URL=redis://localhost:6379/1
 DEV_AUTH_ENABLED=1
 TEST_DEV_AUTH_ENABLED=1
 LOCAL_AUTH_HARNESS_ENABLED=1
@@ -93,6 +95,8 @@ TENANT_SCOPE_ENFORCEMENT=1
 ```
 
 If you seed a different tenant than `JRC`, update `LOCAL_AUTH_HARNESS_USERNAMES` to match the usernames printed by the user-seed command.
+
+If you intentionally want the documented local-only degraded cache mode, unset `REDIS_URL` before starting the harness. That mode is allowed only for `local-harness`; it is not a production-like fallback.
 
 ### 2. Seed the local RBAC and test data
 
@@ -120,7 +124,13 @@ Optional subordinate/parish scenario:
 
 If you do this, append the new `FFP` usernames to `LOCAL_AUTH_HARNESS_USERNAMES`.
 
-### 3. Start the backend
+### 3. Start local Redis
+
+The documented harness posture expects a Redis instance on `localhost:6379`.
+
+If Redis is not available and `REDIS_URL` remains set, readiness will fail and Redis-backed cache operations will not behave correctly. Unset `REDIS_URL` only if you intentionally want the explicit local-only degraded mode described above.
+
+### 4. Start the backend
 
 From `backend/`:
 
@@ -128,7 +138,7 @@ From `backend/`:
 ..\.venv\Scripts\python.exe manage.py runserver 0.0.0.0:8001
 ```
 
-### 4. Start the frontend
+### 5. Start the frontend
 
 From `frontend/`:
 
@@ -138,7 +148,19 @@ npm.cmd start
 
 Do not install or update frontend dependencies while the current supply-chain hold is active.
 
-### 5. Open separate browser sessions
+### 6. Check liveness and readiness
+
+Use these probes during local bring-up:
+
+```powershell
+curl http://localhost:8001/api/v1/health/live/
+curl http://localhost:8001/api/v1/health/ready/
+```
+
+- Liveness should return `200` when the Django process is up.
+- Readiness should return `200` when the database is reachable and Redis is either reachable or intentionally skipped because `REDIS_URL` is unset in `local-harness`.
+
+### 7. Open separate browser sessions
 
 Use separate browser profiles or separate browsers so each session keeps its own local storage:
 

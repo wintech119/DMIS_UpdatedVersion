@@ -11,12 +11,223 @@ from dmis_api import settings as dmis_settings
 
 
 class HealthEndpointTests(TestCase):
-    def test_health(self) -> None:
-        client = APIClient()
-        response = client.get("/api/v1/health/")
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    def test_health_alias_returns_liveness_payload(self) -> None:
+        response = self.client.get("/api/v1/health/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(
+            response.json(),
+            {
+                "status": "live",
+                "runtime_env": "test",
+            },
+        )
+
+    def test_live_endpoint_returns_liveness_payload(self) -> None:
+        response = self.client.get("/api/v1/health/live/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "status": "live",
+                "runtime_env": "test",
+            },
+        )
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_returns_ready_when_required_dependencies_are_available(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(
+            response.json()["checks"],
+            {
+                "database": {"required": True, "status": "ok"},
+                "redis": {"required": True, "status": "ok"},
+            },
+        )
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="local-harness",
+        DMIS_REDIS_REQUIRED=False,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("skipped", "Redis is optional in local-harness when REDIS_URL is not set."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_reports_local_harness_redis_skip(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "status": "ready",
+                "runtime_env": "local-harness",
+                "checks": {
+                    "database": {"required": True, "status": "ok"},
+                    "redis": {
+                        "required": False,
+                        "status": "skipped",
+                        "reason": "Redis is optional in local-harness when REDIS_URL is not set.",
+                    },
+                },
+            },
+        )
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch(
+        "api.views._database_readiness_check",
+        return_value=("failed", "Database connectivity check failed (DatabaseError)."),
+    )
+    def test_readiness_fails_when_database_is_unavailable(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["checks"]["database"]["status"], "failed")
+        self.assertEqual(response.json()["checks"]["redis"]["status"], "ok")
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("failed", "Redis is required for this runtime but REDIS_URL is not configured."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_required_redis_is_missing(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["checks"]["redis"]["status"], "failed")
+        self.assertIn("REDIS_URL", response.json()["checks"]["redis"]["reason"])
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("failed", "Redis connectivity check failed (ConnectionError)."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_required_redis_is_unreachable(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["checks"]["redis"]["status"], "failed")
+
+
+class RuntimeRedisConfigurationValidationTests(SimpleTestCase):
+    def test_local_harness_allows_locmem_without_redis(self) -> None:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env="local-harness",
+            redis_url="",
+            cache_backend="django.core.cache.backends.locmem.LocMemCache",
+            testing=False,
+        )
+
+    @patch("dmis_api.settings.import_module", return_value=object())
+    def test_local_harness_accepts_configured_redis(self, _mock_import_module) -> None:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env="local-harness",
+            redis_url="redis://localhost:6379/1",
+            cache_backend="django_redis.cache.RedisCache",
+            testing=False,
+        )
+
+    def test_non_local_runtimes_require_redis_url(self) -> None:
+        for runtime_env in ("prod-like-local", "shared-dev", "staging", "production"):
+            with self.subTest(runtime_env=runtime_env):
+                with self.assertRaisesMessage(
+                    RuntimeError,
+                    f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL because Redis is a mandatory runtime dependency.",
+                ):
+                    dmis_settings.validate_runtime_redis_configuration(
+                        runtime_env=runtime_env,
+                        redis_url="",
+                        cache_backend="django.core.cache.backends.locmem.LocMemCache",
+                        testing=False,
+                    )
+
+    def test_prod_like_local_rejects_invalid_redis_url(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires REDIS_URL to use one of the supported schemes",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="prod-like-local",
+                redis_url="http://localhost:6379/1",
+                cache_backend="django_redis.cache.RedisCache",
+                testing=False,
+            )
+
+    def test_shared_dev_requires_redis_backed_cache_backend(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev with REDIS_URL configured requires the default cache backend to be django_redis.cache.RedisCache.",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="shared-dev",
+                redis_url="redis://shared-dev-redis:6379/1",
+                cache_backend="django.core.cache.backends.locmem.LocMemCache",
+                testing=False,
+            )
+
+    @patch(
+        "dmis_api.settings.import_module",
+        side_effect=ModuleNotFoundError("No module named 'django_redis'"),
+    )
+    def test_shared_dev_requires_django_redis_dependency(self, _mock_import_module) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev with REDIS_URL configured requires the django-redis package to be installed.",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="shared-dev",
+                redis_url="redis://shared-dev-redis:6379/1",
+                cache_backend="django_redis.cache.RedisCache",
+                testing=False,
+            )
 
 
 class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
@@ -269,6 +480,21 @@ class RuntimeSecurityCheckTests(SimpleTestCase):
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0].id, "api.E003")
         self.assertIn("DJANGO_SECURE_SSL_REDIRECT=1", messages[0].msg)
+
+
+class RuntimeDependencyCheckTests(SimpleTestCase):
+    @override_settings(
+        TESTING=False,
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_URL="",
+        DMIS_DEFAULT_CACHE_BACKEND="django.core.cache.backends.locmem.LocMemCache",
+    )
+    def test_runtime_dependency_check_reports_error_when_redis_is_missing(self) -> None:
+        messages = api_checks.check_dmis_runtime_dependency_posture(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E004")
+        self.assertIn("REDIS_URL", messages[0].msg)
 
 
 class AuthWhoAmITests(TestCase):
