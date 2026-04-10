@@ -149,4 +149,65 @@ describe('AppAccessService', () => {
     expect(access.canAccessNavKey('operations.relief-requests')).toBeTrue();
     expect(access.canAccessNavKey('operations.dashboard')).toBeTrue();
   });
+
+  it('requires eligibility permissions and an eligibility role before exposing the eligibility lane', () => {
+    const directorAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(directorAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
+    const compatibilityAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility.*'],
+    });
+
+    expect(compatibilityAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
+    const compatibilitySinglePermissionAccess = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: ['operations.eligibility'],
+    });
+
+    expect(compatibilitySinglePermissionAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+
+    const logisticsAccess = setup({
+      roles: ['LOGISTICS_MANAGER'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(logisticsAccess.canAccessNavKey('operations.eligibility')).toBeFalse();
+
+    const roleWithoutPermission = setup({
+      roles: ['ODPEM_DIR_PEOD'],
+      permissions: [],
+    });
+
+    expect(roleWithoutPermission.canAccessNavKey('operations.eligibility')).toBeFalse();
+  });
+
+  it('allows system administrators into the eligibility lane when backend RBAC grants the permission', () => {
+    const sysadminAccess = setup({
+      roles: ['SYSTEM_ADMINISTRATOR'],
+      permissions: ['operations.eligibility.review'],
+    });
+
+    expect(sysadminAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
+  });
+
+  it('maps replenishment execution and procurement lanes to the backend RBAC permissions', () => {
+    const access = setup({
+      permissions: [
+        'replenishment.needs_list.execute',
+        'replenishment.procurement.view',
+        'replenishment.procurement.edit',
+      ],
+    });
+
+    expect(access.canAccessNavKey('replenishment.execution')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.view')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.edit')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.receive')).toBeFalse();
+  });
 });

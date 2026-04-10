@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "issuer": "",
+  "clientId": "",
+  "scope": "openid profile email",
+  "redirectPath": "/auth/callback",
+  "postLogoutRedirectPath": "/auth/login",
+  "audience": ""
+}

@@ -3,6 +3,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
+import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
+import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
 
 describe('OperationsService', () => {
   let service: OperationsService;
@@ -50,6 +52,7 @@ describe('OperationsService', () => {
         reliefrqst_id: 12,
         source_warehouse_id: 2,
         status_code: 'P',
+        consolidation_status: 'not-a-real-status',
         allocation: {
           allocation_lines: [
             {
@@ -80,6 +83,7 @@ describe('OperationsService', () => {
         reliefpkg_id: 44,
         source_warehouse_id: 2,
         status_label: 'Ready for Dispatch',
+        consolidation_status: null,
       }),
       allocation: jasmine.objectContaining({
         reserved_stock_summary: jasmine.objectContaining({
@@ -88,6 +92,43 @@ describe('OperationsService', () => {
       }),
       compatibility_only: false,
     }));
+  });
+
+  it('normalizes alphabetical fallback staging basis and legacy V package status', () => {
+    let result: unknown;
+
+    service.getPackage(12).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/12');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      request: {
+        reliefrqst_id: 12,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'V',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      package: jasmine.objectContaining({
+        status_code: 'V',
+        status_label: 'Ready for Dispatch',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      }),
+    }));
+    expect(formatPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(formatOperationsPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(getOperationsDispatchStage({ status_code: 'V' })).toBe('ready');
+    expect(formatStagingSelectionBasis('ALPHABETICAL_FALLBACK')).toBe('Alphabetical fallback');
   });
 
   it('loads the dispatch worklist from the real dispatch queue endpoint', () => {
@@ -420,6 +461,51 @@ describe('OperationsService', () => {
           source: 'QUEUE_ASSIGNMENT',
         }),
       ],
+    });
+  });
+
+  it('normalizes partial release approval responses from the current child-package keys', () => {
+    let result: unknown;
+
+    service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/approve');
+    expect(request.request.method).toBe('POST');
+    request.flush({
+      parent: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'SPLIT',
+        consolidation_status: 'PARTIAL_RELEASE_REQUESTED',
+      },
+      released_child: {
+        reliefpkg_id: 45,
+        reliefrqst_id: 12,
+        status_code: 'READY_FOR_PICKUP',
+      },
+      residual_child: {
+        reliefpkg_id: 46,
+        reliefrqst_id: 12,
+        status_code: 'CONSOLIDATING',
+        consolidation_status: 'LEGS_IN_TRANSIT',
+      },
+    });
+
+    expect(result).toEqual({
+      parent: jasmine.objectContaining({
+        reliefpkg_id: 44,
+        consolidation_status: 'PARTIAL_RELEASE_REQUESTED',
+      }),
+      released: jasmine.objectContaining({
+        reliefpkg_id: 45,
+        status_code: 'READY_FOR_PICKUP',
+      }),
+      residual: jasmine.objectContaining({
+        reliefpkg_id: 46,
+        consolidation_status: 'LEGS_IN_TRANSIT',
+      }),
     });
   });
 });

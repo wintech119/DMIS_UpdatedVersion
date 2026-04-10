@@ -1,3 +1,8 @@
+$field-width-qty: 116px;
+$field-width-urgency: 136px;
+$field-width-reason: 160px;
+$field-width-date: 156px;
+
 .request-stage {
   display: grid;
   gap: 14px;
@@ -408,19 +413,22 @@
   }
 
   &--qty {
-    flex: 0 0 68px;
+    // Wide enough to display up to 6-digit quantities (e.g. 100000) plus
+    // the native number spinner arrows and floating label.
+    flex: 0 0 $field-width-qty;
   }
 
   &--urgency {
-    flex: 0 0 116px;
+    // Fits the "Urgency" floating label and the longest option labels.
+    flex: 0 0 $field-width-urgency;
   }
 
   &--reason {
-    flex: 1 1 130px;
+    flex: 1 1 $field-width-reason;
   }
 
   &--date {
-    flex: 0 0 148px;
+    flex: 0 0 $field-width-date;
 
     // Shrink the datepicker toggle so it doesn't crowd the label
     .mat-datepicker-toggle {
@@ -470,19 +478,19 @@
     }
 
     &--qty {
-      flex: 0 0 68px;
+      flex: 0 0 $field-width-qty;
     }
 
     &--urgency {
-      flex: 1 1 110px;
+      flex: 1 1 $field-width-urgency;
     }
 
     &--reason {
-      flex: 1 1 130px;
+      flex: 1 1 $field-width-reason;
     }
 
     &--date {
-      flex: 1 1 130px;
+      flex: 1 1 $field-width-date;
     }
   }
 }

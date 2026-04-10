@@ -58,7 +58,7 @@ from api.tenancy import (
     tenant_context_to_dict,
 )
 from api.task_engine import TaskRule, resolve_available_tasks
-from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
+from replenishment import rules, workflow_store_db
 from replenishment.models import (
     NeedsList,
     NeedsListAllocationLine,
@@ -268,41 +268,12 @@ class DuplicateConflictValidationError(ValueError):
     """Raised when duplicate-conflict validation input is malformed."""
 
 
-def _use_db_workflow_store() -> bool:
-    # Backward-compatible test/dev override: the JSON workflow store remains the
-    # default for explicit dev-store runs and test execution.
-    if os.getenv("NEEDS_WORKFLOW_DEV_STORE", "0") == "1":
-        return False
-
-    backend_override = str(os.getenv("NEEDS_WORKFLOW_BACKEND", "")).strip().lower()
-    if backend_override in {"db", "database", "postgres", "postgresql"}:
-        return True
-    if backend_override in {"file", "json", "dev"}:
-        return False
-
-    if getattr(settings, "TESTING", False):
-        return False
-    if not getattr(settings, "AUTH_USE_DB_RBAC", False):
-        return False
-
-    engine = str(settings.DATABASES.get("default", {}).get("ENGINE", "")).lower()
-    return "postgresql" in engine
-
-
-class _WorkflowStoreProxy:
-    def __getattr__(self, name: str):
-        module = workflow_store_db if _use_db_workflow_store() else workflow_store_file
-        return getattr(module, name)
-
-
-workflow_store = _WorkflowStoreProxy()
+workflow_store = workflow_store_db
 
 
 def _workflow_target_status(status: str) -> str:
     normalized = str(status or "").upper()
-    if _use_db_workflow_store():
-        return _DB_STATUS_TRANSITIONS.get(normalized, normalized)
-    return normalized
+    return _DB_STATUS_TRANSITIONS.get(normalized, normalized)
 
 
 def _status_matches(
@@ -524,8 +495,6 @@ def _upsert_execution_link(
     received: bool = False,
     cancelled: bool = False,
 ) -> NeedsListExecutionLink | None:
-    if not _use_db_workflow_store():
-        return None
     now = timezone.now()
     try:
         defaults: Dict[str, Any] = {
@@ -592,8 +561,6 @@ def _replace_execution_allocation_lines(
     override_note: str | None = None,
     supervisor_user_id: str | None = None,
 ) -> None:
-    if not _use_db_workflow_store():
-        return
     try:
         NeedsListAllocationLine.objects.filter(needs_list=needs_list).delete()
         item_map = {item.item_id: item for item in needs_list.items.all()}
@@ -1507,8 +1474,6 @@ def _execution_needs_list_pk(record: Mapping[str, Any]) -> int | None:
     needs_list_pk = _to_int_or_none(record.get("needs_list_id"))
     if needs_list_pk is not None:
         return needs_list_pk
-    if not _use_db_workflow_store():
-        return None
     needs_list_no = str(record.get("needs_list_no") or "").strip()
     if not needs_list_no:
         return None
@@ -1529,7 +1494,7 @@ def _execution_needs_list_pk(record: Mapping[str, Any]) -> int | None:
 
 def _execution_link_for_record(record: Mapping[str, Any]) -> NeedsListExecutionLink | None:
     needs_list_pk = _execution_needs_list_pk(record)
-    if needs_list_pk is None or not _use_db_workflow_store():
+    if needs_list_pk is None:
         return None
     try:
         return (
@@ -1665,8 +1630,6 @@ def _release_execution_reservations(
     reason_code: str,
     cancel: bool = False,
 ) -> None:
-    if not _use_db_workflow_store():
-        return
     link = _execution_link_for_record(record)
     if (
         link is None
@@ -4525,8 +4488,7 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
     if (
-        _use_db_workflow_store()
-        and link is not None
+        link is not None
         and link.reliefrqst_id is not None
         and link.reliefpkg_id is not None
     ):
@@ -4564,6 +4526,17 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
             stage="DISPATCHED",
         )
         workflow_store.update_record(needs_list_id, record)
+        if link is not None:
+            _upsert_execution_link(
+                needs_list_id=link.needs_list_id,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=None,
+                reliefpkg_id=None,
+                execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                waybill_no=None,
+                waybill_payload=None,
+                dispatched=True,
+            )
 
     logger.info(
         "needs_list_dispatched",
@@ -4782,8 +4755,6 @@ def _allocation_record_or_response(
     scope_error = _require_record_scope(request, record, write=write)
     if scope_error:
         return None, scope_error
-    if not _use_db_workflow_store():
-        return None, _allocation_contracts_unavailable_response()
     if _execution_needs_list_pk(record) is None:
         return None, Response({"errors": {"needs_list_id": "Needs list is not DB-backed."}}, status=409)
     return record, None
@@ -5318,7 +5289,7 @@ def needs_list_donations(request, needs_list_id: str):
     items = snapshot.get("items", [])
 
     horizon_b_lines = []
-    if _use_db_workflow_store() and _execution_needs_list_pk(record) is not None:
+    if _execution_needs_list_pk(record) is not None:
         try:
             options = allocation_dispatch.get_allocation_options(_execution_needs_list_pk(record))
             candidates_by_item: dict[int, list[dict[str, Any]]] = {}
@@ -5405,12 +5376,6 @@ def needs_list_donations_allocate(request, needs_list_id: str):
     scope_error = _require_record_scope(request, record, write=True)
     if scope_error:
         return scope_error
-
-    if not _use_db_workflow_store():
-        return Response(
-            {"errors": {"donations": "donation_allocation_not_implemented"}},
-            status=501,
-        )
 
     raw_payload = request.data or {}
     metadata = raw_payload if isinstance(raw_payload, dict) else {}

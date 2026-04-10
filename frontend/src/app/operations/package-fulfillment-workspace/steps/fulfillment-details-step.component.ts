@@ -1,13 +1,23 @@
-import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatRadioModule } from '@angular/material/radio';
 import { MatSelectModule } from '@angular/material/select';
 
+import { HttpErrorResponse } from '@angular/common/http';
+
 import { MasterDataService } from '../../../master-data/services/master-data.service';
-import { OVERRIDE_REASON_OPTIONS, TRANSPORT_MODE_OPTIONS } from '../../models/operations.model';
+import { AuthRbacService } from '../../../replenishment/services/auth-rbac.service';
+import { DmisNotificationService } from '../../../replenishment/services/notification.service';
+import {
+  FULFILLMENT_MODE_OPTIONS,
+  FulfillmentMode,
+  OVERRIDE_REASON_OPTIONS,
+  TRANSPORT_MODE_OPTIONS,
+} from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 
 @Component({
@@ -18,6 +28,7 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatRadioModule,
     MatSelectModule,
   ],
   template: `
@@ -31,6 +42,67 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
         }
       </div>
 
+      <section class="ops-details__mode" aria-label="Fulfillment mode">
+        <header class="ops-details__mode-header">
+          <strong>Fulfillment mode</strong>
+          <span class="ops-details__mode-copy">
+            Choose how this package moves from the source warehouse to the requester.
+          </span>
+        </header>
+        <mat-radio-group
+          class="ops-details__mode-group"
+          aria-label="Select fulfillment mode"
+          [value]="draft().fulfillment_mode"
+          (change)="onFulfillmentModeChange($event.value)"
+          [disabled]="lockOperationalFields || !canSetFulfillmentMode()">
+          @for (option of fulfillmentModeOptions; track option.value) {
+            <mat-radio-button [value]="option.value" class="ops-details__mode-option">
+              <span class="ops-details__mode-label">{{ option.label }}</span>
+              <span class="ops-details__mode-hint">{{ option.hint }}</span>
+            </mat-radio-button>
+          }
+        </mat-radio-group>
+        @if (!canSetFulfillmentMode()) {
+          <p class="ops-details__mode-locked" role="note">
+            <mat-icon aria-hidden="true">lock</mat-icon>
+            You do not have permission to change the fulfillment mode.
+          </p>
+        }
+      </section>
+
+      @if (store.isStagedFulfillment()) {
+        <section class="ops-details__staging" aria-label="Staging hub">
+          <header class="ops-details__staging-header">
+            <div>
+              <strong>Staging hub</strong>
+              <span class="ops-details__staging-copy">
+                Select the ODPEM staging warehouse that will receive this staged package.
+              </span>
+            </div>
+          </header>
+
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="ops-details__field--span">
+            <mat-label>Staging Hub</mat-label>
+            <mat-select
+              [ngModel]="draft().staging_warehouse_id"
+              (ngModelChange)="onStagingHubChange($event)"
+              [disabled]="lockOperationalFields"
+              aria-label="Select staging hub">
+              <mat-select-trigger>
+                {{ draft().staging_warehouse_id ? warehouseLabel(draft().staging_warehouse_id) : 'Not selected' }}
+              </mat-select-trigger>
+              <mat-option value="">Not selected</mat-option>
+              @for (wh of stagingWarehouseOptions(); track wh.value) {
+                <mat-option [value]="wh.value">{{ wh.label }}</mat-option>
+              }
+            </mat-select>
+            <mat-hint align="start">
+              Only ODPEM staging hubs are listed here. Pick the hub the operator wants to use.
+            </mat-hint>
+          </mat-form-field>
+        </section>
+      }
+
       <div class="ops-details__form">
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>Destination Warehouse</mat-label>
@@ -43,6 +115,9 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
               <mat-option [value]="wh.value">{{ wh.label }}</mat-option>
             }
           </mat-select>
+          <mat-hint align="start">
+            Final receiving warehouse for the request. Keep this separate from the staging hub.
+          </mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -56,6 +131,9 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
               <mat-option [value]="mode.value">{{ mode.label }}</mat-option>
             }
           </mat-select>
+          <mat-hint align="start">
+            How the package is expected to move or be released after stock is reserved.
+          </mat-hint>
         </mat-form-field>
 
         <mat-form-field appearance="outline" class="ops-details__field--span" subscriptSizing="dynamic">
@@ -68,6 +146,9 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
             placeholder="For the inventory clerk (e.g., fragile, cold chain, priority)"
             [disabled]="lockOperationalFields"
           ></textarea>
+          <mat-hint align="start">
+            Notes for warehouse, dispatch, or receiving staff. Keep this short and operational.
+          </mat-hint>
         </mat-form-field>
       </div>
 
@@ -76,8 +157,16 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
           <div class="ops-details__override-header">
             <mat-icon aria-hidden="true">warning_amber</mat-icon>
             <div>
-              <strong>Rule Bypass</strong>
-              <span>Plan deviates from recommended stock order.</span>
+              <strong>{{ store.hasPendingOverride() || store.planNeedsApproval() ? 'Override Approval' : 'Order Override' }}</strong>
+              <span>
+                {{
+                  store.hasPendingOverride()
+                    ? 'This reservation is awaiting approval because a blocking allocation rule was bypassed.'
+                    : store.planNeedsApproval()
+                      ? 'This selection requires override documentation. Logistics Officers submit it for approval, while Logistics Managers can commit it directly.'
+                      : 'Plan deviates from the recommended stock order. Capture the reason before committing.'
+                }}
+              </span>
             </div>
           </div>
 
@@ -93,19 +182,27 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
                   <mat-option [value]="option.value">{{ option.label }}</mat-option>
                 }
               </mat-select>
+              <mat-hint align="start">
+                Reason the selected plan differs from the recommended stock order.
+              </mat-hint>
             </mat-form-field>
 
-            <mat-form-field appearance="outline" subscriptSizing="dynamic">
-              <mat-label>Override Note</mat-label>
-              <textarea
-                matInput
-                rows="2"
-                [ngModel]="draft().override_note"
-                (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
-                placeholder="Operational reason for the bypass"
-                [disabled]="lockOperationalFields"
-              ></textarea>
-            </mat-form-field>
+            @if (store.planNeedsApproval() || store.hasPendingOverride()) {
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Override Note</mat-label>
+                <textarea
+                  matInput
+                  rows="2"
+                  [ngModel]="draft().override_note"
+                  (ngModelChange)="store.patchDraft({ override_note: normalizeText($event) })"
+                  placeholder="Operational reason for the bypass"
+                  [disabled]="lockOperationalFields"
+                ></textarea>
+                <mat-hint align="start">
+                  Explain the operational context approvers need to review.
+                </mat-hint>
+              </mat-form-field>
+            }
           </div>
         </div>
       }
@@ -120,7 +217,103 @@ import { OperationsWorkspaceStateService } from '../../services/operations-works
     .ops-details {
       display: flex;
       flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── Mode selector ── */
+
+    .ops-details__mode {
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+      padding: 14px 16px;
+      border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.08));
+      border-radius: var(--ops-radius-md, 10px);
+      background: var(--ops-card, #fbfaf7);
+    }
+
+    .ops-details__mode-header {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ops-details__mode-header strong {
+      font-size: 0.92rem;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-details__mode-copy {
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__staging {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 16px;
+      border: 1px solid var(--ops-outline, rgba(55, 53, 47, 0.08));
+      border-radius: var(--ops-radius-md, 10px);
+      background: var(--ops-surface, #ffffff);
+    }
+
+    .ops-details__staging-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .ops-details__staging-header strong {
+      display: block;
+      font-size: 0.92rem;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-details__staging-copy {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__mode-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .ops-details__mode-option {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 4px;
+    }
+
+    .ops-details__mode-label {
+      font-weight: 600;
+      color: var(--ops-ink, #37352F);
+    }
+
+    .ops-details__mode-hint {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--ops-ink-muted, #787774);
+      margin-top: 2px;
+    }
+
+    .ops-details__mode-locked {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--ops-ink-muted, #787774);
+    }
+
+    .ops-details__mode-locked mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
     }
 
     /* ── Header row ── */
@@ -234,14 +427,82 @@ export class FulfillmentDetailsStepComponent {
   @Input() lockOperationalFields = false;
 
   private readonly masterData = inject(MasterDataService);
+  private readonly auth = inject(AuthRbacService);
+  private readonly notifications = inject(DmisNotificationService);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly draft = this.store.draft;
 
   readonly warehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
+  readonly stagingWarehouseOptions = this.warehouseOptions;
   readonly transportModeOptions = TRANSPORT_MODE_OPTIONS;
   readonly overrideOptions = OVERRIDE_REASON_OPTIONS;
+  readonly fulfillmentModeOptions = FULFILLMENT_MODE_OPTIONS;
+
+  readonly canSetFulfillmentMode = computed(() =>
+    this.auth.hasPermission('operations.fulfillment_mode.set'),
+  );
 
   normalizeText(value: unknown): string {
     return String(value ?? '');
+  }
+
+  onFulfillmentModeChange(mode: FulfillmentMode): void {
+    if (!mode || mode === this.draft().fulfillment_mode) {
+      return;
+    }
+    const reliefrqstId = this.store.reliefrqstId();
+    if (!reliefrqstId) {
+      this.store.patchDraft({ fulfillment_mode: mode });
+      return;
+    }
+    this.store.saveFulfillmentModeDraft(
+      mode,
+      this.draft().staging_warehouse_id ? Number(this.draft().staging_warehouse_id) : null,
+      this.draft().staging_override_reason || null,
+    ).subscribe({
+      next: () => {
+        this.notifications.showSuccess('Fulfillment mode updated.');
+      },
+      error: (error: HttpErrorResponse) => {
+        const message = this.store.extractWriteError(
+          error,
+          'Failed to update fulfillment mode.',
+        );
+        this.notifications.showError(message);
+      },
+    });
+  }
+
+  warehouseLabel(warehouseId: string | null | undefined): string {
+    const normalized = String(warehouseId ?? '').trim();
+    if (!normalized) {
+      return 'Not selected';
+    }
+    const option = this.warehouseOptions().find((entry) => String(entry.value) === normalized);
+    return option?.label ?? normalized;
+  }
+
+  onStagingHubChange(value: unknown): void {
+    const normalized = this.normalizeText(value).trim();
+    this.store.patchDraft({ staging_warehouse_id: normalized });
+    const reliefrqstId = this.store.reliefrqstId();
+    const mode = this.draft().fulfillment_mode;
+    if (!reliefrqstId || !mode) {
+      return;
+    }
+    this.store.saveFulfillmentModeDraft(
+      mode,
+      normalized ? Number(normalized) : null,
+      this.draft().staging_override_reason || null,
+    ).subscribe({
+      next: () => this.notifications.showSuccess('Staging hub updated.'),
+      error: (error: HttpErrorResponse) => {
+        const message = this.store.extractWriteError(
+          error,
+          'Failed to update staging hub.',
+        );
+        this.notifications.showError(message);
+      },
+    });
   }
 }

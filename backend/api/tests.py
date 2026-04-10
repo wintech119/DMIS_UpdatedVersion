@@ -1,20 +1,654 @@
 from types import SimpleNamespace
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import path
+from django.db import DatabaseError
+from rest_framework.decorators import api_view
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
+from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
 from api.permissions import NeedsListPermission
+from dmis_api import settings as dmis_settings
+
+
+@api_view(["GET"])
+def observability_boom(_request):
+    raise RuntimeError("boom")
+
+
+urlpatterns = [
+    path("boom/", observability_boom, name="observability_boom"),
+]
 
 
 class HealthEndpointTests(TestCase):
-    def test_health(self) -> None:
-        client = APIClient()
-        response = client.get("/api/v1/health/")
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    def _assert_correlated_response(self, response, expected_request_id: str | None = None) -> str:
+        body = response.json()
+        self.assertIn("request_id", body)
+        self.assertIn("X-Request-ID", response)
+        self.assertEqual(response["X-Request-ID"], body["request_id"])
+        if expected_request_id is not None:
+            self.assertEqual(body["request_id"], expected_request_id)
+        else:
+            self.assertRegex(body["request_id"], r"^[A-Za-z0-9._-]{1,128}$")
+        return str(body["request_id"])
+
+    def test_health_alias_returns_liveness_payload(self) -> None:
+        response = self.client.get("/api/v1/health/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(body["status"], "live")
+        self.assertEqual(body["runtime_env"], "test")
+        self._assert_correlated_response(response)
+
+    def test_live_endpoint_returns_liveness_payload(self) -> None:
+        response = self.client.get("/api/v1/health/live/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["status"], "live")
+        self.assertEqual(body["runtime_env"], "test")
+        self._assert_correlated_response(response)
+
+    def test_live_endpoint_reuses_valid_request_id_header(self) -> None:
+        response = self.client.get("/api/v1/health/live/", HTTP_X_REQUEST_ID="edge-health-123")
+
+        self.assertEqual(response.status_code, 200)
+        self._assert_correlated_response(response, "edge-health-123")
+
+    def test_live_endpoint_replaces_invalid_request_id_header(self) -> None:
+        response = self.client.get("/api/v1/health/live/", HTTP_X_REQUEST_ID="bad header/value")
+
+        request_id = self._assert_correlated_response(response)
+        self.assertNotEqual(request_id, "bad header/value")
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_returns_ready_when_required_dependencies_are_available(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["status"], "ready")
+        self.assertEqual(
+            body["checks"],
+            {
+                "database": {"required": True, "status": "ok"},
+                "redis": {"required": True, "status": "ok"},
+            },
+        )
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="local-harness",
+        DMIS_REDIS_REQUIRED=False,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("skipped", "Redis is optional in local-harness when REDIS_URL is not set."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_reports_local_harness_redis_skip(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["status"], "ready")
+        self.assertEqual(body["runtime_env"], "local-harness")
+        self.assertEqual(
+            body["checks"],
+            {
+                "database": {"required": True, "status": "ok"},
+                "redis": {
+                    "required": False,
+                    "status": "skipped",
+                    "reason": "Redis is optional in local-harness when REDIS_URL is not set.",
+                },
+            },
+        )
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views.readiness_logger.warning")
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch(
+        "api.views._database_readiness_check",
+        return_value=("failed", "Database connectivity check failed (DatabaseError)."),
+    )
+    def test_readiness_failure_logs_request_correlation(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+        mock_warning,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/health/ready/",
+            HTTP_X_REQUEST_ID="edge-ready-503",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self._assert_correlated_response(response, "edge-ready-503")
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "readiness.not_ready")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["request_id"], "edge-ready-503")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["dependency"], "database")
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch(
+        "api.views._database_readiness_check",
+        return_value=("failed", "Database connectivity check failed (DatabaseError)."),
+    )
+    def test_readiness_fails_when_database_is_unavailable(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["database"]["status"], "failed")
+        self.assertEqual(body["checks"]["redis"]["status"], "ok")
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("failed", "Redis is required for this runtime but REDIS_URL is not configured."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_required_redis_is_missing(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["redis"]["status"], "failed")
+        self.assertIn("REDIS_URL", body["checks"]["redis"]["reason"])
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch(
+        "api.views._redis_readiness_check",
+        return_value=("failed", "Redis connectivity check failed (ConnectionError)."),
+    )
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_required_redis_is_unreachable(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["redis"]["status"], "failed")
+        self._assert_correlated_response(response)
+
+
+class RuntimeRedisConfigurationValidationTests(SimpleTestCase):
+    def test_local_harness_allows_locmem_without_redis(self) -> None:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env="local-harness",
+            redis_url="",
+            cache_backend="django.core.cache.backends.locmem.LocMemCache",
+            testing=False,
+        )
+
+    @patch("dmis_api.settings.import_module", return_value=object())
+    def test_local_harness_accepts_configured_redis(self, _mock_import_module) -> None:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env="local-harness",
+            redis_url="redis://localhost:6379/1",
+            cache_backend="django_redis.cache.RedisCache",
+            testing=False,
+        )
+
+    def test_non_local_runtimes_require_redis_url(self) -> None:
+        for runtime_env in ("prod-like-local", "shared-dev", "staging", "production"):
+            with self.subTest(runtime_env=runtime_env):
+                with self.assertRaisesMessage(
+                    RuntimeError,
+                    f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL because Redis is a mandatory runtime dependency.",
+                ):
+                    dmis_settings.validate_runtime_redis_configuration(
+                        runtime_env=runtime_env,
+                        redis_url="",
+                        cache_backend="django.core.cache.backends.locmem.LocMemCache",
+                        testing=False,
+                    )
+
+    def test_prod_like_local_rejects_invalid_redis_url(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires REDIS_URL to use one of the supported schemes",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="prod-like-local",
+                redis_url="http://localhost:6379/1",
+                cache_backend="django_redis.cache.RedisCache",
+                testing=False,
+            )
+
+    def test_shared_dev_requires_redis_backed_cache_backend(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev with REDIS_URL configured requires the default cache backend to be django_redis.cache.RedisCache.",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="shared-dev",
+                redis_url="redis://shared-dev-redis:6379/1",
+                cache_backend="django.core.cache.backends.locmem.LocMemCache",
+                testing=False,
+            )
+
+    @patch(
+        "dmis_api.settings.import_module",
+        side_effect=ModuleNotFoundError("No module named 'django_redis'"),
+    )
+    def test_shared_dev_requires_django_redis_dependency(self, _mock_import_module) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev with REDIS_URL configured requires the django-redis package to be installed.",
+        ):
+            dmis_settings.validate_runtime_redis_configuration(
+                runtime_env="shared-dev",
+                redis_url="redis://shared-dev-redis:6379/1",
+                cache_backend="django_redis.cache.RedisCache",
+                testing=False,
+            )
+
+
+class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
+    def test_shared_dev_defaults_auth_enabled(self) -> None:
+        self.assertTrue(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="shared-dev",
+                testing=False,
+            )
+        )
+
+    def test_local_harness_defaults_auth_disabled(self) -> None:
+        self.assertFalse(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="local-harness",
+                testing=False,
+            )
+        )
+
+    def test_tests_keep_auth_disabled_by_default(self) -> None:
+        self.assertFalse(
+            dmis_settings.default_auth_enabled_for_runtime_env(
+                runtime_env="shared-dev",
+                testing=True,
+            )
+        )
+
+    def test_detect_testing_recognizes_pytest_invocation(self) -> None:
+        self.assertTrue(dmis_settings._detect_testing(["pytest", "backend/api/tests.py"]))
+
+    def test_detect_testing_recognizes_running_tests_environment_flag(self) -> None:
+        self.assertTrue(dmis_settings._detect_testing(["runserver"], {"RUNNING_TESTS": "1"}))
+
+    def test_local_harness_mode_accepts_local_only_flags(self) -> None:
+        dmis_settings.validate_runtime_auth_configuration(
+            runtime_env="local-harness",
+            debug=True,
+            auth_enabled=False,
+            dev_auth_enabled=True,
+            local_auth_harness_enabled=True,
+            testing=False,
+        )
+
+    def test_shared_dev_requires_auth_enabled(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires AUTH_ENABLED=1.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="shared-dev",
+                debug=False,
+                auth_enabled=False,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
+
+    def test_shared_dev_rejects_dev_auth(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DEV_AUTH_ENABLED=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="shared-dev",
+                debug=False,
+                auth_enabled=True,
+                dev_auth_enabled=True,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
+
+    def test_production_rejects_local_harness_flag(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production requires LOCAL_AUTH_HARNESS_ENABLED=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="production",
+                debug=False,
+                auth_enabled=True,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=True,
+                testing=False,
+            )
+
+    def test_prod_like_local_rejects_debug_mode(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires DJANGO_DEBUG=0.",
+        ):
+            dmis_settings.validate_runtime_auth_configuration(
+                runtime_env="prod-like-local",
+                debug=True,
+                auth_enabled=True,
+                dev_auth_enabled=False,
+                local_auth_harness_enabled=False,
+                testing=False,
+            )
+
+
+class RuntimeSecurityConfigurationValidationTests(SimpleTestCase):
+    def _security_kwargs(self, runtime_env: str) -> dict[str, object]:
+        secure_transport_runtime_envs = {"shared-dev", "staging", "production"}
+        secure_hsts_seconds = {
+            "local-harness": 0,
+            "prod-like-local": 0,
+            "shared-dev": 3600,
+            "staging": 86400,
+            "production": 31536000,
+        }[runtime_env]
+        secure_hsts_include_subdomains = runtime_env == "production"
+
+        return {
+            "runtime_env": runtime_env,
+            "debug": runtime_env == "local-harness",
+            "secret_key": "ci-secure-runtime-secret",
+            "secret_key_explicit": runtime_env != "local-harness",
+            "allowed_hosts": (
+                ["localhost", "127.0.0.1"]
+                if runtime_env in {"local-harness", "prod-like-local"}
+                else [f"{runtime_env}.dmis.example.org"]
+            ),
+            "allowed_hosts_explicit": runtime_env != "local-harness",
+            "secure_ssl_redirect": runtime_env in secure_transport_runtime_envs,
+            "session_cookie_secure": runtime_env in secure_transport_runtime_envs,
+            "csrf_cookie_secure": runtime_env in secure_transport_runtime_envs,
+            "secure_hsts_seconds": secure_hsts_seconds,
+            "secure_hsts_include_subdomains": secure_hsts_include_subdomains,
+            "secure_hsts_preload": False,
+            "x_frame_options": "DENY",
+            "secure_referrer_policy": (
+                "same-origin"
+                if runtime_env in {"local-harness", "prod-like-local"}
+                else "strict-origin-when-cross-origin"
+            ),
+            "csrf_trusted_origins": [],
+            "secure_proxy_ssl_header": (
+                ("HTTP_X_FORWARDED_PROTO", "https")
+                if runtime_env in secure_transport_runtime_envs
+                else None
+            ),
+            "use_x_forwarded_host": False,
+            "testing": False,
+        }
+
+    def test_runtime_security_profiles_accept_expected_baselines(self) -> None:
+        for runtime_env in (
+            "local-harness",
+            "prod-like-local",
+            "shared-dev",
+            "staging",
+            "production",
+        ):
+            with self.subTest(runtime_env=runtime_env):
+                dmis_settings.validate_runtime_security_configuration(
+                    **self._security_kwargs(runtime_env)
+                )
+
+    def test_prod_like_local_requires_explicit_secret_key(self) -> None:
+        kwargs = self._security_kwargs("prod-like-local")
+        kwargs["secret_key"] = "debug-generated-secret"
+        kwargs["secret_key_explicit"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=prod-like-local requires DJANGO_SECRET_KEY to be set explicitly.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_rejects_loopback_only_allowed_hosts(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["allowed_hosts"] = ["localhost", "127.0.0.1"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_ALLOWED_HOSTS to include at least one non-loopback host.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_rejects_url_shaped_allowed_hosts(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["allowed_hosts"] = ["https://shared-dev.dmis.example.org"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_ALLOWED_HOSTS entries without scheme or path.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_shared_dev_requires_https_redirect(self) -> None:
+        kwargs = self._security_kwargs("shared-dev")
+        kwargs["secure_ssl_redirect"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DJANGO_SECURE_SSL_REDIRECT=1.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_staging_requires_expected_hsts_seconds(self) -> None:
+        kwargs = self._security_kwargs("staging")
+        kwargs["secure_hsts_seconds"] = 3600
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=staging requires DJANGO_SECURE_HSTS_SECONDS=86400.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_production_rejects_non_https_csrf_trusted_origins(self) -> None:
+        kwargs = self._security_kwargs("production")
+        kwargs["csrf_trusted_origins"] = ["http://dmis.example.org"]
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production requires DJANGO_CSRF_TRUSTED_ORIGINS to use https:// origins only.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+    def test_production_rejects_invalid_hsts_preload_opt_in(self) -> None:
+        kwargs = self._security_kwargs("production")
+        kwargs["secure_hsts_preload"] = True
+        kwargs["secure_hsts_include_subdomains"] = False
+
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=production allows DJANGO_SECURE_HSTS_PRELOAD=1 only when DJANGO_SECURE_HSTS_SECONDS>=31536000 and DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=1.",
+        ):
+            dmis_settings.validate_runtime_security_configuration(**kwargs)
+
+
+class RuntimeSecurityCheckTests(SimpleTestCase):
+    @override_settings(
+        TESTING=False,
+        DMIS_RUNTIME_ENV="shared-dev",
+        DEBUG=False,
+        SECRET_KEY="ci-secure-runtime-secret",
+        DMIS_SECRET_KEY_EXPLICIT=True,
+        ALLOWED_HOSTS=["shared-dev.dmis.example.org"],
+        DMIS_ALLOWED_HOSTS_EXPLICIT=True,
+        SECURE_SSL_REDIRECT=False,
+        SESSION_COOKIE_SECURE=True,
+        CSRF_COOKIE_SECURE=True,
+        SECURE_HSTS_SECONDS=3600,
+        SECURE_HSTS_INCLUDE_SUBDOMAINS=False,
+        SECURE_HSTS_PRELOAD=False,
+        X_FRAME_OPTIONS="DENY",
+        SECURE_REFERRER_POLICY="strict-origin-when-cross-origin",
+        CSRF_TRUSTED_ORIGINS=[],
+        SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+        USE_X_FORWARDED_HOST=False,
+    )
+    def test_secure_runtime_check_reports_error_for_unsafe_non_local_settings(self) -> None:
+        messages = api_checks.check_dmis_secure_runtime_posture(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E003")
+        self.assertIn("DJANGO_SECURE_SSL_REDIRECT=1", messages[0].msg)
+
+
+class RuntimeDependencyCheckTests(SimpleTestCase):
+    @override_settings(
+        TESTING=False,
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_URL="",
+        DMIS_DEFAULT_CACHE_BACKEND="django.core.cache.backends.locmem.LocMemCache",
+    )
+    def test_runtime_dependency_check_reports_error_when_redis_is_missing(self) -> None:
+        messages = api_checks.check_dmis_runtime_dependency_posture(None)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, "api.E004")
+        self.assertIn("REDIS_URL", messages[0].msg)
+
+
+class RequestContextMiddlewareTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.client.raise_request_exception = False
+
+    @override_settings(ROOT_URLCONF="api.tests", DEBUG=False)
+    @patch("api.apps.request_logger.exception")
+    def test_unhandled_server_error_logs_with_request_id(self, mock_exception) -> None:
+        response = self.client.get("/boom/", HTTP_X_REQUEST_ID="edge-boom-500")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response["X-Request-ID"], "edge-boom-500")
+        mock_exception.assert_called_once()
+        self.assertEqual(mock_exception.call_args.args[0], "request.unhandled_exception")
+        self.assertEqual(mock_exception.call_args.kwargs["extra"]["request_id"], "edge-boom-500")
+        self.assertEqual(mock_exception.call_args.kwargs["extra"]["exception_class"], "RuntimeError")
+
+
+class AuthLoggingTests(SimpleTestCase):
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.authentication.logger.warning")
+    def test_legacy_dev_header_warning_uses_structured_event(self, mock_warning) -> None:
+        request = SimpleNamespace(
+            META={"HTTP_X_DEV_USER": "legacy-user"},
+            method="GET",
+            path="/api/v1/auth/whoami/",
+        )
+
+        with self.assertRaises(AuthenticationFailed):
+            authentication._enforce_dev_override_header_policy(request)
+
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.rejected_legacy_dev_header")
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["event"],
+            "auth.rejected_legacy_dev_header",
+        )
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["request_path"],
+            "/api/v1/auth/whoami/",
+        )
+
+    @override_settings(
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_ALGORITHMS=["RS256"],
+    )
+    @patch(
+        "api.authentication.jwt.get_unverified_header",
+        side_effect=authentication.InvalidTokenError("bad token"),
+    )
+    @patch("api.authentication.logger.warning")
+    def test_jwt_verification_failure_logs_structured_event_and_exception_class(
+        self,
+        mock_warning,
+        _mock_get_unverified_header,
+    ) -> None:
+        with self.assertRaises(AuthenticationFailed):
+            authentication._verify_jwt_with_jwks(
+                "not-a-real-token",
+                "https://issuer.example/.well-known/jwks.json",
+            )
+
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.jwt_verification_failed")
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["event"],
+            "auth.jwt_verification_failed",
+        )
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["exception_class"],
+            "InvalidTokenError",
+        )
 
 
 class AuthWhoAmITests(TestCase):
@@ -35,6 +669,34 @@ class AuthWhoAmITests(TestCase):
         response = self.client.get("/api/v1/auth/whoami/")
 
         self.assertEqual(response.status_code, 401)
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.apps.security_logger.warning")
+    def test_whoami_auth_failure_includes_request_id_and_logs_security_event(
+        self,
+        mock_warning,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_REQUEST_ID="edge-auth-401",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response["X-Request-ID"], "edge-auth-401")
+        self.assertEqual(response.json()["request_id"], "edge-auth-401")
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.request_rejected")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["request_id"], "edge-auth-401")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["auth_mode"], "missing")
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -110,6 +772,8 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["relief_ffp_requester_tst"],
         TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=[],
@@ -132,7 +796,7 @@ class AuthWhoAmITests(TestCase):
     ) -> None:
         response = self.client.get(
             "/api/v1/auth/whoami/",
-            HTTP_X_DEV_USER="relief_ffp_requester_tst",
+            HTTP_X_DMIS_LOCAL_USER="relief_ffp_requester_tst",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -141,6 +805,170 @@ class AuthWhoAmITests(TestCase):
         self.assertEqual(body["username"], "relief_ffp_requester_tst")
         self.assertIn("AGENCY_DISTRIBUTOR", body["roles"])
         self.assertIn("operations.request.create.self", body["permissions"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_local_auth_harness_route_is_hidden_when_not_explicitly_enabled(self) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_whoami_rejects_local_harness_header_when_harness_disabled(self) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DMIS_LOCAL_USER="local_odpem_logistics_manager_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("X-DMIS-Local-User", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_whoami_rejects_legacy_dev_user_header(self) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DEV_USER="local_system_admin_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("X-Dev-User", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_local_auth_harness_route_is_hidden_when_auth_is_mandatory(self) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=[
+            "local_system_admin_tst",
+            "local_odpem_deputy_director_tst",
+            "local_odpem_logistics_manager_tst",
+            "local_odpem_logistics_officer_tst",
+            "relief_jrc_requester_tst",
+        ],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.views._load_local_auth_harness_users",
+        return_value=(
+            [
+                {
+                    "user_id": "27",
+                    "username": "local_system_admin_tst",
+                    "email": "system.admin+local@dmis.example.org",
+                    "roles": ["SYSTEM_ADMINISTRATOR"],
+                    "permissions": ["masterdata.view"],
+                    "memberships": [
+                        {
+                            "tenant_id": 1,
+                            "tenant_code": "ODPEM-NEOC",
+                            "tenant_name": "ODPEM NEOC",
+                            "tenant_type": "NEOC",
+                            "is_primary": True,
+                            "access_level": "FULL",
+                        }
+                    ],
+                }
+            ],
+            [
+                "local_odpem_deputy_director_tst",
+                "local_odpem_logistics_manager_tst",
+                "local_odpem_logistics_officer_tst",
+                "relief_jrc_requester_tst",
+            ],
+        ),
+    )
+    def test_local_auth_harness_route_returns_curated_users_and_missing_entries(
+        self,
+        _mock_load_users,
+    ) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["enabled"])
+        self.assertEqual(body["mode"], "local_dev_only")
+        self.assertEqual(body["default_user"], "local_system_admin_tst")
+        self.assertEqual(body["header_name"], "X-DMIS-Local-User")
+        self.assertEqual(
+            body["missing_usernames"],
+            [
+                "local_odpem_deputy_director_tst",
+                "local_odpem_logistics_manager_tst",
+                "local_odpem_logistics_officer_tst",
+                "relief_jrc_requester_tst",
+            ],
+        )
+        self.assertEqual(len(body["users"]), 1)
+        self.assertEqual(body["users"][0]["username"], "local_system_admin_tst")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.views._load_local_auth_harness_users", side_effect=DatabaseError("boom"))
+    def test_local_auth_harness_route_reports_backend_failure(self, _mock_load_users) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Local auth harness is temporarily unavailable."},
+        )
+
+    def test_legacy_dev_users_route_is_not_exposed(self) -> None:
+        response = self.client.get("/api/v1/auth/dev-users/")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class RbacResolutionTests(TestCase):
@@ -219,6 +1047,34 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("masterdata.view", permissions)
+        self.assertNotIn("operations.eligibility.review", permissions)
+
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value={"replenishment.needs_list.approve"},
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_db_rbac_does_not_grant_eligibility_permissions_from_needs_list_approval(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id=None,
+            username="logistics-manager",
+            roles=["LOGISTICS_MANAGER"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn("replenishment.needs_list.approve", permissions)
+        self.assertNotIn("operations.eligibility.review", permissions)
+        self.assertNotIn("operations.eligibility.approve", permissions)
+        self.assertNotIn("operations.eligibility.reject", permissions)
 
     @patch(
         "api.rbac._fetch_permissions_for_role_codes",
@@ -242,6 +1098,39 @@ class RbacResolutionTests(TestCase):
 
         _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
         self.assertIn("masterdata.view", permissions)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=True,
+    )
+    @patch(
+        "api.rbac._fetch_permissions_for_role_codes",
+        return_value=set(),
+    )
+    @patch("api.rbac._resolve_user_id", return_value=None)
+    @patch("api.rbac._db_rbac_enabled", return_value=True)
+    def test_dev_auth_applies_executive_bundle_for_odpem_ddg(
+        self,
+        _mock_db_enabled,
+        _mock_user_id,
+        _mock_permissions_for_roles,
+    ) -> None:
+        request = type("Request", (), {})()
+        principal = Principal(
+            user_id="15",
+            username="local_odpem_deputy_director_tst",
+            roles=["ODPEM_DDG"],
+            permissions=[],
+        )
+
+        _roles, permissions = rbac.resolve_roles_and_permissions(request, principal)
+
+        self.assertIn("replenishment.needs_list.approve", permissions)
+        self.assertIn("masterdata.view", permissions)
+        self.assertIn("operations.eligibility.review", permissions)
 
     def test_governed_catalog_access_is_limited_to_global_governance_roles(self) -> None:
         self.assertFalse(rbac.has_governed_catalog_access(["AGENCY_DISTRIBUTOR"]))

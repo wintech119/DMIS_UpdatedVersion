@@ -17,9 +17,10 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
+import { AppAccessService } from '../../core/app-access.service';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { ReplenishmentService, ActiveEvent, Warehouse } from '../services/replenishment.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DashboardDataService, DashboardDataOptions } from '../services/dashboard-data.service';
@@ -79,8 +80,8 @@ export class StockStatusDashboardComponent implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private dialog = inject(MatDialog);
-  private http = inject(HttpClient);
-
+  private readonly appAccess = inject(AppAccessService);
+  private readonly auth = inject(AuthRbacService);
   private destroyRef = inject(DestroyRef);
   private dataFreshnessService = inject(DataFreshnessService);
   private dashboardDataService = inject(DashboardDataService);
@@ -178,7 +179,7 @@ export class StockStatusDashboardComponent implements OnInit {
       this.clearWizardReturnContext();
     }
 
-    this.loadReviewQueueAccess();
+    this.syncAuthContext();
     this.loadFilterState();
     this.autoLoadDashboard();
 
@@ -810,37 +811,13 @@ export class StockStatusDashboardComponent implements OnInit {
     }
   }
 
-  private loadReviewQueueAccess(): void {
-    this.http.get<{ user_id?: string; username?: string; roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
-      next: (data) => {
-        const roles = new Set((data.roles ?? []).map((role) => role.toUpperCase()));
-        const permissions = new Set((data.permissions ?? []).map((perm) => perm.toLowerCase()));
-        // Must mirror backend _actor_id ordering (user_id first, then username)
-        // so submitter update matching works in mixed-identifier environments.
-        const userRef = String(data.user_id ?? data.username ?? '').trim();
-        this.setCurrentUserRef(userRef || null);
-        const hasPreviewPermission = permissions.has('replenishment.needs_list.preview');
-        const reviewPermissions = [
-          'replenishment.needs_list.approve',
-          'replenishment.needs_list.reject',
-          'replenishment.needs_list.return',
-          'replenishment.needs_list.escalate'
-        ];
-        this.canAccessReviewQueue =
-          hasPreviewPermission && (
-            roles.has('EXECUTIVE') ||
-            reviewPermissions.some((perm) => permissions.has(perm))
-          );
-        this.loadMyNeedsLists();
-        this.loadMySubmissionUpdates();
-      },
-      error: () => {
-        this.canAccessReviewQueue = false;
-        this.setCurrentUserRef(null);
-        this.setMyNeedsLists([]);
-        this.mySubmissionUpdates = [];
-      }
-    });
+  private syncAuthContext(): void {
+    // Mirror backend actor ordering (user_id first, then username) so
+    // submitter update matching remains stable across mixed identifiers.
+    this.setCurrentUserRef(this.auth.actorRef());
+    this.canAccessReviewQueue = this.appAccess.canAccessNavKey('replenishment.review');
+    this.loadMyNeedsLists();
+    this.loadMySubmissionUpdates();
   }
 
   private setCurrentUserRef(userRef: string | null): void {

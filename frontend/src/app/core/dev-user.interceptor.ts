@@ -1,10 +1,52 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 
-const DEV_USER_KEY = 'dmis_dev_user';
-const DEV_USER_HEADER = 'X-Dev-User';
+declare const DMIS_LOCAL_AUTH_HARNESS_BUILD: boolean;
+
+const LOCAL_HARNESS_USER_KEY = 'dmis_local_harness_user';
+const LOCAL_HARNESS_USER_HEADER = 'X-DMIS-Local-User';
+const TEST_BUILD_FLAG_KEY = '__DMIS_LOCAL_AUTH_HARNESS_BUILD__';
+
+type LocationLike = Pick<Location, 'hostname'>;
+
+function readLocalHarnessBuildOverride(): boolean | null {
+  const globalScope = globalThis as typeof globalThis & Record<string, unknown>;
+  const override = globalScope[TEST_BUILD_FLAG_KEY];
+
+  return typeof override === 'boolean' ? override : null;
+}
+
+export function localAuthHarnessBuildEnabled(): boolean {
+  const override = readLocalHarnessBuildOverride();
+  if (override != null) {
+    return override;
+  }
+
+  return typeof DMIS_LOCAL_AUTH_HARNESS_BUILD === 'undefined'
+    ? false
+    : DMIS_LOCAL_AUTH_HARNESS_BUILD;
+}
+
+export function isLocalAuthHarnessHost(locationLike: LocationLike = window.location): boolean {
+  const hostname = locationLike.hostname;
+
+  return hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '[::1]'
+    || hostname.endsWith('.local');
+}
+
+export function localAuthHarnessClientEnabled(
+  locationLike: LocationLike = window.location,
+): boolean {
+  return localAuthHarnessBuildEnabled() && isLocalAuthHarnessHost(locationLike);
+}
 
 export const devUserInterceptor: HttpInterceptorFn = (req, next) => {
-  const requestedUser = localStorage.getItem(DEV_USER_KEY)?.trim();
+  if (!localAuthHarnessClientEnabled()) {
+    return next(req);
+  }
+
+  const requestedUser = localStorage.getItem(LOCAL_HARNESS_USER_KEY)?.trim();
   if (!requestedUser) {
     return next(req);
   }
@@ -12,7 +54,7 @@ export const devUserInterceptor: HttpInterceptorFn = (req, next) => {
   return next(
     req.clone({
       setHeaders: {
-        [DEV_USER_HEADER]: requestedUser
+        [LOCAL_HARNESS_USER_HEADER]: requestedUser
       }
     })
   );

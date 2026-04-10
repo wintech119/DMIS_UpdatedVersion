@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from operations.management.commands.seed_relief_management_frontend_test_users import Command
@@ -121,24 +122,74 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertIn("UPPER(COALESCE(status_code, '')) = 'A'", sql)
         self.assertEqual(params, ["S07 TEST MAIN HUB - JRC"])
 
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_non_odpem_national_match(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (7, "NATIONAL-OTHER", "National Other", "NATIONAL")
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code="NATIONAL-OTHER")
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_ambiguous_fallback_matches(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            (1, "ODPEM-NEOC", "ODPEM NEOC", "NEOC"),
+            (2, "ODPEM-ALT", "ODPEM Alt", "NEOC"),
+        ]
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Unable to resolve the national/local system-admin tenant due to ambiguous matches.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code=None)
+
     def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
         profiles = Command()._build_profiles("FFP", "Food For The Poor")
 
         self.assertEqual([profile.username for profile in profiles], [
+            "local_system_admin_tst",
+            "local_odpem_deputy_director_tst",
+            "local_odpem_logistics_manager_tst",
+            "local_odpem_logistics_officer_tst",
             "relief_ffp_requester_tst",
-            "relief_ffp_receiver_tst",
         ])
-        self.assertEqual(profiles[0].full_name, "Alicia Bennett")
-        self.assertEqual(profiles[0].job_title, "Distribution Coordinator")
-        self.assertEqual(profiles[1].full_name, "Dwayne Palmer")
-        self.assertEqual(profiles[1].job_title, "Receiving Officer")
-        for profile in profiles:
-            self.assertNotIn("odpem.gov.jm", profile.email)
-            self.assertTrue(profile.email.endswith("@agency.example.org"))
+        self.assertEqual(profiles[0].role_code, "SYSTEM_ADMINISTRATOR")
+        self.assertEqual(profiles[0].tenant_scope, "national")
+        self.assertFalse(profiles[0].bind_to_agency)
+        self.assertFalse(profiles[0].bind_to_warehouse)
+        self.assertEqual(profiles[1].full_name, "Natalie Williams")
+        self.assertEqual(profiles[1].job_title, "ODPEM Deputy Director")
+        self.assertEqual(profiles[1].role_code, "ODPEM_DDG")
+        self.assertEqual(profiles[1].tenant_scope, "national")
+        self.assertFalse(profiles[1].bind_to_agency)
+        self.assertFalse(profiles[1].bind_to_warehouse)
+        self.assertEqual(profiles[2].full_name, "Kemar Campbell")
+        self.assertEqual(profiles[2].job_title, "ODPEM Logistics Manager")
+        self.assertEqual(profiles[2].role_code, "ODPEM_LOGISTICS_MANAGER")
+        self.assertEqual(profiles[2].tenant_scope, "national")
+        self.assertFalse(profiles[2].bind_to_agency)
+        self.assertFalse(profiles[2].bind_to_warehouse)
+        self.assertEqual(profiles[3].full_name, "Chantal Ellis")
+        self.assertEqual(profiles[3].job_title, "ODPEM Logistics Officer")
+        self.assertEqual(profiles[3].tenant_scope, "national")
+        self.assertFalse(profiles[3].bind_to_agency)
+        self.assertFalse(profiles[3].bind_to_warehouse)
+        self.assertEqual(profiles[4].full_name, "Alicia Bennett")
+        self.assertEqual(profiles[4].job_title, "Distribution Coordinator")
+        self.assertEqual(profiles[0].email, "system.admin+local@dmis.example.org")
+        self.assertTrue(profiles[1].email.endswith("@odpem.gov.jm"))
+        self.assertTrue(profiles[2].email.endswith("@odpem.gov.jm"))
+        self.assertTrue(profiles[3].email.endswith("@odpem.gov.jm"))
+        self.assertTrue(profiles[4].email.endswith("@agency.example.org"))
+        self.assertTrue(all(len(profile.user_name) <= 20 for profile in profiles))
 
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
-        return_value={"id": 20, "code": "AGENCY_DISTRIBUTOR"},
+        side_effect=lambda role_code: {"id": 20, "code": role_code},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_warehouse",
@@ -151,6 +202,10 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_tenant",
         return_value={"tenant_id": 19, "tenant_code": "JRC", "tenant_name": "JAMAICA RED CROSS"},
+    )
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
+        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_user",
@@ -166,6 +221,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         ensure_user_role,
         ensure_tenant_membership,
         ensure_user,
+        _resolve_national_tenant,
         _resolve_tenant,
         _resolve_agency,
         _resolve_warehouse,
@@ -177,7 +233,12 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
 
         text = output.getvalue()
         self.assertIn("Relief Management frontend test-user seed:", text)
+        self.assertIn("local_system_admin_tst", text)
+        self.assertIn("local_odpem_deputy_director_tst", text)
+        self.assertIn("local_odpem_logistics_manager_tst", text)
+        self.assertIn("local_odpem_logistics_officer_tst", text)
         self.assertIn("relief_jrc_requester_tst", text)
+        self.assertIn("recommended DEV_AUTH_USER_ID: local_system_admin_tst", text)
         self.assertIn("Dry-run only", text)
         ensure_user.assert_not_called()
         ensure_tenant_membership.assert_not_called()
@@ -189,7 +250,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
-        return_value={"id": 20, "code": "AGENCY_DISTRIBUTOR"},
+        side_effect=lambda role_code: {"id": 20, "code": role_code},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_warehouse",
@@ -204,22 +265,27 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         return_value={"tenant_id": 19, "tenant_code": "JRC", "tenant_name": "JAMAICA RED CROSS"},
     )
     @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
+        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
+    )
+    @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_user",
-        side_effect=[(95101, True), (95102, False)],
+        side_effect=[(95101, True), (95102, False), (95103, True), (95104, False), (95105, True)],
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_tenant_membership",
-        side_effect=[True, True],
+        side_effect=[True, True, True, True, True],
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._ensure_user_role",
-        side_effect=[True, False],
+        side_effect=[True, False, True, False, True],
     )
     def test_apply_creates_memberships_and_roles(
         self,
         ensure_user_role,
         ensure_tenant_membership,
         ensure_user,
+        _resolve_national_tenant,
         _resolve_tenant,
         _resolve_agency,
         _resolve_warehouse,
@@ -232,15 +298,20 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
 
         text = output.getvalue()
         self.assertIn("Temporary Relief Management frontend users are ready.", text)
-        self.assertIn("users created: 1", text)
-        self.assertIn("users reused: 1", text)
-        self.assertEqual(ensure_user.call_count, 2)
-        self.assertEqual(ensure_tenant_membership.call_count, 2)
-        self.assertEqual(ensure_user_role.call_count, 2)
+        self.assertIn("users created: 3", text)
+        self.assertIn("users reused: 2", text)
+        self.assertEqual(ensure_user.call_count, 5)
+        self.assertEqual(ensure_tenant_membership.call_count, 5)
+        self.assertEqual(ensure_user_role.call_count, 5)
+        self.assertEqual(ensure_tenant_membership.call_args_list[0].kwargs["tenant_id"], 27)
+        self.assertEqual(ensure_tenant_membership.call_args_list[1].kwargs["tenant_id"], 27)
+        self.assertEqual(ensure_tenant_membership.call_args_list[2].kwargs["tenant_id"], 27)
+        self.assertEqual(ensure_tenant_membership.call_args_list[3].kwargs["tenant_id"], 27)
+        self.assertEqual(ensure_tenant_membership.call_args_list[4].kwargs["tenant_id"], 19)
 
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
-        return_value={"id": 20, "code": "AGENCY_DISTRIBUTOR"},
+        side_effect=lambda role_code: {"id": 20, "code": role_code},
     )
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_warehouse",
@@ -259,8 +330,13 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_tenant",
         return_value={"tenant_id": 14, "tenant_code": "PARISH-KN", "tenant_name": "Kingston and St. Andrew"},
     )
+    @patch(
+        "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_national_tenant",
+        return_value={"tenant_id": 27, "tenant_code": "ODPEM-NEOC", "tenant_name": "ODPEM NEOC"},
+    )
     def test_dry_run_normalizes_default_names_for_hyphenated_tenant_codes(
         self,
+        _resolve_national_tenant,
         _resolve_tenant,
         resolve_agency,
         resolve_warehouse,
@@ -272,6 +348,8 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
 
         resolve_agency.assert_called_once_with(None, agency_name="S07 TEST DISTRIBUTOR AGENCY - PARISH_KN")
         resolve_warehouse.assert_called_once_with(None, warehouse_name="S07 TEST MAIN HUB - PARISH_KN")
+        self.assertIn("local_odpem_deputy_director_tst", output.getvalue())
+        self.assertIn("local_odpem_logistics_manager_tst", output.getvalue())
         self.assertIn("relief_parish_kn_requester_tst", output.getvalue())
 
     @patch(
@@ -377,10 +455,7 @@ class CleanupReliefManagementFrontendTestDataCommandTests(SimpleTestCase):
     )
     @patch(
         "operations.management.commands.cleanup_relief_management_frontend_test_data.Command._fetch_users",
-        return_value=[
-            {"user_id": 95101, "username": "relief_jrc_requester_tst"},
-            {"user_id": 95102, "username": "relief_jrc_receiver_tst"},
-        ],
+        return_value=[{"user_id": 95103, "username": "relief_jrc_requester_tst"}],
     )
     @patch(
         "operations.management.commands.cleanup_relief_management_frontend_test_data.Command._deactivate_tenant_memberships",

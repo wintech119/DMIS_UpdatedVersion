@@ -86,6 +86,8 @@ const OPERATIONS_ANY_PERMISSIONS = [
   'operations.request.create.on_behalf_bridge',
   'operations.request.edit.draft',
   'operations.request.submit',
+  'operations.eligibility',
+  'operations.eligibility.*',
   'operations.eligibility.review',
   'operations.eligibility.approve',
   'operations.eligibility.reject',
@@ -111,10 +113,26 @@ const OPERATIONS_REQUEST_PERMISSIONS = [
 ];
 
 const OPERATIONS_ELIGIBILITY_PERMISSIONS = [
+  'operations.eligibility',
+  'operations.eligibility.*',
   'operations.eligibility.review',
   'operations.eligibility.approve',
   'operations.eligibility.reject',
 ];
+
+const OPERATIONS_ELIGIBILITY_ROLE_CODES = new Set([
+  'ODPEM_DDG',
+  'DEPUTY_DG',
+  'DDG',
+  'ODPEM_DIR_PEOD',
+  'DIR_PEOD',
+  'DIRECTOR_OF_PEOD',
+  'TST_DIR_PEOD',
+  'ODPEM_DG',
+  'DIRECTOR_GENERAL',
+  'TST_DG',
+  'DG',
+]);
 
 const OPERATIONS_FULFILLMENT_PERMISSIONS = [
   'operations.package.create',
@@ -138,6 +156,10 @@ type NavAccessKey =
   | 'replenishment.submissions'
   | 'replenishment.wizard'
   | 'replenishment.review'
+  | 'replenishment.execution'
+  | 'replenishment.procurement.view'
+  | 'replenishment.procurement.edit'
+  | 'replenishment.procurement.receive'
   | 'operations.dashboard'
   | 'operations.relief-requests'
   | 'operations.eligibility'
@@ -192,12 +214,22 @@ export class AppAccessService {
       case 'replenishment.review':
         return this.hasPermission('replenishment.needs_list.preview')
           && this.hasAnyPermission(REPLENISHMENT_REVIEW_PERMISSIONS);
+      case 'replenishment.execution':
+        return this.hasPermission('replenishment.needs_list.execute');
+      case 'replenishment.procurement.view':
+        return this.hasPermission('replenishment.procurement.view');
+      case 'replenishment.procurement.edit':
+        return this.hasPermission('replenishment.procurement.view')
+          && this.hasPermission('replenishment.procurement.edit');
+      case 'replenishment.procurement.receive':
+        return this.hasPermission('replenishment.procurement.view')
+          && this.hasPermission('replenishment.procurement.receive');
       case 'operations.dashboard':
         return this.canAccessAnyOperations();
       case 'operations.relief-requests':
         return this.canAccessReliefRequests();
       case 'operations.eligibility':
-        return this.hasAnyPermission(OPERATIONS_ELIGIBILITY_PERMISSIONS);
+        return this.canAccessEligibility();
       case 'operations.fulfillment':
         return this.hasAnyPermission(OPERATIONS_FULFILLMENT_PERMISSIONS);
       case 'operations.dispatch':
@@ -284,6 +316,11 @@ export class AppAccessService {
       || Boolean(capabilities?.can_create_relief_request_on_behalf)
       || this.hasAnyPermission(OPERATIONS_REQUEST_PERMISSIONS)
       || this.hasPermission('operations.queue.view');
+  }
+
+  private canAccessEligibility(): boolean {
+    return this.hasAnyPermission(OPERATIONS_ELIGIBILITY_PERMISSIONS)
+      && (this.isSystemAdministrator() || this.hasAnyRole(OPERATIONS_ELIGIBILITY_ROLE_CODES));
   }
 
   private canAccessAnyMasterData(): boolean {

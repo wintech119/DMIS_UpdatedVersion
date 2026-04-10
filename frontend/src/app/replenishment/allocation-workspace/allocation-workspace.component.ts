@@ -340,6 +340,8 @@ export class AllocationWorkspaceComponent {
       if (!draft.override_reason_code.trim()) {
         errors.push('Select an override reason before continuing.');
       }
+    }
+    if (this.store.hasPendingOverride()) {
       if (!draft.override_note.trim()) {
         errors.push('Add an override note before continuing.');
       }

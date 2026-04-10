@@ -1,31 +1,44 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
+import { finalize } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 
 import { FulfillmentDetailsStepComponent } from './steps/fulfillment-details-step.component';
 import { FulfillmentPlanStepComponent } from './steps/fulfillment-plan-step.component';
 import { FulfillmentReviewStepComponent } from './steps/fulfillment-review-step.component';
+import {
+  ConfirmDialogData,
+  DmisConfirmDialogComponent,
+} from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
 import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
+import { OpsPackageLockStateComponent } from '../shared/ops-package-lock-state.component';
+import { OpsSplitBannerComponent } from '../shared/ops-split-banner.component';
 import { OperationsService } from '../services/operations.service';
 import { OperationsWorkspaceStateService } from '../services/operations-workspace-state.service';
-import { AllocationCommitResponse } from '../models/operations.model';
+import {
+  AllocationCommitResponse,
+  PackageAbandonDraftResponse,
+  PackageLockReleaseResponse,
+} from '../models/operations.model';
 import {
   formatAllocationMethod,
   formatExecutionStatus,
   formatPackageStatus,
   formatUrgency,
-  isOverrideApproverRole,
 } from '../models/operations-status.util';
+import { isFulfillmentCancellationAllowed } from '../operations-display.util';
 
 interface FulfillmentConfirmationState {
   title: string;
@@ -42,12 +55,15 @@ interface FulfillmentConfirmationState {
     MatIconModule,
     MatStepperModule,
     OpsMetricStripComponent,
+    OpsPackageLockStateComponent,
+    OpsSplitBannerComponent,
     FulfillmentPlanStepComponent,
     FulfillmentDetailsStepComponent,
     FulfillmentReviewStepComponent,
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
     DmisStepTrackerComponent,
+    NgTemplateOutlet,
   ],
   providers: [OperationsWorkspaceStateService],
   templateUrl: './package-fulfillment-workspace.component.html',
@@ -67,6 +83,7 @@ export class PackageFulfillmentWorkspaceComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly operationsService = inject(OperationsService);
   private readonly notifications = inject(DmisNotificationService);
+  private readonly dialog = inject(MatDialog);
   readonly store = inject(OperationsWorkspaceStateService);
   readonly auth = inject(AuthRbacService);
 
@@ -81,9 +98,31 @@ export class PackageFulfillmentWorkspaceComponent {
 
   readonly reliefrqstId = signal(0);
   readonly submissionErrors = signal<string[]>([]);
+  readonly reservationIntegrityWarning = signal<string | null>(null);
   readonly confirmationState = signal<FulfillmentConfirmationState | null>(null);
+  readonly savingDraft = signal(false);
 
   readonly packageDetail = this.store.packageDetail;
+
+  readonly canSaveDraft = computed(() =>
+    !this.store.hasCommittedAllocation()
+    && !this.store.hasPendingOverride()
+    && !this.confirmationState()
+  );
+
+  readonly canCancel = computed(() => {
+    const pkg = this.packageDetail()?.package;
+    if (!this.store.reliefpkgId() || !pkg) {
+      return false;
+    }
+    if (this.store.submitting() || this.savingDraft() || this.store.loading()) {
+      return false;
+    }
+    if (this.confirmationState()) {
+      return false;
+    }
+    return isFulfillmentCancellationAllowed(pkg.status_code, pkg.execution_status);
+  });
 
   readonly hasOperationsAccess = computed(() =>
     PackageFulfillmentWorkspaceComponent.OPERATIONS_ACCESS_PERMISSIONS.some((permission) =>
@@ -91,11 +130,27 @@ export class PackageFulfillmentWorkspaceComponent {
     )
   );
 
+  readonly canSubmitOverrideRequest = computed(() =>
+    this.hasRole('LOGISTICS_OFFICER', 'TST_LOGISTICS_OFFICER')
+    && !this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
+    && this.auth.hasPermission('operations.package.override.request')
+  );
+
+  readonly canCommitManagerOverrideDirectly = computed(() =>
+    this.hasOperationsAccess()
+    && this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
+    && this.auth.hasPermission('operations.package.allocate')
+  );
+
   readonly canApprovePendingOverride = computed(() => {
-    if (!this.store.hasPendingOverride() || !this.hasOperationsAccess()) {
+    if (
+      !this.store.hasPendingOverride()
+      || !this.hasOperationsAccess()
+      || !this.auth.hasPermission('operations.package.override.approve')
+    ) {
       return false;
     }
-    if (!isOverrideApproverRole(this.auth.roles())) {
+    if (!this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')) {
       return false;
     }
     return !this.isNoSelfApprovalBlocked();
@@ -104,7 +159,15 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly lockPlanEdits = computed(() => this.store.hasPendingOverride());
   readonly lockOperationalFields = computed(() => this.store.hasPendingOverride());
   readonly commitActionDisabled = computed(() =>
-    this.store.submitting() || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
+    this.store.submitting()
+    || !!this.reservationIntegrityWarning()
+    || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
+    || (
+      this.store.planNeedsApproval()
+      && !this.store.hasPendingOverride()
+      && !this.canSubmitOverrideRequest()
+      && !this.canCommitManagerOverrideDirectly()
+    )
   );
 
   readonly overrideApprovalHint = computed(() => {
@@ -117,8 +180,17 @@ export class PackageFulfillmentWorkspaceComponent {
       }
       return 'This plan is waiting for override approval. Review the details, then approve or return it.';
     }
-    if (this.store.planRequiresOverride()) {
+    if (this.store.planNeedsApproval()) {
+      if (this.canCommitManagerOverrideDirectly()) {
+        return 'As the Logistics Manager handling this fulfillment, you can record the override details and commit the reservation directly.';
+      }
+      if (!this.canSubmitOverrideRequest()) {
+        return 'Only a Logistics Officer can submit this override request, unless a Logistics Manager is committing the reservation directly.';
+      }
       return 'This plan needs manager approval before it can be dispatched.';
+    }
+    if (this.store.planRequiresOverride()) {
+      return 'This selection deviates from the recommended stock order. Record the override reason before committing.';
     }
     return null;
   });
@@ -130,7 +202,13 @@ export class PackageFulfillmentWorkspaceComponent {
     if (this.store.hasPendingOverride()) {
       return 'Awaiting Override Approval';
     }
-    if (this.store.planRequiresOverride()) {
+    if (this.store.planNeedsApproval()) {
+      if (this.canCommitManagerOverrideDirectly()) {
+        return 'Commit Reservation';
+      }
+      if (!this.canSubmitOverrideRequest()) {
+        return 'Override Submission Restricted';
+      }
       return 'Submit Override For Approval';
     }
     if (this.store.hasCommittedAllocation()) {
@@ -203,7 +281,32 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
     this.submissionErrors.set([]);
+    this.reservationIntegrityWarning.set(null);
     this.store.load(reliefrqstId, true);
+  }
+
+  saveDraft(): void {
+    if (this.savingDraft() || !this.reliefrqstId()) {
+      return;
+    }
+    this.savingDraft.set(true);
+    this.store.saveDraft()
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.savingDraft.set(false)),
+      )
+      .subscribe({
+        next: () => {
+          this.notifications.showSuccess('Fulfillment draft saved. You can return later to continue.');
+        },
+        error: (error: HttpErrorResponse) => {
+          if (this.store.lockConflict()) {
+            // Lock conflict is rendered as a first-class blocker card.
+            return;
+          }
+          this.notifications.showError(this.extractError(error, 'Failed to save draft. Please try again.'));
+        },
+      });
   }
 
   backToRequest(): void {
@@ -213,6 +316,67 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
     this.router.navigate(['/operations/relief-requests', reliefrqstId]);
+  }
+
+  cancelFulfillment(): void {
+    if (!this.canCancel()) {
+      return;
+    }
+    const reliefpkgId = this.store.reliefpkgId();
+    if (!reliefpkgId) {
+      return;
+    }
+
+    const dialogRef = this.dialog.open<DmisConfirmDialogComponent, ConfirmDialogData, boolean>(
+      DmisConfirmDialogComponent,
+      {
+        width: '480px',
+        data: {
+          title: 'Cancel this fulfillment?',
+          message:
+            'This releases all reserved stock and returns the request to the queue '
+            + 'so another officer can start fresh. This cannot be undone.',
+          confirmLabel: 'Yes, cancel fulfillment',
+          cancelLabel: 'Keep working',
+          icon: 'warning_amber',
+          confirmColor: 'warn',
+        },
+      },
+    );
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.runCancelFulfillment(reliefpkgId);
+      });
+  }
+
+  private runCancelFulfillment(reliefpkgId: number): void {
+    this.store.setSubmitting(true);
+    this.operationsService.abandonDraft(reliefpkgId)
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.store.setSubmitting(false)),
+      )
+      .subscribe({
+        next: (_response: PackageAbandonDraftResponse) => {
+          this.notifications.showSuccess('Fulfillment released. The request is back in the queue.');
+          const reliefrqstId = this.reliefrqstId();
+          if (reliefrqstId) {
+            this.router.navigate(['/operations/relief-requests', reliefrqstId]);
+          } else {
+            this.router.navigate(['/operations/packages']);
+          }
+        },
+        error: (error: HttpErrorResponse) => {
+          this.notifications.showError(
+            this.extractError(error, 'Failed to cancel fulfillment. Please try again.'),
+          );
+        },
+      });
   }
 
   openDispatch(): void {
@@ -317,6 +481,17 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
 
+    if (
+      this.store.planNeedsApproval()
+      && !this.canSubmitOverrideRequest()
+      && !this.canCommitManagerOverrideDirectly()
+    ) {
+      this.notifications.showWarning(
+        'Only a Logistics Officer can submit this override request, unless a Logistics Manager is committing the reservation directly.',
+      );
+      return;
+    }
+
     const { payload, errors } = this.store.buildCommitPayload();
     if (!payload || errors.length) {
       this.submissionErrors.set(errors);
@@ -335,6 +510,7 @@ export class PackageFulfillmentWorkspaceComponent {
       next: (response: AllocationCommitResponse) => {
         this.store.setSubmitting(false);
         this.submissionErrors.set([]);
+        this.reservationIntegrityWarning.set(null);
         this.confirmationState.set(this.buildConfirmationState(response, mode));
         this.store.refreshPackage();
         if (mode === 'override_approved') {
@@ -353,9 +529,81 @@ export class PackageFulfillmentWorkspaceComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.store.setSubmitting(false);
+        if (this.store.captureLockConflict(error)) {
+          // Lock conflict is rendered as a first-class blocker card.
+          return;
+        }
+        const integrityWarning = this.store.extractReservationIntegrityWarning(error);
+        if (integrityWarning) {
+          this.submissionErrors.set([]);
+          this.reservationIntegrityWarning.set(integrityWarning);
+          this.notifications.showWarning(integrityWarning);
+          return;
+        }
         this.notifications.showError(this.extractError(error, 'Failed to save reservation.'));
       },
     });
+  }
+
+  onRefreshAfterLockConflict(): void {
+    this.refresh();
+  }
+
+  onReleaseOwnLock(): void {
+    this.runLockRelease(false);
+  }
+
+  onForceReleaseLock(): void {
+    const dialogRef = this.dialog.open<DmisConfirmDialogComponent, ConfirmDialogData, boolean>(
+      DmisConfirmDialogComponent,
+      {
+        width: '480px',
+        data: {
+          title: 'Take over package',
+          message:
+            'This will release the current package lock and let you continue. '
+            + 'The current lock owner will be notified.',
+          confirmLabel: 'Take over package',
+          cancelLabel: 'Cancel',
+          icon: 'lock_open',
+          confirmColor: 'warn',
+        },
+      },
+    );
+
+    dialogRef.afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.runLockRelease(true);
+      });
+  }
+
+  private runLockRelease(force: boolean): void {
+    this.store.releasePackageLock(force)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response: PackageLockReleaseResponse) => {
+          if (response.released) {
+            const takeoverLabel = response.package_no
+              ? `Package lock taken over. ${response.package_no}`
+              : 'Package lock taken over.';
+            this.notifications.showSuccess(
+              force ? takeoverLabel : 'Your package lock has been released.',
+            );
+          } else {
+            // Soft success: no package yet, or the lock was already released server-side.
+            this.notifications.showSuccess(response.message || 'No active lock found.');
+          }
+        },
+        error: (error: HttpErrorResponse) => {
+          this.notifications.showError(
+            this.extractError(error, 'Failed to release package lock. Please try again.'),
+          );
+        },
+      });
   }
 
   private collectPlanErrors(): string[] {
@@ -382,11 +630,18 @@ export class PackageFulfillmentWorkspaceComponent {
       if (!draft.override_reason_code.trim()) {
         errors.push('Select an override reason before continuing.');
       }
-      if (!draft.override_note.trim()) {
-        errors.push('Add an override note before continuing.');
+      if ((this.store.planNeedsApproval() || this.store.hasPendingOverride()) && !draft.override_note.trim()) {
+        errors.push(
+          'Add an override note before continuing.',
+        );
       }
     }
     return [...new Set(errors)];
+  }
+
+  private hasRole(...expectedRoles: string[]): boolean {
+    const normalized = new Set(this.auth.roles().map((role) => String(role).trim().toUpperCase()));
+    return expectedRoles.some((role) => normalized.has(role.trim().toUpperCase()));
   }
 
   private buildConfirmationState(

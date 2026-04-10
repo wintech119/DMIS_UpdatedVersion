@@ -12,13 +12,15 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { catchError, of } from 'rxjs';
 
+import { LookupItem } from '../../../master-data/models/master-data.models';
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { FulfillmentItemListComponent } from './fulfillment-item-list.component';
 import { FulfillmentItemDetailComponent } from './fulfillment-item-detail.component';
-import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
 import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-warehouse-picker.component';
+import { OpsStockAvailabilityStateComponent } from '../../shared/ops-stock-availability-state.component';
 
 @Component({
   selector: 'app-fulfillment-plan-step',
@@ -28,8 +30,8 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
     MatIconModule,
     FulfillmentItemListComponent,
     FulfillmentItemDetailComponent,
-    OpsStockAvailabilityStateComponent,
     OpsSourceWarehousePickerComponent,
+    OpsStockAvailabilityStateComponent,
   ],
   template: `
     <div class="plan-step">
@@ -58,15 +60,18 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
         </div>
       }
 
-      <app-ops-source-warehouse-picker
-        [warehouseOptions]="sourceWarehouseOptions()"
-        [selectedId]="sourceWarehouseId()"
-        [overrideCount]="store.overrideCount()"
-        [itemCount]="items().length"
-        [disabled]="readOnly || store.submitting()"
-        (warehouseChange)="onSourceWarehouseChange($event)"
-        (clearOverrides)="store.clearWarehouseOverrides()"
-      />
+      @if (showSourceWarehousePicker()) {
+        <app-ops-source-warehouse-picker
+          class="plan-step__warehouse"
+          [warehouseOptions]="warehouseOptions()"
+          [selectedId]="sourceWarehouseId()"
+          [overrideCount]="warehouseOverrideCount()"
+          [itemCount]="items().length"
+          [disabled]="readOnly || store.loading() || store.submitting()"
+          (warehouseChange)="onSourceWarehouseChange($event)"
+          (clearOverrides)="resetWarehouseOverrides()"
+        />
+      }
 
       <div class="plan-split">
         @if (items().length) {
@@ -74,7 +79,6 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
             [items]="items()"
             [selectedItemId]="selectedItemId()"
             [store]="store"
-            [defaultWarehouseId]="sourceWarehouseId()"
             (itemSelected)="onItemSelected($event)"
           />
         } @else {
@@ -94,8 +98,6 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
               [item]="item"
               [readOnly]="readOnly"
               [store]="store"
-              [warehouseOptions]="sourceWarehouseOptions()"
-              [defaultWarehouseId]="sourceWarehouseId()"
               (back)="clearSelection()"
             />
           </div>
@@ -167,6 +169,10 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
       grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.8fr);
       gap: 20px;
       align-items: start;
+    }
+
+    .plan-step__warehouse {
+      margin-bottom: 2px;
     }
 
     .plan-split__detail:focus {
@@ -252,19 +258,27 @@ import { OpsSourceWarehousePickerComponent } from '../../shared/ops-source-wareh
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FulfillmentPlanStepComponent {
-  private readonly masterData = inject(MasterDataService);
-
   @Input() readOnly = false;
   @ViewChild('detailPanel', { read: ElementRef }) detailPanel?: ElementRef<HTMLElement>;
 
+  private readonly masterData = inject(MasterDataService);
   readonly store = inject(OperationsWorkspaceStateService);
+  readonly warehouseOptions = toSignal(
+    this.masterData.lookup('warehouses').pipe(catchError(() => of([] as LookupItem[]))),
+    { initialValue: [] },
+  );
   readonly items = computed(() => this.store.options()?.items ?? []);
   readonly requestAvailabilityIssue = this.store.requestAvailabilityIssue;
-  readonly sourceWarehouseId = this.store.sourceWarehouseId;
-  private readonly allSourceWarehouseOptions = toSignal(this.masterData.lookup('warehouses'), { initialValue: [] });
-  readonly sourceWarehouseOptions = computed(() => this.allSourceWarehouseOptions());
   readonly selectedItemId = signal<number | null>(null);
   readonly selectionCleared = signal(false);
+  readonly sourceWarehouseId = this.store.sourceWarehouseId;
+  readonly warehouseOverrideCount = computed(
+    () => Object.keys(this.store.itemWarehouseOverrides()).length,
+  );
+  readonly showSourceWarehousePicker = computed(() =>
+    this.requestAvailabilityIssue()?.kind === 'missing-warehouse'
+    && (this.warehouseOptions() ?? []).length > 0,
+  );
 
   readonly selectedItem = computed(() => {
     const id = this.selectedItemId();
@@ -297,7 +311,15 @@ export class FulfillmentPlanStepComponent {
     this.selectedItemId.set(null);
   }
 
-  onSourceWarehouseChange(value: string): void {
-    this.store.updateSourceWarehouse(value);
+  onSourceWarehouseChange(sourceWarehouseId: string): void {
+    this.store.updateSourceWarehouse(sourceWarehouseId);
+  }
+
+  resetWarehouseOverrides(): void {
+    const sourceWarehouseId = this.sourceWarehouseId();
+    if (!sourceWarehouseId) {
+      return;
+    }
+    this.store.resetWarehouseOverrides();
   }
 }

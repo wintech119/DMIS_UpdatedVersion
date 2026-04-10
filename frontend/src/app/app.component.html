@@ -1,60 +1,42 @@
 <a class="skip-to-main" href="#main-content">Skip to main content</a>
-<div class="app-layout">
-  <app-sidenav
-    [currentUser]="currentUser()"
-    [userRole]="userRole()"
-    [userRoles]="userRoles()"
-    [devUsers]="devUsers()"
-    [selectedDevUser]="selectedDevUser()"
-    [canSwitchDevUser]="canSwitchDevUser()"
-    (navItemClicked)="onNavItemClicked()"
-    (switchUser)="switchDevUser($event)"
-    (clearUser)="clearDevUser()">
-  </app-sidenav>
+@if (showShellChrome()) {
+  <div class="app-layout">
+    <app-sidenav
+      [currentUser]="currentUser()"
+      [userRole]="userRole()"
+      [userRoles]="userRoles()">
+    </app-sidenav>
 
-  <div class="app-main">
-    <header class="app-topbar">
-      <div class="topbar-breadcrumb">
-        <span class="breadcrumb-segment breadcrumb-root">DMIS</span>
-        @for (crumb of breadcrumbs(); track crumb.label; let last = $last) {
-          <span class="breadcrumb-sep">/</span>
-          @if (crumb.route && !last) {
-            <a class="breadcrumb-segment breadcrumb-link" [routerLink]="crumb.route">{{ crumb.label }}</a>
-          } @else {
-            <span class="breadcrumb-segment" [class.breadcrumb-current]="last">{{ crumb.label }}</span>
-          }
-        }
-      </div>
-      <div class="topbar-actions">
-        @if (canSwitchDevUser()) {
-          <label for="dev-user-select" class="dev-user-label">Login as</label>
-          <select
-            id="dev-user-select"
-            class="dev-user-select"
-            [value]="selectedDevUser()"
-            (change)="switchDevUser($any($event.target).value)">
-            <option value="">Default</option>
-            @for (user of devUsers(); track user.username) {
-              <option [value]="user.username">
-                {{ formatDevUserLabel(user) }}
-              </option>
+    <div class="app-main">
+      <header class="app-topbar">
+        <div class="topbar-breadcrumb">
+          <span class="breadcrumb-segment breadcrumb-root">DMIS</span>
+          @for (crumb of breadcrumbs(); track crumb.label; let last = $last) {
+            <span class="breadcrumb-sep">/</span>
+            @if (crumb.route && !last) {
+              <a class="breadcrumb-segment breadcrumb-link" [routerLink]="crumb.route">{{ crumb.label }}</a>
+            } @else {
+              <span class="breadcrumb-segment" [class.breadcrumb-current]="last">{{ crumb.label }}</span>
             }
-          </select>
-          <button
-            type="button"
-            class="dev-user-clear"
-            [disabled]="!selectedDevUser()"
-            (click)="clearDevUser()">
-            Reset
-          </button>
-        }
-      </div>
-    </header>
+          }
+        </div>
+        <div class="topbar-actions">
+          @if (showLogout()) {
+            <button type="button" class="topbar-signout" (click)="signOut()">Sign out</button>
+          }
+          <dmis-local-harness-switcher />
+        </div>
+      </header>
 
-    <dmis-data-freshness-banner></dmis-data-freshness-banner>
+      <dmis-data-freshness-banner></dmis-data-freshness-banner>
 
-    <main id="main-content" class="app-shell">
-      <router-outlet />
-    </main>
+      <main id="main-content" class="app-shell">
+        <router-outlet />
+      </main>
+    </div>
   </div>
-</div>
+} @else {
+  <main id="main-content" class="auth-shell">
+    <router-outlet />
+  </main>
+}

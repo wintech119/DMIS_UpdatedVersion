@@ -2,9 +2,10 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { HttpClient } from '@angular/common/http';
 
 import { StockStatusDashboardComponent } from './stock-status-dashboard.component';
+import { AppAccessService } from '../../core/app-access.service';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { DashboardData, DashboardDataService } from '../services/dashboard-data.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
 import { DmisNotificationService } from '../services/notification.service';
@@ -19,7 +20,8 @@ describe('StockStatusDashboardComponent', () => {
   let dashboardDataService: jasmine.SpyObj<DashboardDataService>;
   let dataFreshnessService: jasmine.SpyObj<DataFreshnessService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
-  let httpClient: jasmine.SpyObj<HttpClient>;
+  let appAccessService: jasmine.SpyObj<AppAccessService>;
+  let authRbacService: jasmine.SpyObj<AuthRbacService>;
   let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
   let router: jasmine.SpyObj<Router>;
 
@@ -90,8 +92,10 @@ describe('StockStatusDashboardComponent', () => {
 
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     const dialog = jasmine.createSpyObj<MatDialog>('MatDialog', ['open']);
-    httpClient = jasmine.createSpyObj<HttpClient>('HttpClient', ['get']);
-    httpClient.get.and.returnValue(of({ roles: [], permissions: [] }));
+    appAccessService = jasmine.createSpyObj<AppAccessService>('AppAccessService', ['canAccessNavKey']);
+    appAccessService.canAccessNavKey.and.returnValue(false);
+    authRbacService = jasmine.createSpyObj<AuthRbacService>('AuthRbacService', ['actorRef']);
+    authRbacService.actorRef.and.returnValue(null);
     dataFreshnessService.onRefreshRequested$.and.returnValue(refreshRequested$.asObservable());
 
     await TestBed.configureTestingModule({
@@ -102,6 +106,8 @@ describe('StockStatusDashboardComponent', () => {
         { provide: DataFreshnessService, useValue: dataFreshnessService },
         { provide: DmisNotificationService, useValue: notificationService },
         { provide: Router, useValue: router },
+        { provide: AppAccessService, useValue: appAccessService },
+        { provide: AuthRbacService, useValue: authRbacService },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -111,7 +117,6 @@ describe('StockStatusDashboardComponent', () => {
           }
         },
         { provide: MatDialog, useValue: dialog },
-        { provide: HttpClient, useValue: httpClient }
       ]
     }).overrideComponent(StockStatusDashboardComponent, {
       set: { template: '' }
@@ -230,40 +235,26 @@ describe('StockStatusDashboardComponent', () => {
   });
 
   it('does not allow review queue with action permission but no preview permission', () => {
-    httpClient.get.and.returnValue(of({
-      roles: [],
-      permissions: ['replenishment.needs_list.approve']
-    }));
+    appAccessService.canAccessNavKey.and.returnValue(false);
+    authRbacService.actorRef.and.returnValue('EMP-123');
 
-    component['loadReviewQueueAccess']();
+    component['syncAuthContext']();
 
     expect(component.canAccessReviewQueue).toBeFalse();
   });
 
   it('allows review queue when preview and review permissions are present', () => {
-    httpClient.get.and.returnValue(of({
-      roles: [],
-      permissions: [
-        'replenishment.needs_list.preview',
-        'replenishment.needs_list.approve'
-      ]
-    }));
+    appAccessService.canAccessNavKey.and.returnValue(true);
+    authRbacService.actorRef.and.returnValue('EMP-123');
 
-    component['loadReviewQueueAccess']();
+    component['syncAuthContext']();
 
     expect(component.canAccessReviewQueue).toBeTrue();
   });
 
   it('prefers user_id when matching submitter updates', () => {
-    httpClient.get.and.returnValue(of({
-      user_id: 'EMP-123',
-      username: 'alice',
-      roles: [],
-      permissions: [
-        'replenishment.needs_list.preview',
-        'replenishment.needs_list.approve'
-      ]
-    }));
+    authRbacService.actorRef.and.returnValue('EMP-123');
+    appAccessService.canAccessNavKey.and.returnValue(true);
     replenishmentService.listNeedsLists.and.returnValue(of({
       needs_lists: [
         {
@@ -290,19 +281,14 @@ describe('StockStatusDashboardComponent', () => {
       count: 2
     }));
 
-    component['loadReviewQueueAccess']();
+    component['syncAuthContext']();
 
     expect(component['currentUserRef']).toBe('EMP-123');
     expect(component.mySubmissionUpdates.map((row) => row.needs_list_id)).toEqual(['NL-1']);
   });
 
   it('loads my drafts and submissions with mine filter enabled', () => {
-    httpClient.get.and.returnValue(of({
-      user_id: 'EMP-123',
-      username: 'alice',
-      roles: [],
-      permissions: ['replenishment.needs_list.preview']
-    }));
+    authRbacService.actorRef.and.returnValue('EMP-123');
     replenishmentService.listNeedsLists.and.returnValue(of({
       needs_lists: [
         {
@@ -329,7 +315,7 @@ describe('StockStatusDashboardComponent', () => {
       count: 2
     }));
 
-    component['loadReviewQueueAccess']();
+    component['syncAuthContext']();
 
     const mineCall = replenishmentService.listNeedsLists.calls.allArgs().find((args) =>
       args[1]?.mine === true && args[1]?.includeClosed === true

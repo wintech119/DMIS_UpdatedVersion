@@ -131,6 +131,27 @@ class OperationsPackage(AuditedModel):
         related_name="packages",
     )
     source_warehouse_id = models.IntegerField(blank=True, null=True)
+    fulfillment_mode = models.CharField(max_length=40, default="DIRECT")
+    staging_warehouse_id = models.IntegerField(blank=True, null=True, db_index=True)
+    recommended_staging_warehouse_id = models.IntegerField(blank=True, null=True)
+    staging_selection_basis = models.CharField(max_length=40, blank=True, null=True)
+    staging_override_reason = models.TextField(blank=True, null=True)
+    consolidation_status = models.CharField(max_length=40, blank=True, null=True, db_index=True)
+    partial_release_requested_by_id = models.CharField(max_length=50, blank=True, null=True)
+    partial_release_requested_at = models.DateTimeField(blank=True, null=True)
+    partial_release_request_reason = models.TextField(blank=True, null=True)
+    partial_release_approved_by_id = models.CharField(max_length=50, blank=True, null=True)
+    partial_release_approved_at = models.DateTimeField(blank=True, null=True)
+    partial_release_approval_reason = models.TextField(blank=True, null=True)
+    split_from_package = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="split_children",
+        blank=True,
+        null=True,
+    )
+    split_reason = models.TextField(blank=True, null=True)
+    split_at = models.DateTimeField(blank=True, null=True)
     destination_tenant_id = models.IntegerField(blank=True, null=True, db_index=True)
     destination_agency_id = models.IntegerField(blank=True, null=True)
     status_code = models.CharField(max_length=40, db_index=True)
@@ -145,6 +166,12 @@ class OperationsPackage(AuditedModel):
             models.Index(fields=["relief_request", "status_code"]),
             models.Index(fields=["destination_tenant_id", "status_code"]),
         ]
+
+    @property
+    def effective_dispatch_source_warehouse_id(self) -> int | None:
+        if self.fulfillment_mode in {"PICKUP_AT_STAGING", "DELIVER_FROM_STAGING"}:
+            return self.staging_warehouse_id or self.source_warehouse_id
+        return self.source_warehouse_id
 
 
 class OperationsPackageLock(models.Model):
@@ -204,6 +231,134 @@ class OperationsAllocationLine(AuditedModel):
         ]
 
 
+class OperationsConsolidationLeg(AuditedModel):
+    leg_id = models.BigAutoField(primary_key=True)
+    package = models.ForeignKey(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="consolidation_legs",
+    )
+    leg_sequence = models.PositiveIntegerField()
+    source_warehouse_id = models.IntegerField()
+    staging_warehouse_id = models.IntegerField()
+    status_code = models.CharField(max_length=30, db_index=True)
+    shadow_transfer_id = models.IntegerField(blank=True, null=True)
+    driver_name = models.CharField(max_length=120, blank=True, null=True)
+    driver_license_last4 = models.CharField(max_length=4, blank=True, null=True)
+    vehicle_id = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_type = models.CharField(max_length=50, blank=True, null=True)
+    transport_mode = models.CharField(max_length=50, blank=True, null=True)
+    transport_notes = models.TextField(blank=True, null=True)
+    dispatched_by_id = models.CharField(max_length=50, blank=True, null=True)
+    dispatched_at = models.DateTimeField(blank=True, null=True)
+    expected_arrival_at = models.DateTimeField(blank=True, null=True)
+    received_by_user_id = models.CharField(max_length=50, blank=True, null=True)
+    received_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_consolidation_leg"
+        indexes = [
+            models.Index(fields=["package", "status_code"]),
+            models.Index(fields=["source_warehouse_id", "status_code"]),
+            models.Index(fields=["staging_warehouse_id", "status_code"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package", "leg_sequence"],
+                name="uq_ops_consolidation_leg_package_sequence",
+            ),
+        ]
+
+
+class OperationsConsolidationLegItem(AuditedModel):
+    leg_item_id = models.BigAutoField(primary_key=True)
+    leg = models.ForeignKey(
+        OperationsConsolidationLeg,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    item_id = models.IntegerField()
+    batch_id = models.IntegerField()
+    quantity = models.DecimalField(max_digits=15, decimal_places=4)
+    source_type = models.CharField(max_length=20, default="ON_HAND")
+    source_record_id = models.IntegerField(blank=True, null=True)
+    staging_batch_id = models.IntegerField(blank=True, null=True)
+    uom_code = models.CharField(max_length=25, blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_consolidation_leg_item"
+        indexes = [
+            models.Index(fields=["leg", "item_id"]),
+            models.Index(fields=["item_id", "batch_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["leg", "item_id", "batch_id", "source_type"],
+                name="uq_ops_consolidation_leg_item",
+            ),
+        ]
+
+
+class OperationsConsolidationWaybill(models.Model):
+    waybill_id = models.BigAutoField(primary_key=True)
+    leg = models.ForeignKey(
+        OperationsConsolidationLeg,
+        on_delete=models.CASCADE,
+        related_name="waybills",
+    )
+    waybill_no = models.CharField(max_length=50, unique=True)
+    artifact_payload_json = models.JSONField()
+    artifact_version = models.PositiveIntegerField(default=1)
+    generated_by_id = models.CharField(max_length=50)
+    generated_at = models.DateTimeField(default=timezone.now)
+    is_final_flag = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "operations_consolidation_waybill"
+        indexes = [
+            models.Index(fields=["leg", "generated_at"]),
+        ]
+
+
+class OperationsConsolidationReceipt(models.Model):
+    receipt_id = models.BigAutoField(primary_key=True)
+    leg = models.OneToOneField(
+        OperationsConsolidationLeg,
+        on_delete=models.CASCADE,
+        related_name="receipt_record",
+    )
+    received_by_user_id = models.CharField(max_length=50, blank=True, null=True)
+    received_by_name = models.CharField(max_length=120, blank=True, null=True)
+    received_at = models.DateTimeField(blank=True, null=True)
+    receipt_notes = models.TextField(blank=True, null=True)
+    receipt_artifact_json = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_consolidation_receipt"
+
+
+class OperationsPickupRelease(models.Model):
+    pickup_release_id = models.BigAutoField(primary_key=True)
+    package = models.OneToOneField(
+        OperationsPackage,
+        on_delete=models.CASCADE,
+        related_name="pickup_release_record",
+    )
+    staging_warehouse_id = models.IntegerField(blank=True, null=True)
+    tenant_id = models.IntegerField(blank=True, null=True)
+    collected_by_name = models.CharField(max_length=120, blank=True, null=True)
+    collected_by_id_last4 = models.CharField(max_length=4, blank=True, null=True)
+    released_by_user_id = models.CharField(max_length=50)
+    released_by_name = models.CharField(max_length=120, blank=True, null=True)
+    released_at = models.DateTimeField(default=timezone.now)
+    release_notes = models.TextField(blank=True, null=True)
+    release_artifact_json = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        db_table = "operations_pickup_release"
+
+
 class OperationsDispatch(AuditedModel):
     dispatch_id = models.BigAutoField(primary_key=True)
     package = models.OneToOneField(
@@ -235,7 +390,7 @@ class OperationsDispatchTransport(models.Model):
         related_name="transport_record",
     )
     driver_name = models.CharField(max_length=120)
-    driver_license_no = models.CharField(max_length=50, blank=True, null=True)
+    driver_license_last4 = models.CharField(max_length=4, blank=True, null=True)
     vehicle_id = models.CharField(max_length=50, blank=True, null=True)
     vehicle_registration = models.CharField(max_length=50, blank=True, null=True)
     vehicle_type = models.CharField(max_length=50, blank=True, null=True)

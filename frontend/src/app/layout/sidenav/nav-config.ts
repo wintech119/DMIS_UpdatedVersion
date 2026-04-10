@@ -75,6 +75,7 @@ export const NAV_SECTIONS: NavSection[] = [
           { label: 'Relief Requests', icon: 'request_page', route: '/operations/relief-requests', accessKey: 'operations.relief-requests' },
           { label: 'Eligibility Review', icon: 'verified_user', route: '/operations/eligibility-review', accessKey: 'operations.eligibility' },
           { label: 'Package Fulfillment', icon: 'inventory_2', route: '/operations/package-fulfillment', accessKey: 'operations.fulfillment' },
+          { label: 'Consolidation', icon: 'warehouse', route: '/operations/consolidation', accessKey: 'operations.fulfillment' },
           { label: 'Dispatch', icon: 'local_shipping', route: '/operations/dispatch', accessKey: 'operations.dispatch' },
           { label: 'Task Center', icon: 'task_alt', route: '/operations/tasks', accessKey: 'operations.tasks' },
         ],

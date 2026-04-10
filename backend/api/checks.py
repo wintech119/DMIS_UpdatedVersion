@@ -3,6 +3,93 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.checks import Error, Warning, register
 from django.db import DatabaseError, connection
+from dmis_api import settings as dmis_settings
+
+
+@register()
+def check_dmis_auth_runtime_posture(app_configs, **kwargs):
+    messages = []
+
+    try:
+        dmis_settings.validate_runtime_auth_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            debug=bool(getattr(settings, "DEBUG", False)),
+            auth_enabled=bool(getattr(settings, "AUTH_ENABLED", False)),
+            dev_auth_enabled=bool(getattr(settings, "DEV_AUTH_ENABLED", False)),
+            local_auth_harness_enabled=bool(getattr(settings, "LOCAL_AUTH_HARNESS_ENABLED", False)),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E002",
+            )
+        )
+
+    return messages
+
+
+@register(deploy=True)
+def check_dmis_secure_runtime_posture(app_configs, **kwargs):
+    messages = []
+
+    try:
+        dmis_settings.validate_runtime_security_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            debug=bool(getattr(settings, "DEBUG", False)),
+            secret_key=str(getattr(settings, "SECRET_KEY", "")),
+            secret_key_explicit=bool(getattr(settings, "DMIS_SECRET_KEY_EXPLICIT", False)),
+            allowed_hosts=list(getattr(settings, "ALLOWED_HOSTS", [])),
+            allowed_hosts_explicit=bool(getattr(settings, "DMIS_ALLOWED_HOSTS_EXPLICIT", False)),
+            secure_ssl_redirect=bool(getattr(settings, "SECURE_SSL_REDIRECT", False)),
+            session_cookie_secure=bool(getattr(settings, "SESSION_COOKIE_SECURE", False)),
+            csrf_cookie_secure=bool(getattr(settings, "CSRF_COOKIE_SECURE", False)),
+            secure_hsts_seconds=int(getattr(settings, "SECURE_HSTS_SECONDS", 0)),
+            secure_hsts_include_subdomains=bool(
+                getattr(settings, "SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+            ),
+            secure_hsts_preload=bool(getattr(settings, "SECURE_HSTS_PRELOAD", False)),
+            x_frame_options=str(getattr(settings, "X_FRAME_OPTIONS", "")).strip().upper(),
+            secure_referrer_policy=str(
+                getattr(settings, "SECURE_REFERRER_POLICY", "")
+            ).strip().lower(),
+            csrf_trusted_origins=list(getattr(settings, "CSRF_TRUSTED_ORIGINS", [])),
+            secure_proxy_ssl_header=getattr(settings, "SECURE_PROXY_SSL_HEADER", None),
+            use_x_forwarded_host=bool(getattr(settings, "USE_X_FORWARDED_HOST", False)),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E003",
+            )
+        )
+
+    return messages
+
+
+@register(deploy=True)
+def check_dmis_runtime_dependency_posture(app_configs, **kwargs):
+    messages = []
+
+    try:
+        dmis_settings.validate_runtime_redis_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            redis_url=str(getattr(settings, "DMIS_REDIS_URL", "")).strip(),
+            cache_backend=str(getattr(settings, "DMIS_DEFAULT_CACHE_BACKEND", "")).strip(),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E004",
+            )
+        )
+
+    return messages
 
 
 @register()

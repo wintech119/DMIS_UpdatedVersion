@@ -45,6 +45,19 @@
           },
           "configurations": {
             "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/dev-user.interceptor.ts",
+                  "with": "src/app/core/dev-user.interceptor.disabled.ts"
+                },
+                {
+                  "replace": "src/app/local-harness-switcher.component.ts",
+                  "with": "src/app/local-harness-switcher.disabled.component.ts"
+                }
+              ],
+              "define": {
+                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "false"
+              },
               "budgets": [
                 {
                   "type": "initial",
@@ -60,6 +73,9 @@
               "outputHashing": "all"
             },
             "development": {
+              "define": {
+                "DMIS_LOCAL_AUTH_HARNESS_BUILD": "true"
+              },
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true

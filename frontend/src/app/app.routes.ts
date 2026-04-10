@@ -5,6 +5,21 @@ import { appAccessMatchGuard } from './core/app-access.guard';
 export const routes: Routes = [
   { path: '', redirectTo: 'replenishment/dashboard', pathMatch: 'full' },
   {
+    path: 'auth/login',
+    loadComponent: () =>
+      import('./auth/auth-pages.component').then((m) => m.DmisAuthLoginPageComponent),
+  },
+  {
+    path: 'auth/callback',
+    loadComponent: () =>
+      import('./auth/auth-pages.component').then((m) => m.DmisAuthCallbackPageComponent),
+  },
+  {
+    path: 'access-denied',
+    loadComponent: () =>
+      import('./auth/auth-pages.component').then((m) => m.DmisAccessDeniedPageComponent),
+  },
+  {
     path: 'replenishment',
     loadChildren: () => import('./replenishment/replenishment.routes').then(m => m.REPLENISHMENT_ROUTES),
   },

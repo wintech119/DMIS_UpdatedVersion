@@ -249,7 +249,8 @@ ROLLBACK;
 sudo systemctl start dmis_api
 
 # Verify Django server is running
-curl http://localhost:8000/api/v1/health/
+curl http://localhost:8000/api/v1/health/live/
+curl http://localhost:8000/api/v1/health/ready/
 
 # Start Nginx
 sudo systemctl start nginx
@@ -261,8 +262,9 @@ sudo journalctl -u dmis_api -f
 ### Step 8: Smoke Test from Application
 
 ```bash
-# Test health endpoint
-curl -X GET http://localhost:8000/api/v1/health/
+# Test health endpoints
+curl -X GET http://localhost:8000/api/v1/health/live/
+curl -X GET http://localhost:8000/api/v1/health/ready/
 
 # Test needs list preview (export API_TOKEN first, replace with actual values)
 curl -X POST http://localhost:8000/api/v1/replenishment/needs-list/preview \

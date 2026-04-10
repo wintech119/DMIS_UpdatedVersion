@@ -4,15 +4,43 @@ from contextlib import nullcontext
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.db import DatabaseError
+from django.db import connection
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.utils import timezone
 
-from operations.models import TenantControlScope, TenantHierarchy, TenantRequestPolicy
+from operations.exceptions import OperationValidationError
+from operations.constants import (
+    QUEUE_CODE_DISPATCH,
+    QUEUE_CODE_FULFILLMENT,
+    QUEUE_CODE_OVERRIDE,
+    REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    ROLE_LOGISTICS_MANAGER,
+    ROLE_LOGISTICS_OFFICER,
+)
+from operations.models import (
+    OperationsAllocationLine,
+    OperationsNotification,
+    OperationsPackage,
+    OperationsPackageLock,
+    OperationsQueueAssignment,
+    OperationsReliefRequest,
+    TenantControlScope,
+    TenantHierarchy,
+    TenantRequestPolicy,
+)
+from replenishment.legacy_models import Inventory, ItemBatch
+from operations.management.commands import reset_package_allocations
+
+
+_USE_CURRENT_UPDATE_TIME = object()
 
 
 class ImportReliefManagementAuthorityCommandTests(TestCase):
@@ -644,6 +672,17 @@ class SeedReliefManagementFrontendTestDataCommandTests(SimpleTestCase):
 
 
 class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
+    def test_inventory_clerk_seed_permissions_exclude_staging_receipt_and_pickup_release(self) -> None:
+        from api import rbac
+        from operations.management.commands.seed_operations_rbac_permissions import (
+            OPERATIONS_ROLE_PERMISSION_MAP,
+        )
+
+        permissions = OPERATIONS_ROLE_PERMISSION_MAP["INVENTORY_CLERK"]
+
+        self.assertNotIn(rbac.PERM_OPERATIONS_CONSOLIDATION_RECEIVE, permissions)
+        self.assertNotIn(rbac.PERM_OPERATIONS_PICKUP_RELEASE, permissions)
+
     @patch(
         "operations.management.commands.seed_operations_rbac_permissions.Command._fetch_role_permission_keys",
         return_value=set(),
@@ -715,3 +754,767 @@ class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
         self.assertIn("Operations RBAC seed applied.", text)
         insert_permissions.assert_called_once()
         insert_role_permissions.assert_called_once()
+
+
+class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
+    resolver_path = (
+        "operations.management.commands.repair_request_level_fulfillment_queue_scope."
+        "operations_policy.resolve_odpem_fulfillment_tenant_id"
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.resolver_patch = patch(self.resolver_path, return_value=27)
+        self.resolver_patch.start()
+        self.addCleanup(self.resolver_patch.stop)
+
+    def _create_request(
+        self,
+        *,
+        relief_request_id: int,
+        request_no: str,
+        requesting_tenant_id: int = 19,
+        beneficiary_tenant_id: int = 19,
+        status_code: str = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+    ) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=requesting_tenant_id,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=beneficiary_tenant_id,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=status_code,
+            submitted_by_id="relief_jrc_requester_tst",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_assignment(
+        self,
+        *,
+        entity_id: int,
+        queue_code: str = QUEUE_CODE_FULFILLMENT,
+        tenant_id: int | None = 19,
+        role_code: str = ROLE_LOGISTICS_OFFICER,
+        assignment_status: str = "OPEN",
+    ) -> OperationsQueueAssignment:
+        return OperationsQueueAssignment.objects.create(
+            queue_code=queue_code,
+            entity_type="RELIEF_REQUEST",
+            entity_id=entity_id,
+            assigned_role_code=role_code,
+            assigned_tenant_id=tenant_id,
+            assignment_status=assignment_status,
+        )
+
+    def _create_notification(
+        self,
+        *,
+        entity_id: int,
+        queue_code: str = QUEUE_CODE_FULFILLMENT,
+        tenant_id: int | None = 19,
+        role_code: str = ROLE_LOGISTICS_OFFICER,
+    ) -> OperationsNotification:
+        return OperationsNotification.objects.create(
+            event_code="REQUEST_APPROVED",
+            entity_type="RELIEF_REQUEST",
+            entity_id=entity_id,
+            recipient_role_code=role_code,
+            recipient_tenant_id=tenant_id,
+            message_text="Repair candidate",
+            queue_code=queue_code,
+        )
+
+    def test_dry_run_reports_affected_rows_and_does_not_persist_changes(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("Request-level fulfillment queue scope repair:", text)
+        self.assertIn("RQ95009", text)
+        self.assertIn("QUEUE_ASSIGNMENT", text)
+        self.assertIn("NOTIFICATION", text)
+        self.assertIn("tenant=19 -> 27", text)
+        self.assertIn("Dry-run only", text)
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+        self.assertEqual(notification.recipient_tenant_id, 19)
+
+
+    def test_apply_updates_fulfillment_queue_assignments_to_odpem_tenant(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        officer_assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        manager_assignment = self._create_assignment(entity_id=95009, role_code=ROLE_LOGISTICS_MANAGER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        officer_assignment.refresh_from_db()
+        manager_assignment.refresh_from_db()
+        self.assertEqual(officer_assignment.assigned_tenant_id, 27)
+        self.assertEqual(manager_assignment.assigned_tenant_id, 27)
+        self.assertIn("queue assignments updated: 2", output.getvalue())
+
+    def test_apply_updates_corresponding_notifications_to_odpem_tenant(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        officer_notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_OFFICER)
+        manager_notification = self._create_notification(entity_id=95009, role_code=ROLE_LOGISTICS_MANAGER)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        officer_notification.refresh_from_db()
+        manager_notification.refresh_from_db()
+        self.assertEqual(officer_notification.recipient_tenant_id, 27)
+        self.assertEqual(manager_notification.recipient_tenant_id, 27)
+        self.assertIn("notifications updated: 2", output.getvalue())
+
+    def test_apply_rolls_back_assignment_updates_when_notification_repair_fails(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009)
+        self._create_notification(entity_id=95009)
+        output = StringIO()
+
+        with patch(
+            "operations.management.commands.repair_request_level_fulfillment_queue_scope."
+            "Command._apply_notification_repairs",
+            side_effect=RuntimeError("notification repair failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "notification repair failed"):
+                call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+
+    def test_request_no_filter_limits_repair_to_targeted_request(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        self._create_request(relief_request_id=95010, request_no="RQ95010")
+        targeted_assignment = self._create_assignment(entity_id=95009)
+        other_assignment = self._create_assignment(entity_id=95010)
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            request_no="RQ95009",
+            apply=True,
+            stdout=output,
+        )
+
+        targeted_assignment.refresh_from_db()
+        other_assignment.refresh_from_db()
+        self.assertEqual(targeted_assignment.assigned_tenant_id, 27)
+        self.assertEqual(other_assignment.assigned_tenant_id, 19)
+        self.assertIn("candidate requests: 1", output.getvalue())
+
+    def test_second_apply_is_noop_after_initial_repair(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        self._create_assignment(entity_id=95009)
+        first_output = StringIO()
+        second_output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=first_output)
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=second_output)
+
+        self.assertIn("total rows repaired: 1", first_output.getvalue())
+        self.assertIn("No repairs needed.", second_output.getvalue())
+        self.assertIn("total rows repaired: 0", second_output.getvalue())
+
+    def test_include_override_repairs_request_level_override_rows(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        override_assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        override_notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            include_override=True,
+            apply=True,
+            stdout=output,
+        )
+
+        override_assignment.refresh_from_db()
+        override_notification.refresh_from_db()
+        self.assertEqual(override_assignment.assigned_tenant_id, 27)
+        self.assertEqual(override_notification.recipient_tenant_id, 27)
+
+    def test_override_rows_are_skipped_without_include_override(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        override_assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        override_notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_OVERRIDE,
+            role_code=ROLE_LOGISTICS_MANAGER,
+        )
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        override_assignment.refresh_from_db()
+        override_notification.refresh_from_db()
+        self.assertEqual(override_assignment.assigned_tenant_id, 19)
+        self.assertEqual(override_notification.recipient_tenant_id, 19)
+        self.assertIn("planned queue assignment repairs: 0", output.getvalue())
+
+    def test_rows_already_in_odpem_scope_are_left_untouched(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009, tenant_id=27)
+        notification = self._create_notification(entity_id=95009, tenant_id=27)
+        output = StringIO()
+
+        call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 27)
+        self.assertEqual(notification.recipient_tenant_id, 27)
+        self.assertIn("total rows repaired: 0", output.getvalue())
+
+    def test_unrelated_queue_codes_are_untouched(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_DISPATCH,
+            tenant_id=19,
+            role_code=ROLE_LOGISTICS_OFFICER,
+        )
+        notification = self._create_notification(
+            entity_id=95009,
+            queue_code=QUEUE_CODE_DISPATCH,
+            tenant_id=19,
+            role_code=ROLE_LOGISTICS_OFFICER,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_request_level_fulfillment_queue_scope",
+            include_override=True,
+            apply=True,
+            stdout=output,
+        )
+
+        assignment.refresh_from_db()
+        notification.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+        self.assertEqual(notification.recipient_tenant_id, 19)
+
+
+class RepairInventoryAggregatesCommandTests(TransactionTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._created_tables: list[type] = []
+        existing_tables = set(connection.introspection.table_names())
+        with connection.schema_editor() as schema_editor:
+            for model in (Inventory, ItemBatch):
+                if model._meta.db_table in existing_tables:
+                    continue
+                schema_editor.create_model(model)
+                cls._created_tables.append(model)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        with connection.schema_editor() as schema_editor:
+            for model in reversed(cls._created_tables):
+                schema_editor.delete_model(model)
+        super().tearDownClass()
+
+    def _create_inventory(
+        self,
+        *,
+        inventory_id: int = 9903,
+        item_id: int = 9195,
+        usable_qty: Decimal = Decimal("0.0000"),
+        reserved_qty: Decimal = Decimal("0.0000"),
+        defective_qty: Decimal = Decimal("0.0000"),
+        expired_qty: Decimal = Decimal("0.0000"),
+        version_nbr: int = 1,
+    ) -> Inventory:
+        Inventory.objects.filter(inventory_id=inventory_id).delete()
+        return Inventory.objects.create(
+            inventory_id=inventory_id,
+            item_id=item_id,
+            usable_qty=usable_qty,
+            reserved_qty=reserved_qty,
+            defective_qty=defective_qty,
+            expired_qty=expired_qty,
+            uom_code="EA",
+            status_code="A",
+            update_by_id="seed",
+            update_dtime=timezone.now(),
+            version_nbr=version_nbr,
+        )
+
+    def _create_batch(
+        self,
+        *,
+        batch_id: int = 995045,
+        inventory_id: int = 9903,
+        item_id: int = 9195,
+        usable_qty: Decimal = Decimal("200.0000"),
+        reserved_qty: Decimal = Decimal("0.0000"),
+        defective_qty: Decimal = Decimal("0.0000"),
+        expired_qty: Decimal = Decimal("0.0000"),
+        status_code: str = "A",
+        update_dtime: datetime | None | object = _USE_CURRENT_UPDATE_TIME,
+    ) -> ItemBatch:
+        ItemBatch.objects.filter(batch_id=batch_id).delete()
+        return ItemBatch.objects.create(
+            batch_id=batch_id,
+            inventory_id=inventory_id,
+            item_id=item_id,
+            batch_no=f"B-{batch_id}",
+            batch_date=date(2026, 4, 8),
+            expiry_date=None,
+            usable_qty=usable_qty,
+            reserved_qty=reserved_qty,
+            defective_qty=defective_qty,
+            expired_qty=expired_qty,
+            uom_code="EA",
+            status_code=status_code,
+            update_by_id="seed",
+            update_dtime=timezone.now() if update_dtime is _USE_CURRENT_UPDATE_TIME else update_dtime,
+            version_nbr=1,
+        )
+
+    def test_dry_run_reports_current_and_batch_totals_without_persisting(self) -> None:
+        inventory = self._create_inventory()
+        self._create_batch(
+            usable_qty=Decimal("200.0000"),
+            defective_qty=Decimal("5.0000"),
+            expired_qty=Decimal("1.0000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9903,
+            item_id=9195,
+            batch_id=995045,
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("Inventory aggregate repair:", text)
+        self.assertIn("batch_id verification: 995045", text)
+        self.assertIn("current aggregate totals: usable=0.0000 reserved=0.0000", text)
+        self.assertIn("active batch totals: rows=1 usable=200.0000 reserved=0.0000", text)
+        self.assertIn("planned action: update", text)
+        self.assertIn("Dry-run only", text)
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("0.00"))
+        self.assertEqual(inventory.version_nbr, 1)
+
+    def test_apply_updates_stale_inventory_aggregate_from_active_batch_totals(self) -> None:
+        inventory = self._create_inventory()
+        self._create_batch(
+            usable_qty=Decimal("200.0000"),
+            defective_qty=Decimal("5.0000"),
+            expired_qty=Decimal("1.0000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9903,
+            item_id=9195,
+            actor="SYSTEM",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("200.00"))
+        self.assertEqual(inventory.reserved_qty, Decimal("0.00"))
+        self.assertEqual(inventory.defective_qty, Decimal("5.00"))
+        self.assertEqual(inventory.expired_qty, Decimal("1.00"))
+        self.assertEqual(inventory.update_by_id, "SYSTEM")
+        self.assertEqual(inventory.version_nbr, 2)
+        self.assertIn("Inventory aggregate repair applied.", output.getvalue())
+        self.assertIn("applied action: update", output.getvalue())
+
+    def test_apply_creates_missing_inventory_row_from_active_batch_totals(self) -> None:
+        self._create_batch(
+            inventory_id=9911,
+            item_id=9222,
+            batch_id=995111,
+            usable_qty=Decimal("75.5000"),
+            reserved_qty=Decimal("10.2500"),
+            defective_qty=Decimal("1.2500"),
+            expired_qty=Decimal("0.5000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9911,
+            item_id=9222,
+            actor="SYNC_REPAIR",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory = Inventory.objects.get(inventory_id=9911, item_id=9222)
+        self.assertEqual(inventory.usable_qty, Decimal("75.50"))
+        self.assertEqual(inventory.reserved_qty, Decimal("10.25"))
+        self.assertEqual(inventory.defective_qty, Decimal("1.25"))
+        self.assertEqual(inventory.expired_qty, Decimal("0.50"))
+        self.assertEqual(inventory.update_by_id, "SYNC_REPAIR")
+        self.assertEqual(inventory.version_nbr, 1)
+        self.assertIn("applied action: create", output.getvalue())
+
+    def test_apply_is_noop_when_inventory_aggregate_is_already_reconciled(self) -> None:
+        self._create_inventory(
+            inventory_id=9922,
+            item_id=9333,
+            usable_qty=Decimal("15.5000"),
+            reserved_qty=Decimal("2.2500"),
+            defective_qty=Decimal("1.0000"),
+            expired_qty=Decimal("0.5000"),
+        )
+        self._create_batch(
+            inventory_id=9922,
+            item_id=9333,
+            batch_id=995222,
+            usable_qty=Decimal("15.5000"),
+            reserved_qty=Decimal("2.2500"),
+            defective_qty=Decimal("1.0000"),
+            expired_qty=Decimal("0.5000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9922,
+            item_id=9333,
+            apply=True,
+            stdout=output,
+        )
+
+        inventory = Inventory.objects.get(inventory_id=9922, item_id=9333)
+        self.assertEqual(inventory.version_nbr, 1)
+        self.assertIn("planned action: noop", output.getvalue())
+        self.assertIn("No repairs needed.", output.getvalue())
+        self.assertIn("applied action: noop", output.getvalue())
+
+    def test_apply_counts_legacy_active_batches_with_null_update_timestamp(self) -> None:
+        inventory = self._create_inventory(
+            inventory_id=9933,
+            item_id=9444,
+        )
+        self._create_batch(
+            inventory_id=9933,
+            item_id=9444,
+            batch_id=995333,
+            usable_qty=Decimal("11.5000"),
+            reserved_qty=Decimal("1.2500"),
+            update_dtime=None,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9933,
+            item_id=9444,
+            actor="SYSTEM",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("11.50"))
+        self.assertEqual(inventory.reserved_qty, Decimal("1.25"))
+        self.assertIn("active batch totals: rows=1 usable=11.5000 reserved=1.2500", output.getvalue())
+
+    def test_batch_id_verification_rejects_filtered_out_batch_rows(self) -> None:
+        self._create_inventory(
+            inventory_id=9944,
+            item_id=9555,
+        )
+        self._create_batch(
+            inventory_id=9944,
+            item_id=9555,
+            batch_id=995444,
+            status_code="I",
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Batch 995444 was not found for inventory 9944 / item 9555.",
+        ):
+            call_command(
+                "repair_inventory_aggregates",
+                inventory_id=9944,
+                item_id=9555,
+                batch_id=995444,
+            )
+
+
+class ReleasePackageLockCommandTests(TestCase):
+    resolver_path = "operations.contract_services._resolve_request_level_fulfillment_tenant_id"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.resolver_patch = patch(self.resolver_path, return_value=27)
+        self.resolver_patch.start()
+        self.addCleanup(self.resolver_patch.stop)
+
+    def _create_request(self, *, relief_request_id: int = 95009, request_no: str = "RQ95009") -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 4, 7),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_package(
+        self,
+        *,
+        request_record: OperationsReliefRequest,
+        package_id: int = 95027,
+    ) -> OperationsPackage:
+        return OperationsPackage.objects.create(
+            package_id=package_id,
+            package_no=f"PK{package_id}",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=request_record.beneficiary_tenant_id,
+            destination_agency_id=request_record.beneficiary_agency_id,
+            status_code="COMMITTED",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_lock(self, *, package_record: OperationsPackage) -> OperationsPackageLock:
+        return OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_started_at=timezone.now() - timedelta(minutes=2),
+            lock_expires_at=timezone.now() + timedelta(minutes=30),
+            lock_status="ACTIVE",
+        )
+
+    def test_dry_run_shows_lock_details_and_does_not_persist(self) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        lock = self._create_lock(package_record=package_record)
+        output = StringIO()
+
+        call_command("release_package_lock", request_no="RQ95009", stdout=output)
+
+        lock.refresh_from_db()
+        text = output.getvalue()
+        self.assertIn("Package lock release:", text)
+        self.assertIn("RQ95009", text)
+        self.assertIn("PK95027", text)
+        self.assertIn("active_lock: yes", text)
+        self.assertIn("Dry-run only", text)
+        self.assertEqual(lock.lock_status, "ACTIVE")
+
+    def test_apply_releases_active_lock(self) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        lock = self._create_lock(package_record=package_record)
+        output = StringIO()
+
+        call_command("release_package_lock", package_id=95027, actor="SYSTEM", apply=True, stdout=output)
+
+        lock.refresh_from_db()
+        self.assertEqual(lock.lock_status, "RELEASED")
+        self.assertLessEqual(lock.lock_expires_at, timezone.now())
+        self.assertEqual(
+            OperationsNotification.objects.get(
+                queue_code=QUEUE_CODE_FULFILLMENT,
+                entity_type="PACKAGE",
+                entity_id=95027,
+                recipient_user_id="kemar_tst",
+            ).recipient_tenant_id,
+            27,
+        )
+        text = output.getvalue()
+        self.assertIn("Package lock released.", text)
+        self.assertIn("released: True", text)
+
+    def test_apply_is_noop_when_no_active_lock_exists(self) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        output = StringIO()
+
+        call_command("release_package_lock", request_no="RQ95009", apply=True, stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("No active package lock found for this package.", text)
+        self.assertIn("released: False", text)
+
+    def test_request_no_without_package_raises_command_error(self) -> None:
+        self._create_request()
+
+        with self.assertRaisesRegex(CommandError, "No package found for request_no=RQ95009."):
+            call_command("release_package_lock", request_no="RQ95009")
+
+    def test_request_no_with_multiple_packages_requires_package_id(self) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record, package_id=95027)
+        self._create_package(request_record=request_record, package_id=95028)
+
+        with self.assertRaisesRegex(
+            CommandError,
+            "Multiple packages found for request_no=RQ95009. Specify --package-id.",
+        ):
+            call_command("release_package_lock", request_no="RQ95009")
+
+
+class ResetPackageAllocationsCommandTests(TestCase):
+    def _create_request(self, *, relief_request_id: int = 95009, request_no: str = "RQ95009") -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=request_no,
+            requesting_tenant_id=19,
+            requesting_agency_id=401,
+            beneficiary_tenant_id=19,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 4, 7),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def _create_package(self, *, request_record: OperationsReliefRequest) -> OperationsPackage:
+        return OperationsPackage.objects.create(
+            package_id=95027,
+            package_no="PK95027",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            destination_tenant_id=request_record.beneficiary_tenant_id,
+            destination_agency_id=request_record.beneficiary_agency_id,
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=1,
+    )
+    def test_dry_run_shows_current_allocation_counts(self, _legacy_count_mock) -> None:
+        request_record = self._create_request()
+        package_record = self._create_package(request_record=request_record)
+        OperationsPackageLock.objects.create(
+            package=package_record,
+            lock_owner_user_id="kemar_tst",
+            lock_owner_role_code=ROLE_LOGISTICS_MANAGER,
+            lock_status="ACTIVE",
+        )
+        OperationsAllocationLine.objects.create(
+            package=package_record,
+            item_id=101,
+            source_warehouse_id=1,
+            batch_id=1001,
+            quantity="2.0000",
+            source_type="ON_HAND",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        output = StringIO()
+
+        call_command("reset_package_allocations", request_no="RQ95009", stdout=output)
+
+        text = output.getvalue()
+        self.assertIn("Package allocation reset:", text)
+        self.assertIn("operations_allocation_lines: 1", text)
+        self.assertIn("legacy_allocation_lines: 1", text)
+        self.assertIn("Dry-run only", text)
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=0,
+    )
+    @patch("operations.management.commands.reset_package_allocations.contract_services.reset_package_allocations")
+    def test_apply_delegates_to_cleanup_service(self, reset_mock, _legacy_count_mock) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        reset_mock.return_value = {
+            "status": "DRAFT",
+            "operations_allocation_lines_deleted": 3,
+            "legacy_allocation_lines_deleted": 2,
+            "released_stock_summary": {"line_count": 3, "total_qty": "450.0000"},
+        }
+        output = StringIO()
+
+        call_command("reset_package_allocations", request_no="RQ95009", apply=True, stdout=output)
+
+        reset_mock.assert_called_once_with(95027, actor_id="SYSTEM")
+        text = output.getvalue()
+        self.assertIn("Package allocations reset.", text)
+        self.assertIn("operations_allocation_lines_deleted: 3", text)
+        self.assertIn("released_stock_total_qty: 450.0000", text)
+
+    def test_explicit_zero_package_id_is_treated_as_provided(self) -> None:
+        with self.assertRaisesRegex(CommandError, "No package found for package_id=0."):
+            call_command("reset_package_allocations", package_id=0)
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=0,
+    )
+    @patch("operations.management.commands.reset_package_allocations.contract_services.reset_package_allocations")
+    def test_apply_surfaces_validation_errors_as_command_error(
+        self,
+        reset_mock,
+        _legacy_count_mock,
+    ) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        reset_mock.side_effect = OperationValidationError(
+            {"package": "Package is already dispatched.", "lock": "Release the active lock first."}
+        )
+
+        with self.assertRaisesRegex(
+            CommandError,
+            "Package is already dispatched\\., Release the active lock first\\.",
+        ):
+            call_command("reset_package_allocations", request_no="RQ95009", apply=True)
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.ReliefPkgItem.objects.filter",
+        side_effect=DatabaseError("legacy table unavailable"),
+    )
+    def test_legacy_allocation_count_reraises_database_errors(self, _filter_mock) -> None:
+        command = reset_package_allocations.Command()
+
+        with self.assertRaises(DatabaseError):
+            command._legacy_allocation_line_count(95027)

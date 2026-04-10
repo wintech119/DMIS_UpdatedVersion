@@ -108,3 +108,29 @@ class ItemIfrcSuggestLog(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError(_APPEND_ONLY_ERROR)
+
+
+class ParishProximityMatrix(models.Model):
+    proximity_id = models.BigAutoField(primary_key=True)
+    source_parish_code = models.CharField(max_length=2)
+    candidate_parish_code = models.CharField(max_length=2)
+    proximity_rank = models.PositiveSmallIntegerField()
+
+    class Meta:
+        db_table = "parish_proximity_matrix"
+        indexes = [
+            models.Index(fields=["source_parish_code", "proximity_rank"]),
+            models.Index(fields=["candidate_parish_code"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_parish_code", "candidate_parish_code"],
+                name="uq_parish_proximity_source_candidate",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.source_parish_code}->{self.candidate_parish_code}"
+            f" (rank {self.proximity_rank})"
+        )
