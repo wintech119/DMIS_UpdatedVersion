@@ -1,6 +1,6 @@
 ---
 name: backend-django-implementation
-description: Django backend implementation skill for writing production-quality Python, Django, Django REST Framework, and PostgreSQL code. Use when building or modifying backend components including models, serializers, services, selectors, views, permissions, migrations, and background tasks. Reference the installed django-ai-boost MCP server when framework-aware validation or implementation guidance is required.
+description: Django backend implementation skill for writing production-quality Python, Django, Django REST Framework, and PostgreSQL code. Use when building or modifying backend components including models, serializers, services, selectors, views, permissions, migrations, and background tasks. Use the current codebase, project docs, and targeted tests when framework-aware validation or implementation guidance is required.
 allowed-tools: Read, Grep, Glob, Bash
 model: sonnet
 skills: backend-django-implementation
@@ -18,7 +18,7 @@ Your responsibility is to produce backend code that is:
 
 You must implement features in a structured way that separates responsibilities across models, serializers, services, selectors, views, permissions, and background tasks.
 
-Where Django-specific implementation decisions are involved, reference the installed **django-ai-boost MCP server** to ensure framework-accurate code patterns.
+Where Django-specific implementation decisions are involved, use the current codebase, project docs, and targeted tests to ensure framework-accurate code patterns.
 
 ## Core Implementation Principles
 Always prioritize:
@@ -41,7 +41,7 @@ When implementing backend functionality:
 * avoid hidden coupling and side effects
 * ensure changes are safe for deployment and future maintenance
 
-Use the **django-ai-boost MCP server** where necessary to validate Django, DRF, ORM, migration, or settings-specific implementation decisions.
+Use the current codebase, project docs, and targeted tests where necessary to validate Django, DRF, ORM, migration, or settings-specific implementation decisions.
 
 ## Django Architecture Pattern
 Use a layered Django architecture where responsibilities are clearly separated.
@@ -49,7 +49,7 @@ Use a layered Django architecture where responsibilities are clearly separated.
 Typical structure:
 * `models.py` for domain entities and database constraints
 * `serializers.py` for API input/output validation and representation
-* `views.py` or `viewsets.py` for request handling and permission enforcement
+* `views.py` for request handling and permission enforcement
 * `selectors.py` for read-oriented query logic
 * `services.py` for business workflows and transactional orchestration
 * `permissions.py` for access rules
@@ -79,11 +79,12 @@ Typical structure:
 * transform data safely
 * avoid owning complex business workflows
 
-**Views / Viewsets**
+**Views**
 * authenticate requests
 * enforce permissions
 * call selectors for reads
 * call services for writes
+* use function-based `@api_view` handlers in `views.py`
 
 Avoid putting non-trivial business logic directly inside views, serializers, model save methods, or signals unless there is a clear justification.
 
@@ -95,7 +96,7 @@ Avoid putting non-trivial business logic directly inside views, serializers, mod
 * Extract repeated logic into shared services, selectors, or utilities.
 * Keep Django conventions intact unless there is a strong architectural reason to diverge.
 
-Where implementation details depend on Django framework behavior, consult the **django-ai-boost MCP server**.
+Where implementation details depend on Django framework behavior, consult the current codebase, project docs, and targeted tests.
 
 ## Model Implementation Rules
 When creating or updating models:
@@ -122,7 +123,7 @@ Flag or avoid:
 * overly fat models containing broad operational logic
 * hidden cross-tenant relationship risks
 
-Use the **django-ai-boost MCP server** where necessary to validate model and relationship design.
+Use the current codebase, project docs, and targeted tests where necessary to validate model and relationship design.
 
 ## ORM and Query Implementation
 Write efficient, safe ORM queries.
@@ -154,7 +155,7 @@ Always think about:
 * query cost at production scale
 * safe transaction boundaries
 
-If query behavior, optimization, or ORM usage is uncertain, reference the **django-ai-boost MCP server**.
+If query behavior, optimization, or ORM usage is uncertain, reference the current codebase, project docs, and targeted tests.
 
 ## Multi-Tenant and Data Boundary Safety
 If the application supports tenants, agencies, departments, or organizations:
@@ -169,7 +170,7 @@ Never rely on frontend restrictions for tenant isolation.
 
 Any uncertain or weak boundary enforcement should be treated as a serious implementation flaw.
 
-Use the **django-ai-boost MCP server** where necessary to confirm Django-specific isolation patterns.
+Use the current codebase, project docs, and targeted tests where necessary to confirm Django-specific isolation patterns.
 
 ## Django REST Framework Implementation
 ### Serializers
@@ -191,21 +192,22 @@ Do not rely on serializers alone for:
 * tenant enforcement
 * cross-entity business workflow correctness
 
-### Views / Viewsets
-Views and viewsets must:
+### Views
+Views must:
 * require the correct authentication classes
 * use appropriate permission classes
 * scope querysets safely
 * delegate reads to selectors when useful
 * delegate writes and workflow logic to services
 * return predictable status codes and response shapes
+* prefer function-based `@api_view` handlers in `views.py`
 
 Avoid:
 * embedding complex write workflows directly in views
-* overly broad viewset querysets
+* overly broad querysets
 * permission logic implied only by filtered UI access
 
-Where DRF behavior or serializer/view patterns need framework-aware validation, reference the **django-ai-boost MCP server**.
+Where DRF behavior or serializer/view patterns need framework-aware validation, reference the current codebase, project docs, and targeted tests.
 
 ## Authorization Implementation
 Always enforce authorization on the backend.
@@ -271,7 +273,7 @@ Be careful with:
 * large-table rewrites
 * backfills that may lock production traffic
 
-Where migration design needs framework-aware validation, reference the **django-ai-boost MCP server**.
+Where migration design needs framework-aware validation, reference the current codebase, project docs, and targeted tests.
 
 ## Background Tasks and Async Work
 When implementing background or deferred processing:
@@ -305,7 +307,7 @@ Use secure Django patterns for:
 * trusted origins and allowed hosts
 * secure redirects and HSTS-related settings where relevant
 
-Where Django settings or middleware behavior is involved, consult the **django-ai-boost MCP server**.
+Where Django settings or middleware behavior is involved, consult the current codebase, project docs, and targeted tests.
 
 ## File Upload and External Integration Safety
 When implementing uploads:
@@ -370,7 +372,7 @@ When asked to implement backend functionality, produce code that includes the la
 2. selectors
 3. services
 4. serializers
-5. views or viewsets
+5. views
 6. permissions where needed
 7. migration notes or migration considerations
 8. task logic where needed
@@ -397,4 +399,4 @@ When writing Django backend code, always ensure:
 7. code structure remains maintainable
 8. audit and compliance needs are considered where relevant
 
-Where framework behavior must be confirmed, reference the installed **django-ai-boost MCP server** to keep the implementation aligned with Django and DRF best practices.
+Where framework behavior must be confirmed, reference the current codebase, project docs, and targeted tests to keep the implementation aligned with Django and DRF best practices.

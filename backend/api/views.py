@@ -168,51 +168,48 @@ def _load_local_auth_harness_users() -> tuple[list[dict[str, object]], list[str]
         return [], []
 
     placeholders = ", ".join(["%s"] * len(configured_usernames))
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT
-                    u.user_id,
-                    u.username,
-                    u.email,
-                    r.code,
-                    t.tenant_id,
-                    t.tenant_code,
-                    t.tenant_name,
-                    t.tenant_type,
-                    COALESCE(tu.is_primary_tenant, FALSE) AS is_primary_tenant,
-                    tu.access_level,
-                    p.resource,
-                    p.action
-                FROM "user" u
-                LEFT JOIN user_role ur ON ur.user_id = u.user_id
-                LEFT JOIN role r ON r.id = ur.role_id
-                LEFT JOIN tenant_user tu
-                    ON tu.user_id = u.user_id
-                   AND COALESCE(tu.status_code, 'A') = 'A'
-                LEFT JOIN tenant t
-                    ON t.tenant_id = tu.tenant_id
-                   AND COALESCE(t.status_code, 'A') = 'A'
-                LEFT JOIN role_permission rp ON rp.role_id = ur.role_id
-                LEFT JOIN permission p ON p.perm_id = rp.perm_id
-                WHERE
-                    LOWER(COALESCE(u.username, '')) IN ({placeholders})
-                    AND COALESCE(u.is_active, TRUE) = TRUE
-                    AND COALESCE(u.status_code, 'A') = 'A'
-                ORDER BY
-                    LOWER(u.username),
-                    COALESCE(tu.is_primary_tenant, FALSE) DESC,
-                    t.tenant_id ASC,
-                    r.code ASC,
-                    p.resource ASC,
-                    p.action ASC
-                """,
-                [value.lower() for value in configured_usernames],
-            )
-            rows = cursor.fetchall()
-    except DatabaseError:
-        return [], configured_usernames
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT
+                u.user_id,
+                u.username,
+                u.email,
+                r.code,
+                t.tenant_id,
+                t.tenant_code,
+                t.tenant_name,
+                t.tenant_type,
+                COALESCE(tu.is_primary_tenant, FALSE) AS is_primary_tenant,
+                tu.access_level,
+                p.resource,
+                p.action
+            FROM "user" u
+            LEFT JOIN user_role ur ON ur.user_id = u.user_id
+            LEFT JOIN role r ON r.id = ur.role_id
+            LEFT JOIN tenant_user tu
+                ON tu.user_id = u.user_id
+               AND COALESCE(tu.status_code, 'A') = 'A'
+            LEFT JOIN tenant t
+                ON t.tenant_id = tu.tenant_id
+               AND COALESCE(t.status_code, 'A') = 'A'
+            LEFT JOIN role_permission rp ON rp.role_id = ur.role_id
+            LEFT JOIN permission p ON p.perm_id = rp.perm_id
+            WHERE
+                LOWER(COALESCE(u.username, '')) IN ({placeholders})
+                AND COALESCE(u.is_active, TRUE) = TRUE
+                AND COALESCE(u.status_code, 'A') = 'A'
+            ORDER BY
+                LOWER(u.username),
+                COALESCE(tu.is_primary_tenant, FALSE) DESC,
+                t.tenant_id ASC,
+                r.code ASC,
+                p.resource ASC,
+                p.action ASC
+            """,
+            [value.lower() for value in configured_usernames],
+        )
+        rows = cursor.fetchall()
 
     users_by_username: dict[str, dict[str, object]] = {}
     for row in rows:
@@ -300,4 +297,12 @@ def local_auth_harness(request):
     if auth_result is None:
         return Response({"detail": "Authentication credentials were not provided."}, status=401)
     request.user = auth_result[0]
-    return Response(_local_auth_harness_payload())
+    try:
+        payload = _local_auth_harness_payload()
+    except DatabaseError:
+        readiness_logger.exception(
+            "auth.local_harness_lookup_failed",
+            extra=build_log_extra(request, event="auth.local_harness_lookup_failed"),
+        )
+        return Response({"detail": "Local auth harness is temporarily unavailable."}, status=503)
+    return Response(payload)

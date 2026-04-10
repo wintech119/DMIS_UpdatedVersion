@@ -18,7 +18,7 @@ secret_detection:
     - echo ''
   stage: test
 dependency_scanning:
-  before_script: ''
+  before_script: []
   stage: test
 
 auth_posture_validation:
@@ -31,7 +31,11 @@ auth_posture_validation:
       import sys
 
       backend_cwd = os.path.join(os.getcwd(), "backend")
-      base_env = os.environ.copy()
+      base_env = {
+          key: os.environ[key]
+          for key in ("PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT")
+          if key in os.environ
+      }
       common_env = {
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-auth-posture-secret",
@@ -139,9 +143,7 @@ auth_posture_validation:
       ]
 
       for name, expect_success, updates in cases:
-          env = base_env.copy()
-          env.update(common_env)
-          env.update(updates)
+          env = {**base_env, **common_env, **updates}
           result = subprocess.run(
               [sys.executable, "manage.py", "shell", "-c", "import dmis_api.settings"],
               cwd=backend_cwd,
@@ -171,7 +173,11 @@ secure_posture_validation:
       import sys
 
       backend_cwd = os.path.join(os.getcwd(), "backend")
-      base_env = os.environ.copy()
+      base_env = {
+          key: os.environ[key]
+          for key in ("PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT")
+          if key in os.environ
+      }
       common_env = {
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-secure-posture-secret",
@@ -295,9 +301,7 @@ secure_posture_validation:
       ]
 
       for name, expect_success, updates, removals in cases:
-          env = base_env.copy()
-          env.update(common_env)
-          env.update(updates)
+          env = {**base_env, **common_env, **updates}
           for key in removals:
               env.pop(key, None)
           result = subprocess.run(
@@ -329,7 +333,11 @@ redis_posture_validation:
       import sys
 
       backend_cwd = os.path.join(os.getcwd(), "backend")
-      base_env = os.environ.copy()
+      base_env = {
+          key: os.environ[key]
+          for key in ("PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT")
+          if key in os.environ
+      }
       common_env = {
           "PYTHONPATH": backend_cwd,
           "DJANGO_SECRET_KEY": "ci-redis-posture-secret",
@@ -457,9 +465,7 @@ redis_posture_validation:
       ]
 
       for name, expect_success, updates, removals in cases:
-          env = base_env.copy()
-          env.update(common_env)
-          env.update(updates)
+          env = {**base_env, **common_env, **updates}
           for key in removals:
               env.pop(key, None)
           result = subprocess.run(

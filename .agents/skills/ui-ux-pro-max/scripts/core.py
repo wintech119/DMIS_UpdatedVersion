@@ -109,7 +109,7 @@ class BM25:
     def tokenize(self, text):
         """Lowercase, split, remove punctuation, filter short words"""
         text = re.sub(r'[^\w\s]', ' ', str(text).lower())
-        return [w for w in text.split() if len(w) > 2]
+        return [w for w in text.split() if len(w) > 2 or w in {"ui", "ux", "ai"}]
 
     def fit(self, documents):
         """Build BM25 index from documents"""
@@ -133,6 +133,8 @@ class BM25:
     def score(self, query):
         """Score all documents against query"""
         query_tokens = self.tokenize(query)
+        if not self.corpus or self.avgdl <= 0:
+            return [(idx, 0.0) for idx in range(len(self.corpus))]
         scores = []
 
         for idx, doc in enumerate(self.corpus):
@@ -213,8 +215,10 @@ def search(query, domain=None, max_results=MAX_RESULTS):
     """Main search function with auto-domain detection"""
     if domain is None:
         domain = detect_domain(query)
+    elif domain not in CSV_CONFIG:
+        return {"error": f"Unknown domain: {domain}. Available: {', '.join(sorted(CSV_CONFIG))}", "domain": domain}
 
-    config = CSV_CONFIG.get(domain, CSV_CONFIG["style"])
+    config = CSV_CONFIG[domain]
     filepath = DATA_DIR / config["file"]
 
     if not filepath.exists():

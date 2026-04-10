@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import path
+from django.db import DatabaseError
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
@@ -320,6 +321,12 @@ class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
                 testing=True,
             )
         )
+
+    def test_detect_testing_recognizes_pytest_invocation(self) -> None:
+        self.assertTrue(dmis_settings._detect_testing(["pytest", "backend/api/tests.py"]))
+
+    def test_detect_testing_recognizes_running_tests_environment_flag(self) -> None:
+        self.assertTrue(dmis_settings._detect_testing(["runserver"], {"RUNNING_TESTS": "1"}))
 
     def test_local_harness_mode_accepts_local_only_flags(self) -> None:
         dmis_settings.validate_runtime_auth_configuration(
@@ -935,6 +942,28 @@ class AuthWhoAmITests(TestCase):
         )
         self.assertEqual(len(body["users"]), 1)
         self.assertEqual(body["users"][0]["username"], "local_system_admin_tst")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.views._load_local_auth_harness_users", side_effect=DatabaseError("boom"))
+    def test_local_auth_harness_route_reports_backend_failure(self, _mock_load_users) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Local auth harness is temporarily unavailable."},
+        )
 
     def test_legacy_dev_users_route_is_not_exposed(self) -> None:
         response = self.client.get("/api/v1/auth/dev-users/")

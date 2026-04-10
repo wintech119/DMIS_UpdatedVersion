@@ -1,6 +1,6 @@
 ---
 name: frontend-angular-implementation
-description: Angular frontend implementation skill for writing production-quality TypeScript, Angular components, templates, services, routing, forms, guards, interceptors, and UI behavior. Use when building or modifying Angular frontend features. Reference the installed Angular MCP server when framework-aware validation or implementation guidance is required.
+description: Angular frontend implementation skill for writing production-quality TypeScript, Angular components, templates, services, routing, forms, guards, interceptors, and UI behavior. Use when building or modifying Angular frontend features. Use the current codebase, Angular documentation, linting, and targeted tests when framework-aware validation or implementation guidance is required.
 allowed-tools: Read, Grep, Glob, Bash
 model: sonnet
 skills: frontend-angular-implementation
@@ -18,7 +18,7 @@ Your responsibility is to produce frontend code that is:
 
 You must implement features in a structured way that separates responsibilities across components, templates, services, routing, guards, interceptors, and state-related logic.
 
-Where Angular-specific implementation decisions are involved, reference the installed **Angular MCP server** to ensure framework-accurate code patterns.
+Where Angular-specific implementation decisions are involved, use the current codebase, Angular documentation, linting, and targeted tests to ensure framework-accurate code patterns.
 
 ## Core Implementation Principles
 Always prioritize:
@@ -31,6 +31,8 @@ Always prioritize:
 
 Never implement shortcuts that compromise accessibility, maintainability, state clarity, or safe framework usage.
 
+For medium- and high-risk frontend work, run the `system-architecture-review` skill before finalizing implementation. If the review returns `Misaligned`, stop and remediate before marking the work complete.
+
 ## Implementation Expectations
 When implementing frontend functionality:
 * write production-ready code
@@ -41,7 +43,7 @@ When implementing frontend functionality:
 * ensure routes, forms, and interactions are predictable
 * ensure accessibility is built in rather than added later
 
-Use the **Angular MCP server** where necessary to validate Angular, template, router, reactivity, forms, or accessibility-specific implementation decisions.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular, template, router, reactivity, forms, or accessibility-specific implementation decisions.
 
 ## Angular Architecture Pattern
 Use a structured Angular architecture where responsibilities are clearly separated.
@@ -86,7 +88,7 @@ Typical structure:
 
 Avoid putting heavy orchestration, repeated API access logic, or complex business rules directly in templates.
 
-Where architectural decisions depend on Angular conventions or best practices, reference the **Angular MCP server**.
+Where architectural decisions depend on Angular conventions or best practices, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## TypeScript & Angular Coding Standards
 * Use explicit, readable TypeScript types.
@@ -97,7 +99,7 @@ Where architectural decisions depend on Angular conventions or best practices, r
 * Keep Angular conventions intact unless there is a strong reason to diverge.
 * Avoid `any` unless there is a clear, justified reason.
 
-Where implementation details depend on Angular behavior, consult the **Angular MCP server**.
+Where implementation details depend on Angular behavior, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Component Implementation Rules
 When creating or updating components:
@@ -114,7 +116,7 @@ Avoid:
 * templates that depend on too many component methods
 * components that fetch, transform, validate, and render everything by themselves
 
-Use the **Angular MCP server** where necessary to validate component design patterns.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate component design patterns.
 
 ## Template Implementation Rules
 Templates must:
@@ -130,7 +132,7 @@ Templates must:
 Use stable list rendering patterns such as:
 * `trackBy` where lists are dynamic or performance-sensitive
 
-Where template syntax, control flow, or Angular rendering behavior needs validation, reference the **Angular MCP server**.
+Where template syntax, control flow, or Angular rendering behavior needs validation, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Reactive State and RxJS Implementation
 Use Angular-compatible reactive patterns intentionally.
@@ -149,7 +151,7 @@ Avoid:
 * unclear ownership of state between parent, child, and service layers
 * mutable patterns that make UI state hard to reason about
 
-Where Angular signals, RxJS interop, or reactive patterns need framework-aware confirmation, reference the **Angular MCP server**.
+Where Angular signals, RxJS interop, or reactive patterns need framework-aware confirmation, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Form Implementation
 When implementing forms:
@@ -174,7 +176,7 @@ Avoid:
 * weak dirty/touched/submitted state handling
 * forms that allow invalid submission due to unclear state logic
 
-Use the **Angular MCP server** where necessary to validate Angular forms patterns.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular forms patterns.
 
 ## Routing and Navigation Implementation
 When implementing routes:
@@ -188,7 +190,7 @@ When implementing routes:
 
 Do not rely on client-side guards as the only security mechanism, but do ensure they behave correctly for the user experience.
 
-Where Angular router behavior requires validation, consult the **Angular MCP server**.
+Where Angular router behavior requires validation, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Accessibility Requirements
 Accessibility must be built into implementation.
@@ -203,7 +205,7 @@ Always ensure:
 * ARIA is only added where needed and used correctly
 * color is not the only way meaning is conveyed
 
-Where Angular Material, CDK, or overlay accessibility behavior is involved, reference the **Angular MCP server**.
+Where Angular Material, CDK, or overlay accessibility behavior is involved, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Performance Requirements
 Implement with rendering efficiency in mind.
@@ -217,7 +219,7 @@ Always consider:
 * breaking up large components when necessary
 * using derived state instead of recomputing complex values repeatedly
 
-Where Angular-specific rendering or change detection behavior must be confirmed, use the **Angular MCP server**.
+Where Angular-specific rendering or change detection behavior must be confirmed, use the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Frontend Security Requirements
 Never introduce:
@@ -233,7 +235,7 @@ Sensitive data should not be:
 * exposed in logs or debug output
 * rendered in places without a clear need
 
-Where Angular sanitization or binding behavior is involved, consult the **Angular MCP server**.
+Where Angular sanitization or binding behavior is involved, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Services, Interceptors, and API Integration
 When implementing services:
@@ -261,7 +263,7 @@ If the application uses Angular Material, CDK, or shared UI components:
 * keep dialogs, menus, tables, and forms consistent
 * preserve accessibility and keyboard behavior when extending framework components
 
-Use the **Angular MCP server** where Angular library-specific guidance is needed.
+Use the current codebase, Angular documentation, linting, and targeted tests where Angular library-specific guidance is needed.
 
 ## Testing Expectations
 Implement code in a way that supports testing.
@@ -309,5 +311,6 @@ When writing Angular frontend code, always ensure:
 6. rendering is efficient
 7. security-sensitive framework features are used safely
 8. the implementation aligns with Angular best practices
+9. medium- and high-risk frontend work has passed the `system-architecture-review` gate, or any `Misaligned` finding has been remediated or explicitly accepted
 
-Where framework behavior must be confirmed, reference the installed **Angular MCP server** to keep the implementation aligned with Angular best practices.
+Where framework behavior must be confirmed, reference the current codebase, Angular documentation, linting, and targeted tests to keep the implementation aligned with Angular best practices.

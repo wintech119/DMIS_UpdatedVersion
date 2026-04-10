@@ -107,7 +107,7 @@ Build the Angular application with the production-style configuration:
 
 ```bash
 cd frontend
-npm.cmd run -s build
+npm run build
 ```
 
 Do not treat the local harness scripts as a production or staging deployment path.

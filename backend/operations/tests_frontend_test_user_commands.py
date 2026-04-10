@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from operations.management.commands.seed_relief_management_frontend_test_users import Command
@@ -120,6 +121,31 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertIn("UPPER(COALESCE(warehouse_name, '')) = %s", sql)
         self.assertIn("UPPER(COALESCE(status_code, '')) = 'A'", sql)
         self.assertEqual(params, ["S07 TEST MAIN HUB - JRC"])
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_non_odpem_national_match(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (7, "NATIONAL-OTHER", "National Other", "NATIONAL")
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code="NATIONAL-OTHER")
+
+    @patch("operations.management.commands.seed_relief_management_frontend_test_users.connection")
+    def test_resolve_national_tenant_rejects_ambiguous_fallback_matches(self, mock_connection) -> None:
+        cursor = mock_connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [
+            (1, "ODPEM-NEOC", "ODPEM NEOC", "NEOC"),
+            (2, "ODPEM-ALT", "ODPEM Alt", "NEOC"),
+        ]
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Unable to resolve the national/local system-admin tenant due to ambiguous matches.",
+        ):
+            Command()._resolve_national_tenant(tenant_id=None, tenant_code=None)
 
     def test_profile_builder_uses_real_non_odpem_personas(self) -> None:
         profiles = Command()._build_profiles("FFP", "Food For The Poor")

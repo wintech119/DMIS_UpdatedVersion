@@ -9,7 +9,19 @@ from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-TESTING = any(arg == 'test' or arg.startswith('test') for arg in sys.argv[1:])
+
+
+def _detect_testing(argv: list[str] | tuple[str, ...] | None = None, env: dict[str, str] | None = None) -> bool:
+    runtime_argv = list(sys.argv[1:] if argv is None else argv)
+    runtime_env = os.environ if env is None else env
+    return (
+        any(arg == "test" or arg.startswith("test") for arg in runtime_argv)
+        or any("pytest" in arg.lower() for arg in runtime_argv)
+        or str(runtime_env.get("RUNNING_TESTS", "0")) == "1"
+    )
+
+
+TESTING = _detect_testing()
 
 if TESTING:
     # Reduce noisy request logging and known test-only datetime warnings
@@ -733,10 +745,7 @@ if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
 # Cache posture: Redis-backed whenever REDIS_URL is configured; LocMemCache is
 # only allowed for explicit local-harness degraded mode.
 _redis_url = os.getenv("REDIS_URL", "").strip()
-_running_tests = (
-    TESTING
-    or any("pytest" in arg.lower() for arg in sys.argv[1:])
-)
+_running_tests = TESTING
 _test_redis_cache_enabled = os.getenv("TEST_REDIS_CACHE_ENABLED", "0") == "1"
 _use_redis_cache = bool(_redis_url) and (not _running_tests or _test_redis_cache_enabled)
 if _use_redis_cache:

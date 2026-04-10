@@ -69,7 +69,7 @@ npm test -- --watch=false   # Single run
 ## Architecture
 
 ### Backend Structure
-```
+```text
 backend/
   dmis_api/          # Django project config (settings.py, urls.py, wsgi.py)
   api/               # Core: auth (Principal), RBAC, tenancy, task engine
@@ -97,7 +97,7 @@ All API routes under `/api/v1/`:
 - Needs list workflow state managed via `workflow_store.py` (file-based) or `workflow_store_db.py` (DB-backed)
 
 ### Frontend Structure
-```
+```text
 frontend/src/app/
   core/              # Auth guard (appAccessGuard), dev-user interceptor, app-access service
   layout/            # Sidenav shell
@@ -141,6 +141,7 @@ If the architecture review returns `Misaligned`, do not treat the work as comple
 ## Key Business Logic
 
 ### Event Phases
+
 | Phase | Demand Window | Planning Window |
 |-------|---------------|-----------------|
 | SURGE | 6 hours | 72 hours |
@@ -148,7 +149,7 @@ If the architecture review returns `Misaligned`, do not treat the work as comple
 | BASELINE | 30 days | 30 days |
 
 ### Core Formulas
-```
+```text
 Burn Rate = Fulfilled Qty / Demand Window (hrs)
 Time-to-Stockout = Available Stock / Burn Rate
 Required Qty = Burn Rate x Planning Window x 1.25 (safety factor)
@@ -314,6 +315,7 @@ Every endpoint that accepts an object ID (needs list, relief request, procuremen
 - Raw SQL queries must include `WHERE tenant_id = %s` â€” never rely on the URL path alone
 
 **2. Ownership / role-gated access**
+
 | Resource | Who can read | Who can write/act |
 |----------|-------------|-------------------|
 | Needs list | Creator, assigned reviewers, tenant logistics roles, national roles | Only current workflow actor (submitter can't approve their own) |

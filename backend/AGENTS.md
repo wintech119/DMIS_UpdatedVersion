@@ -73,6 +73,7 @@
 - During disaster `SURGE` phases, field users cannot afford to be blocked; limits must protect the system without impeding legitimate emergency operations.
 
 ### Tiered Limits
+
 | Tier | Limit | Endpoints |
 |---|---|---|
 | Read | 120 req/min | Stock status, dashboards, warehouse lists, needs list GET, queues, lookups, `whoami` |
@@ -81,6 +82,7 @@
 | High-risk ops | 10 req/min | Dispatch handoff, receipt confirmation, mark-dispatched, mark-received, mark-completed, stock location assignment, repackaging |
 
 ### Special Limits
+
 | Action | Limit | Scope |
 |---|---|---|
 | Login attempts | 5 per 15 min | Per account + per IP |

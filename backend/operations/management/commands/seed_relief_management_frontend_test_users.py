@@ -217,31 +217,32 @@ class Command(BaseCommand):
                         FROM tenant
                         WHERE
                             COALESCE(status_code, 'A') = 'A'
-                            AND (
-                                UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) IN ('ODPEM_NEOC', 'OFFICE_OF_DISASTER_P')
-                                OR UPPER(COALESCE(tenant_type, '')) IN ('NEOC', 'NATIONAL', 'NATIONAL_LEVEL')
-                                OR UPPER(COALESCE(tenant_code, '')) LIKE 'ODPEM%%'
-                            )
+                            AND UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) IN ('ODPEM_NEOC', 'OFFICE_OF_DISASTER_P')
                         ORDER BY
                             CASE
                                 WHEN UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) = 'ODPEM_NEOC' THEN 0
-                                WHEN UPPER(COALESCE(tenant_type, '')) = 'NEOC' THEN 1
-                                WHEN UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P' THEN 2
-                                WHEN UPPER(COALESCE(tenant_code, '')) LIKE 'ODPEM%%' THEN 3
-                                ELSE 4
+                                WHEN UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P' THEN 1
+                                ELSE 2
                             END,
                             tenant_id
-                        LIMIT 1
+                        LIMIT 2
                         """
                     )
-                row = cursor.fetchone()
+                    rows = cursor.fetchall()
+                    if len(rows) > 1:
+                        raise CommandError(
+                            "Unable to resolve the national/local system-admin tenant due to ambiguous matches."
+                        )
+                    row = rows[0] if rows else None
+                if parsed_tenant_id is not None or normalized_code:
+                    row = cursor.fetchone()
         except DatabaseError as exc:
             raise CommandError("Unable to resolve the national/local system-admin tenant.") from exc
 
         if not row:
             raise CommandError("National/local system-admin tenant does not exist or is inactive.")
         tenant_type = str(row[3] or "").strip().upper()
-        if not self._is_odpem_tenant_code(row[1]) and tenant_type not in {"NEOC", "NATIONAL", "NATIONAL_LEVEL"}:
+        if not self._is_odpem_tenant_code(row[1]) and tenant_type != "NEOC":
             raise CommandError("The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.")
         return {
             "tenant_id": int(row[0]),

@@ -1,6 +1,6 @@
 ---
 name: frontend-angular-review-project
-description: Angular frontend review skill for accessibility, security, architecture, component quality, template quality, reactive state safety, routing, forms, and performance. Use when Angular code has been written and should be reviewed before final output. Reference the installed Angular MCP server when Angular-specific validation, diagnostics, or framework-aware review guidance is required.
+description: Angular frontend review skill for accessibility, security, architecture, component quality, template quality, reactive state safety, routing, forms, and performance. Use when Angular code has been written and should be reviewed before final output. Use the current codebase, Angular documentation, linting, and targeted tests when Angular-specific validation, diagnostics, or framework-aware review guidance is required.
 allowed-tools: Read, Grep, Glob
 model: sonnet
 skills: frontend-angular-review-project
@@ -19,7 +19,7 @@ Your goal is to identify:
 * maintainability risks
 * frontend security concerns
 
-Where Angular-specific behavior or framework conventions are involved, reference the installed **Angular MCP server** to ensure review guidance is framework-aware and accurate.
+Where Angular-specific behavior or framework conventions are involved, use the current codebase, Angular documentation, linting, and targeted tests to ensure review guidance is framework-aware and accurate.
 
 ## Core Review Priorities
 Prioritize findings in this order:
@@ -42,7 +42,7 @@ When reviewing Angular code, always check for:
 7. routing, navigation, and guard issues
 8. performance bottlenecks and unnecessary rerendering
 
-Use the **Angular MCP server** where necessary to validate Angular-specific review findings.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific review findings.
 
 ## Angular Architecture Review
 Review whether the frontend is structured in a maintainable way.
@@ -59,7 +59,7 @@ Check for:
 
 Flag architecture that makes future change risky, hard to test, or hard to reason about.
 
-Where Angular architecture guidance depends on framework best practices, consult the **Angular MCP server**.
+Where Angular architecture guidance depends on framework best practices, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Component Review Standards
 Review whether components are focused, understandable, and safe to maintain.
@@ -92,7 +92,7 @@ Check for:
 
 Avoid templates that act like business-logic layers.
 
-Where Angular template syntax, control flow, or rendering behavior is relevant, reference the **Angular MCP server**.
+Where Angular template syntax, control flow, or rendering behavior is relevant, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Reactive State and RxJS Review
 Review reactive state management carefully.
@@ -110,7 +110,7 @@ Check for:
 
 Flag reactive patterns that create hard-to-debug UI behavior.
 
-Where RxJS, signals, or Angular reactivity patterns need framework-aware review, consult the **Angular MCP server**.
+Where RxJS, signals, or Angular reactivity patterns need framework-aware review, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Forms Review Standards
 Treat forms as high-risk frontend workflows.
@@ -128,7 +128,7 @@ Check for:
 
 Forms should be valid, understandable, accessible, and predictable.
 
-Where Angular forms behavior needs framework-specific validation, reference the **Angular MCP server**.
+Where Angular forms behavior needs framework-specific validation, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Routing and Navigation Review
 Review navigation and route behavior carefully.
@@ -145,7 +145,7 @@ Check for:
 
 Do not treat guards as backend security, but do ensure they work correctly for the frontend experience.
 
-Where Angular router behavior or guard patterns are involved, use the **Angular MCP server** where necessary.
+Where Angular router behavior or guard patterns are involved, use the current codebase, Angular documentation, linting, and targeted tests where necessary.
 
 ## Accessibility Review Standards
 Accessibility must be treated as a top priority.
@@ -163,7 +163,7 @@ Always check:
 
 Flag inaccessible behavior even if the visual UI appears correct.
 
-Where Angular Material, CDK, or overlay accessibility behavior needs review, reference the **Angular MCP server**.
+Where Angular Material, CDK, or overlay accessibility behavior needs review, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Performance Review Standards
 Review rendering and performance with practical Angular concerns in mind.
@@ -181,7 +181,7 @@ Check for:
 
 Flag patterns likely to cause sluggishness as data volume or interaction complexity grows.
 
-Where Angular-specific rendering or change-detection guidance is needed, consult the **Angular MCP server**.
+Where Angular-specific rendering or change-detection guidance is needed, consult the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Frontend Security Review
 Review for client-side security and safe framework usage.
@@ -196,7 +196,7 @@ Check for:
 * accidental exposure of config, tokens, or secrets in frontend code
 * risky trust assumptions around client-controlled state
 
-Where Angular sanitization, bindings, or DOM handling are involved, reference the **Angular MCP server**.
+Where Angular sanitization, bindings, or DOM handling are involved, reference the current codebase, Angular documentation, linting, and targeted tests.
 
 ## Services, Interceptors, and Integration Review
 Review how the frontend interacts with APIs and shared services.
@@ -224,7 +224,7 @@ Check for:
 * styling that fights framework components in fragile ways
 * custom wrappers that obscure behavior without enough benefit
 
-Use the **Angular MCP server** where necessary to validate Angular library-specific review findings.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular library-specific review findings.
 
 ## Maintainability and Operational Quality
 Review whether the codebase will remain understandable and stable over time.
@@ -255,4 +255,4 @@ When reviewing Angular frontend code:
 * be explicit about user-impacting issues
 * call out hidden maintainability risks, not just obvious bugs
 * distinguish framework-specific issues from general frontend advice
-* use the **Angular MCP server** where necessary to validate Angular-specific findings and recommendations
+* use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific findings and recommendations

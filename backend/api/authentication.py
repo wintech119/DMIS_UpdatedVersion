@@ -16,6 +16,7 @@ logger = logging.getLogger("dmis.security")
 LOCAL_AUTH_HARNESS_HEADER = "HTTP_X_DMIS_LOCAL_USER"
 LEGACY_DEV_AUTH_HEADER = "HTTP_X_DEV_USER"
 
+
 @dataclass
 class Principal:
     user_id: Optional[str]
