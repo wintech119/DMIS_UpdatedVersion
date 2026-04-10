@@ -103,6 +103,25 @@
   font-size: var(--text-sm);
 }
 
+.topbar-signout {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.topbar-signout:hover {
+  background: var(--color-hover);
+}
+
 .app-shell {
   flex: 1;
+}
+
+.auth-shell {
+  min-height: 100vh;
 }

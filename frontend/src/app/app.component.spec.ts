@@ -1,9 +1,12 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 
 import { AppComponent } from './app.component';
+import { AuthSessionService } from './core/auth-session.service';
+import { AuthRbacService } from './replenishment/services/auth-rbac.service';
 import {
   isLocalAuthHarnessHost,
   localAuthHarnessBuildEnabled,
@@ -12,13 +15,32 @@ import {
 
 describe('AppComponent', () => {
   let httpMock: HttpTestingController;
+  let authSession: {
+    logoutAvailable: jasmine.Spy;
+    logout: jasmine.Spy;
+  };
 
   beforeEach(async () => {
     (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    authSession = {
+      logoutAvailable: jasmine.createSpy('logoutAvailable').and.returnValue(false),
+      logout: jasmine.createSpy('logout').and.returnValue(Promise.resolve()),
+    };
+    const authRbac = {
+      currentUserRef: signal('local_system_admin_tst'),
+      actorRef: signal('27'),
+      roles: signal(['SYSTEM_ADMINISTRATOR']),
+    };
 
     await TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthSessionService, useValue: authSession },
+        { provide: AuthRbacService, useValue: authRbac },
+      ],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -49,12 +71,6 @@ describe('AppComponent', () => {
   it('shows local test mode options when the harness endpoint is enabled', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/v1/auth/whoami/').flush({
-      user_id: '27',
-      username: 'local_system_admin_tst',
-      roles: ['SYSTEM_ADMINISTRATOR'],
-      permissions: ['masterdata.view'],
-    });
     httpMock.expectOne('/api/v1/auth/local-harness/').flush({
       enabled: true,
       default_user: 'local_system_admin_tst',
@@ -129,12 +145,6 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/v1/auth/whoami/').flush({
-      user_id: '27',
-      username: 'shared.dev.operator',
-      roles: ['SYSTEM_ADMINISTRATOR'],
-      permissions: ['masterdata.view'],
-    });
     httpMock.expectNone('/api/v1/auth/local-harness/');
     fixture.detectChanges();
 
@@ -156,12 +166,6 @@ describe('AppComponent', () => {
   });
 });
 
-function flushInitialRequests(httpMock: HttpTestingController): void {
-  httpMock.expectOne('/api/v1/auth/whoami/').flush({
-    user_id: '27',
-    username: 'local_system_admin_tst',
-    roles: ['SYSTEM_ADMINISTRATOR'],
-    permissions: ['masterdata.view'],
-  });
+  function flushInitialRequests(httpMock: HttpTestingController): void {
   httpMock.expectOne('/api/v1/auth/local-harness/').flush({ enabled: false });
 }

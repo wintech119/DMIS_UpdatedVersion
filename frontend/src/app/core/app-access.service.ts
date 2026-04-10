@@ -156,6 +156,10 @@ type NavAccessKey =
   | 'replenishment.submissions'
   | 'replenishment.wizard'
   | 'replenishment.review'
+  | 'replenishment.execution'
+  | 'replenishment.procurement.view'
+  | 'replenishment.procurement.edit'
+  | 'replenishment.procurement.receive'
   | 'operations.dashboard'
   | 'operations.relief-requests'
   | 'operations.eligibility'
@@ -210,6 +214,16 @@ export class AppAccessService {
       case 'replenishment.review':
         return this.hasPermission('replenishment.needs_list.preview')
           && this.hasAnyPermission(REPLENISHMENT_REVIEW_PERMISSIONS);
+      case 'replenishment.execution':
+        return this.hasPermission('replenishment.needs_list.execute');
+      case 'replenishment.procurement.view':
+        return this.hasPermission('replenishment.procurement.view');
+      case 'replenishment.procurement.edit':
+        return this.hasPermission('replenishment.procurement.view')
+          && this.hasPermission('replenishment.procurement.edit');
+      case 'replenishment.procurement.receive':
+        return this.hasPermission('replenishment.procurement.view')
+          && this.hasPermission('replenishment.procurement.receive');
       case 'operations.dashboard':
         return this.canAccessAnyOperations();
       case 'operations.relief-requests':

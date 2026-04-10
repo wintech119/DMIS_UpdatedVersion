@@ -186,4 +186,19 @@ describe('AppAccessService', () => {
 
     expect(roleWithoutPermission.canAccessNavKey('operations.eligibility')).toBeFalse();
   });
+
+  it('maps replenishment execution and procurement lanes to the backend RBAC permissions', () => {
+    const access = setup({
+      permissions: [
+        'replenishment.needs_list.execute',
+        'replenishment.procurement.view',
+        'replenishment.procurement.edit',
+      ],
+    });
+
+    expect(access.canAccessNavKey('replenishment.execution')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.view')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.edit')).toBeTrue();
+    expect(access.canAccessNavKey('replenishment.procurement.receive')).toBeFalse();
+  });
 });

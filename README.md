@@ -40,7 +40,9 @@ DMIS is delivered as a Django + Angular application.
 | Staging | `staging` | `DJANGO_DEBUG=0`, real OIDC/JWT auth only | HTTPS redirect on, secure cookies on. | `86400` seconds, no subdomain include, no preload. | Trusted TLS-terminating ingress forwards `X-Forwarded-Proto`. | Production-like pre-release validation. No local header switching. |
 | Production | `production` | `DJANGO_DEBUG=0`, real OIDC/JWT auth only | HTTPS redirect on, secure cookies on. | `31536000` seconds, `includeSubDomains=1`, preload opt-in only. | Trusted TLS-terminating ingress forwards `X-Forwarded-Proto`. | Live posture. Real auth only, fail-closed on incompatible config. |
 
-Frontend note: production-style builds file-replace the local harness switcher/interceptor with no-op implementations, but full end-to-end OIDC login validation still depends on completing the remaining Angular OIDC integration work.
+Frontend note: production-style builds file-replace the local harness switcher/interceptor with no-op implementations. The Angular client now expects a deployment-supplied runtime OIDC config in `frontend/public/auth-config.json`, uses Authorization Code + PKCE for the non-local login path, stores tokens in `sessionStorage` only, and fails protected navigation closed into explicit `/auth/login` or `/access-denied` UX instead of silently rendering an empty shell.
+
+Remaining frontend auth gap: this thread does not add refresh-token rotation or offline session renewal. When the access token expires or the backend rejects it, the frontend clears the stored session and forces a fresh OIDC sign-in.
 
 ## Repository structure
 
@@ -76,6 +78,36 @@ If PowerShell blocks `npm`, use `npm.cmd` instead:
 ```powershell
 npm.cmd run -s lint
 ```
+
+### 2a. Frontend runtime auth config
+
+Non-local Angular deployments require `frontend/public/auth-config.json` to be populated at deploy time. The file is part of the public bundle and must contain only non-secret client metadata:
+
+```json
+{
+  "enabled": true,
+  "issuer": "https://keycloak.example.org/realms/dmis",
+  "clientId": "dmis-web",
+  "scope": "openid profile email",
+  "redirectPath": "/auth/callback",
+  "postLogoutRedirectPath": "/auth/login",
+  "audience": "dmis-api"
+}
+```
+
+- `enabled`: must be `true` for shared-dev, staging, and production.
+- `issuer`: the OIDC issuer / Keycloak realm URL.
+- `clientId`: the public SPA client identifier.
+- `scope`: requested scopes for the login flow.
+- `redirectPath`: Angular callback route used to exchange the authorization code.
+- `postLogoutRedirectPath`: Angular route to return to after logout.
+- `audience`: optional audience when the identity provider requires it.
+
+Non-local frontend behavior is real-auth only:
+
+- Protected routes redirect unauthenticated, expired, or backend-auth-failure sessions to `/auth/login?returnUrl=...`.
+- Authenticated users without the required route permission land on `/access-denied`.
+- The frontend no longer treats auth bootstrap failures as a successful empty UI state.
 
 ### 3. Backend environment variables
 

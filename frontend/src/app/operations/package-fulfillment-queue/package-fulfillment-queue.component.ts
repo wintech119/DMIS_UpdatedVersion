@@ -163,16 +163,8 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly getUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe({
-      next: () => {
-        this.loadSeenFilters();
-        this.refreshQueue();
-      },
-      error: () => {
-        this.items.set([]);
-        this.loading.set(false);
-      },
-    });
+    this.loadSeenFilters();
+    this.refreshQueue();
   }
 
   refreshQueue(): void {

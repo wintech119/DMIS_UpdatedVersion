@@ -10,10 +10,12 @@
     </div>
 
     <div class="ops-hero__actions">
-      <button mat-flat-button color="primary" type="button" (click)="open('/operations/relief-requests/new')">
-        <mat-icon>add</mat-icon>
-        New Relief Request
-      </button>
+      @if (canAccessReliefRequests()) {
+        <button mat-flat-button color="primary" type="button" (click)="open('/operations/relief-requests/new')">
+          <mat-icon>add</mat-icon>
+          New Relief Request
+        </button>
+      }
       @if (canAccessEligibility()) {
         <button mat-stroked-button type="button" (click)="open('/operations/eligibility-review')">
           <mat-icon>fact_check</mat-icon>
@@ -33,7 +35,55 @@
         </div>
       }
     </div>
+  } @else if (loadError()) {
+    <section class="ops-card">
+      <div class="ops-card__header">
+        <div>
+          <p class="ops-section__eyebrow">Access check failed</p>
+          <h2 class="ops-section__title">The operations dashboard could not finish loading.</h2>
+        </div>
+      </div>
+      <div class="ops-card__body">
+        <div class="ops-callout">
+          <mat-icon aria-hidden="true">gpp_bad</mat-icon>
+          <div>
+            <p class="ops-section__copy">{{ loadError() }}</p>
+            <p class="ops-section__copy">
+              DMIS is keeping this failure explicit so a backend authorization problem does not look like an empty but successful dashboard.
+            </p>
+          </div>
+        </div>
+
+        <div class="ops-hero__actions">
+          @if (canAccessReliefRequests()) {
+            <button mat-stroked-button type="button" (click)="open('/operations/relief-requests')">
+              <mat-icon>open_in_new</mat-icon>
+              Relief Requests
+            </button>
+          }
+          @if (canAccessTasks()) {
+            <button mat-stroked-button type="button" (click)="open('/operations/tasks')">
+              <mat-icon>notifications</mat-icon>
+              Task Center
+            </button>
+          }
+        </div>
+      </div>
+    </section>
   } @else {
+    @if (laneAccessNotice()) {
+      <section class="ops-card">
+        <div class="ops-card__body">
+          <div class="ops-callout">
+            <mat-icon aria-hidden="true">shield</mat-icon>
+            <div>
+              <p class="ops-section__copy">{{ laneAccessNotice() }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    }
+
     <app-ops-metric-strip [items]="heroMetricItems()" />
 
     <div class="ops-grid ops-grid--split">
@@ -44,17 +94,19 @@
             <h2 class="ops-section__title">Queue overview</h2>
             <p class="ops-section__copy">Live relief requests and the next actions that keep the workflow moving.</p>
           </div>
-          <button mat-stroked-button type="button" (click)="open('/operations/relief-requests')">
-            <mat-icon>open_in_new</mat-icon>
-            Open Queue
-          </button>
+          @if (canAccessReliefRequests()) {
+            <button mat-stroked-button type="button" (click)="open('/operations/relief-requests')">
+              <mat-icon>open_in_new</mat-icon>
+              Open Queue
+            </button>
+          }
         </div>
 
         <div class="ops-panel__body">
           @if (priorityWork().length === 0) {
             <div class="ops-empty">
-              <p class="ops-empty__title">No active work items</p>
-              <p class="ops-empty__copy">The current queues are empty or the backend is unavailable.</p>
+              <p class="ops-empty__title">{{ priorityWorkEmptyTitle() }}</p>
+              <p class="ops-empty__copy">{{ priorityWorkEmptyCopy() }}</p>
             </div>
           } @else {
             <div class="ops-row-list">
@@ -142,16 +194,18 @@
               <p class="ops-section__eyebrow">Action items</p>
               <h2 class="ops-section__title">Recent tasks</h2>
             </div>
-            <button mat-stroked-button type="button" (click)="open('/operations/tasks')">
-              <mat-icon>open_in_new</mat-icon>
-              All Tasks
-            </button>
+            @if (canAccessTasks()) {
+              <button mat-stroked-button type="button" (click)="open('/operations/tasks')">
+                <mat-icon>open_in_new</mat-icon>
+                All Tasks
+              </button>
+            }
           </div>
           <div class="ops-card__body">
             @if (recentTasks().length === 0) {
               <div class="ops-empty">
-                <p class="ops-empty__title">No pending tasks</p>
-                <p class="ops-empty__copy">Workflow notifications will appear here as operations progress.</p>
+                <p class="ops-empty__title">{{ recentTasksEmptyTitle() }}</p>
+                <p class="ops-empty__copy">{{ recentTasksEmptyCopy() }}</p>
               </div>
             } @else {
               <div class="ops-row-list">

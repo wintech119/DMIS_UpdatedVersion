@@ -1,11 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
-import { HttpClient } from '@angular/common/http';
 import { MatDialog } from '@angular/material/dialog';
 import { Router } from '@angular/router';
+import { signal } from '@angular/core';
 import { of } from 'rxjs';
 
 import { NeedsListReviewDetailComponent } from './needs-list-review-detail.component';
+import { AuthRbacService } from '../services/auth-rbac.service';
 import { ReplenishmentService } from '../services/replenishment.service';
 import { DmisNotificationService } from '../services/notification.service';
 import { DataFreshnessService } from '../services/data-freshness.service';
@@ -18,7 +19,6 @@ describe('NeedsListReviewDetailComponent', () => {
   let replenishmentService: jasmine.SpyObj<ReplenishmentService>;
   let notificationService: jasmine.SpyObj<DmisNotificationService>;
   let dataFreshnessService: jasmine.SpyObj<DataFreshnessService>;
-  let httpClient: jasmine.SpyObj<HttpClient>;
   let router: jasmine.SpyObj<Router>;
 
   const needsListResponse: NeedsListResponse = {
@@ -97,10 +97,17 @@ describe('NeedsListReviewDetailComponent', () => {
       ['clear', 'updateFromWarehouseEntries']
     );
 
-    httpClient = jasmine.createSpyObj<HttpClient>('HttpClient', ['get']);
-    httpClient.get.and.returnValue(of({ roles: [], permissions: [] }));
-
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    const authRbac = {
+      roles: signal(['EXECUTIVE']),
+      permissions: signal([
+        'replenishment.needs_list.approve',
+        'replenishment.needs_list.reject',
+        'replenishment.needs_list.return',
+        'replenishment.needs_list.escalate',
+      ]),
+      actorRef: signal('EMP-123'),
+    };
 
     await TestBed.configureTestingModule({
       imports: [NeedsListReviewDetailComponent],
@@ -108,7 +115,7 @@ describe('NeedsListReviewDetailComponent', () => {
         { provide: ReplenishmentService, useValue: replenishmentService },
         { provide: DmisNotificationService, useValue: notificationService },
         { provide: DataFreshnessService, useValue: dataFreshnessService },
-        { provide: HttpClient, useValue: httpClient },
+        { provide: AuthRbacService, useValue: authRbac },
         { provide: Router, useValue: router },
         { provide: MatDialog, useValue: jasmine.createSpyObj<MatDialog>('MatDialog', ['open']) },
         {

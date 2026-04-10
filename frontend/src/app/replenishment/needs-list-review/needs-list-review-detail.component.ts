@@ -3,7 +3,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse } from '@angular/common/http';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -35,6 +35,7 @@ import { DmisSkeletonLoaderComponent } from '../shared/dmis-skeleton-loader/dmis
 import { DmisEmptyStateComponent } from '../shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisStepTrackerComponent, StepDefinition } from '../../shared/dmis-step-tracker/dmis-step-tracker.component';
 import { formatStatusLabel } from './status-label.util';
+import { AuthRbacService } from '../services/auth-rbac.service';
 
 const SEVERITY_ORDER: Record<string, number> = {
   CRITICAL: 0,
@@ -129,9 +130,9 @@ const HORIZON_ACTIONS = {
 export class NeedsListReviewDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly http = inject(HttpClient);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthRbacService);
   private readonly replenishmentService = inject(ReplenishmentService);
   private readonly dataFreshnessService = inject(DataFreshnessService);
   private readonly notifications = inject(DmisNotificationService);
@@ -140,9 +141,9 @@ export class NeedsListReviewDetailComponent implements OnInit {
   readonly needsList = signal<NeedsListResponse | null>(null);
   readonly error = signal(false);
   readonly actionLoading = signal<string | null>(null);
-  readonly roles = signal<string[]>([]);
-  readonly permissions = signal<string[]>([]);
-  readonly currentUser = signal<string | null>(null);
+  readonly roles = computed(() => this.auth.roles());
+  readonly permissions = computed(() => this.auth.permissions());
+  readonly currentUser = computed(() => this.auth.actorRef());
   readonly hasFreshnessData = signal(false);
 
   readonly items = computed(() => this.needsList()?.items ?? []);
@@ -346,7 +347,6 @@ export class NeedsListReviewDetailComponent implements OnInit {
   ngOnInit(): void {
     this.dataFreshnessService.clear();
     this.destroyRef.onDestroy(() => this.dataFreshnessService.clear());
-    this.loadPermissions();
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
       this.needsListId = params.get('id') ?? '';
       if (this.needsListId) {
@@ -614,30 +614,6 @@ export class NeedsListReviewDetailComponent implements OnInit {
 
   private can(permission: string): boolean {
     return this.permissions().includes(permission.toLowerCase());
-  }
-
-  private loadPermissions(): void {
-    this.http.get<{ user_id?: string; username?: string; roles?: string[]; permissions?: string[] }>('/api/v1/auth/whoami/').subscribe({
-      next: (data) => {
-        const roles = [...new Set((data.roles ?? []).map((role) => String(role).trim()).filter(Boolean))];
-        const permissions = [
-          ...new Set(
-            (data.permissions ?? [])
-              .map((permission) => String(permission).trim().toLowerCase())
-              .filter(Boolean)
-          )
-        ];
-        const userRef = String(data.username ?? data.user_id ?? '').trim();
-        this.roles.set(roles);
-        this.permissions.set(permissions);
-        this.currentUser.set(userRef || null);
-      },
-      error: () => {
-        this.roles.set([]);
-        this.permissions.set([]);
-        this.currentUser.set(null);
-      }
-    });
   }
 
   private extractError(error: HttpErrorResponse, fallback: string): string {

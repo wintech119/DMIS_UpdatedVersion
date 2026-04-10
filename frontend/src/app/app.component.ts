@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { Router, NavigationEnd, RouterLink, RouterOutlet } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 
+import { AuthSessionService } from './core/auth-session.service';
 import { SidenavComponent } from './layout/sidenav/sidenav.component';
 import { DmisLocalHarnessSwitcherComponent } from './local-harness-switcher.component';
 import { getMasterDomainLabel } from './master-data/models/master-domain-map';
@@ -99,24 +100,38 @@ function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
 })
 export class AppComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
+  private readonly authSession = inject(AuthSessionService);
   private readonly authRbac = inject(AuthRbacService);
   private routerSub!: Subscription;
 
-  readonly currentUser = computed(() => this.authRbac.currentUserRef() ?? 'Unknown');
+  readonly currentUser = computed(() => this.authRbac.currentUserRef() ?? this.authRbac.actorRef() ?? 'Unknown');
   readonly userRoles = computed(() => this.authRbac.roles());
   readonly userRole = computed(() => this.userRoles()[0] ?? '');
-  private readonly currentUrl = signal('/');
+  private readonly currentUrl = signal(this.normalizeUrl(this.router.url));
 
   readonly breadcrumbs = computed(() => buildBreadcrumbs(this.currentUrl()));
+  readonly showShellChrome = computed(() => !this.currentUrl().startsWith('/auth/'));
+  readonly showLogout = computed(() => this.showShellChrome() && this.authSession.logoutAvailable());
 
   ngOnInit(): void {
-    this.authRbac.load();
     this.routerSub = this.router.events
       .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
-      .subscribe((event) => this.currentUrl.set(event.urlAfterRedirects));
+      .subscribe((event) => this.currentUrl.set(this.normalizeUrl(event.urlAfterRedirects)));
   }
 
   ngOnDestroy(): void {
     this.routerSub?.unsubscribe();
+  }
+
+  async signOut(): Promise<void> {
+    await this.authSession.logout();
+  }
+
+  private normalizeUrl(url: string): string {
+    const normalized = String(url ?? '').trim();
+    if (!normalized) {
+      return '/';
+    }
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
   }
 }

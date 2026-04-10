@@ -6,7 +6,7 @@ describe('REPLENISHMENT_ROUTES', () => {
     return REPLENISHMENT_ROUTES.find((route) => route.path === path);
   }
 
-  it('guards replenishment routes that map to shared nav access keys', () => {
+  it('guards the replenishment routes that map to shared nav access keys', () => {
     expect(findRoute('dashboard')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('dashboard')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.dashboard' }));
 
@@ -24,5 +24,23 @@ describe('REPLENISHMENT_ROUTES', () => {
 
     expect(findRoute('needs-list/:id/review')?.canActivate).toEqual([appAccessGuard]);
     expect(findRoute('needs-list/:id/review')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.review' }));
+
+    expect(findRoute('needs-list/:id/transfers')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('needs-list/:id/transfers')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.execution' }));
+
+    expect(findRoute('needs-list/:id/donations')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('needs-list/:id/donations')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.execution' }));
+
+    expect(findRoute('needs-list/:id/procurement')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('needs-list/:id/procurement')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.view' }));
+
+    expect(findRoute('procurement/:procId')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('procurement/:procId')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.view' }));
+
+    expect(findRoute('procurement/:procId/edit')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('procurement/:procId/edit')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.edit' }));
+
+    expect(findRoute('procurement/:procId/receive')?.canActivate).toEqual([appAccessGuard]);
+    expect(findRoute('procurement/:procId/receive')?.data).toEqual(jasmine.objectContaining({ accessKey: 'replenishment.procurement.receive' }));
   });
 });

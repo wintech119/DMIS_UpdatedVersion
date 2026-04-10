@@ -47,8 +47,8 @@
             "production": {
               "fileReplacements": [
                 {
-                  "replace": "src/app/core/http-interceptors.ts",
-                  "with": "src/app/core/http-interceptors.disabled.ts"
+                  "replace": "src/app/core/dev-user.interceptor.ts",
+                  "with": "src/app/core/dev-user.interceptor.disabled.ts"
                 },
                 {
                   "replace": "src/app/local-harness-switcher.component.ts",

@@ -188,12 +188,7 @@ export class ConsolidationQueueComponent implements OnInit {
   readonly legProgressTone = getLegProgressTone;
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe({
-      next: () => this.refreshQueue(),
-      error: () => {
-        this.loading.set(false);
-      },
-    });
+    this.refreshQueue();
   }
 
   refreshQueue(): void {
