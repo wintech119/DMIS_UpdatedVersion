@@ -320,6 +320,6 @@ export class FulfillmentPlanStepComponent {
     if (!sourceWarehouseId) {
       return;
     }
-    this.store.updateSourceWarehouse(sourceWarehouseId);
+    this.store.resetWarehouseOverrides();
   }
 }

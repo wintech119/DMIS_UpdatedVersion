@@ -1481,6 +1481,126 @@ describe('OperationsWorkspaceStateService.load', () => {
       SOURCE_WAREHOUSE_ID,
     ]);
   });
+
+  it('resets per-item warehouse overrides back to the selected default warehouse', () => {
+    const ITEM_ID = 101;
+    const OVERRIDE_WAREHOUSE_ID = 9002;
+    const packageDetail = buildPackageDetail();
+    packageDetail.allocation = {
+      allocation_lines: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: OVERRIDE_WAREHOUSE_ID,
+          batch_id: 5001,
+          quantity: '3.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      reserved_stock_summary: { line_count: 1, total_qty: '3.0000' },
+      waybill_no: null,
+    };
+
+    const optionsResponse: AllocationOptionsResponse = {
+      request: packageDetail.request,
+      items: [
+        {
+          item_id: ITEM_ID,
+          item_code: 'TARP001',
+          item_name: 'Tarpaulin',
+          request_qty: '5.0000',
+          issue_qty: '0.0000',
+          remaining_qty: '5.0000',
+          urgency_ind: 'H',
+          candidates: [
+            {
+              batch_id: 3001,
+              inventory_id: SOURCE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '2',
+              reserved_qty: '0',
+              available_qty: '2',
+              source_type: 'ON_HAND',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+              warehouse_name: 'Seeded Warehouse',
+            },
+            {
+              batch_id: 5001,
+              inventory_id: OVERRIDE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '4',
+              reserved_qty: '0',
+              available_qty: '4',
+              source_type: 'ON_HAND',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+              warehouse_name: 'Override Warehouse',
+            },
+          ],
+          suggested_allocations: [
+            {
+              item_id: ITEM_ID,
+              inventory_id: SOURCE_WAREHOUSE_ID,
+              batch_id: 3001,
+              quantity: '2.0000',
+              source_type: 'ON_HAND',
+              source_record_id: null,
+              uom_code: 'EA',
+            },
+          ],
+          remaining_after_suggestion: '3.0000',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          compliance_markers: [],
+          override_required: false,
+          source_warehouse_id: SOURCE_WAREHOUSE_ID,
+          remaining_shortfall_qty: '3.0000',
+          continuation_recommended: false,
+          alternate_warehouses: [],
+          warehouse_cards: [],
+        },
+      ],
+    };
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(packageDetail));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValues(of(optionsResponse), of(optionsResponse));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            getPackage: getPackageSpy,
+            getAllocationOptions: getAllocationOptionsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+
+    service.load(RELIEFRQST_ID, true);
+    expect(service.itemWarehouseOverrides()).toEqual({ [ITEM_ID]: String(OVERRIDE_WAREHOUSE_ID) });
+
+    service.resetWarehouseOverrides();
+
+    expect(getAllocationOptionsSpy).toHaveBeenCalledWith(RELIEFRQST_ID, SOURCE_WAREHOUSE_ID);
+    expect(service.itemWarehouseOverrides()).toEqual({});
+    expect(service.effectiveWarehouseForItem(ITEM_ID)).toBe(String(SOURCE_WAREHOUSE_ID));
+    expect(service.loadedWarehousesByItem()[ITEM_ID]).toEqual([SOURCE_WAREHOUSE_ID]);
+    expect(service.selectedRowsByItem()[ITEM_ID]).toEqual([
+      jasmine.objectContaining({
+        item_id: ITEM_ID,
+        inventory_id: SOURCE_WAREHOUSE_ID,
+        batch_id: 3001,
+        quantity: '2.0000',
+      }),
+    ]);
+  });
 });
 
 describe('OperationsWorkspaceStateService.updateItemWarehouse', () => {

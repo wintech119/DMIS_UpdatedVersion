@@ -141,9 +141,7 @@ describe('ReliefRequestDetailComponent', () => {
 
     component.openDispatch(component.request()!.packages[0]);
 
-    expect(router.navigate).not.toHaveBeenCalledWith(
-      jasmine.arrayContaining(['/operations/dispatch']),
-    );
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
   it('disables the dispatch button while the execution status is PENDING_OVERRIDE_APPROVAL', async () => {

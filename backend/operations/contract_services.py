@@ -2512,11 +2512,16 @@ def _receive_leg_stock_into_staging(
                 update_dtime=now,
                 version_nbr=1,
             )
+        # Keep received staging stock reserved for the package so pickup/final
+        # dispatch consumes the same reservation rather than unclaimed stock.
         inventory.usable_qty = legacy_service._quantize_qty(inventory.usable_qty) + item.quantity
+        inventory.reserved_qty = legacy_service._quantize_qty(inventory.reserved_qty) + item.quantity
         inventory.update_by_id = actor_id
         inventory.update_dtime = now
         inventory.version_nbr = int(inventory.version_nbr or 0) + 1
-        inventory.save(update_fields=["usable_qty", "update_by_id", "update_dtime", "version_nbr"])
+        inventory.save(
+            update_fields=["usable_qty", "reserved_qty", "update_by_id", "update_dtime", "version_nbr"]
+        )
 
         staging_batch_id = int(legacy_service._next_int_id("itembatch", "batch_id"))
         ItemBatch.objects.create(
@@ -2527,7 +2532,7 @@ def _receive_leg_stock_into_staging(
             batch_date=source_batch.batch_date,
             expiry_date=source_batch.expiry_date,
             usable_qty=item.quantity,
-            reserved_qty=legacy_service._quantize_qty(0),
+            reserved_qty=item.quantity,
             defective_qty=legacy_service._quantize_qty(0),
             expired_qty=legacy_service._quantize_qty(0),
             uom_code=item.uom_code or source_batch.uom_code,

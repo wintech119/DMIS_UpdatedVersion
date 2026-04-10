@@ -125,6 +125,21 @@ describe('WarehouseAllocationCardComponent', () => {
     expect(input.value).toBe('300');
   });
 
+  it('clamps qty input to zero when the warehouse has no stock available', async () => {
+    const fixture = await render({
+      warehouse: buildCard({ total_available: '0', suggested_qty: '0' }),
+    });
+    const emitted: number[] = [];
+    fixture.componentInstance.qtyChange.subscribe((value) => emitted.push(value));
+
+    const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+    input.value = '7';
+    input.dispatchEvent(new Event('input'));
+
+    expect(emitted).toEqual([0]);
+    expect(input.value).toBe('0');
+  });
+
   it('clamps negative qty input to zero and emits 0', async () => {
     const fixture = await render({ warehouse: buildCard() });
     const emitted: number[] = [];
@@ -186,6 +201,13 @@ describe('WarehouseAllocationCardComponent', () => {
     expect(fixture.nativeElement.querySelector('.wh-card__remove')).toBeNull();
     const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
     expect(input.disabled).toBeTrue();
+  });
+
+  it('allows fractional allocations in the qty input', async () => {
+    const fixture = await render({ warehouse: buildCard() });
+    const input = fixture.nativeElement.querySelector('input[matInput]') as HTMLInputElement;
+
+    expect(input.getAttribute('step')).toBe('0.0001');
   });
 
   it('reflects EMPTY status when nothing has been allocated', async () => {
@@ -291,6 +313,36 @@ describe('WarehouseAllocationCardComponent', () => {
     const rows = fixture.nativeElement.querySelectorAll('.wh-batch-table tbody tr');
     expect((rows[0] as HTMLElement).classList).toContain('wh-batch-row--expiring');
     expect((rows[1] as HTMLElement).classList).not.toContain('wh-batch-row--expiring');
+  });
+
+  it('does not flag already-expired batches as expiring soon', async () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const fixture = await render({
+      warehouse: buildCard({
+        batches: [
+          {
+            batch_id: 8003,
+            inventory_id: 9001,
+            batch_no: 'EXPIRED',
+            batch_date: '2026-01-01',
+            expiry_date: yesterday.toISOString().slice(0, 10),
+            available_qty: '25',
+            usable_qty: '25',
+            reserved_qty: '0',
+            uom_code: 'EA',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+          },
+        ],
+      }),
+    });
+
+    (fixture.nativeElement.querySelector('.wh-card__toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const row = fixture.nativeElement.querySelector('.wh-batch-table tbody tr') as HTMLElement;
+    expect(row.classList).not.toContain('wh-batch-row--expiring');
   });
 
   it('gives the qty input a stable hint id per warehouse for screen-reader association', async () => {

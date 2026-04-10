@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from django.db import DatabaseError, IntegrityError, connection
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from api.tenancy import TenantContext, TenantMembership
@@ -78,7 +78,7 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_STAGING_WAREHOUSE_OVERRIDE,
 )
-from replenishment.legacy_models import ReliefRqst
+from replenishment.legacy_models import Inventory, ItemBatch, ReliefRqst
 
 
 def _tenant_context(
@@ -5410,6 +5410,111 @@ class OperationsWorkflowContractTests(TestCase):
             )
 
         self.assertEqual(raised.exception.errors, {"receipt": "Dispatch record is missing for this package."})
+
+
+class StagingReservationContractTests(TransactionTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._created_legacy_tables: list[type] = []
+        existing_tables = set(connection.introspection.table_names())
+        with connection.schema_editor() as schema_editor:
+            for model in (Inventory, ItemBatch):
+                if model._meta.db_table in existing_tables:
+                    continue
+                schema_editor.create_model(model)
+                cls._created_legacy_tables.append(model)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        with connection.schema_editor() as schema_editor:
+            for model in reversed(cls._created_legacy_tables):
+                schema_editor.delete_model(model)
+        super().tearDownClass()
+
+    def _create_operations_request_record(self, relief_request_id: int = 70, agency_id: int = 501) -> OperationsReliefRequest:
+        return OperationsReliefRequest.objects.create(
+            relief_request_id=relief_request_id,
+            request_no=f"RQ{relief_request_id:05d}",
+            requesting_tenant_id=20,
+            requesting_agency_id=agency_id,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=agency_id,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+    def test_receive_leg_stock_into_staging_reserves_the_new_staging_batch_for_final_dispatch(self) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=191)
+        package_record = OperationsPackage.objects.create(
+            package_id=191,
+            package_no="PK00191",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        source_batch = ItemBatch.objects.create(
+            batch_id=4001,
+            inventory_id=4,
+            item_id=101,
+            batch_no="SRC-4001",
+            batch_date=date(2026, 3, 20),
+            expiry_date=date(2026, 12, 31),
+            usable_qty=Decimal("5.0000"),
+            reserved_qty=Decimal("0.0000"),
+            defective_qty=Decimal("0.0000"),
+            expired_qty=Decimal("0.0000"),
+            uom_code="EA",
+            status_code="A",
+            update_by_id="tester",
+            update_dtime=timezone.now(),
+            version_nbr=1,
+        )
+        leg_item = OperationsConsolidationLegItem.objects.create(
+            leg=leg,
+            item_id=101,
+            batch_id=source_batch.batch_id,
+            quantity=Decimal("2.0000"),
+            source_type="ON_HAND",
+            source_record_id=None,
+            uom_code="EA",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        with patch("operations.contract_services.legacy_service._next_int_id", return_value=95501):
+            contract_services._receive_leg_stock_into_staging(leg=leg, actor_id="receiver-1")
+
+        leg_item.refresh_from_db()
+        staging_batch = ItemBatch.objects.get(batch_id=95501)
+        staging_inventory = Inventory.objects.get(inventory_id=55, item_id=101)
+
+        self.assertEqual(leg_item.staging_batch_id, 95501)
+        self.assertEqual(staging_batch.inventory_id, 55)
+        self.assertEqual(staging_batch.usable_qty, Decimal("2.0000"))
+        self.assertEqual(staging_batch.reserved_qty, Decimal("2.0000"))
+        self.assertEqual(staging_batch.available_qty, Decimal("0.0000"))
+        self.assertEqual(staging_inventory.usable_qty, Decimal("2.00"))
+        self.assertEqual(staging_inventory.reserved_qty, Decimal("2.00"))
+        self.assertEqual(staging_inventory.available_qty, Decimal("0.00"))
 
 
 class ItemAllocationOptionsTests(TestCase):

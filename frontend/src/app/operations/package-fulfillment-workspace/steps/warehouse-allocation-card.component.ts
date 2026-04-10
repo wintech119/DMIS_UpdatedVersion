@@ -142,7 +142,7 @@ type AllocationFillStatus = 'FILLED' | 'PARTIAL' | 'EMPTY';
             inputmode="decimal"
             min="0"
             [max]="maxQty()"
-            step="1"
+            step="0.0001"
             maxlength="12"
             [value]="allocatedQty()"
             [disabled]="readOnly()"
@@ -687,7 +687,7 @@ export class WarehouseAllocationCardComponent {
       return;
     }
     const cap = this.maxQty();
-    const clamped = Math.min(Math.max(raw, 0), cap > 0 ? cap : raw);
+    const clamped = Math.min(Math.max(raw, 0), cap > 0 ? cap : 0);
     if (clamped !== raw) {
       // Reflect the clamp back into the DOM so the displayed value matches.
       target.value = String(clamped);
@@ -714,7 +714,7 @@ export class WarehouseAllocationCardComponent {
     }
     const now = Date.now();
     const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
-    return parsed - now <= fourteenDaysMs;
+    return parsed > now && parsed - now <= fourteenDaysMs;
   }
 
   private parseDecimal(value: string | number | null | undefined): number {

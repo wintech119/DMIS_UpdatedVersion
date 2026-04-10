@@ -838,6 +838,52 @@ export class OperationsWorkspaceStateService {
     this.draft.update((current) => ({ ...current, ...patch }));
   }
 
+  resetWarehouseOverrides(): void {
+    const normalizedSourceWarehouseId = this.sanitizeInteger(this.draft().source_warehouse_id);
+    const reliefrqstId = this.reliefrqstId();
+    if (!reliefrqstId || !normalizedSourceWarehouseId) {
+      this.itemWarehouseOverrides.set({});
+      return;
+    }
+
+    const prevOptions = this.options();
+    const prevSelections = this.selectedRowsByItem();
+    const prevOverrides = this.itemWarehouseOverrides();
+    const prevSeededWarehouses = this.seededWarehousesByItem();
+    const prevLoadedWarehouses = this.loadedWarehousesByItem();
+    const workspaceGeneration = this.beginWorkspaceGeneration();
+
+    this.loading.set(true);
+    this.loadError.set(null);
+    this.optionsError.set(null);
+
+    this.operationsService.getAllocationOptions(
+      reliefrqstId,
+      Number(normalizedSourceWarehouseId),
+    ).subscribe({
+      next: (options) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
+        this.options.set(options);
+        this.initializeSelections(null, options);
+        this.loading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (!this.isCurrentWorkspaceGeneration(workspaceGeneration)) {
+          return;
+        }
+        this.options.set(prevOptions);
+        this.selectedRowsByItem.set(prevSelections);
+        this.itemWarehouseOverrides.set(prevOverrides);
+        this.seededWarehousesByItem.set(prevSeededWarehouses);
+        this.loadedWarehousesByItem.set(prevLoadedWarehouses);
+        this.loading.set(false);
+        this.optionsError.set(this.extractError(error, 'Failed to reset warehouse overrides.'));
+      },
+    });
+  }
+
   updateSourceWarehouse(sourceWarehouseId: string): void {
     const normalizedSourceWarehouseId = this.sanitizeInteger(sourceWarehouseId);
 

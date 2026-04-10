@@ -1,10 +1,10 @@
 # Current Task Plan
 
-1. Leave the `backend/operations/views.py` request-body comments untouched because the live code already routes request bodies through `_payload_object()` and rejects non-object JSON before `draft_save` or boolean flag access.
-2. Fix the verified frontend mismatch in `frontend/src/app/operations/package-fulfillment-queue/package-fulfillment-queue.component.ts` so `isReady()` treats legacy `package_status === 'P'` rows the same way as `getFulfillmentStage()`, while still honoring pending-override behavior.
-3. Update the verified regression tests in `backend/operations/tests_relief_request_policy.py` and `frontend/src/app/operations/package-fulfillment-workspace/package-fulfillment-workspace.component.spec.ts`:
-   - assert pending-override saves keep package headers in `PKG_STATUS_DRAFT`
-   - replace the private `collectDetailErrors()` test call with the public `goToReview()` flow
-   - seed and clear `store.lockConflict` in the force-release lock test
-4. Do not apply the stale `fulfillment-details-step.component.ts` comments because the referenced `onStagingApplied` / duplicate `reliefrqstId()` code path does not exist in the current component.
-5. Run targeted backend and frontend tests for the touched files, then record any reusable lesson in `tasks/lessons.md`.
+1. Verify every reported frontend/backend finding against the current code instead of assuming the comment context is still live.
+2. Patch only the findings that remain valid:
+   - warehouse allocation card quantity/expiry/input-step handling
+   - relief request detail spec navigation assertion
+   - staged-stock reservation before `READY_FOR_DISPATCH`
+3. Leave stale/already-fixed comments untouched and note that verification in the final summary.
+4. Run targeted frontend and backend tests for the touched areas.
+5. Record any reusable lesson in `tasks/lessons.md` only if this pass surfaces one that is not already captured.
