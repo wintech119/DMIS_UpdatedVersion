@@ -461,11 +461,14 @@ operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int):
     try:
+        payload = _payload_object(request.data)
         return Response(
             operations_service.get_item_allocation_preview(
                 reliefrqst_id,
                 item_id,
-                payload=_payload_object(request.data),
+                payload=payload,
+                source_warehouse_id=payload.get("source_warehouse_id"),
+                draft_allocations=payload.get("draft_allocations"),
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),

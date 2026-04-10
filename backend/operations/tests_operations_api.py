@@ -641,6 +641,14 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.json()["effective_remaining_qty"], "5.0000")
         self.assertEqual(mock_preview.call_args.args[:2], (70, 101))
         self.assertEqual(mock_preview.call_args.kwargs["payload"], payload)
+        self.assertEqual(
+            mock_preview.call_args.kwargs["source_warehouse_id"],
+            payload["source_warehouse_id"],
+        )
+        self.assertEqual(
+            mock_preview.call_args.kwargs["draft_allocations"],
+            payload["draft_allocations"],
+        )
         self.assertEqual(mock_preview.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_preview.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_preview.call_args.kwargs["tenant_context"].active_tenant_id, 20)

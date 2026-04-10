@@ -688,7 +688,7 @@ export class FulfillmentReviewStepComponent {
       entry.rows.push(row);
       entry.subtotal += this.toNumber(row.quantity);
     }
-    return [...map.values()].sort((a, b) => a.warehouseName.localeCompare(b.warehouseName));
+    return [...map.values()];
   }
 
   reservationStateLabel(): string {

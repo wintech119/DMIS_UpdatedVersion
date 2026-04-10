@@ -1,7 +1,7 @@
 # Current Task Plan
 
-1. Inspect the Angular shell, auth state, and sidenav access logic tied to the local harness.
-2. Reproduce the regression in Playwright against `http://localhost:4200` and capture storage/runtime state.
-3. Fix the client-side guard/rendering regression that blocks navigation despite a valid `whoami` principal.
-4. Run targeted frontend tests for the guard and local harness shell behavior.
-5. Record any reusable lesson in `tasks/lessons.md` only if this pass surfaces one that is not already captured.
+1. Verify each review finding against the current backend and frontend code rather than assuming the comment is still valid.
+2. Fix only the findings that still reproduce, keeping changes minimal and preserving current architectural patterns.
+3. Update targeted tests where the current assertions or fixtures do not verify the real contract.
+4. Run focused backend and frontend tests for the touched areas.
+5. Perform a short system architecture consistency review on the override, audit, and workspace reload changes before closing.

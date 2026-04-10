@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import json
 import os
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
@@ -38,6 +38,11 @@ from operations.models import (
 )
 from replenishment.legacy_models import Inventory, ItemBatch
 from operations.management.commands import reset_package_allocations
+
+
+_USE_CURRENT_UPDATE_TIME = object()
+
+
 class ImportReliefManagementAuthorityCommandTests(TestCase):
     def _write_payload(self, payload: dict[str, object]) -> str:
         fd, raw_path = tempfile.mkstemp(
@@ -1072,6 +1077,7 @@ class RepairInventoryAggregatesCommandTests(TransactionTestCase):
         defective_qty: Decimal = Decimal("0.0000"),
         expired_qty: Decimal = Decimal("0.0000"),
         status_code: str = "A",
+        update_dtime: datetime | None | object = _USE_CURRENT_UPDATE_TIME,
     ) -> ItemBatch:
         ItemBatch.objects.filter(batch_id=batch_id).delete()
         return ItemBatch.objects.create(
@@ -1088,7 +1094,7 @@ class RepairInventoryAggregatesCommandTests(TransactionTestCase):
             uom_code="EA",
             status_code=status_code,
             update_by_id="seed",
-            update_dtime=timezone.now(),
+            update_dtime=timezone.now() if update_dtime is _USE_CURRENT_UPDATE_TIME else update_dtime,
             version_nbr=1,
         )
 
@@ -1211,6 +1217,58 @@ class RepairInventoryAggregatesCommandTests(TransactionTestCase):
         self.assertIn("planned action: noop", output.getvalue())
         self.assertIn("No repairs needed.", output.getvalue())
         self.assertIn("applied action: noop", output.getvalue())
+
+    def test_apply_counts_legacy_active_batches_with_null_update_timestamp(self) -> None:
+        inventory = self._create_inventory(
+            inventory_id=9933,
+            item_id=9444,
+        )
+        self._create_batch(
+            inventory_id=9933,
+            item_id=9444,
+            batch_id=995333,
+            usable_qty=Decimal("11.5000"),
+            reserved_qty=Decimal("1.2500"),
+            update_dtime=None,
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9933,
+            item_id=9444,
+            actor="SYSTEM",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("11.50"))
+        self.assertEqual(inventory.reserved_qty, Decimal("1.25"))
+        self.assertIn("active batch totals: rows=1 usable=11.5000 reserved=1.2500", output.getvalue())
+
+    def test_batch_id_verification_rejects_filtered_out_batch_rows(self) -> None:
+        self._create_inventory(
+            inventory_id=9944,
+            item_id=9555,
+        )
+        self._create_batch(
+            inventory_id=9944,
+            item_id=9555,
+            batch_id=995444,
+            status_code="I",
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Batch 995444 was not found for inventory 9944 / item 9555.",
+        ):
+            call_command(
+                "repair_inventory_aggregates",
+                inventory_id=9944,
+                item_id=9555,
+                batch_id=995444,
+            )
 
 
 class ReleasePackageLockCommandTests(TestCase):

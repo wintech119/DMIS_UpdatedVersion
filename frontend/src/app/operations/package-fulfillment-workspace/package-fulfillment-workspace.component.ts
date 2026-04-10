@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -62,6 +63,7 @@ interface FulfillmentConfirmationState {
     DmisEmptyStateComponent,
     DmisSkeletonLoaderComponent,
     DmisStepTrackerComponent,
+    NgTemplateOutlet,
   ],
   providers: [OperationsWorkspaceStateService],
   templateUrl: './package-fulfillment-workspace.component.html',

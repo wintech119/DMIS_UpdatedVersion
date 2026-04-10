@@ -10,6 +10,7 @@ import {
   ConsolidationLegItem,
   ConsolidationLegReceiveResponse,
   ConsolidationLegsResponse,
+  ConsolidationStatus,
   ConsolidationWaybillResponse,
   DispatchDetailResponse,
   DispatchQueueItem,
@@ -134,6 +135,20 @@ function normalizeStagingBasis(value: unknown): StagingSelectionBasis | null {
   return null;
 }
 
+function normalizeConsolidationStatus(value: unknown): ConsolidationStatus | null {
+  const normalized = asNullableString(value)?.trim().toUpperCase();
+  if (
+    normalized === 'AWAITING_LEGS'
+    || normalized === 'LEGS_IN_TRANSIT'
+    || normalized === 'PARTIALLY_RECEIVED'
+    || normalized === 'ALL_RECEIVED'
+    || normalized === 'PARTIAL_RELEASE_REQUESTED'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 function normalizePackageLegSummary(raw: unknown): PackageLegSummary | null {
   if (raw == null) {
     return null;
@@ -203,9 +218,7 @@ export function normalizePackageSummary(raw: unknown): PackageSummary {
     recommended_staging_warehouse_id: asNullableNumber(source['recommended_staging_warehouse_id']),
     staging_selection_basis: normalizeStagingBasis(source['staging_selection_basis']),
     staging_override_reason: asNullableString(source['staging_override_reason']),
-    consolidation_status: asNullableString(
-      source['consolidation_status'],
-    ) as PackageSummary['consolidation_status'],
+    consolidation_status: normalizeConsolidationStatus(source['consolidation_status']),
     effective_dispatch_source_warehouse_id: asNullableNumber(
       source['effective_dispatch_source_warehouse_id'],
     ),
@@ -797,24 +810,26 @@ export function normalizeStagingRecommendation(raw: unknown): StagingRecommendat
 export function normalizePartialReleaseRequestResponse(raw: unknown): PartialReleaseRequestResponse {
   const source = asRecord(raw);
   return {
-    status: 'PARTIAL_RELEASE_REQUESTED',
+    status: normalizeEnumStatus(source['status'], ['PARTIAL_RELEASE_REQUESTED'], 'PARTIAL_RELEASE_REQUESTED'),
     package: normalizePackageSummary(source['package']),
   };
 }
 
 export function normalizePartialReleaseApproveResponse(raw: unknown): PartialReleaseApproveResponse {
   const source = asRecord(raw);
+  const residualSource = source['residual_child'] ?? source['residual'];
+  const releasedSource = source['released_child'] ?? source['released'];
   return {
     parent: normalizePackageSummary(source['parent']),
-    residual: source['residual'] ? normalizePackageSummary(source['residual']) : null,
-    released: source['released'] ? normalizePackageSummary(source['released']) : null,
+    residual: residualSource ? normalizePackageSummary(residualSource) : null,
+    released: releasedSource ? normalizePackageSummary(releasedSource) : null,
   };
 }
 
 export function normalizePickupReleaseResponse(raw: unknown): PickupReleaseResponse {
   const source = asRecord(raw);
   return {
-    status: 'RECEIVED',
+    status: normalizeEnumStatus(source['status'], ['RECEIVED'], 'RECEIVED'),
     package: normalizePackageSummary(source['package']),
   };
 }

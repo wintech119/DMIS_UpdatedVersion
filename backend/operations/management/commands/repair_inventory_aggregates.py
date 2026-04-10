@@ -7,7 +7,7 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from replenishment.legacy_models import Inventory, ItemBatch
@@ -142,8 +142,13 @@ class Command(BaseCommand):
             inventory_queryset = inventory_queryset.select_for_update()
             batch_queryset = batch_queryset.select_for_update()
 
+        active_batches = batch_queryset.filter(
+            status_code__iexact=active_status,
+        ).filter(
+            Q(update_dtime__lte=now) | Q(update_dtime__isnull=True)
+        )
         inventory = inventory_queryset.first()
-        if batch_id is not None and not batch_queryset.filter(batch_id=batch_id).exists():
+        if batch_id is not None and not active_batches.filter(batch_id=batch_id).exists():
             raise CommandError(
                 f"Batch {batch_id} was not found for inventory {inventory_id} / item {item_id}."
             )
@@ -151,11 +156,6 @@ class Command(BaseCommand):
             raise CommandError(
                 f"No inventory aggregate or batch rows were found for inventory {inventory_id} / item {item_id}."
             )
-
-        active_batches = batch_queryset.filter(
-            status_code__iexact=active_status,
-            update_dtime__lte=now,
-        )
         batch_totals = active_batches.aggregate(
             total_usable=Sum("usable_qty"),
             total_reserved=Sum("reserved_qty"),

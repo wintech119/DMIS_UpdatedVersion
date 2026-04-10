@@ -26,6 +26,30 @@
     </div>
   </section>
 
+  <ng-template #draftPersistenceActions>
+    <button
+      mat-stroked-button
+      color="warn"
+      type="button"
+      class="ops-step-actions__cancel"
+      aria-label="Cancel fulfillment"
+      [disabled]="!canCancel()"
+      (click)="cancelFulfillment()">
+      <mat-icon>cancel</mat-icon>
+      Cancel
+    </button>
+    @if (canSaveDraft()) {
+      <button
+        mat-stroked-button
+        type="button"
+        [disabled]="savingDraft() || store.submitting() || store.loading()"
+        (click)="saveDraft()">
+        <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
+        {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
+      </button>
+    }
+  </ng-template>
+
   @if (store.loading()) {
     <dmis-skeleton-loader variant="summary-card" [count]="4" />
   }
@@ -170,27 +194,7 @@
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
             <span class="ops-step-actions__spacer"></span>
-            <button
-              mat-stroked-button
-              color="warn"
-              type="button"
-              class="ops-step-actions__cancel"
-              aria-label="Cancel fulfillment"
-              [disabled]="!canCancel()"
-              (click)="cancelFulfillment()">
-              <mat-icon>cancel</mat-icon>
-              Cancel
-            </button>
-            @if (canSaveDraft()) {
-              <button
-                mat-stroked-button
-                type="button"
-                [disabled]="savingDraft() || store.submitting() || store.loading()"
-                (click)="saveDraft()">
-                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
-                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
-              </button>
-            }
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" (click)="goToDetails()">Continue</button>
           </div>
         </div>
@@ -203,27 +207,7 @@
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
             <span class="ops-step-actions__spacer"></span>
-            <button
-              mat-stroked-button
-              color="warn"
-              type="button"
-              class="ops-step-actions__cancel"
-              aria-label="Cancel fulfillment"
-              [disabled]="!canCancel()"
-              (click)="cancelFulfillment()">
-              <mat-icon>cancel</mat-icon>
-              Cancel
-            </button>
-            @if (canSaveDraft()) {
-              <button
-                mat-stroked-button
-                type="button"
-                [disabled]="savingDraft() || store.submitting() || store.loading()"
-                (click)="saveDraft()">
-                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
-                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
-              </button>
-            }
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" (click)="goToReview()">Review Reservation</button>
           </div>
         </div>
@@ -240,27 +224,7 @@
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
             <span class="ops-step-actions__spacer"></span>
-            <button
-              mat-stroked-button
-              color="warn"
-              type="button"
-              class="ops-step-actions__cancel"
-              aria-label="Cancel fulfillment"
-              [disabled]="!canCancel()"
-              (click)="cancelFulfillment()">
-              <mat-icon>cancel</mat-icon>
-              Cancel
-            </button>
-            @if (canSaveDraft()) {
-              <button
-                mat-stroked-button
-                type="button"
-                [disabled]="savingDraft() || store.submitting() || store.loading()"
-                (click)="saveDraft()">
-                <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
-                {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
-              </button>
-            }
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
               <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
               {{ store.submitting() ? 'Saving...' : commitActionLabel() }}

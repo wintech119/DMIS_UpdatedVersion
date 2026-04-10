@@ -1498,11 +1498,12 @@ def get_allocation_options(
             candidates,
             remaining_qty,
         )
-        override_required, _, compliance_markers = detect_override_requirement(
+        _, _, compliance_markers = detect_override_requirement(
             item,
             suggested_allocations,
             candidates,
         )
+        approval_required = bool(_approval_required_override_markers(compliance_markers))
 
         group = {
             "needs_list_item_id": needs_item.needs_list_item_id,
@@ -1528,7 +1529,7 @@ def get_allocation_options(
                 for row in suggested_allocations
             ],
             "compliance_markers": compliance_markers,
-            "override_required": override_required,
+            "override_required": approval_required,
         }
         for candidate in candidates:
             row = dict(candidate)
@@ -1727,7 +1728,7 @@ def commit_allocation(
         needs_list_id=needs_list.needs_list_id,
         actor_user_id=actor_user_id,
         action_type=audit_action,
-        reason_code=override_reason_code if override_required else "allocation_commit",
+        reason_code=override_reason_code if override_markers else "allocation_commit",
         notes_text=override_note,
     )
 

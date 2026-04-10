@@ -27,6 +27,7 @@ from replenishment.services.allocation_dispatch import (
     build_greedy_allocation_plan,
     build_waybill_payload,
     detect_override_requirement,
+    get_allocation_options,
     get_current_allocation,
     OverrideApprovalError,
     release_allocation,
@@ -591,6 +592,98 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertEqual([row["batch_id"] for row in recommended], [100])
         self.assertIn("allocation_order_override", markers)
 
+    @patch("replenishment.services.allocation_dispatch.detect_override_requirement")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 101,
+                    "inventory_id": 10,
+                    "batch_id": 1001,
+                    "quantity": Decimal("2.0000"),
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates")
+    @patch(
+        "replenishment.services.allocation_dispatch._fetch_batch_candidates",
+        return_value=[
+            {
+                "batch_id": 1001,
+                "inventory_id": 10,
+                "available_qty": Decimal("2.0000"),
+                "usable_qty": Decimal("2.0000"),
+                "reserved_qty": Decimal("0"),
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+            }
+        ],
+    )
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch.sort_needs_list_items_for_allocation")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    @patch("replenishment.services.allocation_dispatch.NeedsListItem.objects.filter")
+    def test_get_allocation_options_only_flags_approval_required_overrides(
+        self,
+        needs_list_item_filter_mock,
+        mock_load_needs_list,
+        mock_load_items,
+        mock_sort_items,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        mock_sort_candidates,
+        _mock_greedy_plan,
+        mock_detect_override_requirement,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(
+            needs_list_id=11,
+            needs_list_no="NL-11",
+            warehouse_id=3,
+            event_id=12,
+            status_code="APPROVED",
+            submitted_at=None,
+            create_dtime=None,
+        )
+        needs_item = SimpleNamespace(
+            needs_list_item_id=19,
+            item_id=101,
+            required_qty=Decimal("2.0000"),
+            fulfilled_qty=Decimal("0"),
+            reserved_qty=Decimal("0"),
+            effective_criticality_level="HIGH",
+            uom_code="EA",
+        )
+        mock_load_items.return_value = [needs_item]
+        mock_sort_items.return_value = [needs_item]
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=101,
+            item_code="ITM-101",
+            item_name="Water Container",
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+        mock_sort_candidates.side_effect = lambda item, candidates, as_of_date=None: list(candidates)
+        mock_detect_override_requirement.return_value = (
+            True,
+            [],
+            ["allocation_order_override"],
+        )
+
+        item_ids_qs = MagicMock()
+        item_ids_qs.values_list.return_value = [101]
+        conflicts_qs = MagicMock()
+        conflicts_qs.exclude.return_value.values.return_value.distinct.return_value.exists.return_value = False
+        needs_list_item_filter_mock.side_effect = [item_ids_qs, conflicts_qs]
+
+        result = get_allocation_options(11)
+
+        self.assertFalse(result["items"][0]["override_required"])
+        self.assertEqual(result["items"][0]["compliance_markers"], ["allocation_order_override"])
+
     @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
     @patch("replenishment.services.allocation_dispatch._log_audit")
     @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
@@ -656,6 +749,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertFalse(result["override_required"])
         self.assertEqual(result["override_markers"], ["allocation_order_override"])
         self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
+        self.assertEqual(_log_audit_mock.call_args.kwargs["reason_code"], "FEFO_BYPASS")
         stock_delta_mock.assert_called_once()
         header_updates_mock.assert_called_once()
 
