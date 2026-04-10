@@ -11,19 +11,28 @@ from operations.relief_test_data import (
     TemporaryFrontendUserSpec,
     default_frontend_test_agency_name,
     default_frontend_test_warehouse_name,
+    local_auth_harness_usernames,
     temporary_frontend_user_specs,
+    temporary_local_harness_default_user,
 )
 
 
 class Command(BaseCommand):
     help = (
-        "Seed temporary non-ODPEM frontend test users, tenant memberships, and DB RBAC role assignments "
-        "for Relief Management. Dry-run by default."
+        "Seed temporary local-harness frontend test users, including national ODPEM logistics personas "
+        "and a target-tenant requester profile for Relief Management. Dry-run by default."
     )
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--tenant-id", type=int, default=None, help="Existing target tenant ID.")
         parser.add_argument("--tenant-code", type=str, default="JRC", help="Existing target tenant code. Defaults to JRC.")
+        parser.add_argument("--national-tenant-id", type=int, default=None, help="Existing ODPEM/NEOC tenant ID for the local system-admin profile.")
+        parser.add_argument(
+            "--national-tenant-code",
+            type=str,
+            default=None,
+            help="Existing ODPEM/NEOC tenant code for the local system-admin profile. Auto-resolves when omitted.",
+        )
         parser.add_argument("--agency-id", type=int, default=None, help="Existing beneficiary agency ID.")
         parser.add_argument(
             "--agency-name",
@@ -51,6 +60,10 @@ class Command(BaseCommand):
         apply_changes = bool(options.get("apply"))
 
         tenant = self._resolve_tenant(options.get("tenant_id"), options.get("tenant_code"))
+        national_tenant = self._resolve_national_tenant(
+            options.get("national_tenant_id"),
+            options.get("national_tenant_code"),
+        )
         agency_name = str(options.get("agency_name") or "").strip() or default_frontend_test_agency_name(
             tenant["tenant_code"]
         )
@@ -71,14 +84,23 @@ class Command(BaseCommand):
 
         profiles = self._build_profiles(tenant["tenant_code"], tenant["tenant_name"])
         resolved_roles = {profile.role_code: self._resolve_role(profile.role_code) for profile in profiles}
+        recommended_usernames = local_auth_harness_usernames(tenant["tenant_code"])
 
         self.stdout.write("Relief Management frontend test-user seed:")
         self.stdout.write(f"- target tenant: {tenant['tenant_id']} ({tenant['tenant_code']}) {tenant['tenant_name']}")
+        self.stdout.write(
+            f"- national tenant: {national_tenant['tenant_id']} ({national_tenant['tenant_code']}) {national_tenant['tenant_name']}"
+        )
         self.stdout.write(f"- warehouse: {warehouse['warehouse_id']} {warehouse['warehouse_name']}")
         self.stdout.write(f"- agency: {agency['agency_id']} {agency['agency_name']}")
         self.stdout.write(f"- users planned: {len(profiles)}")
         for profile in profiles:
-            self.stdout.write(f"  - {profile.username} role={profile.role_code} access={profile.access_level}")
+            profile_tenant = national_tenant if profile.tenant_scope == "national" else tenant
+            self.stdout.write(
+                f"  - {profile.username} role={profile.role_code} access={profile.access_level} tenant={profile_tenant['tenant_code']}"
+            )
+        self.stdout.write(f"- recommended DEV_AUTH_USER_ID: {temporary_local_harness_default_user().username}")
+        self.stdout.write(f"- recommended LOCAL_AUTH_HARNESS_USERNAMES: {','.join(recommended_usernames)}")
 
         if not apply_changes:
             self.stdout.write(self.style.WARNING("Dry-run only. Re-run with --apply to persist changes."))
@@ -90,18 +112,19 @@ class Command(BaseCommand):
         role_changes = 0
         with transaction.atomic():
             for profile in profiles:
+                profile_tenant = national_tenant if profile.tenant_scope == "national" else tenant
                 user_id, created = self._ensure_user(
                     profile=profile,
-                    tenant_name=tenant["tenant_name"],
-                    agency_id=agency["agency_id"],
-                    warehouse_id=warehouse["warehouse_id"],
+                    tenant_name=profile_tenant["tenant_name"],
+                    agency_id=agency["agency_id"] if profile.bind_to_agency else None,
+                    warehouse_id=warehouse["warehouse_id"] if profile.bind_to_warehouse else None,
                 )
                 created_users += int(created)
                 reused_users += int(not created)
                 membership_changes += int(
                     self._ensure_tenant_membership(
                         user_id=user_id,
-                        tenant_id=tenant["tenant_id"],
+                        tenant_id=profile_tenant["tenant_id"],
                         access_level=profile.access_level,
                         actor_id=actor_id,
                         actor_user_id=actor_user_id,
@@ -123,7 +146,10 @@ class Command(BaseCommand):
         self.stdout.write(f"- role assignments inserted: {role_changes}")
 
     def _build_profiles(self, tenant_code: str, _tenant_name: str) -> list[TemporaryFrontendUserSpec]:
-        return list(temporary_frontend_user_specs(tenant_code))
+        return [
+            temporary_local_harness_default_user(),
+            *list(temporary_frontend_user_specs(tenant_code)),
+        ]
 
     def _resolve_tenant(self, tenant_id: Any, tenant_code: Any) -> dict[str, Any]:
         parsed_tenant_id = self._safe_int(tenant_id)
@@ -158,6 +184,70 @@ class Command(BaseCommand):
         if self._is_odpem_tenant_code(row[1]):
             raise CommandError("Temporary frontend users must target a non-ODPEM tenant.")
         return {"tenant_id": int(row[0]), "tenant_code": str(row[1] or "").strip(), "tenant_name": str(row[2] or "").strip()}
+
+    def _resolve_national_tenant(self, tenant_id: Any, tenant_code: Any) -> dict[str, Any]:
+        parsed_tenant_id = self._safe_int(tenant_id)
+        normalized_code = str(tenant_code or "").strip().upper()
+        try:
+            with connection.cursor() as cursor:
+                if parsed_tenant_id is not None:
+                    cursor.execute(
+                        """
+                        SELECT tenant_id, tenant_code, tenant_name, tenant_type
+                        FROM tenant
+                        WHERE tenant_id = %s AND COALESCE(status_code, 'A') = 'A'
+                        LIMIT 1
+                        """,
+                        [parsed_tenant_id],
+                    )
+                elif normalized_code:
+                    cursor.execute(
+                        """
+                        SELECT tenant_id, tenant_code, tenant_name, tenant_type
+                        FROM tenant
+                        WHERE UPPER(COALESCE(tenant_code, '')) = %s AND COALESCE(status_code, 'A') = 'A'
+                        LIMIT 1
+                        """,
+                        [normalized_code],
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT tenant_id, tenant_code, tenant_name, tenant_type
+                        FROM tenant
+                        WHERE
+                            COALESCE(status_code, 'A') = 'A'
+                            AND (
+                                UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) IN ('ODPEM_NEOC', 'OFFICE_OF_DISASTER_P')
+                                OR UPPER(COALESCE(tenant_type, '')) IN ('NEOC', 'NATIONAL', 'NATIONAL_LEVEL')
+                                OR UPPER(COALESCE(tenant_code, '')) LIKE 'ODPEM%%'
+                            )
+                        ORDER BY
+                            CASE
+                                WHEN UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) = 'ODPEM_NEOC' THEN 0
+                                WHEN UPPER(COALESCE(tenant_type, '')) = 'NEOC' THEN 1
+                                WHEN UPPER(REPLACE(REPLACE(COALESCE(tenant_code, ''), '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P' THEN 2
+                                WHEN UPPER(COALESCE(tenant_code, '')) LIKE 'ODPEM%%' THEN 3
+                                ELSE 4
+                            END,
+                            tenant_id
+                        LIMIT 1
+                        """
+                    )
+                row = cursor.fetchone()
+        except DatabaseError as exc:
+            raise CommandError("Unable to resolve the national/local system-admin tenant.") from exc
+
+        if not row:
+            raise CommandError("National/local system-admin tenant does not exist or is inactive.")
+        tenant_type = str(row[3] or "").strip().upper()
+        if not self._is_odpem_tenant_code(row[1]) and tenant_type not in {"NEOC", "NATIONAL", "NATIONAL_LEVEL"}:
+            raise CommandError("The national/local system-admin tenant must resolve to an ODPEM/NEOC tenant.")
+        return {
+            "tenant_id": int(row[0]),
+            "tenant_code": str(row[1] or "").strip(),
+            "tenant_name": str(row[2] or "").strip(),
+        }
 
     def _resolve_agency(self, agency_id: Any, *, agency_name: str) -> dict[str, Any]:
         parsed_agency_id = self._safe_int(agency_id)
@@ -255,8 +345,8 @@ class Command(BaseCommand):
         *,
         profile: TemporaryFrontendUserSpec,
         tenant_name: str,
-        agency_id: int,
-        warehouse_id: int,
+        agency_id: int | None,
+        warehouse_id: int | None,
     ) -> tuple[int, bool]:
         now = timezone.now()
         try:

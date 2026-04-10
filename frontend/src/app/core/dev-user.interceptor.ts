@@ -1,10 +1,19 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 
-const DEV_USER_KEY = 'dmis_dev_user';
-const DEV_USER_HEADER = 'X-Dev-User';
+const LOCAL_HARNESS_USER_KEY = 'dmis_local_harness_user';
+const LOCAL_HARNESS_USER_HEADER = 'X-DMIS-Local-User';
 
 export const devUserInterceptor: HttpInterceptorFn = (req, next) => {
-  const requestedUser = localStorage.getItem(DEV_USER_KEY)?.trim();
+  const hostname = window.location.hostname;
+  const isLocalHost = hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '[::1]'
+    || hostname.endsWith('.local');
+  if (!isLocalHost) {
+    return next(req);
+  }
+
+  const requestedUser = localStorage.getItem(LOCAL_HARNESS_USER_KEY)?.trim();
   if (!requestedUser) {
     return next(req);
   }
@@ -12,7 +21,7 @@ export const devUserInterceptor: HttpInterceptorFn = (req, next) => {
   return next(
     req.clone({
       setHeaders: {
-        [DEV_USER_HEADER]: requestedUser
+        [LOCAL_HARNESS_USER_HEADER]: requestedUser
       }
     })
   );

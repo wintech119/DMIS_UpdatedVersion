@@ -11,6 +11,9 @@ from rest_framework.exceptions import AuthenticationFailed
 
 logger = logging.getLogger(__name__)
 
+LOCAL_AUTH_HARNESS_HEADER = "HTTP_X_DMIS_LOCAL_USER"
+LEGACY_DEV_AUTH_HEADER = "HTTP_X_DEV_USER"
+
 @dataclass
 class Principal:
     user_id: Optional[str]
@@ -71,9 +74,44 @@ def _parse_roles(value) -> list[str]:
     return [str(value)]
 
 
+def local_auth_harness_enabled() -> bool:
+    return bool(
+        settings.LOCAL_AUTH_HARNESS_ENABLED
+        and settings.DEV_AUTH_ENABLED
+        and settings.DEBUG
+        and not settings.AUTH_ENABLED
+    )
+
+
+def _configured_local_auth_harness_users() -> set[str]:
+    return {
+        str(value or "").strip().lower()
+        for value in getattr(settings, "LOCAL_AUTH_HARNESS_USERNAMES", [])
+        if str(value or "").strip()
+    }
+
+
+def _requested_local_auth_harness_user(request) -> str:
+    primary = str(request.META.get(LOCAL_AUTH_HARNESS_HEADER, "")).strip()
+    if primary:
+        return primary
+    return str(request.META.get(LEGACY_DEV_AUTH_HEADER, "")).strip()
+
+
 def _resolve_dev_override_principal(request) -> Principal | None:
-    requested = str(request.META.get("HTTP_X_DEV_USER", "")).strip()
+    if not local_auth_harness_enabled():
+        return None
+
+    requested = _requested_local_auth_harness_user(request)
     if not requested:
+        return None
+
+    allowed_users = _configured_local_auth_harness_users()
+    if not allowed_users:
+        logger.warning("Local auth harness is enabled without any allowlisted usernames.")
+        return None
+    if requested.lower() not in allowed_users:
+        logger.warning("Local auth harness rejected non-allowlisted user: %s", requested)
         return None
 
     try:

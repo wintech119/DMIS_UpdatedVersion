@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from api.authentication import LegacyCompatAuthentication
+from api.authentication import LegacyCompatAuthentication, local_auth_harness_enabled
 from api.rbac import resolve_roles_and_permissions
 from api.tenancy import resolve_tenant_context, tenant_context_to_dict
 from operations import policy as operations_policy
@@ -36,76 +36,162 @@ def whoami(request):
     )
 
 
-@api_view(["GET"])
-@authentication_classes([LegacyCompatAuthentication])
-@permission_classes([IsAuthenticated])
-def dev_users(request):
-    if not (settings.DEBUG and settings.DEV_AUTH_ENABLED):
-        return Response({"detail": "Not found."}, status=404)
+def _configured_local_auth_harness_usernames() -> list[str]:
+    seen: set[str] = set()
+    usernames: list[str] = []
+    for raw_value in getattr(settings, "LOCAL_AUTH_HARNESS_USERNAMES", []):
+        normalized = str(raw_value or "").strip()
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        usernames.append(normalized)
+    return usernames
 
+
+def _load_local_auth_harness_users() -> tuple[list[dict[str, object]], list[str]]:
+    configured_usernames = _configured_local_auth_harness_usernames()
+    if not configured_usernames:
+        return [], []
+
+    placeholders = ", ".join(["%s"] * len(configured_usernames))
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT
                     u.user_id,
                     u.username,
                     u.email,
                     r.code,
+                    t.tenant_id,
+                    t.tenant_code,
+                    t.tenant_name,
+                    t.tenant_type,
+                    COALESCE(tu.is_primary_tenant, FALSE) AS is_primary_tenant,
+                    tu.access_level,
                     p.resource,
                     p.action
                 FROM "user" u
-                JOIN user_role ur ON ur.user_id = u.user_id
-                JOIN role r ON r.id = ur.role_id
-                LEFT JOIN role_permission rp ON rp.role_id = r.id
+                LEFT JOIN user_role ur ON ur.user_id = u.user_id
+                LEFT JOIN role r ON r.id = ur.role_id
+                LEFT JOIN tenant_user tu
+                    ON tu.user_id = u.user_id
+                   AND COALESCE(tu.status_code, 'A') = 'A'
+                LEFT JOIN tenant t
+                    ON t.tenant_id = tu.tenant_id
+                   AND COALESCE(t.status_code, 'A') = 'A'
+                LEFT JOIN role_permission rp ON rp.role_id = ur.role_id
                 LEFT JOIN permission p ON p.perm_id = rp.perm_id
                 WHERE
-                    COALESCE(u.is_active, TRUE) = TRUE
+                    LOWER(COALESCE(u.username, '')) IN ({placeholders})
+                    AND COALESCE(u.is_active, TRUE) = TRUE
                     AND COALESCE(u.status_code, 'A') = 'A'
-                ORDER BY u.username, u.user_id
-                """
+                ORDER BY
+                    LOWER(u.username),
+                    COALESCE(tu.is_primary_tenant, FALSE) DESC,
+                    t.tenant_id ASC,
+                    r.code ASC,
+                    p.resource ASC,
+                    p.action ASC
+                """,
+                [value.lower() for value in configured_usernames],
             )
             rows = cursor.fetchall()
     except DatabaseError:
-        return Response({"users": []})
+        return [], configured_usernames
 
-    users_by_id: dict[str, dict[str, object]] = {}
+    users_by_username: dict[str, dict[str, object]] = {}
     for row in rows:
-        user_id = str(row[0])
         username = str(row[1] or "").strip()
         if not username:
             continue
-        email = row[2]
-        role = str(row[3] or "").strip()
-        resource = str(row[4] or "").strip()
-        action = str(row[5] or "").strip()
-        permission = f"{resource}.{action}" if resource and action else ""
-
-        if user_id not in users_by_id:
-            users_by_id[user_id] = {
-                "user_id": user_id,
+        key = username.lower()
+        if key not in users_by_username:
+            users_by_username[key] = {
+                "user_id": str(row[0]),
                 "username": username,
-                "email": email,
+                "email": row[2],
                 "roles": set(),
                 "permissions": set(),
+                "memberships": {},
             }
-        if role:
-            users_by_id[user_id]["roles"].add(role)
-        if permission:
-            users_by_id[user_id]["permissions"].add(permission)
 
-    users = [
-        {
-            "user_id": user["user_id"],
-            "username": user["username"],
-            "email": user["email"],
-            "roles": sorted(list(user["roles"])),
-            "permissions": sorted(list(user["permissions"])),
-        }
-        for user in sorted(
-            users_by_id.values(),
-            key=lambda item: str(item["username"]).lower(),
+        role_code = str(row[3] or "").strip()
+        if role_code:
+            users_by_username[key]["roles"].add(role_code)
+
+        tenant_id = row[4]
+        if tenant_id is not None:
+            users_by_username[key]["memberships"][int(tenant_id)] = {
+                "tenant_id": int(tenant_id),
+                "tenant_code": str(row[5] or "").strip() or None,
+                "tenant_name": str(row[6] or "").strip() or None,
+                "tenant_type": str(row[7] or "").strip() or None,
+                "is_primary": bool(row[8]),
+                "access_level": str(row[9] or "").strip() or None,
+            }
+
+        resource = str(row[10] or "").strip()
+        action = str(row[11] or "").strip()
+        if resource and action:
+            users_by_username[key]["permissions"].add(f"{resource}.{action}")
+
+    order_index = {value.lower(): index for index, value in enumerate(configured_usernames)}
+    users = []
+    for key, user in sorted(users_by_username.items(), key=lambda item: order_index.get(item[0], 10_000)):
+        memberships = sorted(
+            user["memberships"].values(),
+            key=lambda membership: (
+                not bool(membership["is_primary"]),
+                membership["tenant_name"] or "",
+                membership["tenant_id"],
+            ),
         )
-    ]
+        users.append(
+            {
+                "user_id": user["user_id"],
+                "username": user["username"],
+                "email": user["email"],
+                "roles": sorted(list(user["roles"])),
+                "permissions": sorted(list(user["permissions"])),
+                "memberships": memberships,
+            }
+        )
 
-    return Response({"users": users})
+    missing_usernames = [
+        username for username in configured_usernames if username.lower() not in users_by_username
+    ]
+    return users, missing_usernames
+
+
+def _local_auth_harness_payload() -> dict[str, object]:
+    users, missing_usernames = _load_local_auth_harness_users()
+    return {
+        "enabled": True,
+        "mode": "local_dev_only",
+        "default_user": str(getattr(settings, "DEV_AUTH_USER_ID", "") or "").strip() or None,
+        "header_name": "X-DMIS-Local-User",
+        "users": users,
+        "missing_usernames": missing_usernames,
+        "session_isolation_hint": "Use a separate browser profile or browser per selected local test user.",
+    }
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated])
+def local_auth_harness(request):
+    if not local_auth_harness_enabled():
+        return Response({"detail": "Not found."}, status=404)
+    return Response(_local_auth_harness_payload())
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated])
+def dev_users(request):
+    if not local_auth_harness_enabled():
+        return Response({"detail": "Not found."}, status=404)
+    payload = _local_auth_harness_payload()
+    return Response({"users": payload["users"]})

@@ -110,6 +110,8 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["relief_ffp_requester_tst"],
         TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="dev-user",
         DEV_AUTH_ROLES=[],
@@ -132,7 +134,7 @@ class AuthWhoAmITests(TestCase):
     ) -> None:
         response = self.client.get(
             "/api/v1/auth/whoami/",
-            HTTP_X_DEV_USER="relief_ffp_requester_tst",
+            HTTP_X_DMIS_LOCAL_USER="relief_ffp_requester_tst",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -141,6 +143,90 @@ class AuthWhoAmITests(TestCase):
         self.assertEqual(body["username"], "relief_ffp_requester_tst")
         self.assertIn("AGENCY_DISTRIBUTOR", body["roles"])
         self.assertIn("operations.request.create.self", body["permissions"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_local_auth_harness_route_is_hidden_when_not_explicitly_enabled(self) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=[
+            "local_system_admin_tst",
+            "local_odpem_deputy_director_tst",
+            "local_odpem_logistics_manager_tst",
+            "local_odpem_logistics_officer_tst",
+            "relief_jrc_requester_tst",
+        ],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.views._load_local_auth_harness_users",
+        return_value=(
+            [
+                {
+                    "user_id": "27",
+                    "username": "local_system_admin_tst",
+                    "email": "system.admin+local@dmis.example.org",
+                    "roles": ["SYSTEM_ADMINISTRATOR"],
+                    "permissions": ["masterdata.view"],
+                    "memberships": [
+                        {
+                            "tenant_id": 1,
+                            "tenant_code": "ODPEM-NEOC",
+                            "tenant_name": "ODPEM NEOC",
+                            "tenant_type": "NEOC",
+                            "is_primary": True,
+                            "access_level": "FULL",
+                        }
+                    ],
+                }
+            ],
+            [
+                "local_odpem_deputy_director_tst",
+                "local_odpem_logistics_manager_tst",
+                "local_odpem_logistics_officer_tst",
+                "relief_jrc_requester_tst",
+            ],
+        ),
+    )
+    def test_local_auth_harness_route_returns_curated_users_and_missing_entries(
+        self,
+        _mock_load_users,
+    ) -> None:
+        response = self.client.get("/api/v1/auth/local-harness/")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["enabled"])
+        self.assertEqual(body["mode"], "local_dev_only")
+        self.assertEqual(body["default_user"], "local_system_admin_tst")
+        self.assertEqual(body["header_name"], "X-DMIS-Local-User")
+        self.assertEqual(
+            body["missing_usernames"],
+            [
+                "local_odpem_deputy_director_tst",
+                "local_odpem_logistics_manager_tst",
+                "local_odpem_logistics_officer_tst",
+                "relief_jrc_requester_tst",
+            ],
+        )
+        self.assertEqual(len(body["users"]), 1)
+        self.assertEqual(body["users"][0]["username"], "local_system_admin_tst")
 
 
 class RbacResolutionTests(TestCase):

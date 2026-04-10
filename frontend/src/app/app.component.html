@@ -3,13 +3,7 @@
   <app-sidenav
     [currentUser]="currentUser()"
     [userRole]="userRole()"
-    [userRoles]="userRoles()"
-    [devUsers]="devUsers()"
-    [selectedDevUser]="selectedDevUser()"
-    [canSwitchDevUser]="canSwitchDevUser()"
-    (navItemClicked)="onNavItemClicked()"
-    (switchUser)="switchDevUser($event)"
-    (clearUser)="clearDevUser()">
+    [userRoles]="userRoles()">
   </app-sidenav>
 
   <div class="app-main">
@@ -26,25 +20,25 @@
         }
       </div>
       <div class="topbar-actions">
-        @if (canSwitchDevUser()) {
-          <label for="dev-user-select" class="dev-user-label">Login as</label>
+        @if (canSwitchLocalHarnessUser()) {
+          <label for="dev-user-select" class="dev-user-label">Local test mode</label>
           <select
             id="dev-user-select"
             class="dev-user-select"
-            [value]="selectedDevUser()"
-            (change)="switchDevUser($any($event.target).value)">
-            <option value="">Default</option>
-            @for (user of devUsers(); track user.username) {
+            [value]="selectedLocalHarnessUser()"
+            (change)="switchLocalHarnessUser($any($event.target).value)">
+            <option value="">{{ localHarnessDefaultLabel() }}</option>
+            @for (user of localHarnessUsers(); track user.username) {
               <option [value]="user.username">
-                {{ formatDevUserLabel(user) }}
+                {{ formatLocalHarnessUserLabel(user) }}
               </option>
             }
           </select>
           <button
             type="button"
             class="dev-user-clear"
-            [disabled]="!selectedDevUser()"
-            (click)="clearDevUser()">
+            [disabled]="!selectedLocalHarnessUser()"
+            (click)="clearLocalHarnessUser()">
             Reset
           </button>
         }

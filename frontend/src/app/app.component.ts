@@ -12,9 +12,24 @@ export interface DevUser {
   username: string;
   email?: string | null;
   roles: string[];
+  memberships: {
+    tenant_id: number | null;
+    tenant_code: string | null;
+    tenant_name: string | null;
+    tenant_type: string | null;
+    is_primary: boolean;
+    access_level: string | null;
+  }[];
 }
 
-const DEV_USER_STORAGE_KEY = 'dmis_dev_user';
+interface LocalAuthHarnessResponse {
+  enabled?: boolean;
+  default_user?: string | null;
+  users?: DevUser[];
+  missing_usernames?: string[];
+}
+
+const LOCAL_HARNESS_STORAGE_KEY = 'dmis_local_harness_user';
 
 interface BreadcrumbSegment {
   label: string;
@@ -118,9 +133,11 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly currentUser = computed(() => this.authRbac.currentUserRef() ?? 'Unknown');
   readonly userRoles = computed(() => this.authRbac.roles());
   readonly userRole = computed(() => this.userRoles()[0] ?? '');
-  readonly devUsers = signal<DevUser[]>([]);
-  readonly selectedDevUser = signal('');
-  readonly canSwitchDevUser = computed(() => this.devUsers().length > 0);
+  readonly localHarnessUsers = signal<DevUser[]>([]);
+  readonly selectedLocalHarnessUser = signal('');
+  readonly defaultLocalHarnessUser = signal<string | null>(null);
+  readonly localHarnessMissingUsers = signal<string[]>([]);
+  readonly canSwitchLocalHarnessUser = computed(() => this.localHarnessUsers().length > 0);
 
   private readonly currentUrl = signal('/');
 
@@ -131,7 +148,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.authRbac.load();
-    this.loadDevUsers();
+    this.loadLocalAuthHarness();
 
     this.routerSub = this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
@@ -142,62 +159,94 @@ export class AppComponent implements OnInit, OnDestroy {
     this.routerSub?.unsubscribe();
   }
 
-  onNavItemClicked(): void {
-    // Could close a mobile drawer here in the future
-  }
-
-  switchDevUser(requestedUsername: string): void {
+  switchLocalHarnessUser(requestedUsername: string): void {
     const normalized = String(requestedUsername || '').trim();
     if (!normalized) {
-      localStorage.removeItem(DEV_USER_STORAGE_KEY);
+      localStorage.removeItem(LOCAL_HARNESS_STORAGE_KEY);
     } else {
-      localStorage.setItem(DEV_USER_STORAGE_KEY, normalized);
+      localStorage.setItem(LOCAL_HARNESS_STORAGE_KEY, normalized);
     }
     window.location.reload();
   }
 
-  clearDevUser(): void {
-    localStorage.removeItem(DEV_USER_STORAGE_KEY);
-    this.selectedDevUser.set('');
+  clearLocalHarnessUser(): void {
+    localStorage.removeItem(LOCAL_HARNESS_STORAGE_KEY);
+    this.selectedLocalHarnessUser.set('');
     window.location.reload();
   }
 
-  formatDevUserLabel(user: DevUser): string {
+  formatLocalHarnessUserLabel(user: DevUser): string {
     const identity = String(user.email ?? '').trim() || user.username;
     const primaryRole = user.roles[0];
-    return primaryRole ? `${identity} (${primaryRole})` : identity;
+    const primaryMembership = user.memberships.find((membership) => membership.is_primary) ?? user.memberships[0];
+    const tenantRef = primaryMembership?.tenant_code ?? primaryMembership?.tenant_name ?? '';
+    const descriptor = [primaryRole, tenantRef].filter(Boolean).join(' - ');
+    return descriptor ? `${identity} (${descriptor})` : identity;
   }
 
-  private loadDevUsers(): void {
-    this.http.get<{ users?: DevUser[] }>('/api/v1/auth/dev-users/').subscribe({
+  localHarnessDefaultLabel(): string {
+    const defaultUser = this.defaultLocalHarnessUser();
+    return defaultUser ? `Default local user (${defaultUser})` : 'Default local user';
+  }
+
+  private loadLocalAuthHarness(): void {
+    this.http.get<LocalAuthHarnessResponse>('/api/v1/auth/local-harness/').subscribe({
       next: (data) => {
+        if (!data.enabled) {
+          this.resetLocalHarnessState();
+          return;
+        }
+
         const users = (data.users ?? []).filter((user) => !!user?.username).map((user) => ({
           user_id: String(user.user_id ?? '').trim(),
           username: String(user.username ?? '').trim(),
           email: user.email ?? null,
-          roles: Array.isArray(user.roles) ? user.roles.map((role) => String(role).trim()).filter(Boolean) : []
+          roles: Array.isArray(user.roles) ? user.roles.map((role) => String(role).trim()).filter(Boolean) : [],
+          memberships: Array.isArray(user.memberships)
+            ? user.memberships.map((membership) => ({
+              tenant_id: membership?.tenant_id != null ? Number(membership.tenant_id) : null,
+              tenant_code: String(membership?.tenant_code ?? '').trim() || null,
+              tenant_name: String(membership?.tenant_name ?? '').trim() || null,
+              tenant_type: String(membership?.tenant_type ?? '').trim() || null,
+              is_primary: Boolean(membership?.is_primary),
+              access_level: String(membership?.access_level ?? '').trim() || null,
+            }))
+            : [],
         }));
-        this.devUsers.set(users);
+        this.localHarnessUsers.set(users);
+        this.defaultLocalHarnessUser.set(String(data.default_user ?? '').trim() || null);
+        this.localHarnessMissingUsers.set(
+          Array.isArray(data.missing_usernames)
+            ? data.missing_usernames.map((value) => String(value).trim()).filter(Boolean)
+            : []
+        );
 
-        const stored = String(localStorage.getItem(DEV_USER_STORAGE_KEY) ?? '').trim();
+        const stored = String(localStorage.getItem(LOCAL_HARNESS_STORAGE_KEY) ?? '').trim();
         if (!stored) {
-          this.selectedDevUser.set('');
+          this.selectedLocalHarnessUser.set('');
           return;
         }
 
         const exists = users.some((user) => user.username === stored);
         if (!exists) {
-          localStorage.removeItem(DEV_USER_STORAGE_KEY);
-          this.selectedDevUser.set('');
+          localStorage.removeItem(LOCAL_HARNESS_STORAGE_KEY);
+          this.selectedLocalHarnessUser.set('');
           return;
         }
-        this.selectedDevUser.set(stored);
+        this.selectedLocalHarnessUser.set(stored);
       },
       error: () => {
-        this.devUsers.set([]);
-        this.selectedDevUser.set('');
+        this.resetLocalHarnessState();
       }
     });
+  }
+
+  private resetLocalHarnessState(): void {
+    this.localHarnessUsers.set([]);
+    this.defaultLocalHarnessUser.set(null);
+    this.localHarnessMissingUsers.set([]);
+    this.selectedLocalHarnessUser.set('');
+    localStorage.removeItem(LOCAL_HARNESS_STORAGE_KEY);
   }
 }
 

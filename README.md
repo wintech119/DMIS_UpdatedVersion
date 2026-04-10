@@ -14,6 +14,7 @@ DMIS is delivered as a Django + Angular application.
 
 - The Flask stack is being phased out.
 - New features are implemented only in Django + Angular.
+- The local multi-user workflow harness is documented in `docs/implementation/dmis_00_local_multi_user_test_harness.md`.
 
 ## Repository structure
 

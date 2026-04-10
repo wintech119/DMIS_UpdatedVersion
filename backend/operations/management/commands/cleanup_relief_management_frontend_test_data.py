@@ -30,7 +30,6 @@ class Command(BaseCommand):
 
         usernames = [
             f"relief_{normalized}_requester_tst",
-            f"relief_{normalized}_receiver_tst",
         ]
         warehouse_name = f"S07 TEST MAIN HUB - {tenant_code}"
         agency_name = f"S07 TEST DISTRIBUTOR AGENCY - {tenant_code}"

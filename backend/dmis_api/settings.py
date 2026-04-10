@@ -306,6 +306,12 @@ DEV_AUTH_PERMISSIONS = [
     ).split(",")
     if perm.strip()
 ]
+LOCAL_AUTH_HARNESS_ENABLED = os.getenv("LOCAL_AUTH_HARNESS_ENABLED", "0") == "1"
+LOCAL_AUTH_HARNESS_USERNAMES = [
+    value.strip()
+    for value in os.getenv("LOCAL_AUTH_HARNESS_USERNAMES", "").split(",")
+    if value.strip()
+]
 
 # Tenant-scope rollout control.
 # Default is disabled for backward compatibility until tenant mappings are complete.
