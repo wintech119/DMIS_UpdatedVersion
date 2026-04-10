@@ -1,6 +1,10 @@
 # Current Task Plan
 
-1. Verify each cited review finding against the live backend/frontend code and separate stale comments from real regressions.
-2. Fix the confirmed backend issues in `backend/operations/contract_services.py` and `backend/operations/views.py`, then extend the existing regression coverage in `backend/operations/tests_contract_services.py` and `backend/operations/tests_operations_api.py`.
-3. Fix the confirmed frontend issues in `frontend/src/app/operations/dispatch-queue/dispatch-queue.component.ts`, `frontend/src/app/operations/operations-dashboard/operations-dashboard.component.ts`, `frontend/src/app/operations/operations-display.util.ts`, and `frontend/src/app/core/app-access.service.ts`, then extend `frontend/src/app/core/app-access.service.spec.ts`.
-4. Run targeted backend and frontend verification for the touched paths and document any findings that were already fixed or still remain out of scope.
+1. Leave the `backend/operations/views.py` request-body comments untouched because the live code already routes request bodies through `_payload_object()` and rejects non-object JSON before `draft_save` or boolean flag access.
+2. Fix the verified frontend mismatch in `frontend/src/app/operations/package-fulfillment-queue/package-fulfillment-queue.component.ts` so `isReady()` treats legacy `package_status === 'P'` rows the same way as `getFulfillmentStage()`, while still honoring pending-override behavior.
+3. Update the verified regression tests in `backend/operations/tests_relief_request_policy.py` and `frontend/src/app/operations/package-fulfillment-workspace/package-fulfillment-workspace.component.spec.ts`:
+   - assert pending-override saves keep package headers in `PKG_STATUS_DRAFT`
+   - replace the private `collectDetailErrors()` test call with the public `goToReview()` flow
+   - seed and clear `store.lockConflict` in the force-release lock test
+4. Do not apply the stale `fulfillment-details-step.component.ts` comments because the referenced `onStagingApplied` / duplicate `reliefrqstId()` code path does not exist in the current component.
+5. Run targeted backend and frontend tests for the touched files, then record any reusable lesson in `tasks/lessons.md`.

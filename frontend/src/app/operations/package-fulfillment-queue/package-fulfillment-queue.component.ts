@@ -206,16 +206,17 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   }
 
   isReady(row: PackageQueueItem): boolean {
-    const pkg = row.current_package;
-    if (!pkg) {
-      return false;
-    }
-    const normalizedStatus = String(pkg.status_code ?? '').trim().toUpperCase();
+    const normalizedStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
     return (
       normalizedStatus === 'COMMITTED'
       || normalizedStatus === 'READY_FOR_DISPATCH'
       || normalizedStatus === 'READY_FOR_PICKUP'
       || (normalizedStatus === 'P' && !this.isOverridePending(row))
+      || (
+        !normalizedStatus
+        && String(row.package_status ?? '').trim().toUpperCase() === 'P'
+        && !this.isOverridePending(row)
+      )
     );
   }
 

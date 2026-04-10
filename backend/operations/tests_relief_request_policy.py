@@ -1449,6 +1449,10 @@ class PackageAllocationGuardTests(TestCase):
         upsert_rows_mock.assert_called_once()
         stock_delta_mock.assert_not_called()
         header_updates_mock.assert_called_once()
+        self.assertEqual(
+            header_updates_mock.call_args.kwargs["status_code"],
+            operations_service.PKG_STATUS_DRAFT,
+        )
 
     @patch("operations.services._apply_package_header_updates")
     @patch("operations.services._apply_stock_delta_for_rows")
@@ -1513,6 +1517,10 @@ class PackageAllocationGuardTests(TestCase):
         upsert_rows_mock.assert_called_once()
         stock_delta_mock.assert_not_called()
         header_updates_mock.assert_called_once()
+        self.assertEqual(
+            header_updates_mock.call_args.kwargs["status_code"],
+            operations_service.PKG_STATUS_DRAFT,
+        )
 
     @patch("operations.services._apply_package_header_updates")
     @patch("operations.services._apply_stock_delta_for_rows")

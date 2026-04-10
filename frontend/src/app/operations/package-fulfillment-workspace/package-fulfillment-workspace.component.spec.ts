@@ -323,6 +323,8 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       // The state service is provided at the component level, so access it via component.store.
       // It needs a reliefrqstId to dispatch the HTTP call.
       component.store.reliefrqstId.set(95009);
+      component.store.packageDetail.set(buildPackageDetail());
+      component.store.lockConflict.set(LOCK_CONFLICT);
 
       component.onForceReleaseLock();
 
@@ -330,6 +332,7 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       const [reliefrqstId, force] = operationsService.releasePackageLock.calls.mostRecent().args;
       expect(reliefrqstId).toBe(95009);
       expect(force).toBe(true);
+      expect(component.store.lockConflict()).toBeNull();
     });
 
     it('does nothing when the user cancels the confirmation dialog', () => {
@@ -470,9 +473,9 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       populateOrderOverrideSelection();
       component.store.patchDraft({ override_note: '' });
 
-      const errors = (component as unknown as { collectDetailErrors(): string[] }).collectDetailErrors();
+      component.goToReview();
 
-      expect(errors).toEqual([]);
+      expect(component.submissionErrors()).toEqual([]);
     });
 
     it('lets logistics managers commit approval-required overrides directly', () => {
