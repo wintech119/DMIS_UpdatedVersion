@@ -5014,18 +5014,17 @@ class NeedsListWorkflowApiTests(TestCase):
         mock_fallback.return_value = ({}, [], {})
         mock_categories.return_value = ({1: 10}, [])
 
-        with patch("replenishment.views._use_db_workflow_store", return_value=True):
-            with patch(
-                "replenishment.workflow_store_db.data_access.get_item_names",
-                return_value=({1: {"name": "WATER BOTTLE", "code": "WB-01"}}, []),
-            ), patch(
-                "replenishment.workflow_store_db.data_access.get_warehouse_name",
-                return_value="Kingston Central Warehouse",
-            ), patch(
-                "replenishment.workflow_store_db.data_access.get_event_name",
-                return_value="Hurricane Test Event",
-            ):
-                draft = self.client.post(
+        with patch(
+            "replenishment.workflow_store_db.data_access.get_item_names",
+            return_value=({1: {"name": "WATER BOTTLE", "code": "WB-01"}}, []),
+        ), patch(
+            "replenishment.workflow_store_db.data_access.get_warehouse_name",
+            return_value="Kingston Central Warehouse",
+        ), patch(
+            "replenishment.workflow_store_db.data_access.get_event_name",
+            return_value="Hurricane Test Event",
+        ):
+            draft = self.client.post(
                     "/api/v1/replenishment/needs-list/draft",
                     self._draft_payload(),
                     format="json",

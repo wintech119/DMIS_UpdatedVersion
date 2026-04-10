@@ -660,6 +660,8 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         header_updates_mock.assert_called_once()
 
     @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
     @patch(
         "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
         return_value=(
@@ -692,6 +694,8 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         _mock_fetch_candidates,
         _mock_sort_candidates,
         _mock_allocation_plan,
+        upsert_rows_mock,
+        stock_delta_mock,
         _header_updates_mock,
     ) -> None:
         mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
@@ -715,6 +719,9 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             )
 
         self.assertEqual(raised.exception.code, "override_details_missing")
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        _header_updates_mock.assert_not_called()
 
     def test_validate_override_approval_rejects_self_approval_and_bad_roles(self) -> None:
         with self.assertRaises(OverrideApprovalError):
@@ -941,14 +948,12 @@ class AllocationDispatchApiTests(TestCase):
         self.client = APIClient()
 
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
     def test_commit_requires_agency_and_urgency_for_first_formal_allocation(
         self,
         _mock_store_enabled,
         mock_get_record,
-        _mock_use_db,
         _mock_needs_list_pk,
     ) -> None:
         mock_get_record.return_value = {
@@ -986,7 +991,6 @@ class AllocationDispatchApiTests(TestCase):
     @patch("replenishment.views.allocation_dispatch.approve_override")
     @patch("replenishment.views._execution_link_for_record")
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.NeedsList.objects.select_for_update")
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
@@ -995,7 +999,6 @@ class AllocationDispatchApiTests(TestCase):
         _mock_store_enabled,
         mock_get_record,
         mock_select_for_update,
-        _mock_use_db,
         _mock_needs_list_pk,
         mock_execution_link,
         mock_approve_override,
@@ -1070,14 +1073,12 @@ class AllocationDispatchApiTests(TestCase):
 
     @patch("replenishment.views._execution_link_for_record")
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
     def test_override_approve_requires_pending_override_execution_status(
         self,
         _mock_store_enabled,
         mock_get_record,
-        _mock_use_db,
         _mock_needs_list_pk,
         mock_execution_link,
     ) -> None:
@@ -1108,7 +1109,6 @@ class AllocationDispatchApiTests(TestCase):
         self.assertIn("status", response.json().get("errors", {}))
 
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11", "waybill_no": "WB-PK00090"})
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views._upsert_execution_link")
     @patch("replenishment.views.allocation_dispatch.dispatch_package")
     @patch("replenishment.views._execution_link_for_record")
@@ -1125,7 +1125,6 @@ class AllocationDispatchApiTests(TestCase):
         mock_execution_link,
         mock_dispatch_package,
         _mock_upsert_link,
-        _mock_use_db,
         _mock_serialize,
     ) -> None:
         record = {

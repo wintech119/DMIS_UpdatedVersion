@@ -358,7 +358,7 @@ export function formatOperationsFulfillmentMode(code: string | null | undefined)
     return 'Not set';
   }
   const normalized = raw.toUpperCase();
-  return FULFILLMENT_MODE_LABELS[normalized] ?? `Unknown (${normalized})`;
+  return FULFILLMENT_MODE_LABELS[normalized] ?? raw;
 }
 
 /**

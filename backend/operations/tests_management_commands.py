@@ -11,10 +11,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
+from django.db import DatabaseError
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
+from operations.exceptions import OperationValidationError
 from operations.constants import (
     QUEUE_CODE_DISPATCH,
     QUEUE_CODE_FULFILLMENT,
@@ -35,6 +37,7 @@ from operations.models import (
     TenantRequestPolicy,
 )
 from replenishment.legacy_models import Inventory, ItemBatch
+from operations.management.commands import reset_package_allocations
 class ImportReliefManagementAuthorityCommandTests(TestCase):
     def _write_payload(self, payload: dict[str, object]) -> str:
         fd, raw_path = tempfile.mkstemp(
@@ -1398,8 +1401,12 @@ class ResetPackageAllocationsCommandTests(TestCase):
         self.assertIn("legacy_allocation_lines: 1", text)
         self.assertIn("Dry-run only", text)
 
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=0,
+    )
     @patch("operations.management.commands.reset_package_allocations.contract_services.reset_package_allocations")
-    def test_apply_delegates_to_cleanup_service(self, reset_mock) -> None:
+    def test_apply_delegates_to_cleanup_service(self, reset_mock, _legacy_count_mock) -> None:
         request_record = self._create_request()
         self._create_package(request_record=request_record)
         reset_mock.return_value = {
@@ -1417,3 +1424,39 @@ class ResetPackageAllocationsCommandTests(TestCase):
         self.assertIn("Package allocations reset.", text)
         self.assertIn("operations_allocation_lines_deleted: 3", text)
         self.assertIn("released_stock_total_qty: 450.0000", text)
+
+    def test_explicit_zero_package_id_is_treated_as_provided(self) -> None:
+        with self.assertRaisesRegex(CommandError, "No package found for package_id=0."):
+            call_command("reset_package_allocations", package_id=0)
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.Command._legacy_allocation_line_count",
+        return_value=0,
+    )
+    @patch("operations.management.commands.reset_package_allocations.contract_services.reset_package_allocations")
+    def test_apply_surfaces_validation_errors_as_command_error(
+        self,
+        reset_mock,
+        _legacy_count_mock,
+    ) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record)
+        reset_mock.side_effect = OperationValidationError(
+            {"package": "Package is already dispatched.", "lock": "Release the active lock first."}
+        )
+
+        with self.assertRaisesRegex(
+            CommandError,
+            "Package is already dispatched\\., Release the active lock first\\.",
+        ):
+            call_command("reset_package_allocations", request_no="RQ95009", apply=True)
+
+    @patch(
+        "operations.management.commands.reset_package_allocations.ReliefPkgItem.objects.filter",
+        side_effect=DatabaseError("legacy table unavailable"),
+    )
+    def test_legacy_allocation_count_reraises_database_errors(self, _filter_mock) -> None:
+        command = reset_package_allocations.Command()
+
+        with self.assertRaises(DatabaseError):
+            command._legacy_allocation_line_count(95027)

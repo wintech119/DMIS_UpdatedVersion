@@ -129,8 +129,7 @@ export class PackageFulfillmentWorkspaceComponent {
   );
 
   readonly canSubmitOverrideRequest = computed(() =>
-    this.hasOperationsAccess()
-    && this.hasRole('LOGISTICS_OFFICER', 'TST_LOGISTICS_OFFICER')
+    this.hasRole('LOGISTICS_OFFICER', 'TST_LOGISTICS_OFFICER')
     && !this.hasRole('LOGISTICS_MANAGER', 'TST_LOGISTICS_MANAGER', 'ODPEM_LOGISTICS_MANAGER')
     && this.auth.hasPermission('operations.package.override.request')
   );

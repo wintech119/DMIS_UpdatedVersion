@@ -6,8 +6,13 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError
 
 from operations import contract_services
+from operations.exceptions import OperationValidationError
 from operations.models import OperationsPackage, OperationsReliefRequest
 from replenishment.legacy_models import ReliefPkgItem
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -47,7 +52,7 @@ class Command(BaseCommand):
         actor_id = str(options.get("actor") or "SYSTEM").strip() or "SYSTEM"
         apply_changes = bool(options.get("apply"))
 
-        if bool(package_id) == bool(request_no):
+        if (package_id is None) == (request_no is None):
             raise CommandError("Provide exactly one of --package-id or --request-no.")
 
         request_record, package_record = self._resolve_target(
@@ -82,10 +87,19 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Dry-run only. Re-run with --apply to persist changes."))
             return
 
-        result = contract_services.reset_package_allocations(
-            int(package_record.package_id),
-            actor_id=actor_id,
-        )
+        try:
+            result = contract_services.reset_package_allocations(
+                int(package_record.package_id),
+                actor_id=actor_id,
+            )
+        except OperationValidationError as exc:
+            messages = [
+                str(message).strip()
+                for value in exc.errors.values()
+                for message in (value if isinstance(value, list) else [value])
+                if str(message).strip()
+            ]
+            raise CommandError(", ".join(messages) or "Package allocation reset failed.") from exc
         self.stdout.write(self.style.SUCCESS("Package allocations reset."))
         self.stdout.write(f"- status: {result['status']}")
         self.stdout.write(
@@ -135,4 +149,5 @@ class Command(BaseCommand):
         try:
             return ReliefPkgItem.objects.filter(reliefpkg_id=reliefpkg_id).count()
         except DatabaseError:
-            return 0
+            logger.exception("Error counting ReliefPkgItem for reliefpkg_id=%s", reliefpkg_id)
+            raise

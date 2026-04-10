@@ -148,9 +148,15 @@ export class DispatchQueueComponent implements OnInit {
   readonly legProgressTone = getLegProgressTone;
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe(() => {
-      this.loadSeenFilters();
-      this.refreshQueue();
+    this.auth.ensureLoaded().subscribe({
+      next: () => {
+        this.loadSeenFilters();
+        this.refreshQueue();
+      },
+      error: () => {
+        this.loadSeenFilters();
+        this.refreshQueue();
+      },
     });
   }
 

@@ -151,9 +151,16 @@ export class EligibilityReviewQueueComponent implements OnInit {
   readonly getOperationsUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe(() => {
-      this.loadSeenFilters();
-      this.loadQueue();
+    this.auth.ensureLoaded().subscribe({
+      next: () => {
+        this.loadSeenFilters();
+        this.loadQueue();
+      },
+      error: () => {
+        this.loadSeenFilters();
+        this.requests.set([]);
+        this.loading.set(false);
+      },
     });
   }
 

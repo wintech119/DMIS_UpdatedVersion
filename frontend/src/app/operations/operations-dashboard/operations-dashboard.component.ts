@@ -221,7 +221,16 @@ export class OperationsDashboardComponent implements OnInit {
   readonly canAccessEligibility = computed(() => this.appAccess.canAccessNavKey('operations.eligibility'));
 
   ngOnInit(): void {
-    this.auth.ensureLoaded().subscribe(() => this.loadDashboard());
+    this.auth.ensureLoaded().subscribe({
+      next: () => this.loadDashboard(),
+      error: () => {
+        const canAccessEligibility = this.canAccessEligibility();
+        this.metrics.set(buildUnavailableDashboardMetrics(canAccessEligibility));
+        this.priorityWork.set([]);
+        this.recentTasks.set([]);
+        this.loading.set(false);
+      },
+    });
   }
 
   open(route: string): void {

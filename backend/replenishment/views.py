@@ -268,10 +268,6 @@ class DuplicateConflictValidationError(ValueError):
     """Raised when duplicate-conflict validation input is malformed."""
 
 
-def _use_db_workflow_store() -> bool:
-    return True
-
-
 workflow_store = workflow_store_db
 
 
@@ -4530,6 +4526,17 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
             stage="DISPATCHED",
         )
         workflow_store.update_record(needs_list_id, record)
+        if link is not None:
+            _upsert_execution_link(
+                needs_list_id=link.needs_list_id,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=None,
+                reliefpkg_id=None,
+                execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                waybill_no=None,
+                waybill_payload=None,
+                dispatched=True,
+            )
 
     logger.info(
         "needs_list_dispatched",
