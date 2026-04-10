@@ -18,6 +18,16 @@ def default_frontend_test_agency_name(tenant_code: object) -> str:
     return f"S07 TEST DISTRIBUTOR AGENCY - {normalize_tenant_token(tenant_code)}"
 
 
+def local_harness_user_name(prefix: str, token: object = "", *, max_length: int = 20) -> str:
+    normalized_prefix = normalize_tenant_token(prefix)
+    normalized_token = normalize_tenant_token(token)
+    if normalized_token:
+        candidate = f"{normalized_prefix}_{normalized_token}_TST"
+    else:
+        candidate = f"{normalized_prefix}_TST"
+    return candidate[:max_length].rstrip("_")
+
+
 @dataclass(frozen=True)
 class TemporaryFrontendUserSpec:
     username: str
@@ -38,7 +48,7 @@ def temporary_local_harness_default_user() -> TemporaryFrontendUserSpec:
     return TemporaryFrontendUserSpec(
         username="local_system_admin_tst",
         email="system.admin+local@dmis.example.org",
-        user_name="LOCAL_SYSTEM_ADMIN_TST",
+        user_name=local_harness_user_name("LOCAL_SYSADMIN"),
         first_name="Morgan",
         last_name="Campbell",
         full_name="Morgan Campbell",
@@ -57,7 +67,7 @@ def temporary_frontend_user_specs(tenant_code: object) -> tuple[TemporaryFronten
         TemporaryFrontendUserSpec(
             username="local_odpem_deputy_director_tst",
             email="natalie.williams+national.deputy-director@odpem.gov.jm",
-            user_name="NATALIE_WILLIAMS_ODPEM_DEPUTY_DIRECTOR_TST",
+            user_name=local_harness_user_name("ODPEM_DDG"),
             first_name="Natalie",
             last_name="Williams",
             full_name="Natalie Williams",
@@ -70,7 +80,7 @@ def temporary_frontend_user_specs(tenant_code: object) -> tuple[TemporaryFronten
         TemporaryFrontendUserSpec(
             username="local_odpem_logistics_manager_tst",
             email="kemar.campbell+national.logistics-manager@odpem.gov.jm",
-            user_name="KEMAR_CAMPBELL_ODPEM_LOGISTICS_MANAGER_TST",
+            user_name=local_harness_user_name("ODPEM_LOG_MGR"),
             first_name="Kemar",
             last_name="Campbell",
             full_name="Kemar Campbell",
@@ -83,7 +93,7 @@ def temporary_frontend_user_specs(tenant_code: object) -> tuple[TemporaryFronten
         TemporaryFrontendUserSpec(
             username="local_odpem_logistics_officer_tst",
             email="chantal.ellis+national.logistics-officer@odpem.gov.jm",
-            user_name="CHANTAL_ELLIS_ODPEM_LOGISTICS_OFFICER_TST",
+            user_name=local_harness_user_name("ODPEM_LOG_OFF"),
             first_name="Chantal",
             last_name="Ellis",
             full_name="Chantal Ellis",
@@ -96,7 +106,7 @@ def temporary_frontend_user_specs(tenant_code: object) -> tuple[TemporaryFronten
         TemporaryFrontendUserSpec(
             username=f"relief_{slug}_requester_tst",
             email=f"alicia.bennett+{slug}.requester@agency.example.org",
-            user_name=f"ALICIA_BENNETT_{token}_REQUESTER_TST",
+            user_name=local_harness_user_name("REQ", token),
             first_name="Alicia",
             last_name="Bennett",
             full_name="Alicia Bennett",

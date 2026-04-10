@@ -159,6 +159,7 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertTrue(profiles[2].email.endswith("@odpem.gov.jm"))
         self.assertTrue(profiles[3].email.endswith("@odpem.gov.jm"))
         self.assertTrue(profiles[4].email.endswith("@agency.example.org"))
+        self.assertTrue(all(len(profile.user_name) <= 20 for profile in profiles))
 
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",
