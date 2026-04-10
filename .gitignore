@@ -123,6 +123,9 @@ dmis_schema.sql
 # Claude/Cursor local settings (may contain paths or tokens)
 .claude
 .claude/
+!.claude/
+.claude/*
+!.claude/CLAUDE.md
 .cursor/
 .mcp.json
 .mcp.example.json
@@ -186,3 +189,4 @@ backend/replenishment/management/commands/master_table_audit_snapshot.py
 backend/replenishment/management/commands/scaffold_wave3_master_tables.py
 backend/replenishment/management/commands/seed_event_phase_config_baseline.py
 backend/replenishment/management/commands/verify_warehouse_sync_status_parity.py
+

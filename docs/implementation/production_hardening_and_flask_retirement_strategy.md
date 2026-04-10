@@ -5,7 +5,9 @@ Status: Comprehensive pre-production strategy
 
 ## Purpose
 
-This document turns the current architecture review into an execution strategy for getting DMIS close to production-ready while the product is still in development.
+This document is the execution and transition strategy for getting DMIS close to production-ready while the product is still in development.
+
+The canonical architecture baseline now lives in `docs/adr/system_application_architecture.md`. This strategy document should be used for sequencing, workstream planning, production hardening execution, and Flask retirement tracking.
 
 It covers:
 
@@ -41,6 +43,7 @@ The recommended end state is a production-grade modular monolith with:
 | Workflow transitions | `docs/attached_assets/Appendix D - State_Transitions (Workflow).docx` |
 | Current implementation reality | `README.md`, `backend/`, `frontend/`, `docs/implementation/` |
 | Current approval policy reality | `docs/ops/replenishment-approval-policy-current-state.md` |
+| Canonical system/application architecture | `docs/adr/system_application_architecture.md` |
 | Security hardening target | `docs/security/SECURITY_ARCHITECTURE.md`, `docs/security/THREAT_MODEL.md`, `docs/security/CONTROLS_MATRIX.md` |
 
 ## Current-State Summary
@@ -360,3 +363,5 @@ Because the application is still in development, "almost production ready" shoul
 - legacy runtime dependencies are being intentionally retired rather than tolerated indefinitely
 
 That is the standard this strategy is designed to support.
+
+

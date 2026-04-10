@@ -148,6 +148,83 @@ NGINX / Ingress
 - Durable storage of generated operational artifacts
 - Backups encrypted, routinely restored in test, and governed by retention policy
 
+## Canonical Input Validation and Output Safety Standard
+
+This section is the canonical validation and output-safety reference for DMIS.
+
+### Validation boundary principles
+
+- Backend enforcement is authoritative; frontend validation exists for UX only.
+- Validate and normalize external input at the API, serializer, form, and service boundaries.
+- Never trust client-supplied values for identity, permissions, status transitions, pricing, or other sensitive business logic.
+- Reject invalid values explicitly rather than silently coercing or truncating them.
+- Treat output safety as part of validation: do not leak stack traces, raw SQL, secrets, or sensitive internal state in errors or responses.
+
+### Backend validation requirements
+
+- Enforce `max_length` and shape constraints for all string fields.
+- Use explicit allowlists for enum, status, and ordering inputs.
+- Validate numeric inputs for type and range.
+- Validate array inputs for type, length, and per-element shape.
+- Parse and validate date and datetime values before they reach SQL or business logic.
+- Normalize free-text fields with bounded length before storage.
+- Use parameterized SQL only; never interpolate user input into raw SQL.
+- Restrict dynamic table, column, and schema selection to hardcoded registries or safe quoting paths.
+
+### Frontend validation requirements
+
+- Every user-editable text input must enforce the same effective length constraints expected by the backend.
+- Angular forms should apply required, length, and numeric bounds consistently in both the form model and template.
+- User-entered text should be trimmed before submission where whitespace is not semantically meaningful.
+- Do not rely on hidden controls, disabled controls, or route guards as security controls.
+- Do not render user-provided content through unsafe HTML binding paths.
+
+### Output safety and object access
+
+- Unauthorized object lookups should return safe responses that do not leak object existence where that matters.
+- Tenant-safe lookup and authorization must happen server-side for all reads, updates, deletes, approvals, dispatches, receipts, and exports.
+- Error responses must remain bounded, safe, and correlation-friendly.
+
+## Canonical API Rate Limiting Standard
+
+This section is the canonical rate-limiting standard for DMIS.
+
+### Policy principles
+
+- Enforce rate limits per user, per tenant, and per IP for authenticated traffic.
+- Use IP-only enforcement for public or unauthenticated traffic.
+- During disaster `SURGE` phases, protections must defend the platform without blocking legitimate field operations.
+- Prefer token-bucket or sliding-window approaches with burst tolerance over rigid fixed-window counters on surge-critical paths.
+
+### Tiered limits
+
+| Tier | Limit | Endpoints |
+| --- | --- | --- |
+| Read | 120 req/min | Stock status, dashboards, warehouse lists, needs list GET, queues, lookups, `whoami` |
+| Write | 40 req/min | Needs list draft/edit, relief request create/update, procurement create/edit, supplier CRUD, master data CRUD |
+| Workflow | 15 req/min | Submit, approve, reject, return, escalate, cancel, allocation commit, override approve |
+| High-risk ops | 10 req/min | Dispatch handoff, receipt confirmation, mark-dispatched, mark-received, mark-completed, stock location assignment, repackaging |
+
+### Special limits
+
+| Action | Limit | Scope |
+| --- | --- | --- |
+| Login attempts | 5 per 15 min | Per account + per IP |
+| File exports (CSV/PDF) | 5 per min | Per user |
+| IFRC suggest (LLM) | 30 per min | Per user |
+| Bulk operations | 5 per min | Per user |
+| Public/unauthenticated | 60 per min | Per IP |
+
+### Surge handling and operational rules
+
+- Treat IP as a secondary abuse signal for authenticated users because shared networks are common in emergency operations.
+- `national.act_cross_tenant` roles should receive 2x limits during active events as the emergency override path.
+- Designated field operational roles may receive temporary surge overrides when telemetry shows legitimate emergency demand.
+- `429` responses must include `Retry-After`.
+- Frontend handling for throttling should use a recoverable toast or inline status pattern, not a hard failure screen.
+- Log and monitor rate-limit hits by endpoint, tenant, role, and event phase.
+- Use Redis-backed counters in production so throttling remains correct across multiple workers and nodes.
+
 ### Infrastructure and Operations
 
 - Redis mandatory in production
@@ -207,3 +284,4 @@ The most important residual risks visible today are:
 - Threat model review: whenever the auth model, tenant model, or deployment model changes
 - Controls matrix review: whenever a control changes state from missing to partial or implemented
 - Flask retirement review: until all legacy routes and dependencies are removed from the live path
+
