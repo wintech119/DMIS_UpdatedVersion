@@ -57,6 +57,7 @@ const PKG_STATUS_LABELS: Record<string, string> = {
   // Legacy single-char codes
   A: 'Draft',
   P: 'Ready for Dispatch',
+  V: 'Ready for Dispatch',
   D: 'Dispatched',
   C: 'Completed',
   // Operations-layer status codes
@@ -84,6 +85,7 @@ export function getPackageStatusCssClass(code: PackageStatusCode | string): stri
     case 'A':
     case 'DRAFT': return 'status-draft';
     case 'P':
+    case 'V':
     case 'COMMITTED':
     case 'READY_FOR_DISPATCH':
     case 'READY_FOR_PICKUP':
@@ -219,6 +221,7 @@ export function formatStagingSelectionBasis(basis: string | null | undefined): s
   switch (normalized) {
     case 'SAME_PARISH': return 'Same parish as destination';
     case 'PROXIMITY_MATRIX': return 'Nearest staging hub (proximity)';
+    case 'ALPHABETICAL_FALLBACK': return 'Alphabetical fallback';
     case 'MANUAL_OVERRIDE': return 'Manual override';
     case '': return 'Not set';
     default: return normalized;

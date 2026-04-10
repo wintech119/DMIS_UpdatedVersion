@@ -40,6 +40,7 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   // Legacy single-char codes
   A: 'Draft',
   P: 'Pending',
+  V: 'Ready for Dispatch',
   D: 'Dispatched',
   C: 'Completed',
   // Operations-layer status codes
@@ -60,6 +61,7 @@ const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
   A: 'draft',
   P: 'review',
+  V: 'success',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
@@ -197,6 +199,7 @@ function normalizeOperationsPackageStatus(
   executionStatus: string | null | undefined,
 ): string {
   const normalizedExecutionStatus = String(executionStatus ?? '').trim().toUpperCase();
+  const normalizedCode = String(code ?? '').trim().toUpperCase();
   switch (normalizedExecutionStatus) {
     case 'PENDING_OVERRIDE_APPROVAL':
     case 'COMMITTED':
@@ -206,7 +209,7 @@ function normalizeOperationsPackageStatus(
     case 'OVERRIDE_APPROVED':
       return 'READY_FOR_DISPATCH';
     default:
-      return String(code ?? '').trim().toUpperCase();
+      return normalizedCode === 'V' ? 'COMMITTED' : normalizedCode;
   }
 }
 

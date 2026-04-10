@@ -128,6 +128,7 @@ function normalizeStagingBasis(value: unknown): StagingSelectionBasis | null {
   if (
     normalized === 'SAME_PARISH'
     || normalized === 'PROXIMITY_MATRIX'
+    || normalized === 'ALPHABETICAL_FALLBACK'
     || normalized === 'MANUAL_OVERRIDE'
   ) {
     return normalized;

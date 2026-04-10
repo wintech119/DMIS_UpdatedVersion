@@ -38,7 +38,11 @@ export type ConsolidationStatus =
   | 'PARTIAL_RELEASE_REQUESTED';
 
 // Why the backend selected a particular staging warehouse.
-export type StagingSelectionBasis = 'SAME_PARISH' | 'PROXIMITY_MATRIX' | 'MANUAL_OVERRIDE';
+export type StagingSelectionBasis =
+  | 'SAME_PARISH'
+  | 'PROXIMITY_MATRIX'
+  | 'ALPHABETICAL_FALLBACK'
+  | 'MANUAL_OVERRIDE';
 
 // Lifecycle of a single consolidation leg from a source warehouse into the staging hub.
 export type ConsolidationLegStatus =

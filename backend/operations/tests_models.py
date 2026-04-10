@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import patch
 
 from django.test import TestCase
 
+from operations import staging_selection
+from operations.constants import STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK
 from operations.models import (
     OperationsDispatch,
     OperationsPackage,
@@ -135,3 +138,77 @@ class OperationsPackageModelTests(_OperationsRequestFactoryMixin, TestCase):
         )
 
         self.assertEqual(package.effective_dispatch_source_warehouse_id, 55)
+
+
+class StagingSelectionRecommendationTests(TestCase):
+    @patch("operations.staging_selection.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch(
+        "operations.staging_selection._staging_hub_rows",
+        return_value=[
+            {"warehouse_id": 12, "warehouse_name": "Alpha Hub", "parish_code": "03"},
+            {"warehouse_id": 18, "warehouse_name": "Bravo Hub", "parish_code": "05"},
+        ],
+    )
+    def test_recommend_staging_hub_uses_alphabetical_fallback_without_target_parish(
+        self,
+        _staging_hub_rows_mock,
+        _resolve_odpem_tenant_id_mock,
+    ) -> None:
+        recommendation = staging_selection.recommend_staging_hub(beneficiary_parish_code=None)
+
+        self.assertEqual(recommendation.recommended_staging_warehouse_id, 12)
+        self.assertEqual(
+            recommendation.staging_selection_basis,
+            STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
+        )
+        self.assertEqual(recommendation.recommended_staging_warehouse_name, "Alpha Hub")
+
+    @patch("operations.staging_selection.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch(
+        "operations.staging_selection._staging_hub_rows",
+        return_value=[
+            {"warehouse_id": 12, "warehouse_name": "Alpha Hub", "parish_code": "03"},
+            {"warehouse_id": 18, "warehouse_name": "Bravo Hub", "parish_code": "05"},
+        ],
+    )
+    @patch("operations.staging_selection._fetch_rows", return_value=[])
+    def test_recommend_staging_hub_uses_alphabetical_fallback_without_proximity_ranking(
+        self,
+        fetch_rows_mock,
+        _staging_hub_rows_mock,
+        _resolve_odpem_tenant_id_mock,
+    ) -> None:
+        recommendation = staging_selection.recommend_staging_hub(beneficiary_parish_code="09")
+
+        self.assertEqual(recommendation.recommended_staging_warehouse_id, 12)
+        self.assertEqual(
+            recommendation.staging_selection_basis,
+            STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
+        )
+        fetch_rows_mock.assert_called_once()
+
+    @patch("operations.staging_selection.operations_policy.resolve_odpem_tenant_id", return_value=27)
+    @patch(
+        "operations.staging_selection._staging_hub_rows",
+        return_value=[
+            {"warehouse_id": 12, "warehouse_name": "Alpha Hub", "parish_code": "03"},
+            {"warehouse_id": 18, "warehouse_name": "Bravo Hub", "parish_code": "05"},
+        ],
+    )
+    @patch(
+        "operations.staging_selection._fetch_rows",
+        return_value=[{"candidate_parish_code": "09", "proximity_rank": 1}],
+    )
+    def test_recommend_staging_hub_uses_alphabetical_fallback_when_ranked_parishes_do_not_match_candidates(
+        self,
+        _fetch_rows_mock,
+        _staging_hub_rows_mock,
+        _resolve_odpem_tenant_id_mock,
+    ) -> None:
+        recommendation = staging_selection.recommend_staging_hub(beneficiary_parish_code="08")
+
+        self.assertEqual(recommendation.recommended_staging_warehouse_id, 12)
+        self.assertEqual(
+            recommendation.staging_selection_basis,
+            STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
+        )

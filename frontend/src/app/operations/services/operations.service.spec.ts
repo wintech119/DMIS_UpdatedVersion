@@ -3,6 +3,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
+import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
+import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
 
 describe('OperationsService', () => {
   let service: OperationsService;
@@ -90,6 +92,43 @@ describe('OperationsService', () => {
       }),
       compatibility_only: false,
     }));
+  });
+
+  it('normalizes alphabetical fallback staging basis and legacy V package status', () => {
+    let result: unknown;
+
+    service.getPackage(12).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/12');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      request: {
+        reliefrqst_id: 12,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'V',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      package: jasmine.objectContaining({
+        status_code: 'V',
+        status_label: 'Ready for Dispatch',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      }),
+    }));
+    expect(formatPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(formatOperationsPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(getOperationsDispatchStage({ status_code: 'V' })).toBe('ready');
+    expect(formatStagingSelectionBasis('ALPHABETICAL_FALLBACK')).toBe('Alphabetical fallback');
   });
 
   it('loads the dispatch worklist from the real dispatch queue endpoint', () => {

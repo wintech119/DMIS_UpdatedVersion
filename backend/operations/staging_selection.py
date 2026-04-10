@@ -6,6 +6,7 @@ from django.db import connection
 
 from operations import policy as operations_policy
 from operations.constants import (
+    STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
     STAGING_SELECTION_BASIS_PROXIMITY_MATRIX,
     STAGING_SELECTION_BASIS_SAME_PARISH,
 )
@@ -117,17 +118,22 @@ def recommend_staging_hub(*, beneficiary_parish_code: str | None) -> StagingReco
                 ),
             )
             best = ranked_candidates[0]
+            best_parish_code = str(best.get("parish_code") or "").strip() or None
             return StagingRecommendation(
                 recommended_staging_warehouse_id=int(best["warehouse_id"]),
-                staging_selection_basis=STAGING_SELECTION_BASIS_PROXIMITY_MATRIX,
+                staging_selection_basis=(
+                    STAGING_SELECTION_BASIS_PROXIMITY_MATRIX
+                    if best_parish_code in rank_lookup
+                    else STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK
+                ),
                 recommended_staging_warehouse_name=str(best.get("warehouse_name") or "").strip() or None,
-                recommended_staging_parish_code=str(best.get("parish_code") or "").strip() or None,
+                recommended_staging_parish_code=best_parish_code,
             )
 
     best = candidates[0]
     return StagingRecommendation(
         recommended_staging_warehouse_id=int(best["warehouse_id"]),
-        staging_selection_basis=STAGING_SELECTION_BASIS_PROXIMITY_MATRIX,
+        staging_selection_basis=STAGING_SELECTION_BASIS_ALPHABETICAL_FALLBACK,
         recommended_staging_warehouse_name=str(best.get("warehouse_name") or "").strip() or None,
         recommended_staging_parish_code=str(best.get("parish_code") or "").strip() or None,
     )
