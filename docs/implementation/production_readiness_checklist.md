@@ -36,11 +36,11 @@ Use this checklist together with:
 - [ ] Redis is mandatory in production
 - [ ] liveness endpoint exists
 - [ ] readiness endpoint checks critical dependencies
-- [ ] API, DB, cache, and queue telemetry are available
-- [ ] alerting exists for dependency failure and sustained error-rate spikes
+- [ ] API, DB, cache, and queue telemetry are available, including request correlation and structured backend failure logs
+- [ ] alerting exists for readiness failure, DB/Redis dependency failure, auth validation failure spikes, and sustained `5xx` / unhandled-error spikes
 - [ ] backup procedure is documented
-- [ ] restore test has been executed successfully
-- [ ] rollback procedure is documented and assigned
+- [ ] restore test has been executed successfully and dated evidence is available
+- [ ] rollback procedure is documented, assigned, and tied to the release process
 
 ## 4. Performance and Scalability
 
@@ -54,8 +54,8 @@ Use this checklist together with:
 
 - [ ] critical workflow artifacts are durably stored
 - [ ] audit logging exists for privileged and state-changing operations
-- [ ] request or trace correlation can link frontend, API, and worker activity
-- [ ] recovery expectations for critical records and artifacts are documented
+- [ ] request or trace correlation can link frontend, API, and worker activity, at minimum through `X-Request-ID` / correlated API logs
+- [ ] recovery expectations for critical records and artifacts are documented for restart/rollback, DB failure, Redis failure, and invalid runtime posture
 
 ## 6. Delivery and Governance
 

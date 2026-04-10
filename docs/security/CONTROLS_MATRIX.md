@@ -60,9 +60,9 @@ Status values:
 | ID | Control | Current State | Target State | Status | Production Gate | Standards |
 | --- | --- | --- | --- | --- | --- | --- |
 | OPS-01 | Redis as shared coordination layer | Redis is optional and code falls back to LocMemCache | Redis mandatory in production, monitored as a critical dependency | Partial | Yes | Availability |
-| OPS-02 | Health checks | Only simplistic health semantics are evident | Separate liveness and readiness checks with dependency verification | Missing | Yes | ISO 22301 |
-| OPS-03 | Metrics, logs, traces, alerting | Limited evidence of production telemetry | End-to-end observability for API, workers, DB, Redis, and edge components | Missing | Yes | NIST DE, ISO 27001 |
-| OPS-04 | Backup and restore procedures | Recovery goals exist in requirements, but execution evidence is limited | Tested backup, restore, and rollback procedures | Missing | Yes | ISO 22301 |
+| OPS-02 | Health checks | Separate liveness and readiness endpoints now exist with DB/Redis verification, but broader dependency coverage is still incomplete | Separate liveness and readiness checks with dependency verification | Partial | Yes | ISO 22301 |
+| OPS-03 | Metrics, logs, traces, alerting | API request IDs, structured runtime/auth/readiness/error logs, and operator alert guidance exist, but worker, edge, and metrics coverage remain incomplete | End-to-end observability for API, workers, DB, Redis, and edge components | Partial | Yes | NIST DE, ISO 27001 |
+| OPS-04 | Backup and restore procedures | Recovery and rollback guidance is documented, but tested restore evidence remains limited | Tested backup, restore, and rollback procedures | Partial | Yes | ISO 22301 |
 | OPS-05 | High-availability data and cache posture | PostgreSQL is primary data store; HA specifics are not operationalized here | Primary/replica DB posture and HA Redis with failover expectations | Planned | No | Availability |
 | OPS-06 | Secrets management and rotation | Environment-driven configuration exists | Managed secret store, rotation policy, and separation by environment | Partial | Yes | ISO 27001 |
 | OPS-07 | Edge protection | Reverse proxy guidance exists but is stale | WAF/CDN, TLS, rate limiting, and hardened ingress config aligned to active stack | Partial | Yes | OWASP ASVS 14 |

@@ -144,8 +144,8 @@ Core work:
 
 - add readiness and liveness checks
 - make Redis required and observable
-- add telemetry, alerting, and incident visibility
-- define backup, restore, rollback, and failover procedures
+- add request correlation, structured runtime/auth/error logs, and alert-ready incident visibility
+- define backup, restore, rollback, and failover procedures with dated evidence expectations
 - introduce durable artifacts and audit evidence
 
 ### Workstream C: Performance and Scalability Hardening
@@ -233,13 +233,15 @@ Deliverables:
 
 - Redis mandatory in production
 - liveness and readiness endpoints with dependency checks
+- request IDs, structured runtime/auth/readiness/error logs, and alert-ready monitoring guidance
 - metrics, logs, traces, and alerting
-- tested backup and restore procedure
+- tested backup and restore procedure or explicitly tracked evidence gap with owner
 - defined degraded-mode behavior for cache, queue, and IdP failures
 
 Exit criteria:
 
 - critical dependencies are observable
+- incidents can be correlated to request IDs or equivalent backend trace fields
 - restore test evidence exists
 - on-call or support team has usable incident visibility
 

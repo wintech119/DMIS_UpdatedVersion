@@ -141,6 +141,87 @@ Health probe routing should preserve:
 
 Do not use the liveness probe as a readiness gate in shared-dev, staging, or production.
 
+The ingress layer should also preserve or set:
+
+```text
+X-Request-ID: <edge-generated-or-forwarded-request-id>
+```
+
+DMIS accepts a sanitized `X-Request-ID` when present, otherwise it generates one. Every API response echoes the request ID in the response headers, and DRF error responses also include `request_id` in the JSON body.
+
+## Operational visibility
+
+Current API/runtime signals:
+
+| Signal | Where it appears | Why it matters |
+| --- | --- | --- |
+| `runtime.posture.initialized` | startup logs | Confirms the runtime environment, auth posture, Redis posture, cache backend, and secure-cookie / HTTPS posture at boot |
+| `X-Request-ID` / `request_id` | every API response and DRF error body | Lets operators correlate ingress logs, backend logs, and user-reported failures |
+| `auth.request_rejected` | backend warning logs | Indicates missing/invalid auth or rejected local-only auth headers |
+| `auth.jwt_verification_failed` | backend warning logs | Indicates JWT validation failures without logging the raw token |
+| `readiness.not_ready` | backend warning logs and `/api/v1/health/ready/` | Indicates DB or Redis dependency failure and keeps the instance out of rotation |
+| `request.unhandled_exception` | backend error logs | Indicates an unhandled server-side exception tied to a request ID |
+
+Logging guardrails:
+
+- DMIS intentionally avoids logging bearer tokens, raw JWT claims, secrets, and connection strings.
+- Local-harness rejection logs no longer include the raw requested username or email.
+- The current implementation is alert-ready but not tied to a third-party observability platform in this thread; connect your log and metrics pipeline to these signals.
+
+## Alert-ready conditions
+
+At minimum, wire monitoring or alert rules for:
+
+- repeated `/api/v1/health/ready/` `503` responses from one or more instances
+- any readiness failure whose `checks.database.status` or `checks.redis.status` becomes `failed`
+- spikes in `auth.request_rejected` or `auth.jwt_verification_failed`
+- repeated `request.unhandled_exception` events or sustained API `5xx` rates
+- startup failures caused by invalid runtime posture, missing auth config, or missing Redis config in non-local environments
+
+Recommended operator response:
+
+1. Capture the affected `X-Request-ID` or `request_id`.
+2. Pull the matching backend log lines first.
+3. Confirm whether the issue is isolated to one instance, one dependency, or the entire environment.
+4. Remove unhealthy instances from rotation before restart or rollback.
+
+## Minimum recovery actions
+
+### App restart or deployment rollback
+
+1. Remove the unhealthy instance or release from traffic using readiness or ingress controls.
+2. Check the most recent `runtime.posture.initialized`, `readiness.not_ready`, and `request.unhandled_exception` logs for the affected `X-Request-ID` or release window.
+3. Restart the Django API process if the issue is process-local.
+4. If the problem started with the current release, roll back to the previous known-good deployment rather than weakening runtime controls.
+5. Return traffic only after `/api/v1/health/ready/` is green again.
+
+### Database dependency failure
+
+1. Treat DB readiness failure as critical and keep the instance out of rotation.
+2. Verify database reachability, credentials, TLS/network posture, and migration state.
+3. Do not bypass the readiness gate or force the app into service without DB connectivity.
+4. If failover or restore is required, record the exact evidence used and the recovery window achieved.
+
+### Redis dependency failure
+
+1. Treat Redis failure as critical in `prod-like-local`, `shared-dev`, `staging`, and `production`.
+2. Restore Redis availability or the correct Redis-backed cache configuration.
+3. Do not switch non-local environments to `LocMemCache` as a recovery shortcut.
+4. Return traffic only after readiness shows Redis `ok`.
+
+### Invalid runtime posture or configuration drift
+
+1. DMIS is designed to fail closed on invalid non-local runtime posture.
+2. Correct the environment variables or secret/config source rather than bypassing the validation.
+3. Re-run `python manage.py check --deploy` and restart or redeploy with the corrected configuration.
+4. Capture the resulting startup log as recovery evidence.
+
+### Backup, restore, and evidence expectations
+
+- Before promotion, keep a documented backup procedure, rollback owner, and dated restore-test evidence.
+- If backup/restore verification is still manual, store the evidence in the release record and treat missing evidence as an open readiness gap.
+- A restore exercise should record the restore date, operator, backup source, target environment, observed RPO/RTO, and any follow-up remediation.
+
 ## Validation before promotion
 
 Run these checks from `backend/` before promoting any non-local deployment:

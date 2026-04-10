@@ -21,6 +21,7 @@ if TESTING:
             'null': {'class': 'logging.NullHandler'},
         },
         'loggers': {
+            'dmis': {'handlers': ['null'], 'level': 'CRITICAL', 'propagate': False},
             'django.request': {'handlers': ['null'], 'level': 'CRITICAL', 'propagate': False},
             'django.server': {'handlers': ['null'], 'level': 'CRITICAL', 'propagate': False},
         },
@@ -611,6 +612,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "api.apps.DmisRequestContextMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -679,6 +681,9 @@ USE_TZ = True
 STATIC_URL = "/static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "api.apps.dmis_exception_handler",
+}
 SECURE_CONTENT_TYPE_NOSNIFF = _get_bool_env("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", True)
 SECURE_SSL_REDIRECT = _get_bool_env(
     "DJANGO_SECURE_SSL_REDIRECT",
@@ -919,4 +924,63 @@ IFRC_AGENT = {
     "CB_REDIS_KEY": os.getenv("IFRC_CB_REDIS_KEY", "ifrc:circuit_breaker"),
     "RATE_LIMIT_PER_MINUTE": _get_int_env("IFRC_RATE_LIMIT_PER_MINUTE", 30) or 30,
 }
+
+
+if not TESTING:
+    _dmis_log_level = os.getenv("DMIS_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+    _dmis_root_log_level = os.getenv("DMIS_ROOT_LOG_LEVEL", "WARNING").strip().upper() or "WARNING"
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "filters": {
+            "request_context": {
+                "()": "api.apps.RequestContextLogFilter",
+            }
+        },
+        "formatters": {
+            "structured": {
+                "format": (
+                    "%(asctime)s level=%(levelname)s logger=%(name)s event=%(event)s "
+                    "runtime_env=%(runtime_env)s request_id=%(request_id)s "
+                    "method=%(request_method)s path=%(request_path)s status=%(status_code)s "
+                    "dependency=%(dependency)s auth_mode=%(auth_mode)s "
+                    "exception=%(exception_class)s message=%(message)s"
+                )
+            }
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+                "filters": ["request_context"],
+                "formatter": "structured",
+            }
+        },
+        "loggers": {
+            "dmis": {
+                "handlers": ["console"],
+                "level": _dmis_log_level,
+                "propagate": False,
+            },
+            "django.request": {
+                "handlers": ["console"],
+                "level": "ERROR",
+                "propagate": False,
+            },
+            "django.server": {
+                "handlers": ["console"],
+                "level": "WARNING",
+                "propagate": False,
+            },
+            "django.security.DisallowedHost": {
+                "handlers": ["console"],
+                "level": "ERROR",
+                "propagate": False,
+            },
+        },
+        "root": {
+            "handlers": ["console"],
+            "level": _dmis_root_log_level,
+        },
+    }
 

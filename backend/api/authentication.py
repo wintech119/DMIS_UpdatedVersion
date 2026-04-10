@@ -9,7 +9,9 @@ from django.db import DatabaseError, connection
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
-logger = logging.getLogger(__name__)
+from api.apps import build_log_extra
+
+logger = logging.getLogger("dmis.security")
 
 LOCAL_AUTH_HARNESS_HEADER = "HTTP_X_DMIS_LOCAL_USER"
 LEGACY_DEV_AUTH_HEADER = "HTTP_X_DEV_USER"
@@ -21,6 +23,19 @@ class Principal:
     roles: list[str]
     permissions: list[str] = field(default_factory=list)
     is_authenticated: bool = True
+
+
+def _log_auth_warning(
+    event: str,
+    *,
+    request=None,
+    exception: Exception | None = None,
+    **extra,
+) -> None:
+    payload = build_log_extra(request, event=event, **extra)
+    if exception is not None:
+        payload["exception_class"] = exception.__class__.__name__
+    logger.warning(event, extra=payload)
 
 
 def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
@@ -56,7 +71,7 @@ def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
             raise AuthenticationFailed("Invalid JWT payload.")
         return payload
     except (PyJWKClientError, InvalidTokenError, AuthenticationFailed, ValueError) as exc:
-        logger.warning("JWT verification failed: %s", exc)
+        _log_auth_warning("auth.jwt_verification_failed", exception=exc)
         if isinstance(exc, AuthenticationFailed):
             raise
         raise AuthenticationFailed("Invalid bearer token.") from exc
@@ -98,17 +113,16 @@ def _requested_local_auth_harness_user(request) -> str:
 def _enforce_dev_override_header_policy(request) -> None:
     legacy_header_value = str(request.META.get(LEGACY_DEV_AUTH_HEADER, "")).strip()
     if legacy_header_value:
-        logger.warning("Rejected deprecated X-Dev-User header for DMIS auth flow.")
+        _log_auth_warning("auth.rejected_legacy_dev_header", request=request)
         raise AuthenticationFailed(
             "X-Dev-User is no longer supported. Use the local auth harness flow only in explicit local-harness mode."
         )
 
     local_harness_header_value = _requested_local_auth_harness_user(request)
     if local_harness_header_value and not local_auth_harness_enabled():
-        runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
-        logger.warning(
-            "Rejected local auth harness header outside local-harness mode (env=%s).",
-            runtime_env,
+        _log_auth_warning(
+            "auth.rejected_local_harness_header_outside_local_mode",
+            request=request,
         )
         raise AuthenticationFailed(
             "X-DMIS-Local-User is disabled outside DMIS local-harness mode."
@@ -125,10 +139,10 @@ def _resolve_dev_override_principal(request) -> Principal | None:
 
     allowed_users = _configured_local_auth_harness_users()
     if not allowed_users:
-        logger.warning("Local auth harness is enabled without any allowlisted usernames.")
+        _log_auth_warning("auth.local_harness_enabled_without_allowlist", request=request)
         return None
     if requested.lower() not in allowed_users:
-        logger.warning("Local auth harness rejected non-allowlisted user: %s", requested)
+        _log_auth_warning("auth.local_harness_rejected_non_allowlisted_user", request=request)
         return None
 
     try:
@@ -144,11 +158,11 @@ def _resolve_dev_override_principal(request) -> Principal | None:
             )
             row = cursor.fetchone()
     except DatabaseError as exc:
-        logger.warning("DEV auth override lookup failed: %s", exc)
+        _log_auth_warning("auth.dev_override_lookup_failed", request=request, exception=exc)
         return None
 
     if not row:
-        logger.warning("DEV auth override user not found: %s", requested)
+        _log_auth_warning("auth.dev_override_user_not_found", request=request)
         return None
 
     user_id = int(row[0])
@@ -193,7 +207,7 @@ def _fetch_dev_override_roles_and_permissions(user_id: int) -> tuple[list[str], 
                 if str(row[0]).strip() and str(row[1]).strip()
             ]
     except DatabaseError as exc:
-        logger.warning("DEV auth override role lookup failed: %s", exc)
+        _log_auth_warning("auth.dev_override_role_lookup_failed", exception=exc)
         return [], []
 
     return roles, permissions

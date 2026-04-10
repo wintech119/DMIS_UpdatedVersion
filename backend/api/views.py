@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from django.conf import settings
@@ -7,23 +8,30 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication, local_auth_harness_enabled
 from api.rbac import resolve_roles_and_permissions
 from api.tenancy import resolve_tenant_context, tenant_context_to_dict
 from operations import policy as operations_policy
 
+readiness_logger = logging.getLogger("dmis.readiness")
+
 
 @api_view(["GET"])
 def health(request):
-    return Response(_liveness_payload())
+    return Response(_liveness_payload(request))
 
 
-def _liveness_payload() -> dict[str, str]:
+def _liveness_payload(request=None) -> dict[str, str]:
     runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
-    return {
+    payload = {
         "status": "live",
         "runtime_env": runtime_env,
     }
+    request_id = get_request_id(request)
+    if request_id and request_id != "-":
+        payload["request_id"] = request_id
+    return payload
 
 
 def _database_readiness_check() -> tuple[str, str | None]:
@@ -59,7 +67,7 @@ def _redis_readiness_check() -> tuple[str, str | None]:
     return "ok", None
 
 
-def _readiness_payload() -> tuple[dict[str, Any], int]:
+def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
     database_status, database_reason = _database_readiness_check()
     redis_status, redis_reason = _redis_readiness_check()
     redis_required = bool(getattr(settings, "DMIS_REDIS_REQUIRED", False))
@@ -87,17 +95,36 @@ def _readiness_payload() -> tuple[dict[str, Any], int]:
         "runtime_env": runtime_env,
         "checks": checks,
     }
+    request_id = get_request_id(request)
+    if request_id and request_id != "-":
+        payload["request_id"] = request_id
+    if not is_ready:
+        failing_checks = ",".join(
+            sorted(name for name, check in checks.items() if check["status"] == "failed")
+        )
+        readiness_logger.warning(
+            "readiness.not_ready",
+            extra=build_log_extra(
+                request,
+                event="readiness.not_ready",
+                status_code=503,
+                dependency=failing_checks or "unknown",
+            ),
+        )
     return payload, 200 if is_ready else 503
 
 
 @api_view(["GET"])
 def health_live(request):
-    return Response(_liveness_payload())
+    return Response(_liveness_payload(request))
 
 
 @api_view(["GET"])
 def health_ready(request):
-    payload, status_code = _readiness_payload()
+    payload, status_code = _readiness_payload(request)
+    if status_code >= 500:
+        raw_request = getattr(request, "_request", request)
+        raw_request._dmis_skip_response_error_logging = True
     return Response(payload, status=status_code)
 
 

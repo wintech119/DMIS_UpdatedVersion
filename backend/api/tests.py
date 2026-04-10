@@ -1,42 +1,72 @@
 from types import SimpleNamespace
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import path
+from rest_framework.decorators import api_view
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
-from api import checks as api_checks
+from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
 from api.permissions import NeedsListPermission
 from dmis_api import settings as dmis_settings
 
 
+@api_view(["GET"])
+def observability_boom(_request):
+    raise RuntimeError("boom")
+
+
+urlpatterns = [
+    path("boom/", observability_boom, name="observability_boom"),
+]
+
+
 class HealthEndpointTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
 
+    def _assert_correlated_response(self, response, expected_request_id: str | None = None) -> str:
+        body = response.json()
+        self.assertIn("request_id", body)
+        self.assertIn("X-Request-ID", response)
+        self.assertEqual(response["X-Request-ID"], body["request_id"])
+        if expected_request_id is not None:
+            self.assertEqual(body["request_id"], expected_request_id)
+        else:
+            self.assertRegex(body["request_id"], r"^[A-Za-z0-9._-]{1,128}$")
+        return str(body["request_id"])
+
     def test_health_alias_returns_liveness_payload(self) -> None:
         response = self.client.get("/api/v1/health/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "status": "live",
-                "runtime_env": "test",
-            },
-        )
+        self.assertEqual(body["status"], "live")
+        self.assertEqual(body["runtime_env"], "test")
+        self._assert_correlated_response(response)
 
     def test_live_endpoint_returns_liveness_payload(self) -> None:
         response = self.client.get("/api/v1/health/live/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "status": "live",
-                "runtime_env": "test",
-            },
-        )
+        self.assertEqual(body["status"], "live")
+        self.assertEqual(body["runtime_env"], "test")
+        self._assert_correlated_response(response)
+
+    def test_live_endpoint_reuses_valid_request_id_header(self) -> None:
+        response = self.client.get("/api/v1/health/live/", HTTP_X_REQUEST_ID="edge-health-123")
+
+        self.assertEqual(response.status_code, 200)
+        self._assert_correlated_response(response, "edge-health-123")
+
+    def test_live_endpoint_replaces_invalid_request_id_header(self) -> None:
+        response = self.client.get("/api/v1/health/live/", HTTP_X_REQUEST_ID="bad header/value")
+
+        request_id = self._assert_correlated_response(response)
+        self.assertNotEqual(request_id, "bad header/value")
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
@@ -50,16 +80,18 @@ class HealthEndpointTests(TestCase):
         _mock_redis_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(body["status"], "ready")
         self.assertEqual(
-            response.json()["checks"],
+            body["checks"],
             {
                 "database": {"required": True, "status": "ok"},
                 "redis": {"required": True, "status": "ok"},
             },
         )
+        self._assert_correlated_response(response)
 
     @override_settings(
         DMIS_RUNTIME_ENV="local-harness",
@@ -76,23 +108,51 @@ class HealthEndpointTests(TestCase):
         _mock_redis_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(body["status"], "ready")
+        self.assertEqual(body["runtime_env"], "local-harness")
         self.assertEqual(
-            response.json(),
+            body["checks"],
             {
-                "status": "ready",
-                "runtime_env": "local-harness",
-                "checks": {
-                    "database": {"required": True, "status": "ok"},
-                    "redis": {
-                        "required": False,
-                        "status": "skipped",
-                        "reason": "Redis is optional in local-harness when REDIS_URL is not set.",
-                    },
+                "database": {"required": True, "status": "ok"},
+                "redis": {
+                    "required": False,
+                    "status": "skipped",
+                    "reason": "Redis is optional in local-harness when REDIS_URL is not set.",
                 },
             },
         )
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+    )
+    @patch("api.views.readiness_logger.warning")
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch(
+        "api.views._database_readiness_check",
+        return_value=("failed", "Database connectivity check failed (DatabaseError)."),
+    )
+    def test_readiness_failure_logs_request_correlation(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+        mock_warning,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/health/ready/",
+            HTTP_X_REQUEST_ID="edge-ready-503",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self._assert_correlated_response(response, "edge-ready-503")
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "readiness.not_ready")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["request_id"], "edge-ready-503")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["dependency"], "database")
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
@@ -109,11 +169,13 @@ class HealthEndpointTests(TestCase):
         _mock_redis_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["status"], "not_ready")
-        self.assertEqual(response.json()["checks"]["database"]["status"], "failed")
-        self.assertEqual(response.json()["checks"]["redis"]["status"], "ok")
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["database"]["status"], "failed")
+        self.assertEqual(body["checks"]["redis"]["status"], "ok")
+        self._assert_correlated_response(response)
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
@@ -130,11 +192,13 @@ class HealthEndpointTests(TestCase):
         _mock_redis_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["status"], "not_ready")
-        self.assertEqual(response.json()["checks"]["redis"]["status"], "failed")
-        self.assertIn("REDIS_URL", response.json()["checks"]["redis"]["reason"])
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["redis"]["status"], "failed")
+        self.assertIn("REDIS_URL", body["checks"]["redis"]["reason"])
+        self._assert_correlated_response(response)
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
@@ -151,10 +215,12 @@ class HealthEndpointTests(TestCase):
         _mock_redis_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
 
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["status"], "not_ready")
-        self.assertEqual(response.json()["checks"]["redis"]["status"], "failed")
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["redis"]["status"], "failed")
+        self._assert_correlated_response(response)
 
 
 class RuntimeRedisConfigurationValidationTests(SimpleTestCase):
@@ -497,6 +563,87 @@ class RuntimeDependencyCheckTests(SimpleTestCase):
         self.assertIn("REDIS_URL", messages[0].msg)
 
 
+class RequestContextMiddlewareTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.client.raise_request_exception = False
+
+    @override_settings(ROOT_URLCONF="api.tests", DEBUG=False)
+    @patch("api.apps.request_logger.exception")
+    def test_unhandled_server_error_logs_with_request_id(self, mock_exception) -> None:
+        response = self.client.get("/boom/", HTTP_X_REQUEST_ID="edge-boom-500")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response["X-Request-ID"], "edge-boom-500")
+        mock_exception.assert_called_once()
+        self.assertEqual(mock_exception.call_args.args[0], "request.unhandled_exception")
+        self.assertEqual(mock_exception.call_args.kwargs["extra"]["request_id"], "edge-boom-500")
+        self.assertEqual(mock_exception.call_args.kwargs["extra"]["exception_class"], "RuntimeError")
+
+
+class AuthLoggingTests(SimpleTestCase):
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.authentication.logger.warning")
+    def test_legacy_dev_header_warning_uses_structured_event(self, mock_warning) -> None:
+        request = SimpleNamespace(
+            META={"HTTP_X_DEV_USER": "legacy-user"},
+            method="GET",
+            path="/api/v1/auth/whoami/",
+        )
+
+        with self.assertRaises(AuthenticationFailed):
+            authentication._enforce_dev_override_header_policy(request)
+
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.rejected_legacy_dev_header")
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["event"],
+            "auth.rejected_legacy_dev_header",
+        )
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["request_path"],
+            "/api/v1/auth/whoami/",
+        )
+
+    @override_settings(
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_ALGORITHMS=["RS256"],
+    )
+    @patch(
+        "api.authentication.jwt.get_unverified_header",
+        side_effect=authentication.InvalidTokenError("bad token"),
+    )
+    @patch("api.authentication.logger.warning")
+    def test_jwt_verification_failure_logs_structured_event_and_exception_class(
+        self,
+        mock_warning,
+        _mock_get_unverified_header,
+    ) -> None:
+        with self.assertRaises(AuthenticationFailed):
+            authentication._verify_jwt_with_jwks(
+                "not-a-real-token",
+                "https://issuer.example/.well-known/jwks.json",
+            )
+
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.jwt_verification_failed")
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["event"],
+            "auth.jwt_verification_failed",
+        )
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["exception_class"],
+            "InvalidTokenError",
+        )
+
+
 class AuthWhoAmITests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
@@ -515,6 +662,34 @@ class AuthWhoAmITests(TestCase):
         response = self.client.get("/api/v1/auth/whoami/")
 
         self.assertEqual(response.status_code, 401)
+
+    @override_settings(
+        AUTH_ENABLED=True,
+        DEV_AUTH_ENABLED=False,
+        AUTH_ISSUER="https://issuer.example",
+        AUTH_AUDIENCE="dmis-api",
+        AUTH_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        AUTH_USER_ID_CLAIM="sub",
+        AUTH_ROLES_CLAIM="roles",
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.apps.security_logger.warning")
+    def test_whoami_auth_failure_includes_request_id_and_logs_security_event(
+        self,
+        mock_warning,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_REQUEST_ID="edge-auth-401",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response["X-Request-ID"], "edge-auth-401")
+        self.assertEqual(response.json()["request_id"], "edge-auth-401")
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "auth.request_rejected")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["request_id"], "edge-auth-401")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["auth_mode"], "missing")
 
     @override_settings(
         AUTH_ENABLED=False,

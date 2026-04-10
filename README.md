@@ -237,6 +237,24 @@ Readiness checks:
 - Redis connectivity is required for `prod-like-local`, `shared-dev`, `staging`, and `production`
 - `local-harness` may report Redis as `skipped` only when `REDIS_URL` is intentionally unset for the documented local-only degraded mode
 
+### Operational signals
+
+The Django runtime now emits a small, grep-friendly observability baseline intended for shared-dev, staging, and production-like environments:
+
+- Every API response includes `X-Request-ID`. DRF error responses also include `request_id` in the JSON body so support and operators can correlate a user-visible failure back to backend logs.
+- Startup logs emit `runtime.posture.initialized` with the declared runtime environment plus auth, Redis, cache-backend, and secure-transport posture.
+- Auth and request-failure logs emit high-signal event names such as `auth.request_rejected`, `auth.jwt_verification_failed`, `readiness.not_ready`, and `request.unhandled_exception`.
+- New logs are intentionally structured without logging bearer tokens, secrets, or raw identity claims.
+
+Operational alert priorities:
+
+- sustained `readiness.not_ready` responses
+- database or Redis dependency failure in readiness logs
+- spikes in `auth.request_rejected` or `auth.jwt_verification_failed`
+- repeated `request.unhandled_exception` events or repeated API `5xx` responses
+
+See `DEPLOYMENT.md` for the monitoring and minimum recovery actions tied to these signals.
+
 ## IFRC Item Code Generator Agent (v3)
 
 This repository uses the v3 approach:
