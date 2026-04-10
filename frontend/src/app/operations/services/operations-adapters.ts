@@ -413,6 +413,7 @@ export function normalizeAllocationItemGroup(raw: unknown): AllocationItemGroup 
     compliance_markers: complianceMarkers,
     override_required: asBoolean(source['override_required']),
     source_warehouse_id: asNullableNumber(source['source_warehouse_id']),
+    stock_integrity_issue: asNullableString(source['stock_integrity_issue']),
     remaining_shortfall_qty: asString(source['remaining_shortfall_qty'], '0'),
     continuation_recommended: asBoolean(source['continuation_recommended']),
     alternate_warehouses: asArray(source['alternate_warehouses']).map(normalizeAlternateWarehouseOption),

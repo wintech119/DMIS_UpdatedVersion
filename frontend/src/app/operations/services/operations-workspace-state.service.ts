@@ -1289,6 +1289,7 @@ export class OperationsWorkspaceStateService {
       issue_qty: preview.issue_qty,
       remaining_qty: preview.remaining_qty,
       fully_issued: preview.fully_issued,
+      stock_integrity_issue: preview.stock_integrity_issue,
       remaining_shortfall_qty: preview.remaining_shortfall_qty,
       continuation_recommended: preview.continuation_recommended,
       alternate_warehouses: preview.alternate_warehouses,
@@ -1376,6 +1377,9 @@ export class OperationsWorkspaceStateService {
       }
       // Nothing selected AND fully issued — no action required for this item.
       return null;
+    }
+    if (item.stock_integrity_issue) {
+      return item.stock_integrity_issue;
     }
     if (selected <= 0) {
       return 'Select at least one stock line before continuing.';
@@ -1794,6 +1798,33 @@ export class OperationsWorkspaceStateService {
    */
   extractWriteError(error: HttpErrorResponse, fallback: string): string {
     return this.extractError(error, fallback);
+  }
+
+  /**
+   * Convert backend warehouse-stock rejection messages into a workflow-level
+   * integrity warning. The reservation UI already shows batch-level availability;
+   * when the backend rejects a commit against the warehouse aggregate row, that
+   * usually means the aggregate is stale relative to the batch rows and the
+   * operator should refresh before retrying.
+   */
+  extractReservationIntegrityWarning(error: HttpErrorResponse): string | null {
+    const message = this.extractError(error, '').trim();
+    if (!message) {
+      return null;
+    }
+    const match = message.match(
+      /^Insufficient (?:warehouse|usable) stock for item (\d+) at inventory (\d+)\.?$/i,
+    ) || message.match(
+      /^Inconsistent inventory reservation for item (\d+)\.?$/i,
+    ) || message.match(
+      /^Inventory row (\d+)\/(\d+) changed during stock update\./i,
+    );
+    if (!match) {
+      return null;
+    }
+    const itemId = match[1];
+    const inventoryId = match[2] ?? 'unknown inventory';
+    return `Warehouse stock data for item ${itemId} at inventory ${inventoryId} appears to be out of sync with the batch availability shown here. Refresh the workspace before trying again.`;
   }
 }
 

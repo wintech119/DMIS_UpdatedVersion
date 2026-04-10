@@ -14,6 +14,7 @@ from replenishment import views
 from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
     AllocationDispatchError,
+    InventoryDriftError,
     STATUS_APPROVED,
     _ensure_legacy_request_package,
     _fetch_batch_candidates,
@@ -387,6 +388,105 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             [call.kwargs["version_nbr"] for call in mock_needs_list_item_objects.filter.call_args_list],
             [1, 2],
         )
+
+    @patch("replenishment.legacy_models.Inventory.objects")
+    @patch("replenishment.legacy_models.ItemBatch.objects")
+    def test_apply_stock_delta_raises_inventory_drift_when_batch_has_stock_but_inventory_aggregate_does_not(
+        self,
+        mock_itembatch_objects,
+        mock_inventory_objects,
+    ) -> None:
+        batch = SimpleNamespace(
+            batch_id=95015,
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("300"),
+            version_nbr=1,
+            available_qty=Decimal("300"),
+        )
+        inventory = SimpleNamespace(
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("0"),
+            version_nbr=1,
+            available_qty=Decimal("0"),
+        )
+        mock_itembatch_objects.select_for_update.return_value.get.return_value = batch
+        mock_inventory_objects.select_for_update.return_value.get.return_value = inventory
+
+        with self.assertRaises(InventoryDriftError) as raised:
+            _apply_stock_delta_for_rows(
+                [
+                    {
+                        "item_id": 195,
+                        "inventory_id": 1,
+                        "batch_id": 95015,
+                        "quantity": "25",
+                        "source_type": "ON_HAND",
+                    }
+                ],
+                actor_user_id="tester",
+                delta_sign=1,
+                update_needs_list=False,
+                consume_stock=False,
+            )
+
+        self.assertIn("out of sync", str(raised.exception))
+        self.assertIn("inventory 1", str(raised.exception))
+
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.legacy_models.Inventory.objects")
+    @patch("replenishment.legacy_models.ItemBatch.objects")
+    def test_apply_stock_delta_raises_inventory_drift_error_when_aggregate_row_under_reports_stock(
+        self,
+        mock_itembatch_objects,
+        mock_inventory_objects,
+        _mock_log_audit,
+    ) -> None:
+        batch = SimpleNamespace(
+            batch_id=95015,
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("300"),
+            version_nbr=1,
+            available_qty=Decimal("300"),
+        )
+        inventory = SimpleNamespace(
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("0"),
+            version_nbr=1,
+            available_qty=Decimal("0"),
+        )
+        mock_itembatch_objects.select_for_update.return_value.get.return_value = batch
+        mock_inventory_objects.select_for_update.return_value.get.return_value = inventory
+
+        with self.assertRaises(InventoryDriftError) as raised:
+            _apply_stock_delta_for_rows(
+                [
+                    {
+                        "item_id": 195,
+                        "inventory_id": 1,
+                        "batch_id": 95015,
+                        "quantity": "2",
+                        "source_type": "ON_HAND",
+                    }
+                ],
+                actor_user_id="tester",
+                delta_sign=1,
+                update_needs_list=False,
+                consume_stock=False,
+            )
+
+        self.assertEqual(raised.exception.code, "inventory_drift")
+        self.assertIn("out of sync with batch stock", str(raised.exception))
+        mock_itembatch_objects.filter.assert_not_called()
+        mock_inventory_objects.filter.assert_not_called()
+        _mock_log_audit.assert_not_called()
 
     def test_sort_needs_list_items_orders_critical_before_high_before_normal(self) -> None:
         needs_list = SimpleNamespace(submitted_at=None, create_dtime=None)

@@ -5,12 +5,14 @@ import json
 import os
 import tempfile
 from datetime import date, timedelta
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.db import connection
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from operations.constants import (
@@ -32,6 +34,7 @@ from operations.models import (
     TenantHierarchy,
     TenantRequestPolicy,
 )
+from replenishment.legacy_models import Inventory, ItemBatch
 class ImportReliefManagementAuthorityCommandTests(TestCase):
     def _write_payload(self, payload: dict[str, object]) -> str:
         fd, raw_path = tempfile.mkstemp(
@@ -990,6 +993,204 @@ class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
         notification.refresh_from_db()
         self.assertEqual(assignment.assigned_tenant_id, 19)
         self.assertEqual(notification.recipient_tenant_id, 19)
+
+
+class RepairInventoryAggregatesCommandTests(TransactionTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._created_tables: list[type] = []
+        existing_tables = set(connection.introspection.table_names())
+        with connection.schema_editor() as schema_editor:
+            for model in (Inventory, ItemBatch):
+                if model._meta.db_table in existing_tables:
+                    continue
+                schema_editor.create_model(model)
+                cls._created_tables.append(model)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        with connection.schema_editor() as schema_editor:
+            for model in reversed(cls._created_tables):
+                schema_editor.delete_model(model)
+        super().tearDownClass()
+
+    def _create_inventory(
+        self,
+        *,
+        inventory_id: int = 9903,
+        item_id: int = 9195,
+        usable_qty: Decimal = Decimal("0.0000"),
+        reserved_qty: Decimal = Decimal("0.0000"),
+        defective_qty: Decimal = Decimal("0.0000"),
+        expired_qty: Decimal = Decimal("0.0000"),
+        version_nbr: int = 1,
+    ) -> Inventory:
+        Inventory.objects.filter(inventory_id=inventory_id).delete()
+        return Inventory.objects.create(
+            inventory_id=inventory_id,
+            item_id=item_id,
+            usable_qty=usable_qty,
+            reserved_qty=reserved_qty,
+            defective_qty=defective_qty,
+            expired_qty=expired_qty,
+            uom_code="EA",
+            status_code="A",
+            update_by_id="seed",
+            update_dtime=timezone.now(),
+            version_nbr=version_nbr,
+        )
+
+    def _create_batch(
+        self,
+        *,
+        batch_id: int = 995045,
+        inventory_id: int = 9903,
+        item_id: int = 9195,
+        usable_qty: Decimal = Decimal("200.0000"),
+        reserved_qty: Decimal = Decimal("0.0000"),
+        defective_qty: Decimal = Decimal("0.0000"),
+        expired_qty: Decimal = Decimal("0.0000"),
+        status_code: str = "A",
+    ) -> ItemBatch:
+        ItemBatch.objects.filter(batch_id=batch_id).delete()
+        return ItemBatch.objects.create(
+            batch_id=batch_id,
+            inventory_id=inventory_id,
+            item_id=item_id,
+            batch_no=f"B-{batch_id}",
+            batch_date=date(2026, 4, 8),
+            expiry_date=None,
+            usable_qty=usable_qty,
+            reserved_qty=reserved_qty,
+            defective_qty=defective_qty,
+            expired_qty=expired_qty,
+            uom_code="EA",
+            status_code=status_code,
+            update_by_id="seed",
+            update_dtime=timezone.now(),
+            version_nbr=1,
+        )
+
+    def test_dry_run_reports_current_and_batch_totals_without_persisting(self) -> None:
+        inventory = self._create_inventory()
+        self._create_batch(
+            usable_qty=Decimal("200.0000"),
+            defective_qty=Decimal("5.0000"),
+            expired_qty=Decimal("1.0000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9903,
+            item_id=9195,
+            batch_id=995045,
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("Inventory aggregate repair:", text)
+        self.assertIn("batch_id verification: 995045", text)
+        self.assertIn("current aggregate totals: usable=0.0000 reserved=0.0000", text)
+        self.assertIn("active batch totals: rows=1 usable=200.0000 reserved=0.0000", text)
+        self.assertIn("planned action: update", text)
+        self.assertIn("Dry-run only", text)
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("0.00"))
+        self.assertEqual(inventory.version_nbr, 1)
+
+    def test_apply_updates_stale_inventory_aggregate_from_active_batch_totals(self) -> None:
+        inventory = self._create_inventory()
+        self._create_batch(
+            usable_qty=Decimal("200.0000"),
+            defective_qty=Decimal("5.0000"),
+            expired_qty=Decimal("1.0000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9903,
+            item_id=9195,
+            actor="SYSTEM",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.usable_qty, Decimal("200.00"))
+        self.assertEqual(inventory.reserved_qty, Decimal("0.00"))
+        self.assertEqual(inventory.defective_qty, Decimal("5.00"))
+        self.assertEqual(inventory.expired_qty, Decimal("1.00"))
+        self.assertEqual(inventory.update_by_id, "SYSTEM")
+        self.assertEqual(inventory.version_nbr, 2)
+        self.assertIn("Inventory aggregate repair applied.", output.getvalue())
+        self.assertIn("applied action: update", output.getvalue())
+
+    def test_apply_creates_missing_inventory_row_from_active_batch_totals(self) -> None:
+        self._create_batch(
+            inventory_id=9911,
+            item_id=9222,
+            batch_id=995111,
+            usable_qty=Decimal("75.5000"),
+            reserved_qty=Decimal("10.2500"),
+            defective_qty=Decimal("1.2500"),
+            expired_qty=Decimal("0.5000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9911,
+            item_id=9222,
+            actor="SYNC_REPAIR",
+            apply=True,
+            stdout=output,
+        )
+
+        inventory = Inventory.objects.get(inventory_id=9911, item_id=9222)
+        self.assertEqual(inventory.usable_qty, Decimal("75.50"))
+        self.assertEqual(inventory.reserved_qty, Decimal("10.25"))
+        self.assertEqual(inventory.defective_qty, Decimal("1.25"))
+        self.assertEqual(inventory.expired_qty, Decimal("0.50"))
+        self.assertEqual(inventory.update_by_id, "SYNC_REPAIR")
+        self.assertEqual(inventory.version_nbr, 1)
+        self.assertIn("applied action: create", output.getvalue())
+
+    def test_apply_is_noop_when_inventory_aggregate_is_already_reconciled(self) -> None:
+        self._create_inventory(
+            inventory_id=9922,
+            item_id=9333,
+            usable_qty=Decimal("15.5000"),
+            reserved_qty=Decimal("2.2500"),
+            defective_qty=Decimal("1.0000"),
+            expired_qty=Decimal("0.5000"),
+        )
+        self._create_batch(
+            inventory_id=9922,
+            item_id=9333,
+            batch_id=995222,
+            usable_qty=Decimal("15.5000"),
+            reserved_qty=Decimal("2.2500"),
+            defective_qty=Decimal("1.0000"),
+            expired_qty=Decimal("0.5000"),
+        )
+        output = StringIO()
+
+        call_command(
+            "repair_inventory_aggregates",
+            inventory_id=9922,
+            item_id=9333,
+            apply=True,
+            stdout=output,
+        )
+
+        inventory = Inventory.objects.get(inventory_id=9922, item_id=9333)
+        self.assertEqual(inventory.version_nbr, 1)
+        self.assertIn("planned action: noop", output.getvalue())
+        self.assertIn("No repairs needed.", output.getvalue())
+        self.assertIn("applied action: noop", output.getvalue())
 
 
 class ReleasePackageLockCommandTests(TestCase):

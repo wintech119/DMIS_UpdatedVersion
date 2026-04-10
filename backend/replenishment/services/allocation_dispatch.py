@@ -10,10 +10,10 @@ import re
 
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
-from django.db.models import F
+from django.db.models import F, Sum
 from django.utils import timezone
 
-from replenishment.legacy_models import Item
+from replenishment.legacy_models import Inventory, Item, ItemBatch
 from replenishment.models import NeedsList, NeedsListItem
 from replenishment.services import approval as approval_service
 from replenishment.services import data_access
@@ -50,6 +50,10 @@ class OptimisticLockError(AllocationDispatchError):
 
 class ReservationError(AllocationDispatchError):
     code = "reservation_error"
+
+
+class InventoryDriftError(ReservationError):
+    code = "inventory_drift"
 
 
 class OverrideApprovalError(AllocationDispatchError):
@@ -660,6 +664,79 @@ def _fetch_batch_candidates(
     return candidates
 
 
+def _inventory_batch_stock_totals(
+    inventory_id: int,
+    item_id: int,
+    *,
+    as_of_date: date | None = None,
+) -> dict[str, Any] | None:
+    if as_of_date is None:
+        as_of = timezone.now()
+    else:
+        as_of = datetime.combine(as_of_date, datetime.max.time())
+        if timezone.is_naive(as_of):
+            as_of = timezone.make_aware(as_of, timezone.get_current_timezone())
+
+    active_status = str(getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")).upper()
+    inventory = (
+        Inventory.objects.filter(
+            inventory_id=inventory_id,
+            item_id=item_id,
+            status_code__iexact=active_status,
+            update_dtime__lte=as_of,
+        )
+        .values("usable_qty", "reserved_qty")
+        .first()
+    )
+    if inventory is None:
+        return None
+
+    batch_totals = ItemBatch.objects.filter(
+        inventory_id=inventory_id,
+        item_id=item_id,
+        status_code__iexact=active_status,
+        update_dtime__lte=as_of,
+    ).aggregate(total_usable=Sum("usable_qty"), total_reserved=Sum("reserved_qty"))
+
+    inventory_usable = _quantize_qty(inventory.get("usable_qty"))
+    inventory_reserved = _quantize_qty(inventory.get("reserved_qty"))
+    batch_usable = _quantize_qty(batch_totals.get("total_usable"))
+    batch_reserved = _quantize_qty(batch_totals.get("total_reserved"))
+    inventory_available = _quantize_qty(inventory_usable - inventory_reserved)
+    batch_available = _quantize_qty(batch_usable - batch_reserved)
+
+    return {
+        "inventory_id": int(inventory_id),
+        "item_id": int(item_id),
+        "inventory_usable_qty": inventory_usable,
+        "inventory_reserved_qty": inventory_reserved,
+        "inventory_available_qty": inventory_available,
+        "batch_usable_qty": batch_usable,
+        "batch_reserved_qty": batch_reserved,
+        "batch_available_qty": batch_available,
+        "has_drift": inventory_usable != batch_usable or inventory_reserved != batch_reserved,
+    }
+
+
+def _inventory_batch_drift_message(
+    inventory_id: int,
+    item_id: int,
+    *,
+    as_of_date: date | None = None,
+) -> str:
+    totals = _inventory_batch_stock_totals(inventory_id, item_id, as_of_date=as_of_date)
+    if totals is None:
+        return (
+            f"Warehouse stock totals are out of sync for item {item_id} at inventory {inventory_id}. "
+            "Reconcile warehouse inventory before committing this reservation."
+        )
+    return (
+        f"Warehouse stock totals are out of sync for item {item_id} at inventory {inventory_id}. "
+        f"Aggregate available stock is {totals['inventory_available_qty']:.4f} but batch-level available stock totals "
+        f"{totals['batch_available_qty']:.4f}. Reconcile warehouse inventory before committing this reservation."
+    )
+
+
 def sort_batch_candidates(
     item: Item | Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
@@ -936,10 +1013,19 @@ def _apply_stock_delta_for_rows(
                 code="batch_inventory_mismatch",
             )
 
-        inventory = Inventory.objects.select_for_update().get(
-            inventory_id=inventory_id,
-            item_id=item_id,
-        )
+        try:
+            inventory = Inventory.objects.select_for_update().get(
+                inventory_id=inventory_id,
+                item_id=item_id,
+            )
+        except Inventory.DoesNotExist as exc:
+            raise InventoryDriftError(
+                (
+                    f"Inventory aggregate for item {item_id} at inventory {inventory_id} is missing or out of sync "
+                    f"with batch stock. Reconcile the warehouse inventory before committing the reservation."
+                ),
+                code="inventory_drift",
+            ) from exc
 
         if delta_sign > 0:
             if consume_stock:
@@ -973,7 +1059,19 @@ def _apply_stock_delta_for_rows(
                         f"Insufficient available stock for batch {batch_id}.",
                         code="insufficient_batch_stock",
                     )
-                if _quantize_qty(inventory.available_qty) < quantity:
+                batch_available = _quantize_qty(batch.available_qty)
+                inventory_available = _quantize_qty(inventory.available_qty)
+                if inventory_available < quantity:
+                    if batch_available >= quantity:
+                        raise InventoryDriftError(
+                            (
+                                f"Inventory aggregate for item {item_id} at inventory {inventory_id} is out of sync "
+                                f"with batch stock. Batch {batch_id} can cover {quantity}, but the warehouse aggregate "
+                                f"shows only {inventory_available}. Reconcile the inventory row before committing the "
+                                f"reservation."
+                            ),
+                            code="inventory_drift",
+                        )
                     raise ReservationError(
                         f"Insufficient warehouse stock for item {item_id} at inventory {inventory_id}.",
                         code="insufficient_inventory_stock",
@@ -2082,6 +2180,7 @@ __all__ = [
     "AllocationSelection",
     "DispatchError",
     "LegacyWorkflowContext",
+    "InventoryDriftError",
     "OptimisticLockError",
     "OverrideApprovalError",
     "ReservationError",

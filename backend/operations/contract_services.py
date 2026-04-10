@@ -6,7 +6,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connection, transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Q, Sum
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
@@ -139,6 +139,8 @@ from replenishment.services.allocation_dispatch import (
     _current_package_status,
     _fetch_batch_candidates,
     _group_plan_rows,
+    _inventory_batch_drift_message,
+    _inventory_batch_stock_totals,
     _load_package_plan_with_source_info,
     _next_int_id,
     _package_plan_map,
@@ -2923,6 +2925,93 @@ def _normalized_item_draft_allocations(
     return normalized
 
 
+def _active_source_stock_integrity_issue(
+    *,
+    source_warehouse_id: int,
+    item_id: int,
+    as_of_date: date,
+    candidate_warehouse_ids: Sequence[int] | None = None,
+) -> str | None:
+    warehouse_ids: list[int] = []
+    seen_warehouse_ids: set[int] = set()
+    for raw_warehouse_id in (source_warehouse_id, *(candidate_warehouse_ids or ())):
+        warehouse_id = int(raw_warehouse_id)
+        if warehouse_id <= 0 or warehouse_id in seen_warehouse_ids:
+            continue
+        seen_warehouse_ids.add(warehouse_id)
+        warehouse_ids.append(warehouse_id)
+
+    try:
+        for warehouse_id in warehouse_ids:
+            totals = _inventory_batch_stock_totals(
+                warehouse_id,
+                int(item_id),
+                as_of_date=as_of_date,
+            )
+            if totals is None:
+                batch_totals = _active_batch_stock_totals(
+                    inventory_id=warehouse_id,
+                    item_id=int(item_id),
+                    as_of_date=as_of_date,
+                )
+                if batch_totals["batch_row_count"] > 0:
+                    return _inventory_batch_drift_message(
+                        warehouse_id,
+                        int(item_id),
+                        as_of_date=as_of_date,
+                    )
+                continue
+            if not totals["has_drift"]:
+                continue
+            if _quantize_qty(totals["batch_available_qty"]) <= _quantize_qty(
+                totals["inventory_available_qty"]
+            ):
+                continue
+            return _inventory_batch_drift_message(
+                warehouse_id,
+                int(item_id),
+                as_of_date=as_of_date,
+            )
+    except DatabaseError:
+        # Some preview/test contexts do not materialize the legacy inventory
+        # tables. Skip the drift hint there and preserve the existing preview flow.
+        return None
+    return None
+
+
+def _active_batch_stock_totals(
+    *,
+    inventory_id: int,
+    item_id: int,
+    as_of_date: date,
+) -> dict[str, Any]:
+    as_of = datetime.combine(as_of_date, datetime.max.time())
+    if timezone.is_naive(as_of):
+        as_of = timezone.make_aware(as_of, timezone.get_current_timezone())
+
+    active_status = str(getattr(settings, "NEEDS_INVENTORY_ACTIVE_STATUS", "A")).upper()
+    batch_totals = ItemBatch.objects.filter(
+        inventory_id=int(inventory_id),
+        item_id=int(item_id),
+        status_code__iexact=active_status,
+        update_dtime__lte=as_of,
+    ).aggregate(
+        total_usable=Sum("usable_qty"),
+        total_reserved=Sum("reserved_qty"),
+        row_count=Count("batch_id"),
+    )
+    batch_usable = _quantize_qty(batch_totals.get("total_usable"))
+    batch_reserved = _quantize_qty(batch_totals.get("total_reserved"))
+    return {
+        "inventory_id": int(inventory_id),
+        "item_id": int(item_id),
+        "batch_usable_qty": batch_usable,
+        "batch_reserved_qty": batch_reserved,
+        "batch_available_qty": _quantize_qty(batch_usable - batch_reserved),
+        "batch_row_count": int(batch_totals.get("row_count") or 0),
+    }
+
+
 def _draft_allocations_by_key(
     draft_allocations: Sequence[Mapping[str, Any]],
 ) -> dict[tuple[int, int, str, int | None], Decimal]:
@@ -3236,9 +3325,23 @@ def _build_item_allocation_response(
     sorted_for_suggestion = sort_batch_candidates(
         item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date
     )
+    stock_integrity_warehouse_ids = list(merged_warehouse_ids)
+    for allocation in normalized_draft_allocations:
+        warehouse_id = int(allocation["inventory_id"])
+        if warehouse_id not in stock_integrity_warehouse_ids:
+            stock_integrity_warehouse_ids.append(warehouse_id)
+    stock_integrity_issue = _active_source_stock_integrity_issue(
+        source_warehouse_id=source_warehouse_id,
+        item_id=item_id,
+        as_of_date=as_of_date,
+        candidate_warehouse_ids=stock_integrity_warehouse_ids,
+    )
     suggested_allocations, remaining_after_suggestion = build_greedy_allocation_plan(
         sorted_for_suggestion, effective_remaining_qty
     )
+    if stock_integrity_issue:
+        suggested_allocations = []
+        remaining_after_suggestion = effective_remaining_qty
     sorted_candidates = sort_batch_candidates(
         item or {"issuance_order": "FIFO"}, candidates, as_of_date=as_of_date
     )
@@ -3287,8 +3390,9 @@ def _build_item_allocation_response(
         ],
         "remaining_after_suggestion": str(remaining_after_suggestion.quantize(Decimal("0.0001"))),
         "source_warehouse_id": source_warehouse_id,
+        "stock_integrity_issue": stock_integrity_issue,
         "remaining_shortfall_qty": str(remaining_shortfall_qty),
-        "continuation_recommended": remaining_shortfall_qty > 0 and bool(alternate_warehouses),
+        "continuation_recommended": (not stock_integrity_issue) and remaining_shortfall_qty > 0 and bool(alternate_warehouses),
         "alternate_warehouses": alternate_warehouses,
         "warehouse_cards": warehouse_cards,
     }

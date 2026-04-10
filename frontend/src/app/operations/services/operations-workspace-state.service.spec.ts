@@ -1324,6 +1324,53 @@ describe('tryParsePackageLockConflict', () => {
   });
 });
 
+describe('OperationsWorkspaceStateService.extractReservationIntegrityWarning', () => {
+  function createService(): OperationsWorkspaceStateService {
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: jasmine.createSpyObj<OperationsService>('OperationsService', [
+            'previewItemAllocationOptions',
+          ]),
+        },
+      ],
+    });
+    return TestBed.inject(OperationsWorkspaceStateService);
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('maps the warehouse stock shortage response to a workflow integrity warning', () => {
+    const service = createService();
+    const error = new HttpErrorResponse({
+      status: 409,
+      error: {
+        errors: {
+          allocations: 'Insufficient warehouse stock for item 195 at inventory 1.',
+        },
+      },
+    });
+
+    expect(service.extractReservationIntegrityWarning(error)).toBe(
+      'Warehouse stock data for item 195 at inventory 1 appears to be out of sync with the batch availability shown here. Refresh the workspace before trying again.',
+    );
+  });
+
+  it('returns null for unrelated backend write errors', () => {
+    const service = createService();
+    const error = new HttpErrorResponse({
+      status: 400,
+      error: { errors: { allocations: 'Select at least one stock line to reserve.' } },
+    });
+
+    expect(service.extractReservationIntegrityWarning(error)).toBeNull();
+  });
+});
+
 describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
   const RELIEFRQST_ID = 7001;
   const ITEM_ID = 44;
@@ -1587,6 +1634,91 @@ describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
     expect(updatedItem?.remaining_qty).toBe('0.0000');
     expect(updatedItem?.fully_issued).toBeTrue();
   });
+
+  it('preserves stock_integrity_issue after the follow-up preview refresh runs for an added warehouse', () => {
+    const additivePreview = buildItemGroup({
+      candidates: [
+        buildCandidate({
+          batch_id: 2,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          available_qty: '2.0000',
+          usable_qty: '2.0000',
+        }),
+      ],
+      suggested_allocations: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: SECONDARY_WAREHOUSE_ID,
+          batch_id: 2,
+          quantity: '2.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+      source_warehouse_id: SECONDARY_WAREHOUSE_ID,
+      remaining_after_suggestion: '0.0000',
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      draft_selected_qty: '6.0000',
+      effective_remaining_qty: '0.0000',
+      stock_integrity_issue: null,
+    });
+    const refreshedPreview = buildItemGroup({
+      source_warehouse_id: SECONDARY_WAREHOUSE_ID,
+      remaining_after_suggestion: '0.0000',
+      remaining_shortfall_qty: '0.0000',
+      continuation_recommended: false,
+      alternate_warehouses: [],
+      draft_selected_qty: '6.0000',
+      effective_remaining_qty: '0.0000',
+      stock_integrity_issue:
+        'Warehouse stock totals are out of sync for item 44 at inventory 9002. Reconcile warehouse inventory before committing this reservation.',
+    });
+    const previewSpy = jasmine
+      .createSpy('previewItemAllocationOptions')
+      .and.returnValues(of(additivePreview), of(refreshedPreview));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            previewItemAllocationOptions: previewSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.options.set({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      items: [buildItemGroup()],
+    });
+    service.selectedRowsByItem.set({
+      [ITEM_ID]: [
+        {
+          item_id: ITEM_ID,
+          inventory_id: PRIMARY_WAREHOUSE_ID,
+          batch_id: 1,
+          quantity: '4.0000',
+          source_type: 'ON_HAND',
+          source_record_id: null,
+          uom_code: 'EA',
+        },
+      ],
+    });
+    service.loadedWarehousesByItem.set({ [ITEM_ID]: [PRIMARY_WAREHOUSE_ID] });
+
+    service.addItemWarehouse(ITEM_ID, SECONDARY_WAREHOUSE_ID);
+
+    const updatedItem = service.options()?.items[0];
+    expect(updatedItem?.stock_integrity_issue).toContain('Warehouse stock totals are out of sync');
+    expect(service.getItemValidationMessage(updatedItem!)).toContain('Reconcile warehouse inventory');
+  });
 });
 
 describe('OperationsWorkspaceStateService lock conflict interception', () => {
@@ -1846,5 +1978,21 @@ describe('OperationsWorkspaceStateService.getItemValidationMessage (fully_issued
     const message = service.getItemValidationMessage(item);
 
     expect(message).toBe('You cannot allocate more than the item still needs.');
+  });
+
+  it('returns the stock integrity issue when the source warehouse aggregate is out of sync', () => {
+    const service = makeService();
+    const item = buildItemGroup({
+      issue_qty: '0',
+      remaining_qty: '5',
+      fully_issued: false,
+      stock_integrity_issue:
+        'Warehouse stock totals are out of sync for item 101 at inventory 9001. Reconcile warehouse inventory before committing this reservation.',
+    });
+
+    const message = service.getItemValidationMessage(item);
+
+    expect(message).toContain('Warehouse stock totals are out of sync');
+    expect(message).toContain('Reconcile warehouse inventory');
   });
 });

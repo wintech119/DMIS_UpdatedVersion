@@ -374,6 +374,8 @@ export interface AllocationItemGroup {
   override_required: boolean;
   /** Source warehouse for this item (set when using per-item warehouse override). */
   source_warehouse_id?: number | null;
+  /** Data-integrity issue for the active source warehouse aggregate, if any. */
+  stock_integrity_issue?: string | null;
   /** Quantity still needed after using this warehouse only. */
   remaining_shortfall_qty: string;
   /** Backend hint that the operator should add another warehouse for this item. */

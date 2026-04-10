@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from api.authentication import Principal
 from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT
-from replenishment.services.allocation_dispatch import ReservationError
+from replenishment.services.allocation_dispatch import InventoryDriftError
 
 
 @override_settings(
@@ -251,9 +251,11 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch(
         "operations.views.operations_service.save_package",
-        side_effect=ReservationError("Insufficient warehouse stock for item 195 at inventory 1."),
+        side_effect=InventoryDriftError(
+            "Inventory aggregate for item 195 at inventory 1 is out of sync with batch stock. Batch 95015 can cover 2.0000, but the warehouse aggregate shows only 0.0000. Reconcile the inventory row before committing the reservation."
+        ),
     )
-    def test_commit_allocation_returns_conflict_for_reservation_errors(
+    def test_commit_allocation_returns_conflict_for_inventory_drift_errors(
         self,
         _mock_save_package,
         _mock_roles,
@@ -269,7 +271,15 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(
             response.json(),
-            {"errors": {"allocations": "Insufficient warehouse stock for item 195 at inventory 1."}},
+            {
+                "errors": {
+                    "allocations": (
+                        "Inventory aggregate for item 195 at inventory 1 is out of sync with batch stock. "
+                        "Batch 95015 can cover 2.0000, but the warehouse aggregate shows only 0.0000. "
+                        "Reconcile the inventory row before committing the reservation."
+                    )
+                }
+            },
         )
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))

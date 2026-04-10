@@ -96,6 +96,7 @@ export class PackageFulfillmentWorkspaceComponent {
 
   readonly reliefrqstId = signal(0);
   readonly submissionErrors = signal<string[]>([]);
+  readonly reservationIntegrityWarning = signal<string | null>(null);
   readonly confirmationState = signal<FulfillmentConfirmationState | null>(null);
   readonly savingDraft = signal(false);
 
@@ -158,6 +159,7 @@ export class PackageFulfillmentWorkspaceComponent {
   readonly lockOperationalFields = computed(() => this.store.hasPendingOverride());
   readonly commitActionDisabled = computed(() =>
     this.store.submitting()
+    || !!this.reservationIntegrityWarning()
     || (this.store.hasPendingOverride() && !this.canApprovePendingOverride())
     || (
       this.store.planNeedsApproval()
@@ -278,6 +280,7 @@ export class PackageFulfillmentWorkspaceComponent {
       return;
     }
     this.submissionErrors.set([]);
+    this.reservationIntegrityWarning.set(null);
     this.store.load(reliefrqstId, true);
   }
 
@@ -506,6 +509,7 @@ export class PackageFulfillmentWorkspaceComponent {
       next: (response: AllocationCommitResponse) => {
         this.store.setSubmitting(false);
         this.submissionErrors.set([]);
+        this.reservationIntegrityWarning.set(null);
         this.confirmationState.set(this.buildConfirmationState(response, mode));
         this.store.refreshPackage();
         if (mode === 'override_approved') {
@@ -526,6 +530,13 @@ export class PackageFulfillmentWorkspaceComponent {
         this.store.setSubmitting(false);
         if (this.store.captureLockConflict(error)) {
           // Lock conflict is rendered as a first-class blocker card.
+          return;
+        }
+        const integrityWarning = this.store.extractReservationIntegrityWarning(error);
+        if (integrityWarning) {
+          this.submissionErrors.set([]);
+          this.reservationIntegrityWarning.set(integrityWarning);
+          this.notifications.showWarning(integrityWarning);
           return;
         }
         this.notifications.showError(this.extractError(error, 'Failed to save reservation.'));

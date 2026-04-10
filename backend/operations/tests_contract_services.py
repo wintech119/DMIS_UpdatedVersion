@@ -5371,6 +5371,7 @@ class ItemAllocationOptionsTests(TestCase):
         item_queryset = Mock()
         item_queryset.first.return_value = item
         item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = ({}, [])
         fetch_candidates_mock.return_value = [
             {
                 "batch_id": 1001,
@@ -5405,11 +5406,19 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(result["remaining_shortfall_qty"], "0.0000")
         self.assertFalse(result["continuation_recommended"])
         self.assertEqual(result["alternate_warehouses"], [])
-        get_warehouses_with_stock_mock.assert_not_called()
+        get_warehouses_with_stock_mock.assert_called_once_with([101], 0)
         can_access_warehouse_mock.assert_not_called()
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse")
+    @patch(
+        "operations.services._active_source_stock_integrity_issue",
+        return_value=(
+            "Warehouse stock totals are out of sync for item 101 at inventory 1. "
+            "Aggregate available stock is 0.0000 but batch-level available stock totals 8.0000. "
+            "Reconcile warehouse inventory before committing this reservation."
+        ),
+    )
     @patch("operations.services._fetch_batch_candidates")
     @patch("operations.services.Item.objects.filter")
     @patch(
@@ -5418,11 +5427,12 @@ class ItemAllocationOptionsTests(TestCase):
             {"item_id": 101, "request_qty": "10.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
         ],
     )
-    def test_preview_without_draft_allocations_returns_zero_draft_selected_qty(
+    def test_preview_without_draft_allocations_surfaces_stock_integrity_issue_and_clears_suggestions(
         self,
         _request_rows_mock,
         item_filter_mock,
         fetch_candidates_mock,
+        _stock_integrity_issue_mock,
         can_access_warehouse_mock,
         get_warehouses_with_stock_mock,
     ) -> None:
@@ -5436,6 +5446,7 @@ class ItemAllocationOptionsTests(TestCase):
         item_queryset = Mock()
         item_queryset.first.return_value = item
         item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = ({}, [])
         fetch_candidates_mock.return_value = [
             {
                 "batch_id": 1001,
@@ -5468,13 +5479,211 @@ class ItemAllocationOptionsTests(TestCase):
         self.assertEqual(result["remaining_qty"], "8.0000")
         self.assertEqual(result["draft_selected_qty"], "0.0000")
         self.assertEqual(result["effective_remaining_qty"], "8.0000")
-        self.assertEqual(result["remaining_after_suggestion"], "0.0000")
-        self.assertEqual(result["remaining_shortfall_qty"], "0.0000")
+        self.assertEqual(result["remaining_after_suggestion"], "8.0000")
+        self.assertEqual(result["remaining_shortfall_qty"], "8.0000")
+        self.assertIn("out of sync", result["stock_integrity_issue"])
+        self.assertEqual(result["suggested_allocations"], [])
         self.assertFalse(result["continuation_recommended"])
         self.assertEqual(result["alternate_warehouses"], [])
         self.assertFalse(result["fully_issued"])
-        get_warehouses_with_stock_mock.assert_not_called()
+        self.assertEqual(get_warehouses_with_stock_mock.call_count, 2)
+        get_warehouses_with_stock_mock.assert_any_call([101], 1)
+        get_warehouses_with_stock_mock.assert_any_call([101], 0)
         can_access_warehouse_mock.assert_not_called()
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch(
+        "operations.services._inventory_batch_drift_message",
+        return_value=(
+            "Warehouse stock totals are out of sync for item 101 at inventory 5. "
+            "Aggregate available stock is 0.0000 but batch-level available stock totals 4.0000. "
+            "Reconcile warehouse inventory before committing this reservation."
+        ),
+    )
+    @patch("operations.services._inventory_batch_stock_totals")
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "10.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_preview_surfaces_stock_integrity_issue_for_loaded_secondary_warehouse_drift(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        inventory_batch_totals_mock,
+        _inventory_batch_drift_message_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = ({}, [])
+        fetch_candidates_mock.side_effect = lambda warehouse_id, _item_id, as_of_date=None: [
+            {
+                "batch_id": 1000 + int(warehouse_id),
+                "inventory_id": warehouse_id,
+                "item_id": 101,
+                "batch_no": f"B-{warehouse_id}",
+                "batch_date": date(2026, 3, 25),
+                "expiry_date": None,
+                "usable_qty": Decimal("4.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("4.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": f"Warehouse {warehouse_id}",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            }
+        ]
+
+        def totals_side_effect(inventory_id, _item_id, as_of_date=None):
+            if int(inventory_id) == 1:
+                return {
+                    "inventory_id": 1,
+                    "item_id": 101,
+                    "inventory_usable_qty": Decimal("4.0000"),
+                    "inventory_reserved_qty": Decimal("0.0000"),
+                    "inventory_available_qty": Decimal("4.0000"),
+                    "batch_usable_qty": Decimal("4.0000"),
+                    "batch_reserved_qty": Decimal("0.0000"),
+                    "batch_available_qty": Decimal("4.0000"),
+                    "has_drift": False,
+                }
+            return {
+                "inventory_id": 5,
+                "item_id": 101,
+                "inventory_usable_qty": Decimal("0.0000"),
+                "inventory_reserved_qty": Decimal("0.0000"),
+                "inventory_available_qty": Decimal("0.0000"),
+                "batch_usable_qty": Decimal("4.0000"),
+                "batch_reserved_qty": Decimal("0.0000"),
+                "batch_available_qty": Decimal("4.0000"),
+                "has_drift": True,
+            }
+
+        inventory_batch_totals_mock.side_effect = totals_side_effect
+
+        result = operations_service._build_item_allocation_response(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+            draft_allocations=[],
+            include_draft_metrics=True,
+            additional_warehouse_ids=[5],
+        )
+
+        self.assertEqual(
+            [candidate["inventory_id"] for candidate in result["candidates"]],
+            [1, 5],
+        )
+        self.assertEqual(result["suggested_allocations"], [])
+        self.assertFalse(result["continuation_recommended"])
+        self.assertIn("inventory 5", result["stock_integrity_issue"])
+        self.assertEqual(
+            [call.args[0] for call in inventory_batch_totals_mock.call_args_list],
+            [1, 5],
+        )
+
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch(
+        "operations.services._inventory_batch_drift_message",
+        return_value=(
+            "Warehouse stock totals are out of sync for item 101 at inventory 1. "
+            "Reconcile warehouse inventory before committing this reservation."
+        ),
+    )
+    @patch(
+        "operations.services._active_batch_stock_totals",
+        return_value={
+            "inventory_id": 1,
+            "item_id": 101,
+            "batch_usable_qty": Decimal("8.0000"),
+            "batch_reserved_qty": Decimal("0.0000"),
+            "batch_available_qty": Decimal("8.0000"),
+            "batch_row_count": 1,
+        },
+    )
+    @patch("operations.services._inventory_batch_stock_totals", return_value=None)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "10.0000", "issue_qty": "2.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_preview_surfaces_stock_integrity_issue_when_inventory_aggregate_is_missing_but_batches_exist(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _inventory_batch_totals_mock,
+        _active_batch_stock_totals_mock,
+        _inventory_batch_drift_message_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+        get_warehouses_with_stock_mock.return_value = ({}, [])
+        fetch_candidates_mock.return_value = [
+            {
+                "batch_id": 1001,
+                "inventory_id": 1,
+                "item_id": 101,
+                "batch_no": "B-1001",
+                "batch_date": date(2026, 3, 25),
+                "expiry_date": None,
+                "usable_qty": Decimal("8.0000"),
+                "reserved_qty": Decimal("0.0000"),
+                "available_qty": Decimal("8.0000"),
+                "uom_code": "EA",
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+                "warehouse_name": "Warehouse 1",
+                "can_expire_flag": False,
+                "issuance_order": "FIFO",
+                "item_code": "MASK001",
+                "item_name": "Face Mask",
+            }
+        ]
+
+        result = operations_service.get_item_allocation_preview(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(result["suggested_allocations"], [])
+        self.assertFalse(result["continuation_recommended"])
+        self.assertIn("out of sync", result["stock_integrity_issue"])
+        self.assertIn("Reconcile warehouse inventory", result["stock_integrity_issue"])
 
     @patch("operations.services.data_access.get_warehouses_with_stock")
     @patch("operations.services.can_access_warehouse")

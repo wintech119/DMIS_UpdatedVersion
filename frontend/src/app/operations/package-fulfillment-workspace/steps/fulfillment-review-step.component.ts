@@ -84,6 +84,13 @@ interface ReviewGroup {
         </div>
       }
 
+      @if (stockIntegrityWarning) {
+        <div class="ops-callout ops-callout--warning" role="status">
+          <mat-icon aria-hidden="true">warning_amber</mat-icon>
+          <span>{{ stockIntegrityWarning }}</span>
+        </div>
+      }
+
       @if (store.planRequiresOverride() && !store.hasPendingOverride()) {
         <div class="ops-callout ops-callout--warning" role="status">
           <mat-icon aria-hidden="true">policy</mat-icon>
@@ -620,6 +627,7 @@ interface ReviewGroup {
 })
 export class FulfillmentReviewStepComponent {
   @Input() submissionErrors: string[] = [];
+  @Input() stockIntegrityWarning: string | null = null;
   @Input() overrideApprovalHint: string | null = null;
   @Input() canApproveOverride = false;
 

@@ -61,6 +61,7 @@ class StubFulfillmentDetailsStepComponent {
 })
 class StubFulfillmentReviewStepComponent {
   @Input() submissionErrors: readonly string[] = [];
+  @Input() stockIntegrityWarning: string | null = null;
   @Input() overrideApprovalHint: string | null = null;
   @Input() canApproveOverride = false;
 }
@@ -210,9 +211,11 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       'getAllocationOptions',
       'releasePackageLock',
       'abandonDraft',
+      'commitAllocations',
     ]);
     operationsService.getPackage.and.returnValue(EMPTY);
     operationsService.getAllocationOptions.and.returnValue(EMPTY);
+    operationsService.commitAllocations.and.returnValue(EMPTY);
     operationsService.releasePackageLock.and.returnValue(of<PackageLockReleaseResponse>({
       released: true,
       message: 'Package lock released.',
@@ -490,6 +493,62 @@ describe('PackageFulfillmentWorkspaceComponent — lock conflict UX', () => {
       expect(component.commitActionDisabled()).toBeFalse();
       expect(component.commitActionLabel()).toBe('Commit Reservation');
       expect(component.overrideApprovalHint()).toContain('Record the override reason before committing');
+    });
+  });
+
+  describe('reservation integrity warnings', () => {
+    function populateCommitReadySelection(): void {
+      component.store.reliefrqstId.set(95009);
+      component.reliefrqstId.set(95009);
+      component.store.packageDetail.set(buildPackageDetail());
+      component.store.options.set({
+        request: { reliefrqst_id: 95009 } as unknown as RequestSummary,
+        items: [buildOverrideItemGroup()],
+      });
+      component.store.selectedRowsByItem.set({
+        44: [
+          {
+            item_id: 44,
+            inventory_id: 9001,
+            batch_id: 1001,
+            quantity: '2',
+            source_type: 'ON_HAND',
+            source_record_id: null,
+            uom_code: 'EA',
+          },
+        ],
+      });
+      component.store.patchDraft({
+        source_warehouse_id: '9001',
+        fulfillment_mode: 'DIRECT',
+      });
+    }
+
+    it('surfaces a dedicated stock-integrity warning and blocks repeat commit attempts after backend drift rejection', () => {
+      populateCommitReadySelection();
+      const backendError = new HttpErrorResponse({
+        status: 409,
+        error: {
+          errors: {
+            allocations: 'Insufficient warehouse stock for item 195 at inventory 1.',
+          },
+        },
+      });
+      operationsService.commitAllocations.and.returnValue(throwError(() => backendError));
+
+      expect(component.commitActionDisabled()).toBeFalse();
+
+      component.submitReservation();
+
+      expect(component.reservationIntegrityWarning()).toContain(
+        'Warehouse stock data for item 195 at inventory 1 appears to be out of sync',
+      );
+      expect(notifications.showWarning).toHaveBeenCalledWith(
+        jasmine.stringContaining('Warehouse stock data for item 195 at inventory 1'),
+      );
+      expect(notifications.showError).not.toHaveBeenCalled();
+      expect(component.commitActionDisabled()).toBeTrue();
+      expect(operationsService.commitAllocations).toHaveBeenCalledTimes(1);
     });
   });
 

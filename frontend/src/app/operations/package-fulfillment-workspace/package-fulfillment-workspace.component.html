@@ -234,6 +234,7 @@
         <div id="ops-fulfillment-step-2-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-2-tab">
           <app-fulfillment-review-step
             [submissionErrors]="submissionErrors()"
+            [stockIntegrityWarning]="reservationIntegrityWarning()"
             [overrideApprovalHint]="overrideApprovalHint()"
             [canApproveOverride]="canApprovePendingOverride()" />
           <div class="ops-step-actions">
