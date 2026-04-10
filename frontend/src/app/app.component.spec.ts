@@ -14,7 +14,7 @@ describe('AppComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
-    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = true;
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
 
     await TestBed.configureTestingModule({
       imports: [AppComponent],
@@ -27,7 +27,7 @@ describe('AppComponent', () => {
   afterEach(() => {
     httpMock.verify();
     localStorage.clear();
-    delete (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__;
+    delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
   });
 
   it('should create the app', () => {
@@ -125,7 +125,7 @@ describe('AppComponent', () => {
   });
 
   it('does not load the local harness UI when the build flag is disabled', () => {
-    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = false;
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = false;
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -143,12 +143,12 @@ describe('AppComponent', () => {
   });
 
   it('limits the local harness client gate to local browser hosts', () => {
-    delete (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__;
+    delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
 
     expect(localAuthHarnessBuildEnabled()).toBeFalse();
     expect(localAuthHarnessClientEnabled({ hostname: 'localhost' })).toBeFalse();
 
-    (globalThis as typeof globalThis & Record<string, unknown>).__DMIS_LOCAL_AUTH_HARNESS_BUILD__ = true;
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
     expect(localAuthHarnessBuildEnabled()).toBeTrue();
     expect(localAuthHarnessClientEnabled({ hostname: 'localhost' })).toBeTrue();
     expect(isLocalAuthHarnessHost({ hostname: 'shared-dev.dmis.example.org' })).toBeFalse();
