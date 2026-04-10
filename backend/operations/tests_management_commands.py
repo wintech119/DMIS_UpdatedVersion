@@ -871,6 +871,23 @@ class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
         self.assertEqual(manager_notification.recipient_tenant_id, 27)
         self.assertIn("notifications updated: 2", output.getvalue())
 
+    def test_apply_rolls_back_assignment_updates_when_notification_repair_fails(self) -> None:
+        self._create_request(relief_request_id=95009, request_no="RQ95009")
+        assignment = self._create_assignment(entity_id=95009)
+        self._create_notification(entity_id=95009)
+        output = StringIO()
+
+        with patch(
+            "operations.management.commands.repair_request_level_fulfillment_queue_scope."
+            "Command._apply_notification_repairs",
+            side_effect=RuntimeError("notification repair failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "notification repair failed"):
+                call_command("repair_request_level_fulfillment_queue_scope", apply=True, stdout=output)
+
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.assigned_tenant_id, 19)
+
     def test_request_no_filter_limits_repair_to_targeted_request(self) -> None:
         self._create_request(relief_request_id=95009, request_no="RQ95009")
         self._create_request(relief_request_id=95010, request_no="RQ95010")
@@ -1219,10 +1236,15 @@ class ReleasePackageLockCommandTests(TestCase):
             update_by_id="tester",
         )
 
-    def _create_package(self, *, request_record: OperationsReliefRequest) -> OperationsPackage:
+    def _create_package(
+        self,
+        *,
+        request_record: OperationsReliefRequest,
+        package_id: int = 95027,
+    ) -> OperationsPackage:
         return OperationsPackage.objects.create(
-            package_id=95027,
-            package_no="PK95027",
+            package_id=package_id,
+            package_no=f"PK{package_id}",
             relief_request=request_record,
             source_warehouse_id=4,
             destination_tenant_id=request_record.beneficiary_tenant_id,
@@ -1293,6 +1315,23 @@ class ReleasePackageLockCommandTests(TestCase):
         text = output.getvalue()
         self.assertIn("No active package lock found for this package.", text)
         self.assertIn("released: False", text)
+
+    def test_request_no_without_package_raises_command_error(self) -> None:
+        self._create_request()
+
+        with self.assertRaisesRegex(CommandError, "No package found for request_no=RQ95009."):
+            call_command("release_package_lock", request_no="RQ95009")
+
+    def test_request_no_with_multiple_packages_requires_package_id(self) -> None:
+        request_record = self._create_request()
+        self._create_package(request_record=request_record, package_id=95027)
+        self._create_package(request_record=request_record, package_id=95028)
+
+        with self.assertRaisesRegex(
+            CommandError,
+            "Multiple packages found for request_no=RQ95009. Specify --package-id.",
+        ):
+            call_command("release_package_lock", request_no="RQ95009")
 
 
 class ResetPackageAllocationsCommandTests(TestCase):

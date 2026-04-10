@@ -791,6 +791,149 @@ describe('OperationsWorkspaceStateService.saveFulfillmentModeDraft', () => {
     expect(service.reliefpkgId()).toBe(0);
     expect(service.draft().fulfillment_mode).toBe('');
   });
+
+  it('ignores stale fulfillment-mode responses when a newer save completes first', () => {
+    const firstResponse$ = new Subject<PackageDetailResponse>();
+    const secondResponse$ = new Subject<PackageDetailResponse>();
+    const saveSpy = jasmine
+      .createSpy('savePackageDraft')
+      .and.returnValues(firstResponse$.asObservable(), secondResponse$.asObservable());
+    const getConsolidationLegsSpy = jasmine
+      .createSpy('getConsolidationLegs')
+      .and.returnValue(of({ results: [], package: null }));
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: getConsolidationLegsSpy,
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+
+    service.saveFulfillmentModeDraft('PICKUP_AT_STAGING', 9501, 'First warehouse').subscribe();
+    service.saveFulfillmentModeDraft('DELIVER_FROM_STAGING', 9502, 'Second warehouse').subscribe();
+
+    secondResponse$.next({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77002,
+        tracking_no: 'PKG-002',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DELIVER_FROM_STAGING',
+        staging_warehouse_id: 9502,
+        staging_override_reason: 'Second warehouse',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+    secondResponse$.complete();
+
+    firstResponse$.next({
+      request: { reliefrqst_id: RELIEFRQST_ID } as unknown as RequestSummary,
+      package: {
+        reliefpkg_id: 77001,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: 9001,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Destination WH',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: null,
+        comments_text: null,
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'PICKUP_AT_STAGING',
+        staging_warehouse_id: 9501,
+        staging_override_reason: 'First warehouse',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+    firstResponse$.complete();
+
+    expect(service.packageDetail()?.package?.reliefpkg_id).toBe(77002);
+    expect(service.draft().fulfillment_mode).toBe('DELIVER_FROM_STAGING');
+    expect(service.draft().staging_warehouse_id).toBe('9502');
+    expect(service.draft().staging_override_reason).toBe('Second warehouse');
+  });
+
+  it('ignores stale fulfillment-mode save errors after a newer save starts', () => {
+    const firstResponse$ = new Subject<PackageDetailResponse>();
+    const secondResponse$ = new Subject<PackageDetailResponse>();
+    const saveSpy = jasmine
+      .createSpy('savePackageDraft')
+      .and.returnValues(firstResponse$.asObservable(), secondResponse$.asObservable());
+
+    TestBed.configureTestingModule({
+      providers: [
+        OperationsWorkspaceStateService,
+        {
+          provide: OperationsService,
+          useValue: {
+            savePackageDraft: saveSpy,
+            getConsolidationLegs: jasmine.createSpy('getConsolidationLegs').and.returnValue(
+              of({ results: [], package: null }),
+            ),
+          } satisfies Partial<OperationsService>,
+        },
+      ],
+    });
+
+    const service = TestBed.inject(OperationsWorkspaceStateService);
+    service.reliefrqstId.set(RELIEFRQST_ID);
+    service.patchDraft({
+      fulfillment_mode: 'DIRECT',
+      staging_warehouse_id: '',
+      staging_override_reason: '',
+    });
+
+    let staleError: unknown = null;
+    service.saveFulfillmentModeDraft('PICKUP_AT_STAGING', 9501, 'First warehouse').subscribe({
+      error: (error) => {
+        staleError = error;
+      },
+    });
+    service.saveFulfillmentModeDraft('DELIVER_FROM_STAGING', 9502, 'Second warehouse').subscribe();
+
+    firstResponse$.error(new HttpErrorResponse({
+      status: 409,
+      error: { detail: 'Stale failure' },
+    }));
+
+    expect(staleError).toBeNull();
+    expect(service.draft().fulfillment_mode).toBe('DIRECT');
+    expect(service.lockConflict()).toBeNull();
+  });
 });
 
 describe('OperationsWorkspaceStateService.loadStagingRecommendation', () => {

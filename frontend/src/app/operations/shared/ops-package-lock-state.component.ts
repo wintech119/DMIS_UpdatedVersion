@@ -35,7 +35,7 @@ const ROLE_LABELS: Record<string, string> = {
 
       <div class="ops-package-lock__body">
         <p class="ops-package-lock__eyebrow">Fulfillment safeguard</p>
-        <h2 class="ops-package-lock__title">{{ title }}</h2>
+        <h2 class="ops-package-lock__title">{{ title() }}</h2>
         <p class="ops-package-lock__summary">{{ summary() }}</p>
 
         <dl class="ops-package-lock__facts" aria-label="Package lock details">
@@ -260,8 +260,6 @@ export class OpsPackageLockStateComponent {
   readonly releaseOwn = output<void>();
   readonly forceRelease = output<void>();
 
-  readonly title = 'Package is locked by another actor';
-
   /**
    * Best-effort owner detection. The backend prefers user_id, the frontend prefers
    * username — in most deployments they are the same string, but a false negative
@@ -273,6 +271,12 @@ export class OpsPackageLockStateComponent {
     const ownerId = (this.conflict().lock_owner_user_id ?? '').trim();
     return !!ref && !!ownerId && ref === ownerId;
   });
+
+  readonly title = computed(() => (
+    this.isOwner()
+      ? 'You already hold this package lock'
+      : 'Package is locked by another actor'
+  ));
 
   readonly canForceRelease = computed(() => {
     const roles = this.currentUserRoles() ?? [];

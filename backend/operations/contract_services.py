@@ -3082,7 +3082,13 @@ def _warehouse_usable_surplus_for_item(
     candidates = _fetch_batch_candidates(warehouse_id, item_id, as_of_date=as_of_date)
     adjusted_candidates = _adjust_candidates_for_draft_allocations(candidates, draft_allocations or ())
     sorted_candidates = sort_batch_candidates(item or {"issuance_order": "FIFO"}, adjusted_candidates, as_of_date=as_of_date)
-    return sum((_quantize_qty(candidate["available_qty"]) for candidate in sorted_candidates), Decimal("0"))
+    return sum(
+        (
+            _quantize_qty(candidate.get("usable_qty", candidate["available_qty"]))
+            for candidate in sorted_candidates
+        ),
+        Decimal("0"),
+    )
 
 
 def build_item_warehouse_cards(

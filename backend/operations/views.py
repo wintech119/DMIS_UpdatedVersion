@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import AuthenticationFailed
@@ -99,7 +101,9 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     return parsed
 
 
-def _boolean_payload_flag(payload: dict[str, object], field_name: str, *, default: bool = False) -> bool:
+def _boolean_payload_flag(payload: object, field_name: str, *, default: bool = False) -> bool:
+    if not isinstance(payload, Mapping):
+        raise OperationValidationError({field_name: f"{field_name} payload must be an object."})
     raw_value = payload.get(field_name, default)
     if isinstance(raw_value, bool):
         return raw_value
@@ -376,7 +380,7 @@ operations_package_draft.required_permission = [PERM_OPERATIONS_PACKAGE_CREATE, 
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_unlock(request, reliefrqst_id: int):
     try:
-        payload = request.data or {}
+        payload = request.data if request.data is not None else {}
         return Response(
             operations_service.release_package_lock(
                 reliefrqst_id,

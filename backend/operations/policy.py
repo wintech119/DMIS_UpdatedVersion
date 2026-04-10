@@ -83,7 +83,10 @@ def _is_odpem_tenant_code(value: object) -> bool:
 def resolve_odpem_tenant_id() -> int | None:
     configured = getattr(settings, "ODPEM_TENANT_ID", None)
     if configured:
-        return int(configured)
+        try:
+            return int(configured)
+        except (TypeError, ValueError):
+            return None
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -91,15 +94,11 @@ def resolve_odpem_tenant_id() -> int | None:
                 SELECT tenant_id
                 FROM tenant
                 WHERE tenant_code IS NOT NULL
-                ORDER BY
-                    CASE
-                        WHEN UPPER(REPLACE(REPLACE(tenant_code, '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P'
-                        THEN 0
-                        WHEN UPPER(tenant_code) LIKE 'ODPEM%%'
-                        THEN 1
-                        ELSE 2
-                    END,
-                    tenant_id
+                  AND (
+                    UPPER(REPLACE(REPLACE(tenant_code, '-', '_'), ' ', '_')) = 'OFFICE_OF_DISASTER_P'
+                    OR UPPER(tenant_code) LIKE 'ODPEM%%'
+                  )
+                ORDER BY tenant_id
                 LIMIT 1
                 """
             )

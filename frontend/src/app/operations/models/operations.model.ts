@@ -11,7 +11,7 @@ export type RequestStatusCode =
   | 'CANCELLED';
 
 // Legacy single-char package codes used by older components and legacy payloads.
-export type LegacyPackageStatusCode = 'A' | 'P' | 'D' | 'C';
+export type LegacyPackageStatusCode = 'A' | 'P' | 'D' | 'C' | 'V';
 // Extended codes introduced for staged fulfillment and explicit state names.
 export type StagedPackageStatusCode =
   | 'DRAFT'

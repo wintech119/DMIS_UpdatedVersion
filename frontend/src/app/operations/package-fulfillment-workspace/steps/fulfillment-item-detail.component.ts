@@ -918,6 +918,13 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       to { transform: rotate(360deg); }
     }
 
+    @media (prefers-reduced-motion: reduce) {
+      .detail__continuation-loading mat-icon {
+        animation: none;
+        transform: none;
+      }
+    }
+
     .detail__alternate-list {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

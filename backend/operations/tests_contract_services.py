@@ -6192,6 +6192,90 @@ class ItemAllocationOptionsTests(TestCase):
             ],
         )
 
+    @patch("operations.services.data_access.get_warehouses_with_stock")
+    @patch("operations.services.can_access_warehouse", return_value=True)
+    @patch("operations.services._fetch_batch_candidates")
+    @patch("operations.services.Item.objects.filter")
+    @patch(
+        "operations.services._request_item_rows_for_allocation",
+        return_value=[
+            {"item_id": 101, "request_qty": "10.0000", "issue_qty": "0.0000", "urgency_ind": "H"}
+        ],
+    )
+    def test_service_uses_usable_qty_for_alternate_warehouse_surplus(
+        self,
+        _request_rows_mock,
+        item_filter_mock,
+        fetch_candidates_mock,
+        _can_access_warehouse_mock,
+        get_warehouses_with_stock_mock,
+    ) -> None:
+        item = SimpleNamespace(
+            item_id=101,
+            item_code="MASK001",
+            item_name="Face Mask",
+            issuance_order="FIFO",
+            can_expire_flag=False,
+        )
+        item_queryset = Mock()
+        item_queryset.first.return_value = item
+        item_filter_mock.return_value = item_queryset
+
+        get_warehouses_with_stock_mock.return_value = (
+            {
+                101: [
+                    {"warehouse_id": 1, "warehouse_name": "Warehouse 1", "available_qty": 0.0},
+                    {"warehouse_id": 2, "warehouse_name": "Warehouse 2", "available_qty": 9.0},
+                ]
+            },
+            [],
+        )
+
+        fetch_candidates_mock.side_effect = lambda warehouse_id, _item_id, as_of_date=None: {
+            1: [],
+            2: [
+                {
+                    "batch_id": 2001,
+                    "inventory_id": 2,
+                    "item_id": 101,
+                    "batch_no": "B-2001",
+                    "batch_date": date(2026, 3, 24),
+                    "expiry_date": None,
+                    "usable_qty": Decimal("4.0000"),
+                    "reserved_qty": Decimal("0.0000"),
+                    "available_qty": Decimal("9.0000"),
+                    "uom_code": "EA",
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "warehouse_name": "Warehouse 2",
+                    "can_expire_flag": False,
+                    "issuance_order": "FIFO",
+                    "item_code": "MASK001",
+                    "item_name": "Face Mask",
+                }
+            ],
+        }.get(warehouse_id, [])
+
+        result = operations_service.get_item_allocation_options(
+            80,
+            101,
+            source_warehouse_id=1,
+            tenant_context=self.tenant_ctx,
+        )
+
+        self.assertEqual(
+            result["alternate_warehouses"],
+            [
+                {
+                    "warehouse_id": 2,
+                    "warehouse_name": "Warehouse 2",
+                    "available_qty": "4.0000",
+                    "suggested_qty": "4.0000",
+                    "can_fully_cover": False,
+                }
+            ],
+        )
+
     def _create_draft_package_record(
         self,
         *,

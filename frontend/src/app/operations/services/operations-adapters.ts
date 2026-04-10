@@ -86,6 +86,15 @@ function asStringArray(value: unknown): string[] {
   return asArray(value).map((entry) => String(entry)).filter(Boolean);
 }
 
+function normalizeEnumStatus<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  const normalized = asNullableString(value)?.trim().toUpperCase();
+  return allowed.includes(normalized as T) ? (normalized as T) : fallback;
+}
+
 export function normalizeRequestItem(raw: unknown): RequestItem {
   const source = asRecord(raw);
   return {
@@ -750,7 +759,7 @@ export function normalizeConsolidationLegsResponse(raw: unknown): ConsolidationL
 export function normalizeConsolidationLegDispatchResponse(raw: unknown): ConsolidationLegDispatchResponse {
   const source = asRecord(raw);
   return {
-    status: asString(source['status'], 'IN_TRANSIT') as ConsolidationLegDispatchResponse['status'],
+    status: normalizeEnumStatus(source['status'], ['IN_TRANSIT'], 'IN_TRANSIT'),
     package: normalizePackageSummary(source['package']),
     leg: normalizeConsolidationLeg(source['leg']),
   };
@@ -759,7 +768,7 @@ export function normalizeConsolidationLegDispatchResponse(raw: unknown): Consoli
 export function normalizeConsolidationLegReceiveResponse(raw: unknown): ConsolidationLegReceiveResponse {
   const source = asRecord(raw);
   return {
-    status: asString(source['status'], 'RECEIVED_AT_STAGING') as ConsolidationLegReceiveResponse['status'],
+    status: normalizeEnumStatus(source['status'], ['RECEIVED_AT_STAGING'], 'RECEIVED_AT_STAGING'),
     package: normalizePackageSummary(source['package']),
     leg: normalizeConsolidationLeg(source['leg']),
   };

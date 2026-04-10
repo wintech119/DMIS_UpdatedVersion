@@ -5,11 +5,15 @@ import { OpsPackageLockStateComponent } from './ops-package-lock-state.component
 import { PackageLockConflict } from '../models/operations.model';
 
 describe('OpsPackageLockStateComponent', () => {
+  function activeLockExpiresAt(minutes = 30): string {
+    return new Date(Date.now() + minutes * 60_000).toISOString();
+  }
+
   const BASE_CONFLICT: PackageLockConflict = {
     lock: 'Package is locked by another fulfillment actor.',
     lock_owner_user_id: 'kemar.logistics',
     lock_owner_role_code: 'LOGISTICS_MANAGER',
-    lock_expires_at: '2026-04-07T16:00:00+00:00',
+    lock_expires_at: activeLockExpiresAt(),
   };
 
   async function setUp(
@@ -44,6 +48,8 @@ describe('OpsPackageLockStateComponent', () => {
     });
 
     const texts = buttonTexts(fixture);
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('You already hold this package lock');
     expect(texts.some((t) => t.includes('Release my lock'))).toBeTrue();
     expect(texts.some((t) => t.includes('Take over package'))).toBeFalse();
   });
@@ -55,6 +61,8 @@ describe('OpsPackageLockStateComponent', () => {
     });
 
     const texts = buttonTexts(fixture);
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Package is locked by another actor');
     expect(texts.some((t) => t.includes('Take over package'))).toBeTrue();
     expect(texts.some((t) => t.includes('Release my lock'))).toBeFalse();
   });

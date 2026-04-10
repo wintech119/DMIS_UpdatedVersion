@@ -123,9 +123,14 @@ class Command(BaseCommand):
         request_record = OperationsReliefRequest.objects.filter(request_no=request_no).first()
         if request_record is None:
             raise CommandError(f"No relief request found for request_no={request_no}.")
-        package_record = (
+        package_records = list(
             OperationsPackage.objects.filter(relief_request_id=int(request_record.relief_request_id))
-            .order_by("-package_id")
-            .first()
+            .order_by("package_id")
         )
-        return request_record, package_record
+        if not package_records:
+            raise CommandError(f"No package found for request_no={request_no}.")
+        if len(package_records) > 1:
+            raise CommandError(
+                f"Multiple packages found for request_no={request_no}. Specify --package-id."
+            )
+        return request_record, package_records[0]

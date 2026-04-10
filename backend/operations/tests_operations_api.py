@@ -321,6 +321,23 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.release_package_lock")
+    def test_package_unlock_rejects_non_object_payloads(
+        self,
+        mock_unlock,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post("/api/v1/operations/packages/70/unlock", ["force"], format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["errors"]["force"], "force payload must be an object.")
+        mock_unlock.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch(
         "operations.views.operations_service.get_item_allocation_options",
         return_value={

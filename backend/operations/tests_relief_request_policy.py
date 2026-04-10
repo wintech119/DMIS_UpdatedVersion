@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_FOR_SUBORDINATE,
@@ -88,6 +88,31 @@ class ReliefRequestCapabilityTests(SimpleTestCase):
         self.assertTrue(capabilities["can_create_relief_request_on_behalf"])
         self.assertEqual(capabilities["relief_request_submission_mode"], "for_subordinate")
         self.assertEqual(capabilities["allowed_origin_modes"], ["for_subordinate"])
+
+
+class ResolveOdpemTenantIdTests(SimpleTestCase):
+    def tearDown(self) -> None:
+        super().tearDown()
+        operations_policy.resolve_odpem_tenant_id.cache_clear()
+
+    @override_settings(ODPEM_TENANT_ID="not-an-int")
+    def test_invalid_configured_tenant_id_returns_none(self) -> None:
+        self.assertIsNone(operations_policy.resolve_odpem_tenant_id())
+
+    @patch("operations.policy.connection")
+    def test_query_only_searches_for_odpem_like_tenants(self, connection_mock) -> None:
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = None
+        connection_mock.cursor.return_value = cursor
+
+        resolved = operations_policy.resolve_odpem_tenant_id()
+
+        self.assertIsNone(resolved)
+        sql = cursor.execute.call_args.args[0]
+        self.assertIn("OFFICE_OF_DISASTER_P", sql)
+        self.assertIn("LIKE 'ODPEM%%'", sql)
+        self.assertNotIn("ELSE 2", sql)
 
 
 class EventLookupTests(SimpleTestCase):

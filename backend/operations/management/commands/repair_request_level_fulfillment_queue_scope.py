@@ -135,11 +135,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Dry-run only. Re-run with --apply to persist changes."))
             return
 
-        assignment_updates = self._apply_assignment_repairs(assignment_repairs, target_tenant_id=target_tenant_id)
-        notification_updates = self._apply_notification_repairs(
-            notification_repairs,
-            target_tenant_id=target_tenant_id,
-        )
+        with transaction.atomic():
+            assignment_updates = self._apply_assignment_repairs(
+                assignment_repairs,
+                target_tenant_id=target_tenant_id,
+            )
+            notification_updates = self._apply_notification_repairs(
+                notification_repairs,
+                target_tenant_id=target_tenant_id,
+            )
 
         total_updates = assignment_updates + notification_updates
         if total_updates == 0:
@@ -267,13 +271,12 @@ class Command(BaseCommand):
             return 0
         updated = 0
         row_ids = [repair.row_id for repair in repairs]
-        with transaction.atomic():
-            for row in OperationsQueueAssignment.objects.filter(queue_assignment_id__in=row_ids):
-                if row.assigned_tenant_id == target_tenant_id:
-                    continue
-                row.assigned_tenant_id = target_tenant_id
-                row.save(update_fields=["assigned_tenant_id"])
-                updated += 1
+        for row in OperationsQueueAssignment.objects.filter(queue_assignment_id__in=row_ids):
+            if row.assigned_tenant_id == target_tenant_id:
+                continue
+            row.assigned_tenant_id = target_tenant_id
+            row.save(update_fields=["assigned_tenant_id"])
+            updated += 1
         return updated
 
     def _apply_notification_repairs(
@@ -286,11 +289,10 @@ class Command(BaseCommand):
             return 0
         updated = 0
         row_ids = [repair.row_id for repair in repairs]
-        with transaction.atomic():
-            for row in OperationsNotification.objects.filter(notification_id__in=row_ids):
-                if row.recipient_tenant_id == target_tenant_id:
-                    continue
-                row.recipient_tenant_id = target_tenant_id
-                row.save(update_fields=["recipient_tenant_id"])
-                updated += 1
+        for row in OperationsNotification.objects.filter(notification_id__in=row_ids):
+            if row.recipient_tenant_id == target_tenant_id:
+                continue
+            row.recipient_tenant_id = target_tenant_id
+            row.save(update_fields=["recipient_tenant_id"])
+            updated += 1
         return updated

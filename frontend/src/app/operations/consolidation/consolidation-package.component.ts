@@ -182,10 +182,11 @@ export class ConsolidationPackageComponent implements OnInit {
     });
 
     dialogRef.afterClosed().subscribe((result) => {
-      if (!result?.reason) {
+      const reason = result?.reason?.trim();
+      if (!reason) {
         return;
       }
-      this.state.requestPartialRelease({ reason: result.reason.trim() }).subscribe({
+      this.state.requestPartialRelease({ reason }).subscribe({
         next: () => this.notifications.showSuccess('Partial release requested.'),
         error: () => this.notifications.showError('Failed to request partial release.'),
       });
@@ -206,10 +207,11 @@ export class ConsolidationPackageComponent implements OnInit {
     });
 
     dialogRef.afterClosed().subscribe((result) => {
-      if (!result?.reason) {
+      const reason = result?.reason?.trim();
+      if (!reason) {
         return;
       }
-      this.state.approvePartialRelease({ approval_reason: result.reason.trim() }).subscribe({
+      this.state.approvePartialRelease({ approval_reason: reason }).subscribe({
         next: (response) => {
           this.notifications.showSuccess(
             response.released?.tracking_no

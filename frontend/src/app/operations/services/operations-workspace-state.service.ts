@@ -117,6 +117,7 @@ export class OperationsWorkspaceStateService {
   private latestItemAddRequestIds: Record<number, number> = {};
   private latestLegsRequestId = 0;
   private latestRecommendationRequestId = 0;
+  private latestFulfillmentModeRequestId = 0;
 
   readonly reliefrqstId = signal(0);
   readonly reliefpkgId = signal(0);
@@ -704,7 +705,9 @@ export class OperationsWorkspaceStateService {
     if (!reliefrqstId) {
       return EMPTY as unknown as Observable<PackageDetailResponse>;
     }
+    const workspaceGeneration = this.latestWorkspaceGeneration;
     const requestReliefrqstId = reliefrqstId;
+    const localRequestId = ++this.latestFulfillmentModeRequestId;
     const draftPatch = {
       fulfillment_mode: fulfillmentMode,
       staging_warehouse_id: stagingWarehouseId != null ? String(stagingWarehouseId) : '',
@@ -716,9 +719,13 @@ export class OperationsWorkspaceStateService {
     return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
       tap((detail) => {
         if (
-          this.reliefrqstId() !== requestReliefrqstId
-          || (detail.request?.reliefrqst_id != null
-            && detail.request.reliefrqst_id !== requestReliefrqstId)
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || localRequestId !== this.latestFulfillmentModeRequestId
+          || this.reliefrqstId() !== requestReliefrqstId
+          || (
+            detail.request?.reliefrqst_id != null
+            && detail.request.reliefrqst_id !== requestReliefrqstId
+          )
         ) {
           return;
         }
@@ -737,7 +744,16 @@ export class OperationsWorkspaceStateService {
           }
         }
       }),
-      catchError((error: HttpErrorResponse) => this.routeWriteError(error)),
+      catchError((error: HttpErrorResponse) => {
+        if (
+          !this.isCurrentWorkspaceGeneration(workspaceGeneration)
+          || localRequestId !== this.latestFulfillmentModeRequestId
+          || this.reliefrqstId() !== requestReliefrqstId
+        ) {
+          return EMPTY as unknown as Observable<PackageDetailResponse>;
+        }
+        return this.routeWriteError(error);
+      }),
     );
   }
 
@@ -1587,6 +1603,7 @@ export class OperationsWorkspaceStateService {
     this.latestItemAddRequestIds = {};
     this.latestLegsRequestId = 0;
     this.latestRecommendationRequestId = 0;
+    this.latestFulfillmentModeRequestId = 0;
     return this.latestWorkspaceGeneration;
   }
 
