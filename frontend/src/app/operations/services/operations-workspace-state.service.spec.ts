@@ -2165,6 +2165,111 @@ describe('OperationsWorkspaceStateService.addItemWarehouse', () => {
 
 describe('OperationsWorkspaceStateService lock conflict interception', () => {
   const RELIEFRQST_ID = 95009;
+  const RELIEFPKG_ID = 77001;
+  const SOURCE_WAREHOUSE_ID = 9001;
+  const ITEM_ID = 44;
+
+  function buildReloadPackageDetail(): PackageDetailResponse {
+    return {
+      request: {
+        reliefrqst_id: RELIEFRQST_ID,
+        tracking_no: 'REQ-95009',
+        agency_id: 1,
+        agency_name: 'ODPEM',
+        eligible_event_id: null,
+        event_name: null,
+        urgency_ind: 'H',
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+        status_label: 'Approved for Fulfillment',
+        request_date: '2026-04-07T12:00:00+00:00',
+        create_dtime: '2026-04-07T12:00:00+00:00',
+        review_dtime: null,
+        action_dtime: '2026-04-07T12:15:00+00:00',
+        rqst_notes_text: null,
+        review_notes_text: null,
+        status_reason_desc: null,
+        version_nbr: 1,
+        item_count: 1,
+        total_requested_qty: '10.0000',
+        total_issued_qty: '0.0000',
+        reliefpkg_id: RELIEFPKG_ID,
+        package_tracking_no: 'PKG-001',
+        package_status: 'DRAFT',
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        request_mode: 'SELF',
+        authority_context: null,
+      },
+      package: {
+        reliefpkg_id: RELIEFPKG_ID,
+        tracking_no: 'PKG-001',
+        reliefrqst_id: RELIEFRQST_ID,
+        agency_id: 1,
+        eligible_event_id: null,
+        source_warehouse_id: SOURCE_WAREHOUSE_ID,
+        to_inventory_id: 9002,
+        destination_warehouse_name: 'Kingston Warehouse',
+        status_code: 'DRAFT',
+        status_label: 'Draft',
+        dispatch_dtime: null,
+        received_dtime: null,
+        transport_mode: 'TRUCK',
+        comments_text: 'Reload after releasing package lock.',
+        version_nbr: 1,
+        execution_status: null,
+        needs_list_id: null,
+        compatibility_bridge: false,
+        fulfillment_mode: 'DIRECT',
+        staging_warehouse_id: null,
+        staging_override_reason: null,
+      },
+      items: [],
+      compatibility_only: false,
+    };
+  }
+
+  function buildReloadAllocationOptions(): AllocationOptionsResponse {
+    return {
+      request: buildReloadPackageDetail().request,
+      items: [
+        {
+          item_id: ITEM_ID,
+          item_code: 'WATER-044',
+          item_name: 'Portable Water Container',
+          request_qty: '10.0000',
+          issue_qty: '0.0000',
+          remaining_qty: '10.0000',
+          urgency_ind: 'H',
+          candidates: [
+            {
+              batch_id: 1001,
+              inventory_id: SOURCE_WAREHOUSE_ID,
+              item_id: ITEM_ID,
+              usable_qty: '10.0000',
+              reserved_qty: '0.0000',
+              available_qty: '10.0000',
+              source_type: 'ON_HAND',
+              warehouse_name: 'Kingston Warehouse',
+              can_expire_flag: false,
+              issuance_order: 'FIFO',
+            },
+          ],
+          suggested_allocations: [],
+          remaining_after_suggestion: '10.0000',
+          can_expire_flag: false,
+          issuance_order: 'FIFO',
+          compliance_markers: [],
+          override_required: false,
+          source_warehouse_id: SOURCE_WAREHOUSE_ID,
+          remaining_shortfall_qty: '0.0000',
+          continuation_recommended: false,
+          alternate_warehouses: [],
+          warehouse_cards: [],
+        },
+      ],
+    };
+  }
 
   function setUp(): {
     service: OperationsWorkspaceStateService;
@@ -2200,10 +2305,10 @@ describe('OperationsWorkspaceStateService lock conflict interception', () => {
         lock_expires_at: '2026-04-07T15:45:00+00:00',
       }),
     );
-    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(null));
-    const getAllocationOptionsSpy = jasmine.createSpy('getAllocationOptions').and.returnValue(
-      of({ request: null, items: [] } as unknown as AllocationOptionsResponse),
-    );
+    const getPackageSpy = jasmine.createSpy('getPackage').and.returnValue(of(buildReloadPackageDetail()));
+    const getAllocationOptionsSpy = jasmine
+      .createSpy('getAllocationOptions')
+      .and.returnValue(of(buildReloadAllocationOptions()));
 
     const operationsServiceStub: Partial<OperationsService> = {
       savePackageDraft: saveSpy,

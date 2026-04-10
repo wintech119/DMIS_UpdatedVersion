@@ -712,7 +712,7 @@ export function countOperationsUnreadIds(
     return 0;
   }
 
-  const seen = new Set(normalizeOperationsQueueIds(seenIds));
+  const seen = new Set(normalizeOperationsQueueIds(seenIds, { cap: false }));
   return currentIds.reduce((count, id) => count + (seen.has(id) ? 0 : 1), 0);
 }
 

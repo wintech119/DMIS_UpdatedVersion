@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { EMPTY, Observable, of, throwError } from 'rxjs';
-import { catchError, finalize, tap } from 'rxjs/operators';
+import { catchError, finalize, mergeMap, tap } from 'rxjs/operators';
 
 import {
   AllocationCandidate,
@@ -683,16 +683,32 @@ export class OperationsWorkspaceStateService {
     if (!reliefrqstId) {
       return EMPTY as unknown as Observable<PackageDetailResponse>;
     }
+    const requestReliefrqstId = reliefrqstId;
     const payload = this.buildPackageDraftPayload();
     return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
-      tap((detail) => {
+      mergeMap((detail) => {
+        if (
+          this.reliefrqstId() !== requestReliefrqstId
+          || (
+            detail.request?.reliefrqst_id != null
+            && detail.request.reliefrqst_id !== requestReliefrqstId
+          )
+        ) {
+          return EMPTY;
+        }
         this.packageDetail.set(detail);
         this.hydrateDraft(detail);
         if (detail.package) {
           this.reliefpkgId.set(detail.package.reliefpkg_id);
         }
+        return of(detail);
       }),
-      catchError((error: HttpErrorResponse) => this.routeWriteError(error)),
+      catchError((error: HttpErrorResponse) => {
+        if (this.reliefrqstId() !== requestReliefrqstId) {
+          return EMPTY;
+        }
+        return this.routeWriteError(error);
+      }),
     );
   }
 
@@ -717,7 +733,7 @@ export class OperationsWorkspaceStateService {
       ...draftPatch,
     });
     return this.operationsService.savePackageDraft(reliefrqstId, payload).pipe(
-      tap((detail) => {
+      mergeMap((detail) => {
         if (
           !this.isCurrentWorkspaceGeneration(workspaceGeneration)
           || localRequestId !== this.latestFulfillmentModeRequestId
@@ -727,7 +743,7 @@ export class OperationsWorkspaceStateService {
             && detail.request.reliefrqst_id !== requestReliefrqstId
           )
         ) {
-          return;
+          return EMPTY;
         }
         this.patchDraft({ ...draftPatch });
         this.packageDetail.set(detail);
@@ -743,6 +759,7 @@ export class OperationsWorkspaceStateService {
             this.consolidationLegs.set([]);
           }
         }
+        return of(detail);
       }),
       catchError((error: HttpErrorResponse) => {
         if (
@@ -750,7 +767,7 @@ export class OperationsWorkspaceStateService {
           || localRequestId !== this.latestFulfillmentModeRequestId
           || this.reliefrqstId() !== requestReliefrqstId
         ) {
-          return EMPTY as unknown as Observable<PackageDetailResponse>;
+          return EMPTY;
         }
         return this.routeWriteError(error);
       }),
