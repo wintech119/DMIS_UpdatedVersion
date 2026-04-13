@@ -51,6 +51,7 @@
 - Prefer service-layer orchestration, durable artifact persistence, and async offload for expensive or retryable work.
 - Call out any deviation from the hardening baseline or target architecture.
 - If the architecture review returns `Misaligned`, do not treat the work as complete.
+
 ## Regression Guardrails
 - Treat the current backend codebase as the authoritative baseline for services, APIs, workflow logic, validation patterns, architecture, and test structure.
 - Before refactoring or extending backend logic, inspect the current app and module implementation and preserve the present architecture instead of restoring an older commit version.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 def normalize_tenant_token(value: object) -> str:
@@ -39,7 +40,7 @@ class TemporaryFrontendUserSpec:
     job_title: str
     role_code: str
     access_level: str = "FULL"
-    tenant_scope: str = "tenant"
+    tenant_scope: Literal["national", "tenant"] = "tenant"
     bind_to_agency: bool = True
     bind_to_warehouse: bool = True
 

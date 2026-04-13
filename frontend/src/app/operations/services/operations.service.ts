@@ -299,6 +299,11 @@ export class OperationsService {
     return this.http.post<DispatchHandoffResponse>(
       `${this.apiUrl}/dispatch/${reliefpkgId}/handoff`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('dispatch', reliefpkgId),
+        },
+      },
     );
   }
 
@@ -392,7 +397,18 @@ export class OperationsService {
     return this.http.post<ReceiptConfirmationResponse>(
       `${this.apiUrl}/receipt-confirmation/${reliefpkgId}`,
       payload,
+      {
+        headers: {
+          'Idempotency-Key': this.createIdempotencyKey('receipt', reliefpkgId),
+        },
+      },
     );
+  }
+
+  private createIdempotencyKey(scope: 'dispatch' | 'receipt', reliefpkgId: number): string {
+    const randomId = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${scope}-${reliefpkgId}-${randomId}`;
   }
 
   private isPreDispatchWaybillError(error: HttpErrorResponse): boolean {

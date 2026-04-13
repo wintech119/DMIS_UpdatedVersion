@@ -131,20 +131,21 @@ def _enforce_dev_override_header_policy(request) -> None:
 
 
 def _resolve_dev_override_principal(request) -> Principal | None:
-    if not local_auth_harness_enabled():
-        return None
-
     requested = _requested_local_auth_harness_user(request)
     if not requested:
         return None
 
+    if not local_auth_harness_enabled():
+        _log_auth_warning("auth.local_harness_override_rejected_when_disabled", request=request)
+        raise AuthenticationFailed("X-DMIS-Local-User is only allowed in DMIS local-harness mode.")
+
     allowed_users = _configured_local_auth_harness_users()
     if not allowed_users:
         _log_auth_warning("auth.local_harness_enabled_without_allowlist", request=request)
-        return None
+        raise AuthenticationFailed("X-DMIS-Local-User is enabled, but no local harness users are configured.")
     if requested.lower() not in allowed_users:
         _log_auth_warning("auth.local_harness_rejected_non_allowlisted_user", request=request)
-        return None
+        raise AuthenticationFailed("X-DMIS-Local-User is not allowlisted for DMIS local-harness mode.")
 
     try:
         with connection.cursor() as cursor:
@@ -160,11 +161,11 @@ def _resolve_dev_override_principal(request) -> Principal | None:
             row = cursor.fetchone()
     except DatabaseError as exc:
         _log_auth_warning("auth.dev_override_lookup_failed", request=request, exception=exc)
-        return None
+        raise AuthenticationFailed("X-DMIS-Local-User could not be resolved safely.") from exc
 
     if not row:
         _log_auth_warning("auth.dev_override_user_not_found", request=request)
-        return None
+        raise AuthenticationFailed("X-DMIS-Local-User did not match a configured local harness user.")
 
     user_id = int(row[0])
     roles, permissions = _fetch_dev_override_roles_and_permissions(user_id)

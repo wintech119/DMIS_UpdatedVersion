@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from django.db import DatabaseError, IntegrityError, connection
+from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
@@ -180,6 +181,7 @@ class RequestAuthorityHierarchyTests(TestCase):
 
 class OperationsWorkflowContractTests(TestCase):
     def setUp(self) -> None:
+        cache.clear()
         self.request = SimpleNamespace(
             reliefrqst_id=70,
             agency_id=501,
@@ -236,6 +238,9 @@ class OperationsWorkflowContractTests(TestCase):
         )
         fully_dispatched_patcher.start()
         self.addCleanup(fully_dispatched_patcher.stop)
+
+    def tearDown(self) -> None:
+        cache.clear()
 
     def _request_stub(self, *, reliefrqst_id: int, agency_id: int, status_code: int = 3) -> SimpleNamespace:
         return SimpleNamespace(
@@ -3772,6 +3777,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="dispatch-1",
             actor_roles=["LOGISTICS_OFFICER"],
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-90",
         )
 
         self.assertEqual(result["dispatch"]["status_code"], DISPATCH_STATUS_IN_TRANSIT)
@@ -3814,6 +3820,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="dispatch-1",
                 actor_roles=["LOGISTICS_OFFICER"],
                 tenant_context=_tenant_context(tenant_id=999, tenant_code="OTHER", tenant_type="EXTERNAL"),
+                idempotency_key="dispatch-other",
             )
 
         submit_dispatch_mock.assert_not_called()
@@ -5243,6 +5250,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="receiver-1",
             actor_roles=["LOGISTICS_MANAGER"],
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="receipt-90",
         )
 
         self.assertEqual(result["status"], "RECEIVED")
@@ -5316,6 +5324,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="controller-1",
             actor_roles=["LOGISTICS_MANAGER"],
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="receipt-90-controller",
         )
 
         self.assertEqual(result["status"], "RECEIVED")
@@ -5377,6 +5386,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="receiver-1",
                 actor_roles=["LOGISTICS_MANAGER"],
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="receipt-90-missing-assignment",
             )
 
         self.assertEqual(
@@ -5407,9 +5417,226 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="receiver-1",
                 actor_roles=["LOGISTICS_MANAGER"],
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="receipt-90-missing-dispatch",
             )
 
         self.assertEqual(raised.exception.errors, {"receipt": "Dispatch record is missing for this package."})
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._load_package")
+    @patch("operations.contract_services.legacy_service.submit_dispatch")
+    def test_submit_dispatch_reuses_cached_response_for_same_idempotency_key(
+        self,
+        legacy_submit_dispatch_mock,
+        load_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_package_mock.return_value = self.package
+        load_request_mock.return_value = self.request
+        get_agency_scope_mock.return_value = self.agency_scope
+        legacy_submit_dispatch_mock.return_value = {
+            "reliefpkg_id": 90,
+            "waybill_no": "WB-PK00090",
+            "waybill_payload": {"tracking_no": "WB-PK00090"},
+        }
+        ops_request = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+            submitted_by_id="requester-1",
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+        )
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=ops_request,
+            status_code="READY_FOR_DISPATCH",
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
+        first = contract_services.submit_dispatch(
+            90,
+            payload={
+                "transport_mode": "TRUCK",
+                "driver_name": "Jane Driver",
+                "vehicle_registration": "1234AB",
+                "departure_dtime": "2026-03-26T10:00:00Z",
+                "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+            },
+            actor_id="dispatch-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-repeat",
+        )
+
+        second = contract_services.submit_dispatch(
+            90,
+            payload={
+                "transport_mode": "TRUCK",
+                "driver_name": "Different Driver",
+                "vehicle_registration": "9876CD",
+                "departure_dtime": "2026-03-26T10:05:00Z",
+                "estimated_arrival_dtime": "2026-03-26T13:05:00Z",
+            },
+            actor_id="dispatch-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-repeat",
+        )
+
+        self.assertEqual(first, second)
+        legacy_submit_dispatch_mock.assert_called_once()
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service._load_package")
+    @patch("operations.contract_services.legacy_service.submit_dispatch")
+    @patch("operations.contract_services.get_waybill")
+    def test_submit_dispatch_scopes_idempotency_cache_to_relief_package(
+        self,
+        get_waybill_mock,
+        legacy_submit_dispatch_mock,
+        load_package_mock,
+        load_request_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        package_90 = self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501)
+        package_91 = self._package_stub(reliefpkg_id=91, reliefrqst_id=71, agency_id=501)
+        request_70 = self._request_stub(reliefrqst_id=70, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        request_71 = self._request_stub(reliefrqst_id=71, agency_id=501, status_code=contract_services.legacy_service.STATUS_SUBMITTED)
+        load_package_mock.side_effect = [package_90, package_90, package_91, package_91]
+        load_request_mock.side_effect = [request_70, request_70, request_71, request_71]
+        get_agency_scope_mock.return_value = self.agency_scope
+        legacy_submit_dispatch_mock.side_effect = [
+            {
+                "reliefpkg_id": 90,
+                "waybill_no": "WB-PK00090",
+                "waybill_payload": {"tracking_no": "WB-PK00090"},
+            },
+            {
+                "reliefpkg_id": 91,
+                "waybill_no": "WB-PK00091",
+                "waybill_payload": {"tracking_no": "WB-PK00091"},
+            },
+        ]
+        get_waybill_mock.side_effect = [
+            {"waybill_no": "WB-PK00090", "waybill_payload": {"tracking_no": "WB-PK00090"}, "persisted": True},
+            {"waybill_no": "WB-PK00091", "waybill_payload": {"tracking_no": "WB-PK00091"}, "persisted": True},
+        ]
+        ops_request_70 = OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=20,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+            submitted_by_id="requester-1",
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+        )
+        OperationsPackage.objects.create(
+            package_id=90,
+            package_no="PK00090",
+            relief_request=ops_request_70,
+            status_code="READY_FOR_DISPATCH",
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
+        ops_request_71 = OperationsReliefRequest.objects.create(
+            relief_request_id=71,
+            request_no="RQ00071",
+            requesting_tenant_id=20,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code="SUBMITTED",
+            create_by_id="requester-1",
+            update_by_id="requester-1",
+            submitted_by_id="requester-1",
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+        )
+        OperationsPackage.objects.create(
+            package_id=91,
+            package_no="PK00091",
+            relief_request=ops_request_71,
+            status_code="READY_FOR_DISPATCH",
+            source_warehouse_id=4,
+            destination_tenant_id=20,
+            destination_agency_id=501,
+            create_by_id="locker-1",
+            update_by_id="locker-1",
+        )
+
+        first = contract_services.submit_dispatch(
+            90,
+            payload={
+                "transport_mode": "TRUCK",
+                "driver_name": "Jane Driver",
+                "vehicle_registration": "1234AB",
+                "departure_dtime": "2026-03-26T10:00:00Z",
+                "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+            },
+            actor_id="dispatch-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-repeat",
+        )
+
+        second = contract_services.submit_dispatch(
+            91,
+            payload={
+                "transport_mode": "TRUCK",
+                "driver_name": "Other Driver",
+                "vehicle_registration": "9876CD",
+                "departure_dtime": "2026-03-26T11:00:00Z",
+                "estimated_arrival_dtime": "2026-03-26T14:00:00Z",
+            },
+            actor_id="dispatch-1",
+            actor_roles=["LOGISTICS_OFFICER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-repeat",
+        )
+
+        self.assertEqual(first["reliefpkg_id"], 90)
+        self.assertEqual(second["reliefpkg_id"], 91)
+        self.assertEqual(legacy_submit_dispatch_mock.call_count, 2)
+
+    def test_confirm_receipt_requires_idempotency_key(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.confirm_receipt(
+                90,
+                payload={"received_by_name": "Receiver One"},
+                actor_id="receiver-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
 
 
 class StagingReservationContractTests(TransactionTestCase):

@@ -113,7 +113,7 @@ Consider:
 * `UniqueConstraint`
 * `CheckConstraint`
 * `db_index=True`
-* composite uniqueness where the domain requires scoped uniqueness
+* composite uniqueness where the domain requires uniqueness within scope
 * foreign key `on_delete` behavior aligned with business rules
 
 Flag or avoid:

@@ -256,3 +256,14 @@ When reviewing Angular frontend code:
 * call out hidden maintainability risks, not just obvious bugs
 * distinguish framework-specific issues from general frontend advice
 * use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific findings and recommendations
+
+## Test Review Standards
+Review frontend tests with the same rigor as production code.
+
+Check for:
+* coverage of critical unit, component, and end-to-end user workflows
+* keyboard, focus, and screen-reader accessibility assertions where interaction risk is high
+* component contract tests for inputs, outputs, emitted events, and projected content
+* service, signal, and state-management tests for derived state and async transitions
+* realistic, maintainable mocks that do not hide integration mistakes
+* flaky async patterns, hidden timing dependencies, or brittle implementation-detail assertions

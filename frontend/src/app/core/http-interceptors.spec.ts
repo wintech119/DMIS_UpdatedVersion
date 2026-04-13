@@ -36,6 +36,7 @@ describe('DMIS_HTTP_INTERCEPTORS', () => {
 
   afterEach(() => {
     httpMock.verify();
+    localStorage.clear();
     delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
   });
 
@@ -80,5 +81,21 @@ describe('DMIS_HTTP_INTERCEPTORS', () => {
     request.flush({ detail: 'Forbidden' }, { status: 403, statusText: 'Forbidden' });
 
     expect(authSession.handleApiAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it('injects the local harness user only for local request targets', () => {
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
+    localStorage.setItem('dmis_local_harness_user', 'local_odpem_logistics_manager_tst');
+
+    http.get('/api/v1/operations/requests/').subscribe();
+    http.get('https://api.example.org/api/v1/operations/requests/').subscribe();
+
+    const localRequest = httpMock.expectOne('/api/v1/operations/requests/');
+    expect(localRequest.request.headers.get('X-DMIS-Local-User')).toBe('local_odpem_logistics_manager_tst');
+    localRequest.flush({});
+
+    const remoteRequest = httpMock.expectOne('https://api.example.org/api/v1/operations/requests/');
+    expect(remoteRequest.request.headers.has('X-DMIS-Local-User')).toBeFalse();
+    remoteRequest.flush({});
   });
 });

@@ -138,6 +138,7 @@ Use the local project instructions in `frontend/AGENTS.md` and `backend/AGENTS.m
 Treat `system_application_architecture.md` as the canonical architecture baseline.
 Treat the hardening and Flask-retirement strategy as supporting execution guidance, not the main architecture reference.
 If the architecture review returns `Misaligned`, do not treat the work as complete.
+
 ## Key Business Logic
 
 ### Event Phases

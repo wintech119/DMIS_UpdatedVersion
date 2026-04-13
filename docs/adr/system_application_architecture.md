@@ -192,7 +192,7 @@ Minimum expectations:
 
 ### Production
 
-Production must run with:
+Production release gates / target-state requirements until runtime enforcement is complete:
 
 - mandatory OIDC/JWT auth
 - secure deployment defaults
@@ -288,6 +288,13 @@ This requires:
 - durable auditability for approvals, dispatch, receipt, and other high-risk operations
 - complete Flask removal from the live path
 
+Owner: Platform architecture / security lead
+Evidence:
+- runtime and environment gates in `backend/dmis_api/settings.py`
+- auth-mode enforcement and local-harness restrictions in `backend/api/authentication.py`
+- launch and readiness evidence in `docs/implementation/production_readiness_checklist.md`
+- document any frontend/backend assumption mismatches in `docs/` as part of the same change set
+
 ## Canonical Security and Control References
 
 The following security documents remain authoritative for the listed concerns:
@@ -315,7 +322,7 @@ Allowed temporarily:
 - local dev auth or impersonation helpers
 - non-HA local dependencies
 - seeded test data and role matrices
-- browser-profile based manual multi-user testing
+- browser-profile-based manual multi-user testing
 
 Not allowed:
 
@@ -351,14 +358,14 @@ Only transition or rollback-only handling may remain temporarily, and it must be
 ### Prohibited
 
 - adding new business logic to Flask for forward progress
-- leaving Flask reachable as an implicit normal production path
+- leaving Flask reachable as an implicit normal production path outside the documented transitional exception scope
 - duplicating modernized security or workflow logic across Flask and Django without an explicit retirement reason
 
 ### Retirement direction
 
 - remove Flask from the live path first
 - remove Flask from deployment assumptions second
-- decommission the runtime entirely once parity and rollback decisions are closed
+- decommission the runtime entirely once feature parity is complete, traffic cutover is documented, a deprecation flag or equivalent gating mechanism exists, and the current unconditional Flask initialization has been removed from startup
 
 ## Architecture Decision Rules
 

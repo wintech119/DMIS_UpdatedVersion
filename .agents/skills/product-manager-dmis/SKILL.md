@@ -45,7 +45,7 @@ Use sources in this order unless the user says otherwise:
 3. Supporting appendices such as worked examples, approval matrix, workflows, edge cases, acceptance criteria, report specifications, and system configuration
 4. UNOPS/RTA implementation, operating model, ToR, prioritization, and visualization documents
 5. Validated meeting summaries
-6. DMIS_Product_Backlog_v3.2, and local repo artifacts
+6. DMIS_Product_Backlog_v3.2 and local repo artifacts
 7. Ad hoc working notes or drafts
 8. DMIS_Stakeholder_Personas_v2.2
 

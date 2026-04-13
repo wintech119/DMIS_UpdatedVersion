@@ -840,6 +840,31 @@ class AuthWhoAmITests(TestCase):
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
         TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.authentication.connection.cursor", side_effect=DatabaseError("boom"))
+    def test_whoami_rejects_invalid_local_harness_override_instead_of_falling_back(
+        self,
+        _mock_cursor,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DMIS_LOCAL_USER="local_system_admin_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("could not be resolved safely", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="local_system_admin_tst",
         DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
         DEV_AUTH_PERMISSIONS=[],

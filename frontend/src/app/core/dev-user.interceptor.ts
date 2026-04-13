@@ -6,7 +6,7 @@ const LOCAL_HARNESS_USER_KEY = 'dmis_local_harness_user';
 const LOCAL_HARNESS_USER_HEADER = 'X-DMIS-Local-User';
 const TEST_BUILD_FLAG_KEY = '__DMIS_LOCAL_AUTH_HARNESS_BUILD__';
 
-type LocationLike = Pick<Location, 'hostname'>;
+type LocationLike = Pick<Location, 'hostname'> & Partial<Pick<Location, 'origin'>>;
 
 function readLocalHarnessBuildOverride(): boolean | null {
   const globalScope = globalThis as typeof globalThis & Record<string, unknown>;
@@ -41,8 +41,28 @@ export function localAuthHarnessClientEnabled(
   return localAuthHarnessBuildEnabled() && isLocalAuthHarnessHost(locationLike);
 }
 
+export function isLocalAuthHarnessRequestTarget(
+  requestUrl: string,
+  locationLike: LocationLike = window.location,
+): boolean {
+  try {
+    if (requestUrl.startsWith('/')) {
+      return true;
+    }
+
+    const origin = locationLike.origin ?? window.location.origin;
+    const resolvedUrl = new URL(requestUrl, origin);
+    return isLocalAuthHarnessHost({
+      hostname: resolvedUrl.hostname,
+      origin: resolvedUrl.origin,
+    });
+  } catch {
+    return false;
+  }
+}
+
 export const devUserInterceptor: HttpInterceptorFn = (req, next) => {
-  if (!localAuthHarnessClientEnabled()) {
+  if (!localAuthHarnessClientEnabled() || !isLocalAuthHarnessRequestTarget(req.url)) {
     return next(req);
   }
 

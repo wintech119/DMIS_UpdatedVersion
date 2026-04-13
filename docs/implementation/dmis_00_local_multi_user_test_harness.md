@@ -170,7 +170,7 @@ Use separate browser profiles or separate browsers so each session keeps its own
 4. Browser profile 4: select `local_odpem_logistics_officer_tst`.
 5. Browser profile 5: select `relief_jrc_requester_tst`.
 
-Each profile stores its own local harness selection, so you can keep all four sessions open at once.
+Each profile stores its own local harness selection, so you can keep all five sessions open at once.
 
 ## Exact Local Test Steps
 

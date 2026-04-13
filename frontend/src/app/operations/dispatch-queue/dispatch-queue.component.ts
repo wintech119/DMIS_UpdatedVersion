@@ -300,6 +300,6 @@ export class DispatchQueueComponent implements OnInit {
 
   private isPickupRelease(item: Pick<DispatchQueueItem, 'fulfillment_mode' | 'status_code' | 'execution_status'>): boolean {
     return item.fulfillment_mode === 'PICKUP_AT_STAGING'
-      || String(item.execution_status ?? item.status_code ?? '').trim().toUpperCase() === 'READY_FOR_PICKUP';
+      && String(item.execution_status ?? item.status_code ?? '').trim().toUpperCase() === 'READY_FOR_PICKUP';
   }
 }

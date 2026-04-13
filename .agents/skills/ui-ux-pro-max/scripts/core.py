@@ -160,8 +160,11 @@ class BM25:
 # ============ SEARCH FUNCTIONS ============
 def _load_csv(filepath):
     """Load CSV and return list of dicts"""
-    with open(filepath, 'r', encoding='utf-8') as f:
-        return list(csv.DictReader(f))
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return list(csv.DictReader(f))
+    except (OSError, csv.Error, UnicodeDecodeError) as exc:
+        raise ValueError(f"Failed to load CSV '{filepath}': {exc}") from exc
 
 
 def _search_csv(filepath, search_cols, output_cols, query, max_results):

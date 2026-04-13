@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+import math
+import time
 from collections.abc import Mapping
 from typing import Any
 
+from django.core.cache import cache
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import AuthenticationFailed
@@ -47,6 +51,11 @@ from replenishment.services.allocation_dispatch import (
     ReservationError,
 )
 
+logger = logging.getLogger("dmis.security")
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_HIGH_RISK_LIMIT_PER_MINUTE = 10
+_WORKFLOW_LIMIT_PER_MINUTE = 15
+
 
 def _actor_id(request) -> str:
     actor_id = getattr(request.user, "user_id", None) or getattr(request.user, "username", None)
@@ -88,6 +97,69 @@ def _service_error_response(exc: Exception) -> Response:
     if isinstance(exc, DispatchError):
         return Response({"errors": {"dispatch": exc.message}}, status=409)
     raise exc
+
+
+def _request_ip(request) -> str:
+    # X-Forwarded-For is intentionally ignored until DMIS has an explicit
+    # trusted-proxy allowlist. For authenticated requests, IP is only a
+    # secondary abuse signal and must not be client-spoofable.
+    remote_addr = str(request.META.get("REMOTE_ADDR", "")).strip()
+    return remote_addr or "unknown"
+
+
+def _rate_limit_response(
+    request,
+    *,
+    scope: str,
+    limit: int,
+    window_seconds: int = _RATE_LIMIT_WINDOW_SECONDS,
+) -> Response | None:
+    actor_id = _actor_id(request)
+    tenant_context = _tenant_context(request)
+    tenant_id = (
+        getattr(tenant_context, "active_tenant_id", None)
+        or getattr(tenant_context, "requested_tenant_id", None)
+        or "unknown"
+    )
+    client_ip = _request_ip(request)
+    cache_key = f"ops:rate:{scope}:{actor_id}:{tenant_id}:{client_ip}"
+    now = time.time()
+    cached_hits = cache.get(cache_key, [])
+    hits = [
+        float(value)
+        for value in cached_hits
+        if isinstance(value, (int, float)) and (now - float(value)) < window_seconds
+    ]
+
+    if len(hits) >= limit:
+        retry_after = max(1, int(math.ceil(window_seconds - (now - hits[0]))))
+        logger.warning(
+            "operations.rate_limit_exceeded",
+            extra={
+                "event": "operations.rate_limit_exceeded",
+                "scope": scope,
+                "actor_id": actor_id,
+                "tenant_id": tenant_id,
+                "client_ip": client_ip,
+                "limit": limit,
+                "window_seconds": window_seconds,
+            },
+        )
+        response = Response({"detail": "Rate limit exceeded."}, status=429)
+        response["Retry-After"] = str(retry_after)
+        cache.set(cache_key, hits, timeout=window_seconds + 5)
+        return response
+
+    hits.append(now)
+    cache.set(cache_key, hits, timeout=window_seconds + 5)
+    return None
+
+
+def _required_idempotency_key(request) -> str:
+    idempotency_key = str(request.headers.get("Idempotency-Key", "")).strip()
+    if not idempotency_key:
+        raise OperationValidationError({"idempotency_key": "Idempotency-Key header is required."})
+    return idempotency_key
 
 
 def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -> int | None:
@@ -552,6 +624,13 @@ operations_consolidation_legs.required_permission = [
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="consolidation_leg_dispatch",
+            limit=_HIGH_RISK_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.dispatch_consolidation_leg(
                 reliefpkg_id,
@@ -574,6 +653,13 @@ operations_consolidation_leg_dispatch.required_permission = PERM_OPERATIONS_CONS
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="consolidation_leg_receive",
+            limit=_HIGH_RISK_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.receive_consolidation_leg(
                 reliefpkg_id,
@@ -617,6 +703,13 @@ operations_consolidation_leg_waybill.required_permission = PERM_OPERATIONS_WAYBI
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_partial_release_request(request, reliefpkg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="partial_release_request",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.request_partial_release(
                 reliefpkg_id,
@@ -638,6 +731,13 @@ operations_partial_release_request.required_permission = PERM_OPERATIONS_PARTIAL
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_partial_release_approve(request, reliefpkg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="partial_release_approve",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.approve_partial_release(
                 reliefpkg_id,
@@ -659,6 +759,13 @@ operations_partial_release_approve.required_permission = PERM_OPERATIONS_PARTIAL
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_pickup_release(request, reliefpkg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="pickup_release",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.pickup_release(
                 reliefpkg_id,
@@ -768,6 +875,14 @@ operations_dispatch_detail.required_permission = [PERM_OPERATIONS_DISPATCH_PREPA
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_dispatch_handoff(request, reliefpkg_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="dispatch_handoff",
+            limit=_HIGH_RISK_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.submit_dispatch(
                 reliefpkg_id,
@@ -775,6 +890,7 @@ def operations_dispatch_handoff(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -809,6 +925,14 @@ operations_dispatch_waybill.required_permission = PERM_OPERATIONS_WAYBILL_VIEW
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_receipt_confirm(request, reliefpkg_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="receipt_confirm",
+            limit=_HIGH_RISK_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.confirm_receipt(
                 reliefpkg_id,
@@ -816,6 +940,7 @@ def operations_receipt_confirm(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Sequence
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Count, F, Q, Sum
 from django.utils.dateparse import parse_datetime
@@ -232,6 +234,7 @@ REQUEST_LIST_FILTERS = {
 }
 
 FULFILLMENT_REQUEST_STATUSES = frozenset({STATUS_SUBMITTED, STATUS_PART_FILLED})
+_IDEMPOTENCY_TTL_SECONDS = 15 * 60
 
 
 def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
@@ -245,6 +248,35 @@ def _execute(sql: str, params: Sequence[Any] | None = None) -> int:
     with connection.cursor() as cursor:
         cursor.execute(sql, list(params or []))
         return cursor.rowcount
+
+
+def _tenant_cache_key_value(tenant_context: TenantContext | None) -> str:
+    if tenant_context is None:
+        return "legacy"
+    tenant_id = getattr(tenant_context, "active_tenant_id", None) or getattr(tenant_context, "requested_tenant_id", None)
+    return str(tenant_id or "unknown")
+
+
+def _validated_idempotency_key(idempotency_key: str | None) -> str:
+    normalized = str(idempotency_key or "").strip()
+    if not normalized:
+        raise OperationValidationError({"idempotency_key": "Idempotency-Key header is required."})
+    return normalized
+
+
+def _idempotency_cache_key(
+    *,
+    endpoint: str,
+    actor_id: str,
+    tenant_context: TenantContext | None,
+    reliefpkg_id: int,
+    idempotency_key: str,
+) -> str:
+    digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    return (
+        f"operations:idempotency:{endpoint}:{actor_id}:{_tenant_cache_key_value(tenant_context)}:"
+        f"{int(reliefpkg_id)}:{digest}"
+    )
 
 
 def _tracking_no(prefix: str, numeric_id: int) -> str:
@@ -6559,9 +6591,21 @@ def submit_dispatch(
     actor_id: str,
     actor_roles: Iterable[str] | None = None,
     tenant_context: TenantContext | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     if tenant_context is None:
         return _legacy_submit_dispatch(reliefpkg_id, payload=payload, actor_id=actor_id)
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="dispatch_handoff",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off packages.")
     transport_payload = _validated_transport_payload(payload)
     package = legacy_service._load_package(reliefpkg_id)
@@ -6634,11 +6678,13 @@ def submit_dispatch(
     )
     next_request_status = REQUEST_STATUS_FULFILLED if _request_fully_dispatched(int(request.reliefrqst_id)) else REQUEST_STATUS_PARTIALLY_FULFILLED
     _sync_operations_request(request, actor_id=actor_id, status_code=next_request_status)
-    return {
+    result = {
         **legacy_result,
         "dispatch": _dispatch_payload(package, dispatch),
         "waybill": get_waybill(reliefpkg_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def get_waybill(
@@ -6677,7 +6723,19 @@ def confirm_receipt(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="receipt_confirm",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     package = legacy_service._load_package(reliefpkg_id, for_update=True)
     request = legacy_service._load_request(int(package.reliefrqst_id), for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id)
@@ -6750,12 +6808,14 @@ def confirm_receipt(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
-    return {
+    result = {
         "status": "RECEIVED",
         "reliefpkg_id": reliefpkg_id,
         "package_tracking_no": package.tracking_no,
         "receipt": receipt_artifact,
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def list_tasks(*, actor_id: str, actor_roles: Iterable[str] | None, tenant_context: TenantContext) -> dict[str, Any]:

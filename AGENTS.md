@@ -69,7 +69,7 @@ npm test -- --watch=false   # Single run
 ## Architecture
 
 ### Backend Structure
-```
+```text
 backend/
   dmis_api/          # Django project config (settings.py, urls.py, wsgi.py)
   api/               # Core: auth (Principal), RBAC, tenancy, task engine
@@ -97,7 +97,7 @@ All API routes under `/api/v1/`:
 - Needs list workflow state managed via `workflow_store.py` (file-based) or `workflow_store_db.py` (DB-backed)
 
 ### Frontend Structure
-```
+```text
 frontend/src/app/
   core/              # Auth guard (appAccessGuard), dev-user interceptor, app-access service
   layout/            # Sidenav shell
@@ -128,7 +128,7 @@ frontend/src/app/
 | BASELINE | 30 days | 30 days |
 
 ### Core Formulas
-```
+```text
 Burn Rate = Fulfilled Qty / Demand Window (hrs)
 Time-to-Stockout = Available Stock / Burn Rate
 Required Qty = Burn Rate x Planning Window x 1.25 (safety factor)

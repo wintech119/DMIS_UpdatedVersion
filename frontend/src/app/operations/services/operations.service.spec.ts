@@ -572,4 +572,22 @@ describe('OperationsService', () => {
       persisted: true,
     });
   });
+
+  it('adds an idempotency key when submitting a dispatch handoff', () => {
+    service.submitDispatchHandoff(44, { transport_mode: 'TRUCK' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/dispatch/44/handoff');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^dispatch-44-/);
+    request.flush({ reliefpkg_id: 44, status: 'DISPATCHED' });
+  });
+
+  it('adds an idempotency key when confirming receipt', () => {
+    service.confirmReceipt(44, { received_by_name: 'Receiver One' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/receipt-confirmation/44');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^receipt-44-/);
+    request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
+  });
 });

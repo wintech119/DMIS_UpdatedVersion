@@ -188,10 +188,11 @@ This section is the canonical validation and output-safety reference for DMIS.
 ## Canonical API Rate Limiting Standard
 
 This section is the canonical rate-limiting standard for DMIS.
+Broad Django API enforcement remains a target-state rollout gate, not a fully complete present-day guarantee; track this under `gate:django_api_rate_limit_enforcement`, while backend tenant-safe enforcement remains authoritative.
 
 ### Policy principles
 
-- Enforce rate limits per user, per tenant, and per IP for authenticated traffic.
+- For authenticated users, enforce rate limits primarily by `user_id + tenant_id`; use IP only as a secondary abuse signal for shared-network detection.
 - Use IP-only enforcement for public or unauthenticated traffic.
 - During disaster `SURGE` phases, protections must defend the platform without blocking legitimate field operations.
 - Prefer token-bucket or sliding-window approaches with burst tolerance over rigid fixed-window counters on surge-critical paths.
@@ -217,7 +218,7 @@ This section is the canonical rate-limiting standard for DMIS.
 
 ### Surge handling and operational rules
 
-- Treat IP as a secondary abuse signal for authenticated users because shared networks are common in emergency operations.
+- Treat IP as a secondary abuse signal for authenticated users because shared networks are common in emergency operations; do not make hard-IP gating the primary control for authenticated traffic.
 - `national.act_cross_tenant` roles should receive 2x limits during active events as the emergency override path.
 - Designated field operational roles may receive temporary surge overrides when telemetry shows legitimate emergency demand.
 - `429` responses must include `Retry-After`.

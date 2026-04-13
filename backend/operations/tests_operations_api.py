@@ -3,11 +3,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.core.cache import cache
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from api.authentication import Principal
 from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT
+from operations import views as operations_views
 from replenishment.services.allocation_dispatch import InventoryDriftError
 
 
@@ -24,6 +27,10 @@ from replenishment.services.allocation_dispatch import InventoryDriftError
 class OperationsApiTests(SimpleTestCase):
     def setUp(self) -> None:
         self.client = APIClient()
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
 
     @patch(
         "operations.views.resolve_roles_and_permissions",
@@ -194,9 +201,15 @@ class OperationsApiTests(SimpleTestCase):
                 "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-90",
         )
         waybill_response = self.client.get("/api/v1/operations/dispatch/90/waybill")
-        receipt_response = self.client.post("/api/v1/operations/receipt-confirmation/90", {"received_by_name": "Receiver"}, format="json")
+        receipt_response = self.client.post(
+            "/api/v1/operations/receipt-confirmation/90",
+            {"received_by_name": "Receiver"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="receipt-90",
+        )
         cancel_response = self.client.post("/api/v1/operations/packages/90/cancel", {}, format="json")
         tasks_response = self.client.get("/api/v1/operations/tasks")
 
@@ -239,10 +252,12 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_submit_dispatch.call_args.kwargs["payload"]["transport_mode"], "TRUCK")
         self.assertEqual(mock_submit_dispatch.call_args.kwargs["payload"]["driver_name"], "Jane Driver")
         self.assertEqual(mock_submit_dispatch.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_submit_dispatch.call_args.kwargs["idempotency_key"], "dispatch-90")
         self.assertEqual(mock_waybill.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_waybill.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_receipt.call_args.kwargs["payload"]["received_by_name"], "Receiver")
         self.assertEqual(mock_receipt.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_receipt.call_args.kwargs["idempotency_key"], "receipt-90")
         self.assertEqual(mock_cancel_package.call_args.args[0], 90)
         self.assertEqual(mock_cancel_package.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_cancel_package.call_args.kwargs["tenant_context"].active_tenant_id, 20)
@@ -726,10 +741,67 @@ class OperationsApiTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(
-            response.json(),
-            {"detail": "Authenticated operations requests require a stable actor identifier."},
+            response.json()["detail"],
+            "Authenticated operations requests require a stable actor identifier.",
         )
         mock_list_requests.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.submit_dispatch")
+    def test_dispatch_handoff_requires_idempotency_key(
+        self,
+        mock_submit_dispatch,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/dispatch/90/handoff",
+            {
+                "transport_mode": "TRUCK",
+                "driver_name": "Jane Driver",
+                "vehicle_registration": "1234AB",
+                "departure_dtime": "2026-03-26T10:00:00Z",
+                "estimated_arrival_dtime": "2026-03-26T13:00:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_submit_dispatch.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.receive_consolidation_leg")
+    def test_consolidation_leg_receive_returns_429_when_rate_limited(
+        self,
+        mock_receive_leg,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/90/consolidation-legs/301/receive",
+                {"received_by_name": "Receiver"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_receive_leg.assert_not_called()
 
 
 @override_settings(
@@ -766,6 +838,20 @@ class OperationsPermissionRuntimeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"agencies": [], "events": [], "items": []})
         mock_reference_data.assert_called_once()
+
+
+class OperationsViewHelperTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    def test_request_ip_ignores_untrusted_forwarded_for_headers(self) -> None:
+        request = self.factory.get(
+            "/api/v1/operations/dispatch/90/handoff",
+            REMOTE_ADDR="10.0.0.25",
+            HTTP_X_FORWARDED_FOR="198.51.100.77, 203.0.113.9",
+        )
+
+        self.assertEqual(operations_views._request_ip(request), "10.0.0.25")
 
     @patch(
         "api.authentication.LegacyCompatAuthentication.authenticate",

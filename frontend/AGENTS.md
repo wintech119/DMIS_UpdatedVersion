@@ -44,6 +44,7 @@
 - Prefer centralized auth, HTTP, and failure-handling patterns over screen-specific exceptions.
 - Call out any deviation from the target Angular + Django + OIDC + Redis + async-worker architecture.
 - If the architecture review returns `Misaligned`, do not treat the work as complete.
+
 ## Regression Guardrails
 - Treat the current frontend codebase as the authoritative baseline for component formats, templates, structure, interaction patterns, and test shape.
 - Before changing a component or adding a related one, inspect the current nearby implementation and extend the existing pattern instead of rewriting it toward an older commit version.
