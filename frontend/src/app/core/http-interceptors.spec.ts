@@ -83,16 +83,26 @@ describe('DMIS_HTTP_INTERCEPTORS', () => {
     expect(authSession.handleApiAuthFailure).not.toHaveBeenCalled();
   });
 
-  it('injects the local harness user only for local request targets', () => {
+  it('injects the local harness user only for relative or same-origin request targets', () => {
     (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = true;
     localStorage.setItem('dmis_local_harness_user', 'local_odpem_logistics_manager_tst');
 
     http.get('/api/v1/operations/requests/').subscribe();
+    http.get(`${window.location.origin}/api/v1/operations/requests/`).subscribe();
+    http.get('http://127.0.0.1:8001/api/v1/operations/requests/').subscribe();
     http.get('https://api.example.org/api/v1/operations/requests/').subscribe();
 
     const localRequest = httpMock.expectOne('/api/v1/operations/requests/');
     expect(localRequest.request.headers.get('X-DMIS-Local-User')).toBe('local_odpem_logistics_manager_tst');
     localRequest.flush({});
+
+    const sameOriginRequest = httpMock.expectOne(`${window.location.origin}/api/v1/operations/requests/`);
+    expect(sameOriginRequest.request.headers.get('X-DMIS-Local-User')).toBe('local_odpem_logistics_manager_tst');
+    sameOriginRequest.flush({});
+
+    const differentOriginLocalRequest = httpMock.expectOne('http://127.0.0.1:8001/api/v1/operations/requests/');
+    expect(differentOriginLocalRequest.request.headers.has('X-DMIS-Local-User')).toBeFalse();
+    differentOriginLocalRequest.flush({});
 
     const remoteRequest = httpMock.expectOne('https://api.example.org/api/v1/operations/requests/');
     expect(remoteRequest.request.headers.has('X-DMIS-Local-User')).toBeFalse();

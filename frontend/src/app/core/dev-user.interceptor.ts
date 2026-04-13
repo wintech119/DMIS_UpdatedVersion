@@ -52,10 +52,7 @@ export function isLocalAuthHarnessRequestTarget(
 
     const origin = locationLike.origin ?? window.location.origin;
     const resolvedUrl = new URL(requestUrl, origin);
-    return isLocalAuthHarnessHost({
-      hostname: resolvedUrl.hostname,
-      origin: resolvedUrl.origin,
-    });
+    return resolvedUrl.origin === origin;
   } catch {
     return false;
   }
