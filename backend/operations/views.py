@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from api.authentication import LegacyCompatAuthentication
 from api.rbac import (
+    PERM_NATIONAL_ACT_CROSS_TENANT,
     PERM_OPERATIONS_CONSOLIDATION_DISPATCH,
     PERM_OPERATIONS_CONSOLIDATION_RECEIVE,
     PERM_OPERATIONS_DISPATCH_EXECUTE,
@@ -42,6 +43,11 @@ from api.rbac import (
 )
 from api.tenancy import resolve_tenant_context
 from operations import contract_services as operations_service
+from operations.constants import (
+    ROLE_LOGISTICS_MANAGER,
+    ROLE_LOGISTICS_OFFICER,
+    normalize_role_codes,
+)
 from operations.exceptions import OperationValidationError
 from operations.permissions import OperationsPermission
 from replenishment.services.allocation_dispatch import (
@@ -50,11 +56,22 @@ from replenishment.services.allocation_dispatch import (
     OverrideApprovalError,
     ReservationError,
 )
+from replenishment.services import data_access
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
 _HIGH_RISK_LIMIT_PER_MINUTE = 10
 _WORKFLOW_LIMIT_PER_MINUTE = 15
+_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = _RATE_LIMIT_WINDOW_SECONDS + 5
+_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
+_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
+_RATE_LIMIT_LOCK_ATTEMPTS = 20
+_SURGE_PHASES = {"SURGE", "STABILIZED"}
+_SURGE_ROLE_CODES = {
+    ROLE_LOGISTICS_OFFICER,
+    ROLE_LOGISTICS_MANAGER,
+    "AGENCY_DISTRIBUTOR",
+}
 
 
 def _actor_id(request) -> str:
@@ -107,13 +124,7 @@ def _request_ip(request) -> str:
     return remote_addr or "unknown"
 
 
-def _rate_limit_response(
-    request,
-    *,
-    scope: str,
-    limit: int,
-    window_seconds: int = _RATE_LIMIT_WINDOW_SECONDS,
-) -> Response | None:
+def _rate_limit_keys(request, scope: str) -> tuple[str, str | None, str, str]:
     actor_id = _actor_id(request)
     tenant_context = _tenant_context(request)
     tenant_id = (
@@ -121,38 +132,117 @@ def _rate_limit_response(
         or getattr(tenant_context, "requested_tenant_id", None)
         or "unknown"
     )
-    client_ip = _request_ip(request)
-    cache_key = f"ops:rate:{scope}:{actor_id}:{tenant_id}:{client_ip}"
-    now = time.time()
-    cached_hits = cache.get(cache_key, [])
-    hits = [
-        float(value)
-        for value in cached_hits
-        if isinstance(value, (int, float)) and (now - float(value)) < window_seconds
-    ]
+    primary_key = f"ops:rate:{scope}:{actor_id}:{tenant_id}"
+    client_ip = _request_ip(request) if getattr(request.user, "is_authenticated", False) else "unknown"
+    secondary_key = None
+    if client_ip and client_ip != "unknown":
+        secondary_key = f"{primary_key}:ip:{client_ip}"
+    return primary_key, secondary_key, actor_id, str(tenant_id)
 
-    if len(hits) >= limit:
-        retry_after = max(1, int(math.ceil(window_seconds - (now - hits[0]))))
+
+def _scaled_rate_limit(request, base_limit: int) -> int:
+    normalized_roles = set(normalize_role_codes(_roles(request)))
+    permission_set = {str(permission).strip().lower() for permission in _permissions(request)}
+    has_surge_override = bool(normalized_roles & _SURGE_ROLE_CODES) or (
+        PERM_NATIONAL_ACT_CROSS_TENANT.lower() in permission_set
+    )
+    if not has_surge_override:
+        return base_limit
+
+    active_event = data_access.get_active_event() or {}
+    phase = str(active_event.get("phase", "")).strip().upper()
+    if phase in _SURGE_PHASES:
+        return base_limit * 2
+    return base_limit
+
+
+def _acquire_rate_limit_lock(lock_key: str) -> bool:
+    for _ in range(_RATE_LIMIT_LOCK_ATTEMPTS):
+        if cache.add(lock_key, "1", timeout=_RATE_LIMIT_LOCK_TIMEOUT_SECONDS):
+            return True
+        time.sleep(_RATE_LIMIT_LOCK_WAIT_SECONDS)
+    return False
+
+
+def _rate_limit_response(
+    request,
+    *,
+    scope: str,
+    limit: int,
+    window_seconds: int = _RATE_LIMIT_WINDOW_SECONDS,
+) -> Response | None:
+    cache_key, secondary_cache_key, actor_id, tenant_id = _rate_limit_keys(request, scope)
+    client_ip = _request_ip(request)
+    effective_limit = _scaled_rate_limit(request, limit)
+    now = time.time()
+    lock_key = f"{cache_key}:lock"
+    if secondary_cache_key is not None:
+        cache.set(secondary_cache_key, {"client_ip": client_ip, "updated_at": now}, timeout=_RATE_LIMIT_CACHE_TIMEOUT_SECONDS)
+
+    if not _acquire_rate_limit_lock(lock_key):
         logger.warning(
-            "operations.rate_limit_exceeded",
+            "operations.rate_limit_lock_timeout",
             extra={
-                "event": "operations.rate_limit_exceeded",
+                "event": "operations.rate_limit_lock_timeout",
                 "scope": scope,
                 "actor_id": actor_id,
                 "tenant_id": tenant_id,
                 "client_ip": client_ip,
-                "limit": limit,
-                "window_seconds": window_seconds,
             },
         )
         response = Response({"detail": "Rate limit exceeded."}, status=429)
-        response["Retry-After"] = str(retry_after)
-        cache.set(cache_key, hits, timeout=window_seconds + 5)
+        response["Retry-After"] = "1"
         return response
 
-    hits.append(now)
-    cache.set(cache_key, hits, timeout=window_seconds + 5)
-    return None
+    try:
+        bucket = cache.get(cache_key, {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+        refill_rate = effective_limit / float(window_seconds)
+        previous_updated_at = bucket.get("updated_at", now)
+        try:
+            updated_at = float(previous_updated_at)
+        except (TypeError, ValueError):
+            updated_at = now
+        elapsed = max(0.0, now - updated_at)
+        try:
+            current_tokens = float(bucket.get("tokens", effective_limit))
+        except (TypeError, ValueError):
+            current_tokens = float(effective_limit)
+        tokens = min(float(effective_limit), current_tokens + (elapsed * refill_rate))
+
+        if tokens < 1.0:
+            retry_after = max(1, int(math.ceil((1.0 - tokens) / refill_rate)))
+            cache.set(
+                cache_key,
+                {"tokens": tokens, "updated_at": now},
+                timeout=_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+            )
+            logger.warning(
+                "operations.rate_limit_exceeded",
+                extra={
+                    "event": "operations.rate_limit_exceeded",
+                    "scope": scope,
+                    "actor_id": actor_id,
+                    "tenant_id": tenant_id,
+                    "client_ip": client_ip,
+                    "base_limit": limit,
+                    "effective_limit": effective_limit,
+                    "window_seconds": window_seconds,
+                },
+            )
+            response = Response({"detail": "Rate limit exceeded."}, status=429)
+            response["Retry-After"] = str(retry_after)
+            return response
+
+        cache.set(
+            cache_key,
+            {"tokens": tokens - 1.0, "updated_at": now},
+            timeout=_RATE_LIMIT_CACHE_TIMEOUT_SECONDS,
+        )
+        return None
+    finally:
+        cache.delete(lock_key)
 
 
 def _required_idempotency_key(request) -> str:
@@ -624,6 +714,7 @@ operations_consolidation_legs.required_permission = [
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: int):
     try:
+        _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_dispatch",
@@ -653,6 +744,7 @@ operations_consolidation_leg_dispatch.required_permission = PERM_OPERATIONS_CONS
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int):
     try:
+        _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_receive",
@@ -731,6 +823,7 @@ operations_partial_release_request.required_permission = PERM_OPERATIONS_PARTIAL
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_partial_release_approve(request, reliefpkg_id: int):
     try:
+        _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="partial_release_approve",

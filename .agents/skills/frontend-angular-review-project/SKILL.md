@@ -1,9 +1,9 @@
 ---
 name: frontend-angular-review-project
 description: Angular frontend review skill for accessibility, security, architecture, component quality, template quality, reactive state safety, routing, forms, and performance. Use when Angular code has been written and should be reviewed before final output. Use the current codebase, Angular documentation, linting, and targeted tests when Angular-specific validation, diagnostics, or framework-aware review guidance is required.
-allowed-tools: Read, Grep, Glob
+allowed-tools: Read, Grep, Glob, Shell
 model: sonnet
-skills: frontend-angular-review-project
+skills: frontend, angular, review
 ---
 
 ## Role & Context

@@ -441,11 +441,13 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/90/consolidation-legs/301/dispatch",
             {"driver_name": "Jane Driver", "vehicle_registration": "1234AB"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="dispatch-leg-301",
         )
         receive_leg_response = self.client.post(
             "/api/v1/operations/packages/90/consolidation-legs/301/receive",
             {"received_by_name": "Receiver"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="receive-leg-301",
         )
         leg_waybill_response = self.client.get("/api/v1/operations/packages/90/consolidation-legs/301/waybill")
         partial_request_response = self.client.post(
@@ -457,6 +459,7 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/90/partial-release/approve",
             {"approval_reason": "Approved"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="partial-approve-90",
         )
         pickup_release_response = self.client.post(
             "/api/v1/operations/packages/90/pickup-release",
@@ -776,6 +779,69 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.dispatch_consolidation_leg")
+    def test_consolidation_leg_dispatch_requires_idempotency_key(
+        self,
+        mock_dispatch_leg,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/consolidation-legs/301/dispatch",
+            {"dispatched_by_name": "Dispatcher"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_dispatch_leg.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.receive_consolidation_leg")
+    def test_consolidation_leg_receive_requires_idempotency_key(
+        self,
+        mock_receive_leg,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/consolidation-legs/301/receive",
+            {"received_by_name": "Receiver"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_receive_leg.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.approve_partial_release")
+    def test_partial_release_approve_requires_idempotency_key(
+        self,
+        mock_approve_partial_release,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/partial-release/approve",
+            {"decision": "APPROVE"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_approve_partial_release.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.receive_consolidation_leg")
     def test_consolidation_leg_receive_returns_429_when_rate_limited(
         self,
@@ -796,6 +862,7 @@ class OperationsApiTests(SimpleTestCase):
                 "/api/v1/operations/packages/90/consolidation-legs/301/receive",
                 {"received_by_name": "Receiver"},
                 format="json",
+                HTTP_IDEMPOTENCY_KEY="receive-leg-301",
             )
 
         self.assertEqual(response.status_code, 429)
@@ -843,6 +910,10 @@ class OperationsPermissionRuntimeTests(SimpleTestCase):
 class OperationsViewHelperTests(SimpleTestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
 
     def test_request_ip_ignores_untrusted_forwarded_for_headers(self) -> None:
         request = self.factory.get(
@@ -852,6 +923,41 @@ class OperationsViewHelperTests(SimpleTestCase):
         )
 
         self.assertEqual(operations_views._request_ip(request), "10.0.0.25")
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_rate_limit_keys_use_actor_tenant_primary_key_and_ip_secondary_key(
+        self,
+        _mock_roles,
+        _mock_tenant_context,
+    ) -> None:
+        request = self.factory.post(
+            "/api/v1/operations/packages/90/consolidation-legs/301/dispatch",
+            REMOTE_ADDR="10.0.0.25",
+        )
+        request.user = SimpleNamespace(user_id="13", username="relief_ffp_requester_tst", is_authenticated=True)
+
+        cache_key, secondary_key, actor_id, tenant_id = operations_views._rate_limit_keys(
+            request,
+            "consolidation_leg_dispatch",
+        )
+
+        self.assertEqual(cache_key, "ops:rate:consolidation_leg_dispatch:13:20")
+        self.assertEqual(secondary_key, "ops:rate:consolidation_leg_dispatch:13:20:ip:10.0.0.25")
+        self.assertEqual(actor_id, "13")
+        self.assertEqual(tenant_id, "20")
+
+    @patch("operations.views.data_access.get_active_event", return_value={"phase": "SURGE"})
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_scaled_rate_limit_doubles_for_field_roles_during_surge(
+        self,
+        _mock_roles,
+        _mock_active_event,
+    ) -> None:
+        request = self.factory.post("/api/v1/operations/packages/90/consolidation-legs/301/dispatch")
+        request.user = SimpleNamespace(user_id="13", username="relief_ffp_requester_tst", is_authenticated=True)
+
+        self.assertEqual(operations_views._scaled_rate_limit(request, 10), 20)
 
     @patch(
         "api.authentication.LegacyCompatAuthentication.authenticate",

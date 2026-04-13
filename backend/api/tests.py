@@ -31,6 +31,23 @@ urlpatterns = [
 ]
 
 
+class _CursorResultContext:
+    def __init__(self, row):
+        self._row = row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, *_args, **_kwargs) -> None:
+        return None
+
+    def fetchone(self):
+        return self._row
+
+
 class HealthEndpointTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
@@ -43,7 +60,7 @@ class HealthEndpointTests(TestCase):
         if expected_request_id is not None:
             self.assertEqual(body["request_id"], expected_request_id)
         else:
-            self.assertRegex(body["request_id"], r"^[A-Za-z0-9._-]{1,128}$")
+            self.assertRegex(body["request_id"], r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
         return str(body["request_id"])
 
     def test_health_alias_returns_liveness_payload(self) -> None:
@@ -1314,6 +1331,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=["relief_ffp_requester_tst"],
         TEST_DEV_AUTH_ENABLED=True,
@@ -1379,6 +1397,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
         TEST_DEV_AUTH_ENABLED=True,
@@ -1404,6 +1423,36 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
+        LOCAL_AUTH_HARNESS_ENABLED=True,
+        LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="local_system_admin_tst",
+        DEV_AUTH_ROLES=["SYSTEM_ADMINISTRATOR"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "api.authentication.connection.cursor",
+        side_effect=[_CursorResultContext((27, "local_system_admin_tst")), DatabaseError("boom")],
+    )
+    def test_whoami_rejects_local_harness_override_when_rbac_lookup_fails(
+        self,
+        _mock_cursor,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/auth/whoami/",
+            HTTP_X_DMIS_LOCAL_USER="local_system_admin_tst",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("RBAC lookup failed", response.json()["detail"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
         TEST_DEV_AUTH_ENABLED=True,
@@ -1425,6 +1474,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=True,
         DEV_AUTH_ENABLED=False,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         AUTH_ISSUER="https://issuer.example",
         AUTH_AUDIENCE="dmis-api",
@@ -1441,6 +1491,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=[
             "local_system_admin_tst",
@@ -1513,6 +1564,7 @@ class AuthWhoAmITests(TestCase):
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
+        DMIS_RUNTIME_ENV="local-harness",
         LOCAL_AUTH_HARNESS_ENABLED=True,
         LOCAL_AUTH_HARNESS_USERNAMES=["local_system_admin_tst"],
         TEST_DEV_AUTH_ENABLED=True,

@@ -94,7 +94,7 @@
 
 ### Implementation Rules
 - Enforcement key: `user_id + tenant_id + IP` for authenticated traffic; IP-only for public traffic.
-- Backend enforcement uses Django cache framework with Redis in production and `LocMemCache` in development.
+- Backend enforcement uses Django cache framework with Redis as the default for shared, staging, production-like, and production runtimes; `LocMemCache` is allowed only for explicit local-only developer modes.
 - Use token-bucket or sliding-window enforcement with short burst tolerance; avoid rigid fixed-window counters on surge-critical endpoints.
 - For authenticated traffic, treat IP as a secondary abuse signal. Shared NATs at EOCs, warehouses, shelters, and partner facilities must not block legitimate users who remain within per-user and per-tenant limits.
 - Require idempotency keys on critical writes including approve, dispatch, and receipt actions.

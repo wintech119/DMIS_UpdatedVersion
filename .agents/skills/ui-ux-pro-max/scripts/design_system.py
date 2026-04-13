@@ -49,10 +49,18 @@ class DesignSystemGenerator:
         with open(filepath, 'r', encoding='utf-8') as f:
             return list(csv.DictReader(f))
 
-    def _multi_domain_search(self, query: str, style_priority: list | None = None) -> dict:
+    def _multi_domain_search(
+        self,
+        query: str,
+        style_priority: list | None = None,
+        exclude_domains: set[str] | None = None,
+    ) -> dict:
         """Execute searches across multiple domains."""
         results = {}
+        excluded = exclude_domains or set()
         for domain, config in SEARCH_CONFIG.items():
+            if domain in excluded:
+                continue
             if domain == "style" and style_priority:
                 # For style, also search with priority keywords
                 priority_query = " ".join(style_priority[:2]) if style_priority else query
@@ -175,7 +183,11 @@ class DesignSystemGenerator:
         style_priority = reasoning.get("style_priority", [])
 
         # Step 3: Multi-domain search with style priority hints
-        search_results = self._multi_domain_search(query, style_priority)
+        search_results = self._multi_domain_search(
+            query,
+            style_priority,
+            exclude_domains={"product"},
+        )
         search_results["product"] = product_result  # Reuse product search
 
         # Step 4: Select best matches from each domain using priority
@@ -563,7 +575,7 @@ def format_master_md(design_system: dict) -> str:
     # Logic header
     lines.append("# Design System Master File")
     lines.append("")
-    lines.append("> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.")
+    lines.append("> **LOGIC:** When building a specific page, first check `pages/[page-name].md`.")
     lines.append("> If that file exists, its rules **override** this Master file.")
     lines.append("> If not, strictly follow the rules below.")
     lines.append("")

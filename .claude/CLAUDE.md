@@ -80,14 +80,14 @@ backend/
 
 ### URL Routing
 All API routes under `/api/v1/`:
-- `/api/v1/` - `api.urls` (health check, `/auth/whoami/`, `/auth/dev-users/`)
+- `/api/v1/` - `api.urls` (health check, `/auth/whoami/`, `/auth/local-harness/`)
 - `/api/v1/replenishment/` - `replenishment.urls` (needs lists, warehouses, procurement, suppliers, tenants, phase windows)
 - `/api/v1/operations/` - `operations.urls` (requests, eligibility, packages, dispatch, receipt, tasks)
 - `/api/v1/masterdata/` - `masterdata.urls` (generic CRUD for reference tables, IFRC suggest)
 
 ### Authentication Flow
 1. **Production**: Keycloak JWT -> `KeycloakJWTAuthentication` validates via JWKS -> extracts `Principal(user_id, username, roles, permissions)`
-2. **Dev mode**: `DEV_AUTH_ENABLED=1` -> `DevAuthentication` creates Principal from `X-Dev-User-Id` header (or defaults)
+2. **Local harness mode**: `DMIS_RUNTIME_ENV=local-harness` with `DEV_AUTH_ENABLED=1` and `LOCAL_AUTH_HARNESS_ENABLED=1` -> `LegacyCompatAuthentication` accepts the allowlisted `X-DMIS-Local-User` header, resolves the harness user through `backend/api/authentication.py`, and rejects legacy `X-Dev-User` requests
 3. **RBAC**: DB tables `role`, `permission`, `user_role`, `role_permission` when `AUTH_USE_DB_RBAC=1`; otherwise roles from JWT claim
 
 ### Data Access Pattern
@@ -110,7 +110,7 @@ frontend/src/app/
 ### Frontend Patterns
 - **Routing**: Lazy-loaded feature routes (`loadChildren`), guarded with `appAccessGuard` using `accessKey` data
 - **API Proxy**: `proxy.conf.cjs` forwards `/api`, `/relief-requests`, `/eligibility`, `/packaging`, `/dashboard`, `/static` to `http://localhost:8001`
-- **Auth**: `devUserInterceptor` adds `X-Dev-User-Id` header in dev mode
+- **Auth**: `devUserInterceptor` adds `X-DMIS-Local-User` only for local-harness development flows; the backend rejects legacy `X-Dev-User`
 - **Schematics**: SCSS by default, `app`/`dmis` prefixes for components, kebab-case element selectors, camelCase attribute selectors
 
 ### ESLint Rules

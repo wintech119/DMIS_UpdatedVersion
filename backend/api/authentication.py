@@ -210,7 +210,7 @@ def _fetch_dev_override_roles_and_permissions(user_id: int) -> tuple[list[str], 
             ]
     except DatabaseError as exc:
         _log_auth_warning("auth.dev_override_role_lookup_failed", exception=exc)
-        return [], []
+        raise AuthenticationFailed("X-DMIS-Local-User RBAC lookup failed.") from exc
 
     return roles, permissions
 

@@ -85,6 +85,7 @@ The default example is already wired for the mixed ODPEM/JRC matrix:
 ```env
 DJANGO_DEBUG=1
 REDIS_URL=redis://localhost:6379/1
+DMIS_RUNTIME_ENV=local-harness
 DEV_AUTH_ENABLED=1
 TEST_DEV_AUTH_ENABLED=1
 LOCAL_AUTH_HARNESS_ENABLED=1

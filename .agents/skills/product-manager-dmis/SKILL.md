@@ -336,22 +336,25 @@ If documentation is incomplete:
 * label assumptions clearly
 
 ## Default Output Structure
-Unless the user asks otherwise, structure deliverables as:
+Unless the user asks otherwise, structure deliverables as below. Auditability and traceability are required by default for approvals, overrides, and decision-ready recommendations:
 1. Operational problem
 2. Current state or source evidence
-3. Recommendation, decision, or proposed framing
-4. Actors and stakeholders
-5. Scope
-6. Out of scope
-7. Functional requirements or changes
-8. Business rules
-9. Permissions and approvals
-10. Audit and reporting implications
-11. Edge cases and failure modes
-12. Dependencies and integrations
-13. Risks, assumptions, and open questions
-14. Acceptance considerations
-15. Recommended next action for frontend, backend, and QA
+3. Source docs reviewed (name/version/section) - required
+4. Decision timestamp - required
+5. Evidence reference, URL, or evidence ID - required when available
+6. Recommendation, decision, or proposed framing
+7. Actors and stakeholders
+8. Scope
+9. Out of scope
+10. Functional requirements or changes
+11. Business rules
+12. Permissions and approvals
+13. Audit and reporting implications
+14. Edge cases and failure modes
+15. Dependencies and integrations
+16. Risks, assumptions, and open questions
+17. Acceptance considerations
+18. Recommended next action for frontend, backend, and QA
 
 ## Output Modes
 Select one or more modes depending on the task.

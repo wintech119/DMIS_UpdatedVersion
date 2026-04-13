@@ -10,8 +10,8 @@ Domains: style, prompt, color, chart, landing, product, ux, typography
 Stacks: html-tailwind, react, nextjs
 
 Persistence (Master + Overrides pattern):
-  --persist    Save design system to design-system/MASTER.md
-  --page       Also create a page-specific override file in design-system/pages/
+  --persist    Save design system to design-system/<project-slug>/MASTER.md
+  --page       Also create a page-specific override file in design-system/<project-slug>/pages/*.md
 """
 
 import argparse
@@ -65,11 +65,50 @@ if __name__ == "__main__":
     parser.add_argument("--project-name", "-p", type=str, default=None, help="Project name for design system output")
     parser.add_argument("--format", "-f", choices=["ascii", "markdown"], default="ascii", help="Output format for design system")
     # Persistence (Master + Overrides pattern)
-    parser.add_argument("--persist", action="store_true", help="Save design system to design-system/MASTER.md (creates hierarchical structure)")
-    parser.add_argument("--page", type=str, default=None, help="Create page-specific override file in design-system/pages/")
+    parser.add_argument("--persist", action="store_true", help="Save design system to design-system/<project-slug>/MASTER.md (creates hierarchical structure)")
+    parser.add_argument("--page", type=str, default=None, help="Create page-specific override file in design-system/<project-slug>/pages/*.md")
     parser.add_argument("--output-dir", "-o", type=str, default=None, help="Output directory for persisted files (default: current directory)")
 
     args = parser.parse_args()
+
+    if args.design_system:
+        invalid_mode_flags = []
+        if args.stack:
+            invalid_mode_flags.append("--stack")
+        if args.domain:
+            invalid_mode_flags.append("--domain")
+        if args.json:
+            invalid_mode_flags.append("--json")
+        if args.max_results != MAX_RESULTS:
+            invalid_mode_flags.append("--max-results")
+        if invalid_mode_flags:
+            parser.error(
+                "--design-system cannot be combined with "
+                + ", ".join(invalid_mode_flags)
+                + "."
+            )
+    else:
+        invalid_design_system_flags = []
+        if args.persist:
+            invalid_design_system_flags.append("--persist")
+        if args.page:
+            invalid_design_system_flags.append("--page")
+        if args.output_dir:
+            invalid_design_system_flags.append("--output-dir")
+        if args.project_name:
+            invalid_design_system_flags.append("--project-name")
+        if args.format != "ascii":
+            invalid_design_system_flags.append("--format")
+        if invalid_design_system_flags:
+            parser.error(
+                ", ".join(invalid_design_system_flags)
+                + " require --design-system."
+            )
+
+    if args.page and not args.persist:
+        parser.error("--page requires --persist.")
+    if args.output_dir and not args.persist:
+        parser.error("--output-dir requires --persist.")
 
     # Design system takes priority
     if args.design_system:
@@ -85,7 +124,10 @@ if __name__ == "__main__":
         
         # Print persistence confirmation
         if args.persist:
-            project_slug = _safe_slug(args.project_name or "default", "default")
+            project_slug = _safe_slug(
+                args.project_name or (args.query.upper() if args.query else "default"),
+                "default",
+            )
             print("\n" + "=" * 60)
             print(f"✅ Design system persisted to design-system/{project_slug}/")
             print(f"   📄 design-system/{project_slug}/MASTER.md (Global Source of Truth)")
