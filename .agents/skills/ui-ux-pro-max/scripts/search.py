@@ -17,8 +17,9 @@ Persistence (Master + Overrides pattern):
 import argparse
 import sys
 import io
+from pathlib import Path
 from core import CSV_CONFIG, AVAILABLE_STACKS, MAX_RESULTS, search, search_stack
-from design_system import _safe_slug, generate_design_system, persist_design_system
+from design_system import generate_design_system, persist_design_system
 
 # Force UTF-8 for stdout/stderr to handle emojis on Windows (cp1252 default)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -124,18 +125,36 @@ if __name__ == "__main__":
         
         # Print persistence confirmation
         if args.persist:
-            project_slug = _safe_slug(
-                args.project_name or (args.query.upper() if args.query else "default"),
-                "default",
+            design_system_dir = Path(result["design_system_dir"])
+            created_files = [Path(path) for path in result.get("created_files", [])]
+
+            try:
+                display_dir = design_system_dir.relative_to(Path.cwd())
+            except ValueError:
+                display_dir = design_system_dir
+
+            master_file = next(
+                (path for path in created_files if path.name == "MASTER.md"),
+                design_system_dir / "MASTER.md",
             )
+            try:
+                display_master_file = master_file.relative_to(Path.cwd())
+            except ValueError:
+                display_master_file = master_file
+
             print("\n" + "=" * 60)
-            print(f"✅ Design system persisted to design-system/{project_slug}/")
-            print(f"   📄 design-system/{project_slug}/MASTER.md (Global Source of Truth)")
-            if args.page:
-                page_filename = _safe_slug(args.page, "page")
-                print(f"   📄 design-system/{project_slug}/pages/{page_filename}.md (Page Overrides)")
+            print(f"✅ Design system persisted to {display_dir}/")
+            print(f"   📄 {display_master_file} (Global Source of Truth)")
+            page_files = [path for path in created_files if path.name != "MASTER.md"]
+            if page_files:
+                page_file = page_files[0]
+                try:
+                    display_page_file = page_file.relative_to(Path.cwd())
+                except ValueError:
+                    display_page_file = page_file
+                print(f"   📄 {display_page_file} (Page Overrides)")
             print("")
-            print(f"📖 Usage: When building a page, check design-system/{project_slug}/pages/[page].md first.")
+            print(f"📖 Usage: When building a page, check {display_dir}/pages/[page].md first.")
             print("   If exists, its rules override MASTER.md. Otherwise, use MASTER.md.")
             print("=" * 60)
     # Stack search
