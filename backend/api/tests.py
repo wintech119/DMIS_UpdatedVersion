@@ -1,15 +1,22 @@
+import sys
+import types
+from datetime import timedelta
+from importlib import import_module
 from types import SimpleNamespace
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import path
 from django.db import DatabaseError
+from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
+from api.models import AsyncJob
 from api.permissions import NeedsListPermission
 from dmis_api import settings as dmis_settings
 
@@ -72,13 +79,16 @@ class HealthEndpointTests(TestCase):
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch("api.views._database_readiness_check", return_value=("ok", None))
     def test_readiness_returns_ready_when_required_dependencies_are_available(
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -90,6 +100,7 @@ class HealthEndpointTests(TestCase):
             {
                 "database": {"required": True, "status": "ok"},
                 "redis": {"required": True, "status": "ok"},
+                "queue": {"required": True, "status": "ok"},
             },
         )
         self._assert_correlated_response(response)
@@ -97,6 +108,12 @@ class HealthEndpointTests(TestCase):
     @override_settings(
         DMIS_RUNTIME_ENV="local-harness",
         DMIS_REDIS_REQUIRED=False,
+        DMIS_WORKER_REQUIRED=False,
+        DMIS_ASYNC_EAGER=True,
+    )
+    @patch(
+        "api.views._queue_readiness_check",
+        return_value=("skipped", "Async jobs run inline in local-harness when eager execution is enabled."),
     )
     @patch(
         "api.views._redis_readiness_check",
@@ -107,6 +124,7 @@ class HealthEndpointTests(TestCase):
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -123,6 +141,11 @@ class HealthEndpointTests(TestCase):
                     "status": "skipped",
                     "reason": "Redis is optional in local-harness when REDIS_URL is not set.",
                 },
+                "queue": {
+                    "required": False,
+                    "status": "skipped",
+                    "reason": "Async jobs run inline in local-harness when eager execution is enabled.",
+                },
             },
         )
         self._assert_correlated_response(response)
@@ -130,8 +153,10 @@ class HealthEndpointTests(TestCase):
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
     )
     @patch("api.views.readiness_logger.warning")
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._database_readiness_check",
@@ -141,6 +166,7 @@ class HealthEndpointTests(TestCase):
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
         mock_warning,
     ) -> None:
         response = self.client.get(
@@ -158,7 +184,9 @@ class HealthEndpointTests(TestCase):
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch("api.views._redis_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._database_readiness_check",
@@ -168,6 +196,7 @@ class HealthEndpointTests(TestCase):
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -176,12 +205,15 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["status"], "not_ready")
         self.assertEqual(body["checks"]["database"]["status"], "failed")
         self.assertEqual(body["checks"]["redis"]["status"], "ok")
+        self.assertEqual(body["checks"]["queue"]["status"], "ok")
         self._assert_correlated_response(response)
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._redis_readiness_check",
         return_value=("failed", "Redis is required for this runtime but REDIS_URL is not configured."),
@@ -191,6 +223,7 @@ class HealthEndpointTests(TestCase):
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -199,12 +232,15 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(body["status"], "not_ready")
         self.assertEqual(body["checks"]["redis"]["status"], "failed")
         self.assertIn("REDIS_URL", body["checks"]["redis"]["reason"])
+        self.assertEqual(body["checks"]["queue"]["status"], "ok")
         self._assert_correlated_response(response)
 
     @override_settings(
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
     )
+    @patch("api.views._queue_readiness_check", return_value=("ok", None))
     @patch(
         "api.views._redis_readiness_check",
         return_value=("failed", "Redis connectivity check failed (ConnectionError)."),
@@ -214,6 +250,7 @@ class HealthEndpointTests(TestCase):
         self,
         _mock_database_check,
         _mock_redis_check,
+        _mock_queue_check,
     ) -> None:
         response = self.client.get("/api/v1/health/ready/")
         body = response.json()
@@ -221,6 +258,33 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(body["status"], "not_ready")
         self.assertEqual(body["checks"]["redis"]["status"], "failed")
+        self.assertEqual(body["checks"]["queue"]["status"], "ok")
+        self._assert_correlated_response(response)
+
+    @override_settings(
+        DMIS_RUNTIME_ENV="shared-dev",
+        DMIS_REDIS_REQUIRED=True,
+        DMIS_WORKER_REQUIRED=True,
+    )
+    @patch(
+        "api.views._queue_readiness_check",
+        return_value=("failed", "No active worker heartbeat detected."),
+    )
+    @patch("api.views._redis_readiness_check", return_value=("ok", None))
+    @patch("api.views._database_readiness_check", return_value=("ok", None))
+    def test_readiness_fails_when_worker_heartbeat_is_missing(
+        self,
+        _mock_database_check,
+        _mock_redis_check,
+        _mock_queue_check,
+    ) -> None:
+        response = self.client.get("/api/v1/health/ready/")
+        body = response.json()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(body["status"], "not_ready")
+        self.assertEqual(body["checks"]["queue"]["status"], "failed")
+        self.assertEqual(body["checks"]["queue"]["reason"], "No active worker heartbeat detected.")
         self._assert_correlated_response(response)
 
 
@@ -295,6 +359,80 @@ class RuntimeRedisConfigurationValidationTests(SimpleTestCase):
                 cache_backend="django_redis.cache.RedisCache",
                 testing=False,
             )
+
+
+class RuntimeAsyncConfigurationValidationTests(SimpleTestCase):
+    def test_local_harness_defaults_async_eager(self) -> None:
+        self.assertTrue(
+            dmis_settings.default_async_eager_for_runtime_env(
+                runtime_env="local-harness",
+                testing=False,
+            )
+        )
+
+    def test_non_local_runtime_rejects_async_eager_mode(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=shared-dev requires DMIS_ASYNC_EAGER=0 so a real worker plane is active.",
+        ):
+            dmis_settings.validate_runtime_async_configuration(
+                runtime_env="shared-dev",
+                testing=False,
+                redis_url="redis://shared-dev-redis:6379/1",
+                async_eager=True,
+                worker_required=True,
+                broker_url="redis://shared-dev-redis:6379/1",
+                result_backend="redis://shared-dev-redis:6379/1",
+            )
+
+    def test_non_local_runtime_requires_redis_backed_worker_plane(self) -> None:
+        with self.assertRaisesMessage(
+            RuntimeError,
+            "DMIS_RUNTIME_ENV=staging requires REDIS_URL because Redis-backed async queueing is mandatory.",
+        ):
+            dmis_settings.validate_runtime_async_configuration(
+                runtime_env="staging",
+                testing=False,
+                redis_url="",
+                async_eager=False,
+                worker_required=True,
+                broker_url="",
+                result_backend="",
+            )
+
+    @patch("dmis_api.settings.import_module", return_value=object())
+    def test_local_harness_accepts_eager_async_mode_without_queue_dependency(
+        self,
+        _mock_import_module,
+    ) -> None:
+        dmis_settings.validate_runtime_async_configuration(
+            runtime_env="local-harness",
+            testing=False,
+            redis_url="",
+            async_eager=True,
+            worker_required=False,
+            broker_url="",
+            result_backend="",
+        )
+
+    def test_worker_loss_recovery_settings_are_hardened(self) -> None:
+        self.assertEqual(
+            dmis_settings.CELERY_TASK_ACKS_LATE,
+            not dmis_settings.DMIS_ASYNC_EAGER,
+        )
+        self.assertEqual(
+            dmis_settings.CELERY_TASK_REJECT_ON_WORKER_LOST,
+            not dmis_settings.DMIS_ASYNC_EAGER,
+        )
+        self.assertEqual(dmis_settings.CELERY_WORKER_PREFETCH_MULTIPLIER, 1)
+        self.assertGreaterEqual(
+            dmis_settings.DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS,
+            dmis_settings.CELERY_TASK_TIME_LIMIT,
+        )
+        self.assertEqual(
+            dmis_settings.CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"],
+            dmis_settings.DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS,
+        )
 
 
 class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
@@ -561,13 +699,417 @@ class RuntimeDependencyCheckTests(SimpleTestCase):
         DMIS_RUNTIME_ENV="shared-dev",
         DMIS_REDIS_URL="",
         DMIS_DEFAULT_CACHE_BACKEND="django.core.cache.backends.locmem.LocMemCache",
+        DMIS_ASYNC_EAGER=False,
+        DMIS_WORKER_REQUIRED=True,
+        CELERY_BROKER_URL="",
+        CELERY_RESULT_BACKEND="",
     )
-    def test_runtime_dependency_check_reports_error_when_redis_is_missing(self) -> None:
+    def test_runtime_dependency_check_reports_errors_when_redis_and_worker_plane_are_missing(self) -> None:
         messages = api_checks.check_dmis_runtime_dependency_posture(None)
 
-        self.assertEqual(len(messages), 1)
-        self.assertEqual(messages[0].id, "api.E004")
+        self.assertEqual([message.id for message in messages], ["api.E004", "api.E005"])
         self.assertIn("REDIS_URL", messages[0].msg)
+        self.assertIn("Redis-backed async queueing is mandatory", messages[1].msg)
+
+
+class AsyncJobApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-1", "warehouse_id": 10},
+    )
+    def test_async_job_status_returns_authorized_job_metadata(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        job = AsyncJob.objects.create(
+            job_id="job-status-1",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-1",
+            request_id="req-123",
+        )
+
+        response = self.client.get("/api/v1/jobs/job-status-1")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["job_id"], job.job_id)
+        self.assertEqual(body["status"], AsyncJob.Status.QUEUED)
+        self.assertEqual(body["status_url"], f"/api/v1/jobs/{job.job_id}")
+        self.assertFalse(body["artifact_ready"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "replenishment.views._require_record_scope",
+        return_value=Response({"errors": {"tenant_scope": "denied"}}, status=403),
+    )
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-2", "warehouse_id": 10},
+    )
+    def test_async_job_status_reuses_needs_list_scope_authorization(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-status-2",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-2",
+        )
+
+        response = self.client.get("/api/v1/jobs/job-status-2")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {"errors": {"tenant_scope": "denied"}})
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="viewer-user",
+        DEV_AUTH_ROLES=[],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-2A", "warehouse_id": 10},
+    )
+    def test_async_job_status_requires_source_export_permission(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-status-2a",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-2A",
+        )
+
+        response = self.client.get("/api/v1/jobs/job-status-2a")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {"detail": "Forbidden."})
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-3", "warehouse_id": 10},
+    )
+    def test_async_job_download_returns_attachment_for_ready_artifact(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-download-1",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-3",
+            artifact_filename="procurement_needs_NL-ASYNC-3.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="abc123",
+            artifact_payload="item_id,item_name\n1,Generator\n",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.get("/api/v1/jobs/job-download-1/download")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="procurement_needs_NL-ASYNC-3.csv"')
+        self.assertEqual(response["ETag"], "abc123")
+        self.assertEqual(response.content.decode("utf-8"), "item_id,item_name\n1,Generator\n")
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4", "warehouse_id": 10},
+    )
+    def test_async_job_download_rejects_not_ready_artifact(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-download-2",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.RUNNING,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4",
+        )
+
+        response = self.client.get("/api/v1/jobs/job-download-2/download")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {
+                "job_id": "job-download-2",
+                "status": AsyncJob.Status.RUNNING,
+                "detail": "The job artifact is not ready.",
+            },
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="viewer-user",
+        DEV_AUTH_ROLES=[],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4A", "warehouse_id": 10},
+    )
+    def test_async_job_download_requires_source_export_permission(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-download-2a",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4A",
+            artifact_filename="procurement_needs_NL-ASYNC-4A.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="abc123",
+            artifact_payload="item_id,item_name\n1,Generator\n",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.get("/api/v1/jobs/job-download-2a/download")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {"detail": "Forbidden."})
+
+
+class AsyncJobTaskTests(TestCase):
+    @staticmethod
+    def _fake_celery_modules() -> dict[str, object]:
+        class FakeSignal:
+            def connect(self, receiver=None, **_kwargs):
+                if receiver is None:
+                    def decorator(func):
+                        return func
+
+                    return decorator
+                return receiver
+
+        class FakeSharedTask:
+            def __init__(self, func):
+                self._func = func
+                self.request = SimpleNamespace(retries=0, id=None)
+
+            def run(self, *args, **kwargs):
+                return self._func(self, *args, **kwargs)
+
+            def delay(self, *args, **kwargs):
+                return self.run(*args, **kwargs)
+
+            def retry(self, *args, **kwargs):
+                raise RuntimeError("retry called")
+
+        def shared_task(*_args, **_kwargs):
+            def decorator(func):
+                return FakeSharedTask(func)
+
+            return decorator
+
+        celery_module = types.ModuleType("celery")
+        celery_module.shared_task = shared_task
+
+        celery_signals_module = types.ModuleType("celery.signals")
+        celery_signals_module.heartbeat_sent = FakeSignal()
+        celery_signals_module.worker_ready = FakeSignal()
+
+        return {
+            "celery": celery_module,
+            "celery.signals": celery_signals_module,
+        }
+
+    def _load_api_tasks(self):
+        try:
+            return import_module("api.tasks")
+        except ModuleNotFoundError as exc:
+            if exc.name != "celery":
+                raise
+            sys.modules.pop("api.tasks", None)
+            with patch.dict(sys.modules, self._fake_celery_modules()):
+                return import_module("api.tasks")
+
+    def _create_job(self, *, job_id: str) -> AsyncJob:
+        return AsyncJob.objects.create(
+            job_id=job_id,
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-TASK-1",
+            active_dedupe_key=f"dedupe-{job_id}",
+            max_retries=3,
+        )
+
+    def test_run_async_job_marks_job_succeeded_and_persists_artifact(self) -> None:
+        api_tasks = self._load_api_tasks()
+
+        job = self._create_job(job_id="task-success-1")
+        request_context = SimpleNamespace(retries=0, id="celery-task-1")
+
+        with patch("api.tasks._touch_worker_heartbeat"), patch(
+            "api.tasks._build_needs_list_export_artifact",
+            return_value=(
+                "donation_needs_NL-TASK-1.csv",
+                "text/csv",
+                "sha-123",
+                "item_id,item_name\n1,Water\n",
+            ),
+        ), patch.object(api_tasks.run_async_job, "request", request_context):
+            status = api_tasks.run_async_job.run(job.job_id)
+
+        job.refresh_from_db()
+        self.assertEqual(status, AsyncJob.Status.SUCCEEDED)
+        self.assertEqual(job.status, AsyncJob.Status.SUCCEEDED)
+        self.assertEqual(job.artifact_filename, "donation_needs_NL-TASK-1.csv")
+        self.assertEqual(job.artifact_content_type, "text/csv")
+        self.assertEqual(job.artifact_sha256, "sha-123")
+        self.assertEqual(job.artifact_payload, "item_id,item_name\n1,Water\n")
+        self.assertIsNone(job.active_dedupe_key)
+
+    def test_run_async_job_marks_job_failed_for_permanent_errors(self) -> None:
+        api_tasks = self._load_api_tasks()
+
+        job = self._create_job(job_id="task-failed-1")
+        request_context = SimpleNamespace(retries=0, id="celery-task-2")
+
+        with patch("api.tasks._touch_worker_heartbeat"), patch(
+            "api.tasks._build_needs_list_export_artifact",
+            side_effect=api_tasks.AsyncJobPermanentError("source needs list missing"),
+        ), patch.object(api_tasks.run_async_job, "request", request_context):
+            status = api_tasks.run_async_job.run(job.job_id)
+
+        job.refresh_from_db()
+        self.assertEqual(status, AsyncJob.Status.FAILED)
+        self.assertEqual(job.status, AsyncJob.Status.FAILED)
+        self.assertEqual(job.error_message, "source needs list missing")
+        self.assertIsNone(job.active_dedupe_key)
+        self.assertFalse(job.artifact_ready)
+
+    def test_run_async_job_marks_retrying_before_requesting_retry(self) -> None:
+        api_tasks = self._load_api_tasks()
+
+        job = self._create_job(job_id="task-retry-1")
+        request_context = SimpleNamespace(retries=0, id="celery-task-3")
+
+        with patch("api.tasks._touch_worker_heartbeat"), patch(
+            "api.tasks._build_needs_list_export_artifact",
+            side_effect=RuntimeError("database temporarily unavailable"),
+        ), patch.object(api_tasks.run_async_job, "request", request_context), patch.object(
+            api_tasks.run_async_job,
+            "retry",
+            side_effect=RuntimeError("retry called"),
+        ) as mock_retry:
+            with self.assertRaisesMessage(RuntimeError, "retry called"):
+                api_tasks.run_async_job.run(job.job_id)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AsyncJob.Status.RETRYING)
+        self.assertEqual(job.retry_count, 1)
+        self.assertEqual(
+            job.error_message,
+            "RuntimeError: database temporarily unavailable",
+        )
+        mock_retry.assert_called_once()
+
+    def test_run_async_job_logs_recovery_when_redelivered_after_running_state(self) -> None:
+        api_tasks = self._load_api_tasks()
+
+        job = self._create_job(job_id="task-recovered-1")
+        job.status = AsyncJob.Status.RUNNING
+        job.celery_task_id = "celery-task-old"
+        job.started_at = timezone.now() - timedelta(minutes=10)
+        job.save(update_fields=["status", "celery_task_id", "started_at"])
+        request_context = SimpleNamespace(retries=0, id="celery-task-new")
+
+        with patch("api.tasks._touch_worker_heartbeat"), patch(
+            "api.tasks._build_needs_list_export_artifact",
+            return_value=(
+                "donation_needs_NL-TASK-1.csv",
+                "text/csv",
+                "sha-123",
+                "item_id,item_name\n1,Water\n",
+            ),
+        ), patch.object(api_tasks.run_async_job, "request", request_context), patch(
+            "api.tasks.job_logger.warning"
+        ) as mock_warning:
+            status = api_tasks.run_async_job.run(job.job_id)
+
+        job.refresh_from_db()
+        self.assertEqual(status, AsyncJob.Status.SUCCEEDED)
+        mock_warning.assert_called_once()
+        self.assertEqual(mock_warning.call_args.args[0], "job.recovered")
+        self.assertEqual(mock_warning.call_args.kwargs["extra"]["event"], "job.recovered")
+        self.assertEqual(
+            mock_warning.call_args.kwargs["extra"]["previous_celery_task_id"],
+            "celery-task-old",
+        )
 
 
 class RequestContextMiddlewareTests(SimpleTestCase):
@@ -1221,3 +1763,4 @@ class NeedsListPermissionTests(SimpleTestCase):
 
         self.assertTrue(permission.has_permission(self._build_request("GET"), view))
         self.assertFalse(permission.has_permission(self._build_request("PUT"), view))
+

@@ -126,6 +126,12 @@ _REDIS_REQUIRED_RUNTIME_ENVIRONMENTS = {
     "staging",
     "production",
 }
+_WORKER_REQUIRED_RUNTIME_ENVIRONMENTS = {
+    "prod-like-local",
+    "shared-dev",
+    "staging",
+    "production",
+}
 _SUPPORTED_REDIS_URL_SCHEMES = {"redis", "rediss", "unix"}
 _REDIS_CACHE_BACKEND = "django_redis.cache.RedisCache"
 _LOCMEM_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
@@ -375,6 +381,18 @@ def redis_required_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
     return runtime_env in _REDIS_REQUIRED_RUNTIME_ENVIRONMENTS
 
 
+def worker_required_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
+    if testing or runtime_env == "test":
+        return False
+    return runtime_env in _WORKER_REQUIRED_RUNTIME_ENVIRONMENTS
+
+
+def default_async_eager_for_runtime_env(*, runtime_env: str, testing: bool) -> bool:
+    if testing or runtime_env == "test":
+        return True
+    return runtime_env == "local-harness"
+
+
 def _validate_redis_url(redis_url: str, *, runtime_env: str) -> None:
     parsed = urlparse(redis_url)
     if parsed.scheme not in _SUPPORTED_REDIS_URL_SCHEMES:
@@ -433,6 +451,56 @@ def validate_runtime_redis_configuration(
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             f"DMIS_RUNTIME_ENV={runtime_env} with REDIS_URL configured requires the django-redis package to be installed."
+        ) from exc
+
+
+def validate_runtime_async_configuration(
+    *,
+    runtime_env: str,
+    async_eager: bool,
+    worker_required: bool,
+    redis_url: str,
+    broker_url: str,
+    result_backend: str,
+    testing: bool,
+) -> None:
+    if testing or runtime_env == "test":
+        return
+
+    normalized_redis_url = redis_url.strip()
+    normalized_broker_url = broker_url.strip()
+    normalized_result_backend = result_backend.strip()
+
+    if worker_required and async_eager:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires DMIS_ASYNC_EAGER=0 so a real worker plane is active."
+        )
+
+    if worker_required and not normalized_redis_url:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires REDIS_URL because Redis-backed async queueing is mandatory."
+        )
+
+    if async_eager:
+        return
+
+    if not normalized_broker_url:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires CELERY_BROKER_URL or REDIS_URL when DMIS_ASYNC_EAGER=0."
+        )
+    if not normalized_result_backend:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} requires CELERY_RESULT_BACKEND or REDIS_URL when DMIS_ASYNC_EAGER=0."
+        )
+
+    _validate_redis_url(normalized_broker_url, runtime_env=runtime_env)
+    _validate_redis_url(normalized_result_backend, runtime_env=runtime_env)
+
+    try:
+        import_module("celery")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            f"DMIS_RUNTIME_ENV={runtime_env} with DMIS_ASYNC_EAGER=0 requires the celery package to be installed."
         ) from exc
 
 
@@ -695,6 +763,9 @@ STATIC_URL = "/static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "api.apps.dmis_exception_handler",
+    # DMIS uses `?format=` for domain export contracts (for example CSV previews/exports),
+    # so DRF's query-param renderer override would incorrectly short-circuit those requests.
+    "URL_FORMAT_OVERRIDE": None,
 }
 SECURE_CONTENT_TYPE_NOSNIFF = _get_bool_env("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", True)
 SECURE_SSL_REDIRECT = _get_bool_env(
@@ -771,6 +842,51 @@ DMIS_REDIS_REQUIRED = redis_required_for_runtime_env(
 )
 DMIS_REDIS_CONFIGURED = bool(_redis_url)
 DMIS_DEFAULT_CACHE_BACKEND = str(CACHES["default"]["BACKEND"])
+DMIS_ASYNC_EAGER = _get_bool_env(
+    "DMIS_ASYNC_EAGER",
+    default_async_eager_for_runtime_env(runtime_env=DMIS_RUNTIME_ENV, testing=TESTING),
+)
+DMIS_WORKER_REQUIRED = worker_required_for_runtime_env(
+    runtime_env=DMIS_RUNTIME_ENV,
+    testing=TESTING,
+)
+DMIS_ASYNC_ARTIFACT_TTL_SECONDS = _get_int_env("DMIS_ASYNC_ARTIFACT_TTL_SECONDS", 86400) or 86400
+DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES = (
+    _get_int_env("DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES", 524288) or 524288
+)
+DMIS_WORKER_HEARTBEAT_KEY = os.getenv(
+    "DMIS_WORKER_HEARTBEAT_KEY",
+    "dmis:worker:heartbeat",
+).strip() or "dmis:worker:heartbeat"
+DMIS_WORKER_HEARTBEAT_TTL_SECONDS = (
+    _get_int_env("DMIS_WORKER_HEARTBEAT_TTL_SECONDS", 90) or 90
+)
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", DMIS_REDIS_URL).strip()
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", DMIS_REDIS_URL).strip()
+CELERY_TASK_ALWAYS_EAGER = DMIS_ASYNC_EAGER
+CELERY_TASK_EAGER_PROPAGATES = bool(TESTING or DMIS_ASYNC_EAGER)
+CELERY_TASK_IGNORE_RESULT = False
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = _get_int_env("CELERY_TASK_TIME_LIMIT", 600) or 600
+CELERY_TASK_SOFT_TIME_LIMIT = _get_int_env("CELERY_TASK_SOFT_TIME_LIMIT", 540) or 540
+CELERY_TASK_ACKS_LATE = not DMIS_ASYNC_EAGER
+CELERY_TASK_REJECT_ON_WORKER_LOST = not DMIS_ASYNC_EAGER
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS = (
+    _get_int_env(
+        "DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS",
+        max(CELERY_TASK_TIME_LIMIT + 300, 900),
+    )
+    or max(CELERY_TASK_TIME_LIMIT + 300, 900)
+)
+if DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS < CELERY_TASK_TIME_LIMIT:
+    raise RuntimeError(
+        "DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS must be greater than or equal to CELERY_TASK_TIME_LIMIT."
+    )
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "visibility_timeout": DMIS_ASYNC_VISIBILITY_TIMEOUT_SECONDS,
+}
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # AuthN/AuthZ configuration (env-driven; no claim-name assumptions).
 AUTH_ENABLED = _get_bool_env(
@@ -869,6 +985,15 @@ validate_runtime_redis_configuration(
     runtime_env=DMIS_RUNTIME_ENV,
     redis_url=DMIS_REDIS_URL,
     cache_backend=DMIS_DEFAULT_CACHE_BACKEND,
+    testing=TESTING,
+)
+validate_runtime_async_configuration(
+    runtime_env=DMIS_RUNTIME_ENV,
+    async_eager=DMIS_ASYNC_EAGER,
+    worker_required=DMIS_WORKER_REQUIRED,
+    redis_url=DMIS_REDIS_URL,
+    broker_url=CELERY_BROKER_URL,
+    result_backend=CELERY_RESULT_BACKEND,
     testing=TESTING,
 )
 

@@ -37,6 +37,28 @@ This file is intentionally focused on deployment posture. It does not declare DM
 
 Carry-forward note: Angular production-style builds now exclude the local harness path, but the full Angular OIDC login/logout/token flow is still incomplete. End-to-end production-auth validation remains a separate follow-up and is not resolved by this document.
 
+## Async worker runtime posture
+
+| Environment | Async posture | Worker process expectation | If the worker is absent |
+| --- | --- | --- | --- |
+| Local harness | `DMIS_ASYNC_EAGER=1` by default | Optional | Queue readiness may report `skipped` because jobs run inline |
+| Prod-like local | Redis-backed queueing required | Run Django API plus one Celery worker | Readiness fails closed |
+| Shared dev | Redis-backed queueing required | Run Django API plus one or more Celery workers | Readiness fails closed |
+| Staging | Redis-backed queueing required | Run Django API plus one or more Celery workers | Readiness fails closed |
+| Production | Redis-backed queueing required | Run Django API plus one or more Celery workers | Readiness fails closed |
+
+Current async adoption slice:
+
+- needs-list donation CSV export
+- needs-list procurement CSV export
+
+Explicit follow-up async migrations:
+
+- IFRC / Ollama suggestion work
+- transfer generation if latency becomes operationally significant
+- operator repair / replay commands
+- durable object-storage-backed artifacts instead of bounded inline DB payloads
+
 ## Backend environment variables
 
 Create `backend/.env` from `backend/.env.example` and set real values before any non-local deployment.
@@ -55,6 +77,7 @@ DB_PASSWORD=<postgres-password>
 DB_HOST=<postgres-host>
 DB_PORT=5432
 REDIS_URL=redis://redis:6379/1
+DMIS_ASYNC_EAGER=0
 
 AUTH_ENABLED=1
 DEV_AUTH_ENABLED=0
@@ -82,6 +105,7 @@ DMIS now enforces deployment defaults by `DMIS_RUNTIME_ENV` at Django startup:
 - `shared-dev`, `staging`, and `production` fail closed unless secure cookies, HTTPS redirect, HSTS, and reverse-proxy TLS handling match the expected profile.
 - `prod-like-local` still requires an explicit secret key and explicit allowed hosts, but it stays local-friendly and does not force internet-facing HTTPS assumptions.
 - `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless `REDIS_URL` is configured and the default cache backend is Redis-backed.
+- `prod-like-local`, `shared-dev`, `staging`, and `production` also fail closed unless the async worker plane is Redis-backed and `DMIS_ASYNC_EAGER=0`.
 - `local-harness` remains local-only and should not be reused as a shared deployment baseline. It may run without Redis only as an explicit local-only degraded mode.
 
 For `shared-dev`, `staging`, and `production`, Django assumes a trusted TLS-terminating ingress that forwards:
@@ -101,6 +125,26 @@ cd backend
 python manage.py migrate
 python manage.py collectstatic --no-input
 gunicorn dmis_api.wsgi:application --bind 127.0.0.1:8000 --workers 4
+```
+
+Run the async worker plane as a separate process whenever `DMIS_ASYNC_EAGER=0`:
+
+```bash
+cd backend
+python -m celery -A dmis_api worker --loglevel=INFO
+```
+
+Worker-loss recovery posture:
+
+- Celery runs queued jobs with late acknowledgement and a Redis visibility timeout so broker redelivery can resume work after worker loss.
+- `job.recovered` in worker logs indicates a previously running async job was picked up again after redelivery.
+- Keep readiness tied to worker heartbeat; if the heartbeat disappears, treat the worker plane as unavailable until a worker is healthy again.
+
+Windows local smoke-test variant:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m celery -A dmis_api worker --loglevel=INFO --pool=solo
 ```
 
 Build the Angular application with the production-style configuration:
@@ -159,7 +203,8 @@ Current API/runtime signals:
 | `X-Request-ID` / `request_id` | every API response and DRF error body | Lets operators correlate ingress logs, backend logs, and user-reported failures |
 | `auth.request_rejected` | backend warning logs | Indicates missing/invalid auth or rejected local-only auth headers |
 | `auth.jwt_verification_failed` | backend warning logs | Indicates JWT validation failures without logging the raw token |
-| `readiness.not_ready` | backend warning logs and `/api/v1/health/ready/` | Indicates DB or Redis dependency failure and keeps the instance out of rotation |
+| `job.queued` / `job.started` / `job.retrying` / `job.recovered` / `job.succeeded` / `job.failed` | backend worker/API logs | Shows async job lifecycle, retries, worker-loss recovery, and operator-visible failures using the same request/job correlation |
+| `readiness.not_ready` | backend warning logs and `/api/v1/health/ready/` | Indicates DB, Redis, or queue dependency failure and keeps the instance out of rotation |
 | `request.unhandled_exception` | backend error logs | Indicates an unhandled server-side exception tied to a request ID |
 
 Logging guardrails:
@@ -173,7 +218,9 @@ Logging guardrails:
 At minimum, wire monitoring or alert rules for:
 
 - repeated `/api/v1/health/ready/` `503` responses from one or more instances
-- any readiness failure whose `checks.database.status` or `checks.redis.status` becomes `failed`
+- any readiness failure whose `checks.database.status`, `checks.redis.status`, or `checks.queue.status` becomes `failed`
+- repeated `job.failed` events for the same `job_type`
+- repeated `job.retrying` events that never resolve to `job.succeeded`
 - spikes in `auth.request_rejected` or `auth.jwt_verification_failed`
 - repeated `request.unhandled_exception` events or sustained API `5xx` rates
 - startup failures caused by invalid runtime posture, missing auth config, or missing Redis config in non-local environments
@@ -209,6 +256,13 @@ Recommended operator response:
 3. Do not switch non-local environments to `LocMemCache` as a recovery shortcut.
 4. Return traffic only after readiness shows Redis `ok`.
 
+### Async worker or queue failure
+
+1. Treat queue readiness failure as critical in `prod-like-local`, `shared-dev`, `staging`, and `production`.
+2. Check for fresh worker heartbeat, running Celery worker processes, and recent `job.failed` / `job.retrying` / `job.recovered` logs.
+3. Do not re-enable `DMIS_ASYNC_EAGER` as a production recovery shortcut.
+4. Return traffic only after readiness shows queue `ok` and the worker plane is consuming jobs again.
+
 ### Invalid runtime posture or configuration drift
 
 1. DMIS is designed to fail closed on invalid non-local runtime posture.
@@ -237,6 +291,7 @@ The repository CI now includes:
 - auth posture validation
 - secure deployment posture validation
 - Redis runtime posture validation
+- async worker-plane runtime posture validation
 
 These CI checks complement the startup fail-closed validation in `dmis_api.settings`; they do not replace it.
 

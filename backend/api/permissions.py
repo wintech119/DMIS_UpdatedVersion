@@ -3,6 +3,29 @@ from rest_framework.permissions import BasePermission
 from api.rbac import REQUIRED_PERMISSION, resolve_roles_and_permissions
 
 
+def resolve_view_required_permission(request, view):
+    required = getattr(view, "required_permission", None)
+    if required is None:
+        view_cls = getattr(view, "view_class", None) or getattr(view, "cls", None)
+        if view_cls is not None:
+            required = getattr(view_cls, "required_permission", None)
+    if isinstance(required, dict):
+        return required.get(request.method) or required.get("*")
+    return required
+
+
+def user_has_required_permission(request, user, required) -> bool:
+    if not required:
+        return False
+    if not getattr(user, "is_authenticated", False):
+        return False
+
+    _, permissions = resolve_roles_and_permissions(request, user)
+    if isinstance(required, (list, set, tuple)):
+        return any(perm in permissions for perm in required)
+    return required in permissions
+
+
 class NeedsListPreviewPermission(BasePermission):
     message = "Forbidden."
 
@@ -19,27 +42,8 @@ class NeedsListPermission(BasePermission):
     message = "Forbidden."
 
     def has_permission(self, request, view) -> bool:
-        required = getattr(view, "required_permission", None)
-        if required is None:
-            view_cls = getattr(view, "view_class", None) or getattr(view, "cls", None)
-            if view_cls is not None:
-                required = getattr(view_cls, "required_permission", None)
-        if not required:
-            return False
-
-        if isinstance(required, dict):
-            required = required.get(request.method) or required.get("*")
-            if not required:
-                return False
-
-        user = request.user
-        if not getattr(user, "is_authenticated", False):
-            return False
-
-        _, permissions = resolve_roles_and_permissions(request, user)
-        if isinstance(required, (list, set, tuple)):
-            return any(perm in permissions for perm in required)
-        return required in permissions
+        required = resolve_view_required_permission(request, view)
+        return user_has_required_permission(request, request.user, required)
 
 
 class ProcurementPermission(BasePermission):
@@ -54,24 +58,5 @@ class ProcurementPermission(BasePermission):
     message = "Forbidden."
 
     def has_permission(self, request, view) -> bool:
-        required = getattr(view, "required_permission", None)
-        if required is None:
-            view_cls = getattr(view, "view_class", None) or getattr(view, "cls", None)
-            if view_cls is not None:
-                required = getattr(view_cls, "required_permission", None)
-        if not required:
-            return False
-
-        if isinstance(required, dict):
-            required = required.get(request.method) or required.get("*")
-            if not required:
-                return False
-
-        user = request.user
-        if not getattr(user, "is_authenticated", False):
-            return False
-
-        _, permissions = resolve_roles_and_permissions(request, user)
-        if isinstance(required, (list, set, tuple)):
-            return any(perm in permissions for perm in required)
-        return required in permissions
+        required = resolve_view_required_permission(request, view)
+        return user_has_required_permission(request, request.user, required)

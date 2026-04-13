@@ -12,12 +12,17 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
+from api.models import AsyncJob
 from api.rbac import (
     PERM_CRITICALITY_HAZARD_APPROVE,
     PERM_CRITICALITY_HAZARD_MANAGE,
     PERM_CRITICALITY_OVERRIDE_MANAGE,
 )
-from replenishment import rules, views, workflow_store, workflow_store_db
+from replenishment import rules, views, workflow_store_db
+try:
+    from replenishment import workflow_store
+except ImportError:  # pragma: no cover - test fallback for repos without the legacy file store module.
+    workflow_store = workflow_store_db
 from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
 from replenishment.services import (
     approval as approval_service,
@@ -1702,14 +1707,18 @@ class DataAccessAtomicityTests(TestCase):
 class NeedsListWorkflowApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
-        store_path = workflow_store._store_path()
-        if store_path.exists():
-            store_path.unlink()
+        store_path_fn = getattr(workflow_store, "_store_path", None)
+        if callable(store_path_fn):
+            store_path = store_path_fn()
+            if store_path.exists():
+                store_path.unlink()
 
     def tearDown(self) -> None:
-        store_path = workflow_store._store_path()
-        if store_path.exists():
-            store_path.unlink()
+        store_path_fn = getattr(workflow_store, "_store_path", None)
+        if callable(store_path_fn):
+            store_path = store_path_fn()
+            if store_path.exists():
+                store_path.unlink()
 
     def _draft_payload(self) -> dict:
         return {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"}
@@ -2090,6 +2099,7 @@ class NeedsListWorkflowApiTests(TestCase):
         record = {
             "needs_list_id": "NL-A",
             "status": "APPROVED",
+            "warehouse_id": 10,
             "snapshot": {
                 "items": [
                     {
@@ -2115,6 +2125,109 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["item_id"], 202)
         self.assertEqual(items[0]["required_qty"], 2)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    def test_donations_export_get_csv_requires_async_post(self) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "snapshot": {"items": []},
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/NL-A/donations/export?format=csv",
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Queue this export with POST", response.json()["errors"]["format"])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.logger.info")
+    @patch("replenishment.views.import_module")
+    def test_donations_export_post_queues_and_deduplicates_async_jobs(
+        self,
+        mock_import_module,
+        mock_logger_info,
+    ) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 202,
+                        "item_name": "Generator",
+                        "uom_code": "EA",
+                        "horizon": {"B": {"recommended_qty": 2}},
+                    }
+                ]
+            },
+        }
+        delay = MagicMock()
+        mock_import_module.return_value = SimpleNamespace(
+            run_async_job=SimpleNamespace(delay=delay)
+        )
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            first_response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/donations/export",
+                {"format": "csv"},
+                format="json",
+            )
+            second_response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/donations/export",
+                {"format": "csv"},
+                format="json",
+            )
+
+        self.assertEqual(first_response.status_code, 202)
+        self.assertEqual(second_response.status_code, 202)
+        first_body = first_response.json()
+        second_body = second_response.json()
+        self.assertEqual(first_body["status"], "QUEUED")
+        self.assertEqual(first_body["job_type"], AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT)
+        self.assertEqual(second_body["job_id"], first_body["job_id"])
+        self.assertTrue(second_body["deduplicated"])
+        self.assertEqual(AsyncJob.objects.count(), 1)
+        job = AsyncJob.objects.get()
+        self.assertEqual(job.source_snapshot_version, "NL-A|2026-04-10T12:00:00Z|APPROVED")
+        delay.assert_called_once_with(job.job_id)
+        queued_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "job.queued"
+        ]
+        self.assertEqual(len(queued_logs), 1)
+        self.assertEqual(queued_logs[0].get("job_id"), job.job_id)
+        self.assertEqual(queued_logs[0].get("source_snapshot_version"), job.source_snapshot_version)
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -2185,6 +2298,7 @@ class NeedsListWorkflowApiTests(TestCase):
         record = {
             "needs_list_id": "NL-A",
             "status": "APPROVED",
+            "warehouse_id": 10,
             "snapshot": {
                 "items": [
                     {
@@ -2211,6 +2325,60 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["item_id"], 203)
         self.assertEqual(items[0]["required_qty"], 4)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.import_module")
+    def test_procurement_export_post_queues_procurement_async_job(
+        self,
+        mock_import_module,
+    ) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-C",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 203,
+                        "item_name": "Water Pump",
+                        "uom_code": "EA",
+                        "horizon": {"C": {"recommended_qty": 4}},
+                        "procurement": {"est_unit_cost": 12.5, "est_total_cost": 50.0},
+                    }
+                ]
+            },
+        }
+        delay = MagicMock()
+        mock_import_module.return_value = SimpleNamespace(
+            run_async_job=SimpleNamespace(delay=delay)
+        )
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/procurement/export",
+                {"format": "csv"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 202)
+        body = response.json()
+        self.assertEqual(body["job_type"], AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT)
+        self.assertEqual(body["status"], "QUEUED")
+        self.assertTrue(body["status_url"].endswith(body["job_id"]))
+        delay.assert_called_once_with(body["job_id"])
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -5025,80 +5193,80 @@ class NeedsListWorkflowApiTests(TestCase):
             return_value="Hurricane Test Event",
         ):
             draft = self.client.post(
-                    "/api/v1/replenishment/needs-list/draft",
-                    self._draft_payload(),
-                    format="json",
-                ).json()
-                needs_list_id = draft["needs_list_id"]
-                self.client.post(
-                    f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+            needs_list_id = draft["needs_list_id"]
+            self.client.post(
+                f"/api/v1/replenishment/needs-list/{needs_list_id}/submit",
+                {},
+                format="json",
+            )
+
+            with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
+                approve = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
                     {},
                     format="json",
                 )
+                self.assertEqual(approve.status_code, 200)
 
-                with self.settings(DEV_AUTH_ROLES=["EXECUTIVE"], DEV_AUTH_USER_ID="reviewer"):
-                    approve = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/approve",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(approve.status_code, 200)
+            with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="executor"):
+                prep = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/start-preparation",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(prep.status_code, 200)
+                self.assertEqual(prep.json().get("status"), "IN_PROGRESS")
+                self.assertIsNotNone(prep.json().get("prep_started_at"))
 
-                with self.settings(DEV_AUTH_ROLES=["LOGISTICS"], DEV_AUTH_USER_ID="executor"):
-                    prep = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/start-preparation",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(prep.status_code, 200)
-                    self.assertEqual(prep.json().get("status"), "IN_PROGRESS")
-                    self.assertIsNotNone(prep.json().get("prep_started_at"))
+                premature_received = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(premature_received.status_code, 409)
 
-                    premature_received = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(premature_received.status_code, 409)
+                premature_completed = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(premature_completed.status_code, 409)
 
-                    premature_completed = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(premature_completed.status_code, 409)
+                dispatched = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(dispatched.status_code, 200)
+                self.assertIsNotNone(dispatched.json().get("dispatched_at"))
 
-                    dispatched = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(dispatched.status_code, 200)
-                    self.assertIsNotNone(dispatched.json().get("dispatched_at"))
+                dispatch_again = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(dispatch_again.status_code, 409)
 
-                    dispatch_again = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-dispatched",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(dispatch_again.status_code, 409)
+                received = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(received.status_code, 200)
+                self.assertIsNotNone(received.json().get("received_at"))
 
-                    received = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-received",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(received.status_code, 200)
-                    self.assertIsNotNone(received.json().get("received_at"))
-
-                    completed = self.client.post(
-                        f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
-                        {},
-                        format="json",
-                    )
-                    self.assertEqual(completed.status_code, 200)
-                    self.assertEqual(completed.json().get("status"), "FULFILLED")
-                    self.assertIsNotNone(completed.json().get("completed_at"))
+                completed = self.client.post(
+                    f"/api/v1/replenishment/needs-list/{needs_list_id}/mark-completed",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(completed.status_code, 200)
+                self.assertEqual(completed.json().get("status"), "FULFILLED")
+                self.assertIsNotNone(completed.json().get("completed_at"))
 
     @override_settings(
         AUTH_ENABLED=False,

@@ -67,7 +67,7 @@ export class DonationAllocationComponent {
     this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
-  exportNeeds(format: 'csv' | 'pdf'): void {
+  exportNeeds(format: 'csv'): void {
     this.exporting.set(true);
     this.replenishmentService.exportDonationNeeds(this.needsListId, format).subscribe({
       next: (blob) => {
@@ -80,9 +80,10 @@ export class DonationAllocationComponent {
         URL.revokeObjectURL(url);
         this.notifications.showSuccess(`Donation needs exported as ${format.toUpperCase()}.`);
       },
-      error: () => {
+      error: (error: unknown) => {
         this.exporting.set(false);
-        this.notifications.showError('Failed to export donation needs.');
+        const message = error instanceof Error ? error.message : 'Failed to export donation needs.';
+        this.notifications.showError(message);
       }
     });
   }

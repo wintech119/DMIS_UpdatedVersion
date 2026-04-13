@@ -4,12 +4,16 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import caches
 from django.db import DatabaseError, connection
+from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication, local_auth_harness_enabled
+from api.models import AsyncJob
+from api.permissions import user_has_required_permission
 from api.rbac import resolve_roles_and_permissions
 from api.tenancy import resolve_tenant_context, tenant_context_to_dict
 from operations import policy as operations_policy
@@ -67,10 +71,37 @@ def _redis_readiness_check() -> tuple[str, str | None]:
     return "ok", None
 
 
+def _queue_readiness_check() -> tuple[str, str | None]:
+    if bool(getattr(settings, "DMIS_ASYNC_EAGER", False)):
+        return "skipped", "Async jobs run eagerly in this runtime."
+
+    if not bool(getattr(settings, "DMIS_WORKER_REQUIRED", False)):
+        return "skipped", "Background worker is optional in this runtime."
+
+    if not bool(getattr(settings, "DMIS_REDIS_CONFIGURED", False)):
+        return "failed", "Redis-backed queueing is required but REDIS_URL is not configured."
+
+    cache_backend = str(getattr(settings, "DMIS_DEFAULT_CACHE_BACKEND", "")).strip()
+    if cache_backend != "django_redis.cache.RedisCache":
+        return "failed", "The default cache backend is not Redis-backed."
+
+    try:
+        heartbeat = caches["default"].get(getattr(settings, "DMIS_WORKER_HEARTBEAT_KEY", "dmis:worker:heartbeat"))
+    except Exception as exc:  # noqa: BLE001 - readiness should fail on any backend/protocol error.
+        return "failed", f"Worker heartbeat check failed ({exc.__class__.__name__})."
+
+    if not heartbeat:
+        return "failed", "No active worker heartbeat detected."
+
+    return "ok", None
+
+
 def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
     database_status, database_reason = _database_readiness_check()
     redis_status, redis_reason = _redis_readiness_check()
+    queue_status, queue_reason = _queue_readiness_check()
     redis_required = bool(getattr(settings, "DMIS_REDIS_REQUIRED", False))
+    queue_required = bool(getattr(settings, "DMIS_WORKER_REQUIRED", False))
 
     checks: dict[str, dict[str, Any]] = {
         "database": {
@@ -81,11 +112,17 @@ def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
             "required": redis_required,
             "status": redis_status,
         },
+        "queue": {
+            "required": queue_required,
+            "status": queue_status,
+        },
     }
     if database_reason:
         checks["database"]["reason"] = database_reason
     if redis_reason:
         checks["redis"]["reason"] = redis_reason
+    if queue_reason:
+        checks["queue"]["reason"] = queue_reason
 
     runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
     statuses = {check["status"] for check in checks.values()}
@@ -126,6 +163,126 @@ def health_ready(request):
         raw_request = getattr(request, "_request", request)
         raw_request._dmis_skip_response_error_logging = True
     return Response(payload, status=status_code)
+
+
+def _async_job_status_url(job: AsyncJob) -> str:
+    return f"/api/v1/jobs/{job.job_id}"
+
+
+def _async_job_download_url(job: AsyncJob) -> str:
+    return f"/api/v1/jobs/{job.job_id}/download"
+
+
+def _serialize_async_job(job: AsyncJob) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "job_id": job.job_id,
+        "job_type": job.job_type,
+        "status": job.status,
+        "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "expires_at": job.expires_at.isoformat() if job.expires_at else None,
+        "retry_count": job.retry_count,
+        "max_retries": job.max_retries,
+        "error_message": job.error_message,
+        "artifact_ready": job.artifact_ready,
+        "status_url": _async_job_status_url(job),
+    }
+    if job.artifact_ready:
+        payload["download_url"] = _async_job_download_url(job)
+    return payload
+
+
+def _authorize_async_job(request, job: AsyncJob):
+    if job.source_resource_type != AsyncJob.SourceType.NEEDS_LIST:
+        return None, Response({"detail": "Not found."}, status=404)
+
+    from replenishment import workflow_store_db
+    from replenishment.views import (
+        _require_record_scope,
+        needs_list_donations_export,
+        needs_list_procurement_export,
+    )
+
+    if job.job_type == AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT:
+        required_permission = getattr(needs_list_donations_export, "required_permission", None)
+    elif job.job_type == AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT:
+        required_permission = getattr(needs_list_procurement_export, "required_permission", None)
+    else:
+        return None, Response({"detail": "Not found."}, status=404)
+
+    if not user_has_required_permission(request, request.user, required_permission):
+        return None, Response({"detail": "Forbidden."}, status=403)
+
+    record = workflow_store_db.get_record(job.source_resource_id)
+    if not record:
+        return None, Response({"detail": "Not found."}, status=404)
+
+    scope_error = _require_record_scope(request, record, write=False)
+    if scope_error:
+        return None, scope_error
+
+    return record, None
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated])
+def async_job_status(request, job_id: str):
+    try:
+        job = AsyncJob.objects.get(job_id=job_id)
+    except AsyncJob.DoesNotExist:
+        return Response({"detail": "Not found."}, status=404)
+
+    _, auth_error = _authorize_async_job(request, job)
+    if auth_error:
+        return auth_error
+
+    return Response(_serialize_async_job(job))
+
+
+@api_view(["GET"])
+@authentication_classes([LegacyCompatAuthentication])
+@permission_classes([IsAuthenticated])
+def async_job_download(request, job_id: str):
+    try:
+        job = AsyncJob.objects.get(job_id=job_id)
+    except AsyncJob.DoesNotExist:
+        return Response({"detail": "Not found."}, status=404)
+
+    _, auth_error = _authorize_async_job(request, job)
+    if auth_error:
+        return auth_error
+
+    if job.expires_at and timezone.now() > job.expires_at:
+        return Response(
+            {
+                "job_id": job.job_id,
+                "status": job.status,
+                "detail": "The job artifact has expired.",
+            },
+            status=410,
+        )
+
+    if not job.artifact_ready:
+        return Response(
+            {
+                "job_id": job.job_id,
+                "status": job.status,
+                "detail": "The job artifact is not ready.",
+            },
+            status=409,
+        )
+
+    response = HttpResponse(
+        job.artifact_payload,
+        content_type=job.artifact_content_type or "text/plain",
+    )
+    filename = str(job.artifact_filename or f"{job.job_id}.txt").replace('"', "")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    if job.artifact_sha256:
+        response["ETag"] = job.artifact_sha256
+    return response
 
 
 @api_view(["GET"])

@@ -1,6 +1,6 @@
 # Production Hardening and Flask Retirement Strategy
 
-Last updated: 2026-04-09
+Last updated: 2026-04-10
 Status: Comprehensive pre-production strategy
 
 ## Purpose
@@ -148,6 +148,12 @@ Core work:
 - define backup, restore, rollback, and failover procedures with dated evidence expectations
 - introduce durable artifacts and audit evidence
 
+Current implementation note:
+
+- DMIS-06 established the first Celery-backed worker-plane slice for the Django modular monolith.
+- Needs-list donation and procurement CSV exports now queue as async jobs with status/download endpoints, retry-aware lifecycle logging, and queue readiness tied to worker heartbeat.
+- Durable object storage for larger or longer-lived artifacts remains a follow-up; the current slice uses bounded inline storage only for small CSV outputs.
+
 ### Workstream C: Performance and Scalability Hardening
 
 Outcome:
@@ -160,6 +166,13 @@ Core work:
 - add server pagination and bounded queries
 - break up large Angular route chunks and oversized feature files
 - reduce browser-only state assumptions for critical workflows
+
+Immediate async migration follow-ups after DMIS-06:
+
+- IFRC / Ollama suggestion work
+- transfer generation if it becomes operationally latency-heavy
+- operator repair / replay commands
+- Celery beat / scheduled operational jobs only when there is a concrete supported use case
 
 ### Workstream D: Governance and Documentation Alignment
 

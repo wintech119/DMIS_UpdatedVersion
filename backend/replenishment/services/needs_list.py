@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 from typing import Dict, Iterable, List, Tuple
 
 from django.utils import timezone
@@ -116,6 +118,149 @@ def compute_confidence_and_warnings(
 
 def merge_warnings(base: Iterable[str], extra: Iterable[str]) -> List[str]:
     return list(dict.fromkeys(list(base) + list(extra)))
+
+
+def safe_export_reference(value: object, fallback: object) -> str:
+    def _clean(raw: object) -> str:
+        return (
+            str(raw or "")
+            .replace("\r", "")
+            .replace("\n", "")
+            .replace('"', "")
+            .strip()
+        )
+
+    cleaned = _clean(value)
+    if cleaned:
+        return cleaned
+    fallback_cleaned = _clean(fallback)
+    return fallback_cleaned or "needs_list"
+
+
+def _build_export_rows(
+    snapshot: Dict[str, object],
+    *,
+    export_kind: str,
+) -> list[dict[str, object]]:
+    items = snapshot.get("items") if isinstance(snapshot, dict) else []
+    if not isinstance(items, list):
+        return []
+
+    rows: list[dict[str, object]] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        horizon = raw_item.get("horizon")
+        if not isinstance(horizon, dict):
+            continue
+
+        if export_kind == "donation":
+            section = horizon.get("B")
+            required_qty = ((section or {}).get("recommended_qty") if isinstance(section, dict) else 0) or 0
+            if required_qty <= 0:
+                continue
+            rows.append(
+                {
+                    "item_id": raw_item.get("item_id"),
+                    "item_name": raw_item.get("item_name", ""),
+                    "uom": raw_item.get("uom_code", "EA"),
+                    "required_qty": required_qty,
+                }
+            )
+            continue
+
+        if export_kind == "procurement":
+            section = horizon.get("C")
+            required_qty = ((section or {}).get("recommended_qty") if isinstance(section, dict) else 0) or 0
+            if required_qty <= 0:
+                continue
+            procurement = raw_item.get("procurement")
+            procurement_data = procurement if isinstance(procurement, dict) else {}
+            unit_cost = procurement_data.get("est_unit_cost")
+            rows.append(
+                {
+                    "item_id": raw_item.get("item_id"),
+                    "item_name": raw_item.get("item_name", ""),
+                    "uom": raw_item.get("uom_code", "EA"),
+                    "required_qty": required_qty,
+                    "est_unit_cost": unit_cost,
+                    "est_total_cost": procurement_data.get("est_total_cost"),
+                }
+            )
+            continue
+
+        raise ValueError(f"Unsupported export kind: {export_kind}")
+
+    return rows
+
+
+def build_needs_list_export_preview(
+    snapshot: Dict[str, object],
+    *,
+    export_kind: str,
+    needs_list_id: str,
+    export_format: str,
+) -> Dict[str, object]:
+    return {
+        "needs_list_id": needs_list_id,
+        "format": export_format,
+        "items": _build_export_rows(snapshot, export_kind=export_kind),
+    }
+
+
+def build_needs_list_export_csv(
+    *,
+    snapshot: Dict[str, object],
+    export_kind: str,
+    reference: object,
+    fallback_reference: object,
+) -> tuple[str, str]:
+    rows = _build_export_rows(snapshot, export_kind=export_kind)
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    if export_kind == "donation":
+        writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty"])
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("item_id"),
+                    row.get("item_name", ""),
+                    row.get("uom", "EA"),
+                    row.get("required_qty"),
+                ]
+            )
+        filename_prefix = "donation_needs"
+    elif export_kind == "procurement":
+        writer.writerow(
+            [
+                "Item ID",
+                "Item Name",
+                "UOM",
+                "Required Qty",
+                "Est Unit Cost",
+                "Est Total Cost",
+            ]
+        )
+        for row in rows:
+            unit_cost = row.get("est_unit_cost") or 0
+            qty = row.get("required_qty") or 0
+            writer.writerow(
+                [
+                    row.get("item_id"),
+                    row.get("item_name", ""),
+                    row.get("uom", "EA"),
+                    qty,
+                    unit_cost,
+                    unit_cost * qty if unit_cost else "",
+                ]
+            )
+        filename_prefix = "procurement_needs"
+    else:
+        raise ValueError(f"Unsupported export kind: {export_kind}")
+
+    reference_value = safe_export_reference(reference, fallback_reference)
+    return f"{filename_prefix}_{reference_value}.csv", output.getvalue()
 
 
 def compute_time_to_stockout_hours(

@@ -1,6 +1,6 @@
 # Production Readiness Checklist
 
-Last updated: 2026-04-09
+Last updated: 2026-04-10
 Status: Pre-production gate checklist
 
 Use this checklist together with:
@@ -36,6 +36,7 @@ Use this checklist together with:
 - [ ] Redis is mandatory in production
 - [ ] liveness endpoint exists
 - [ ] readiness endpoint checks critical dependencies
+- [ ] readiness endpoint checks queue / worker heartbeat whenever `DMIS_ASYNC_EAGER=0`
 - [ ] API, DB, cache, and queue telemetry are available, including request correlation and structured backend failure logs
 - [ ] alerting exists for readiness failure, DB/Redis dependency failure, auth validation failure spikes, and sustained `5xx` / unhandled-error spikes
 - [ ] backup procedure is documented
@@ -46,6 +47,7 @@ Use this checklist together with:
 
 - [ ] critical workflows have identified hot queries and optimization owners
 - [ ] long-running or retryable work is offloaded to workers
+- [ ] production-like deployments run a separate worker process and do not rely on eager async execution
 - [ ] critical list and dashboard flows use bounded server-side loading patterns
 - [ ] capacity targets and representative load criteria are defined
 - [ ] large frontend route chunks or oversized workflow files have an active reduction plan
@@ -53,6 +55,7 @@ Use this checklist together with:
 ## 5. Data and Audit Integrity
 
 - [ ] critical workflow artifacts are durably stored
+- [ ] interim inline async artifacts have a documented TTL, download path, and follow-up owner for durable object storage
 - [ ] audit logging exists for privileged and state-changing operations
 - [ ] request or trace correlation can link frontend, API, and worker activity, at minimum through `X-Request-ID` / correlated API logs
 - [ ] recovery expectations for critical records and artifacts are documented for restart/rollback, DB failure, Redis failure, and invalid runtime posture

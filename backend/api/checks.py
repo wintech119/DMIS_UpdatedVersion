@@ -89,6 +89,24 @@ def check_dmis_runtime_dependency_posture(app_configs, **kwargs):
             )
         )
 
+    try:
+        dmis_settings.validate_runtime_async_configuration(
+            runtime_env=str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip(),
+            async_eager=bool(getattr(settings, "DMIS_ASYNC_EAGER", False)),
+            worker_required=bool(getattr(settings, "DMIS_WORKER_REQUIRED", False)),
+            redis_url=str(getattr(settings, "DMIS_REDIS_URL", "")).strip(),
+            broker_url=str(getattr(settings, "CELERY_BROKER_URL", "")).strip(),
+            result_backend=str(getattr(settings, "CELERY_RESULT_BACKEND", "")).strip(),
+            testing=bool(getattr(settings, "TESTING", False)),
+        )
+    except RuntimeError as exc:
+        messages.append(
+            Error(
+                str(exc),
+                id="api.E005",
+            )
+        )
+
     return messages
 
 

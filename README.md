@@ -8,6 +8,7 @@ DMIS is delivered as a Django + Angular application.
 - Frontend: Angular 21+
 - Database: PostgreSQL 16+
 - Cache: Redis (required for `prod-like-local`, `shared-dev`, `staging`, and `production`; default in `local-harness`)
+- Async jobs: Celery worker plane backed by Redis
 - Optional AI runtime: Ollama (for IFRC suggestion classification)
 
 ## Important architecture note
@@ -27,6 +28,7 @@ DMIS is delivered as a Django + Angular application.
 - `scripts/run_new_stack.ps1` is a dev-only local harness helper. It is not a production, staging, shared-dev, or prod-like deployment path.
 - The local multi-user harness is local-only and uses `X-DMIS-Local-User` only when the app is running in explicit `local-harness` mode.
 - The default local-harness workflow is Redis-backed via `REDIS_URL=redis://localhost:6379/1`.
+- `local-harness` defaults to `DMIS_ASYNC_EAGER=1`, so queued jobs run inline unless you intentionally switch to a real worker.
 - `X-Dev-User` is retired and no longer supported.
 - Shared dev, staging, and production must use real Keycloak/OIDC/JWT auth only. Dev-auth and local-harness flags are rejected outside explicit local-harness mode.
 - Production-style Angular builds omit the local harness switcher/interceptor path rather than shipping it behind a runtime toggle.
@@ -52,6 +54,49 @@ DMIS is delivered as a Django + Angular application.
 | `production` | Required | Startup fails closed |
 
 Redis backs shared counters, rate limiting, and circuit-breaker state. DMIS does not allow non-local runtimes to silently fall back to `LocMemCache`.
+
+## Async worker plane
+
+DMIS now queues needs-list donation and procurement CSV exports instead of building them in the synchronous request path.
+
+Runtime posture by environment:
+
+| Environment | Async posture | Separate worker required |
+|---|---|---|
+| `local-harness` | `DMIS_ASYNC_EAGER=1` by default; jobs can run inline for Windows-friendly local development | No, unless you explicitly set `DMIS_ASYNC_EAGER=0` |
+| `prod-like-local` | Redis-backed queueing required | Yes |
+| `shared-dev` | Redis-backed queueing required | Yes |
+| `staging` | Redis-backed queueing required | Yes |
+| `production` | Redis-backed queueing required | Yes |
+
+Worker commands:
+
+```powershell
+# Windows / local smoke test
+cd backend
+..\.venv\Scripts\python.exe -m celery -A dmis_api worker --loglevel=INFO --pool=solo
+```
+
+```bash
+# Linux-style shared-dev / staging / production
+cd backend
+python -m celery -A dmis_api worker --loglevel=INFO
+```
+
+Worker reliability notes:
+
+- queued jobs use late acknowledgements with Redis visibility timeout so work is redelivered if a worker dies mid-task
+- `job.recovered` indicates a previously running job was resumed after worker loss or task redelivery
+- queue readiness still fails closed when the worker heartbeat disappears in non-local runtimes
+
+Job flow summary:
+
+- `POST /api/v1/replenishment/needs-list/{id}/donations/export`
+- `POST /api/v1/replenishment/needs-list/{id}/procurement/export`
+- `GET /api/v1/jobs/{job_id}`
+- `GET /api/v1/jobs/{job_id}/download`
+
+`GET` on the export endpoints now returns JSON preview only. Synchronous `GET ?format=csv` export is intentionally retired.
 
 Frontend note: production-style builds file-replace the local harness switcher/interceptor with no-op implementations. The Angular client now expects a deployment-supplied runtime OIDC config in `frontend/public/auth-config.json`, uses Authorization Code + PKCE for the non-local login path, stores tokens in `sessionStorage` only, and fails protected navigation closed into explicit `/auth/login` or `/access-denied` UX instead of silently rendering an empty shell.
 
@@ -144,6 +189,7 @@ Set database variables in `.env`:
 - `DB_PORT`
 - `DMIS_RUNTIME_ENV`
 - `REDIS_URL` for every non-harness runtime, and by default for `local-harness`
+- `DMIS_ASYNC_EAGER=0` for `prod-like-local`, `shared-dev`, `staging`, and `production`
 
 ## Database migrations
 
@@ -172,6 +218,7 @@ Check migration status:
 | `DJANGO_ALLOWED_HOSTS` | Explicit comma-separated hostnames, e.g. `api.dmis.gov.jm` |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL connection |
 | `REDIS_URL` | Required for `prod-like-local`, `shared-dev`, `staging`, and `production`; recommended by default for `local-harness` |
+| `DMIS_ASYNC_EAGER` | Leave unset or `1` only for `local-harness`; non-local runtimes must keep it `0` |
 | `AUTH_ENABLED` | Set to `1` to enforce Keycloak JWT validation |
 | `AUTH_ISSUER` | Keycloak realm URL |
 | `AUTH_AUDIENCE` | Client ID registered in Keycloak |
@@ -235,7 +282,9 @@ Readiness checks:
 
 - database connectivity is always required
 - Redis connectivity is required for `prod-like-local`, `shared-dev`, `staging`, and `production`
+- worker heartbeat / queue readiness is required for `prod-like-local`, `shared-dev`, `staging`, and `production`
 - `local-harness` may report Redis as `skipped` only when `REDIS_URL` is intentionally unset for the documented local-only degraded mode
+- `local-harness` may report queue as `skipped` when `DMIS_ASYNC_EAGER=1`
 
 ### Operational signals
 
@@ -243,13 +292,14 @@ The Django runtime now emits a small, grep-friendly observability baseline inten
 
 - Every API response includes `X-Request-ID`. DRF error responses also include `request_id` in the JSON body so support and operators can correlate a user-visible failure back to backend logs.
 - Startup logs emit `runtime.posture.initialized` with the declared runtime environment plus auth, Redis, cache-backend, and secure-transport posture.
-- Auth and request-failure logs emit high-signal event names such as `auth.request_rejected`, `auth.jwt_verification_failed`, `readiness.not_ready`, and `request.unhandled_exception`.
+- Auth, queue, and request-failure logs emit high-signal event names such as `auth.request_rejected`, `auth.jwt_verification_failed`, `job.queued`, `job.started`, `job.retrying`, `job.recovered`, `job.succeeded`, `job.failed`, `readiness.not_ready`, and `request.unhandled_exception`.
 - New logs are intentionally structured without logging bearer tokens, secrets, or raw identity claims.
 
 Operational alert priorities:
 
 - sustained `readiness.not_ready` responses
-- database or Redis dependency failure in readiness logs
+- database, Redis, or queue dependency failure in readiness logs
+- repeated `job.failed` or `job.retrying` events for the same job type
 - spikes in `auth.request_rejected` or `auth.jwt_verification_failed`
 - repeated `request.unhandled_exception` events or repeated API `5xx` responses
 

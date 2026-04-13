@@ -422,14 +422,20 @@ export class NeedsListFulfillmentTrackerComponent {
   exportDonationNeeds(): void {
     this.replenishmentService.exportDonationNeeds(this.needsListId, 'csv').subscribe({
       next: (blob) => this.downloadBlob(blob, `donation_needs_${this.needsListId}.csv`),
-      error: () => this.notifications.showError('Failed to export donation needs.')
+      error: (error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Failed to export donation needs.';
+        this.notifications.showError(message);
+      }
     });
   }
 
   exportProcurementNeeds(): void {
     this.replenishmentService.exportProcurementNeeds(this.needsListId, 'csv').subscribe({
       next: (blob) => this.downloadBlob(blob, `procurement_needs_${this.needsListId}.csv`),
-      error: () => this.notifications.showError('Failed to export procurement needs.')
+      error: (error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Failed to export procurement needs.';
+        this.notifications.showError(message);
+      }
     });
   }
 

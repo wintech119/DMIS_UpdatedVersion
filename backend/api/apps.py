@@ -217,13 +217,16 @@ class ApiConfig(AppConfig):
         runtime_logger.info(
             (
                 "runtime.posture.initialized auth_enabled=%s redis_required=%s "
-                "redis_configured=%s cache_backend=%s secure_ssl_redirect=%s "
+                "redis_configured=%s cache_backend=%s async_eager=%s "
+                "worker_required=%s secure_ssl_redirect=%s "
                 "session_cookie_secure=%s csrf_cookie_secure=%s"
             ),
             bool(getattr(settings, "AUTH_ENABLED", False)),
             bool(getattr(settings, "DMIS_REDIS_REQUIRED", False)),
             bool(getattr(settings, "DMIS_REDIS_CONFIGURED", False)),
             str(getattr(settings, "DMIS_DEFAULT_CACHE_BACKEND", "")),
+            bool(getattr(settings, "DMIS_ASYNC_EAGER", False)),
+            bool(getattr(settings, "DMIS_WORKER_REQUIRED", False)),
             bool(getattr(settings, "SECURE_SSL_REDIRECT", False)),
             bool(getattr(settings, "SESSION_COOKIE_SECURE", False)),
             bool(getattr(settings, "CSRF_COOKIE_SECURE", False)),
