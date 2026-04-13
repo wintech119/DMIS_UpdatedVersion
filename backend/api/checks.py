@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from django.conf import settings
-from django.core.checks import Error, Warning, register
+from django.core.checks import Error, Tags, Warning, register
 from django.db import DatabaseError, connection
 from dmis_api import settings as dmis_settings
 
 
-@register()
+@register(Tags.security)
 def check_dmis_auth_runtime_posture(app_configs, **kwargs):
     messages = []
 

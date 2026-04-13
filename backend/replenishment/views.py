@@ -500,6 +500,13 @@ def _upsert_execution_link(
     received: bool = False,
     cancelled: bool = False,
 ) -> NeedsListExecutionLink | None:
+    if (
+        execution_status == NeedsListExecutionLink.ExecutionStatus.DISPATCHED
+        and (reliefrqst_id is None or reliefpkg_id is None)
+    ):
+        raise ValueError(
+            "Execution links cannot transition to DISPATCHED without both reliefrqst_id and reliefpkg_id."
+        )
     now = timezone.now()
     try:
         defaults: Dict[str, Any] = {
@@ -4741,56 +4748,47 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
-    if (
-        link is not None
-        and link.reliefrqst_id is not None
-        and link.reliefpkg_id is not None
-    ):
-        try:
-            with transaction.atomic():
-                dispatch_result = allocation_dispatch.dispatch_package(
-                    _allocation_context_from_record(record, request.data or {}, link=link),
-                    actor_user_id=actor_user_id,
-                    transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
-                )
-                record = workflow_store.transition_status(
-                    record,
-                    target_status,
-                    actor_user_id,
-                    stage="DISPATCHED",
-                )
-                workflow_store.update_record(needs_list_id, record)
-                _upsert_execution_link(
-                    needs_list_id=link.needs_list_id,
-                    actor_user_id=actor_user_id,
-                    reliefrqst_id=dispatch_result.get("reliefrqst_id"),
-                    reliefpkg_id=dispatch_result.get("reliefpkg_id"),
-                    execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
-                    waybill_no=dispatch_result.get("waybill_no"),
-                    waybill_payload=dispatch_result.get("waybill_payload"),
-                    dispatched=True,
-                )
-        except allocation_dispatch.AllocationDispatchError as exc:
-            return Response({"errors": {exc.code: exc.message}}, status=409)
-    else:
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="DISPATCHED",
-        )
-        workflow_store.update_record(needs_list_id, record)
-        if link is not None:
-            _upsert_execution_link(
-                needs_list_id=link.needs_list_id,
+    try:
+        with transaction.atomic():
+            dispatch_result = allocation_dispatch.dispatch_package(
+                _allocation_context_from_record(record, request.data or {}, link=link),
                 actor_user_id=actor_user_id,
-                reliefrqst_id=None,
-                reliefpkg_id=None,
+                transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+            )
+            reliefrqst_id = dispatch_result.get("reliefrqst_id")
+            reliefpkg_id = dispatch_result.get("reliefpkg_id")
+            if reliefrqst_id is None or reliefpkg_id is None:
+                raise allocation_dispatch.AllocationDispatchError(
+                    "Dispatch did not return committed request/package identifiers.",
+                    code="legacy_context_missing",
+                )
+            execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
+                record
+            )
+            if execution_needs_list_id is None:
+                raise allocation_dispatch.AllocationDispatchError(
+                    "Dispatch requires a persisted needs list execution context.",
+                    code="legacy_context_missing",
+                )
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="DISPATCHED",
+            )
+            workflow_store.update_record(needs_list_id, record)
+            _upsert_execution_link(
+                needs_list_id=execution_needs_list_id,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=reliefrqst_id,
+                reliefpkg_id=reliefpkg_id,
                 execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
-                waybill_no=None,
-                waybill_payload=None,
+                waybill_no=dispatch_result.get("waybill_no"),
+                waybill_payload=dispatch_result.get("waybill_payload"),
                 dispatched=True,
             )
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
 
     logger.info(
         "needs_list_dispatched",

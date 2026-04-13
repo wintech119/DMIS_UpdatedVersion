@@ -40,6 +40,15 @@ from replenishment.services.allocation_dispatch import (
 class AllocationDispatchHelperTests(SimpleTestCase):
     databases = {"default"}
 
+    def test_upsert_execution_link_rejects_dispatched_without_legacy_ids(self) -> None:
+        with self.assertRaises(ValueError):
+            views._upsert_execution_link(
+                needs_list_id=11,
+                actor_user_id="dev-user",
+                execution_status=views.NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                dispatched=True,
+            )
+
     def test_tracking_number_preserves_prefix_for_large_ids(self) -> None:
         self.assertEqual(_tracking_no("PK", 100000), "PK100000")
 
@@ -1254,3 +1263,57 @@ class AllocationDispatchApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_dispatch_package.called)
         self.assertEqual(response.json().get("waybill_no"), "WB-PK00090")
+
+    @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_missing_dispatch_identifiers_without_transition(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+        _mock_serialize,
+    ) -> None:
+        record = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-11",
+            "status": "IN_PREPARATION",
+            "warehouse_id": 1,
+            "event_id": 7,
+            "prep_started_at": "2026-03-24T10:00:00Z",
+        }
+        mock_get_record.return_value = record
+        mock_execution_link.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            selected_method="FIFO",
+        )
+        mock_dispatch_package.return_value = {
+            "status": "DISPATCHED",
+            "reliefrqst_id": None,
+            "reliefpkg_id": None,
+            "waybill_no": None,
+            "waybill_payload": None,
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("legacy_context_missing", response.json().get("errors", {}))
+        self.assertFalse(mock_transition_status.called)
+        self.assertFalse(mock_update_record.called)
+        self.assertFalse(mock_upsert_link.called)

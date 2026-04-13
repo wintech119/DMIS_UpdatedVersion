@@ -29,6 +29,7 @@ const LOCAL_HARNESS_STORAGE_KEY = 'dmis_local_harness_user';
 
 @Component({
   selector: 'dmis-local-harness-switcher',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (canSwitchLocalHarnessUser()) {

@@ -1695,6 +1695,17 @@ class RbacResolutionTests(TestCase):
         self.assertNotIn("operations.eligibility.approve", permissions)
         self.assertNotIn("operations.eligibility.reject", permissions)
 
+    def test_needs_list_execute_compat_does_not_grant_partial_release_approval(self) -> None:
+        compat = rbac._compat_operations_permissions_for_permissions([rbac.PERM_NEEDS_LIST_EXECUTE])
+
+        self.assertIn(rbac.PERM_OPERATIONS_PARTIAL_RELEASE_REQUEST, compat)
+        self.assertNotIn(rbac.PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE, compat)
+
+    def test_needs_list_approve_compat_grants_partial_release_approval(self) -> None:
+        compat = rbac._compat_operations_permissions_for_permissions([rbac.PERM_NEEDS_LIST_APPROVE])
+
+        self.assertIn(rbac.PERM_OPERATIONS_PARTIAL_RELEASE_APPROVE, compat)
+
     @patch(
         "api.rbac._fetch_permissions_for_role_codes",
         return_value=set(),

@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { Router, NavigationEnd, RouterLink, RouterOutlet } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 
@@ -88,6 +88,7 @@ function buildBreadcrumbs(url: string): BreadcrumbSegment[] {
 @Component({
   selector: 'app-root',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterOutlet,
     RouterLink,
