@@ -40,7 +40,11 @@ import {
   WarehouseAllocationCard,
   WaybillResponse,
 } from '../models/operations.model';
-import { formatPackageStatus, formatRequestStatus } from '../models/operations-status.util';
+import {
+  formatConsolidationLegStatus,
+  formatPackageStatus,
+  formatRequestStatus,
+} from '../models/operations-status.util';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -722,7 +726,11 @@ function normalizeConsolidationLegItem(raw: unknown): ConsolidationLegItem {
 
 export function normalizeConsolidationLeg(raw: unknown): ConsolidationLeg {
   const source = asRecord(raw);
-  const statusCode = asString(source['status_code'], 'PLANNED') as ConsolidationLeg['status_code'];
+  const statusCode = normalizeEnumStatus(
+    source['status_code'],
+    ['PLANNED', 'IN_TRANSIT', 'RECEIVED_AT_STAGING', 'CANCELLED'],
+    'PLANNED',
+  );
   return {
     leg_id: asNumber(source['leg_id']),
     package_id: asNumber(source['package_id']),
@@ -730,7 +738,7 @@ export function normalizeConsolidationLeg(raw: unknown): ConsolidationLeg {
     source_warehouse_id: asNumber(source['source_warehouse_id']),
     staging_warehouse_id: asNumber(source['staging_warehouse_id']),
     status_code: statusCode,
-    status_label: asString(source['status_label'], statusCode),
+    status_label: asString(source['status_label'], formatConsolidationLegStatus(statusCode)),
     shadow_transfer_id: asNullableNumber(source['shadow_transfer_id']),
     driver_name: asNullableString(source['driver_name']),
     driver_license_last4:
@@ -792,7 +800,8 @@ export function normalizeConsolidationWaybill(raw: unknown): ConsolidationWaybil
   const source = asRecord(raw);
   return {
     waybill_no: asString(source['waybill_no']),
-    waybill_payload: asRecord(source['waybill_payload']) as unknown as ConsolidationWaybillResponse['waybill_payload'],
+    waybill_payload:
+      source['waybill_payload'] as ConsolidationWaybillResponse['waybill_payload'],
     persisted: asBoolean(source['persisted']),
   };
 }

@@ -508,4 +508,68 @@ describe('OperationsService', () => {
       }),
     });
   });
+
+  it('normalizes consolidation leg status codes before deriving the fallback label', () => {
+    let result: unknown;
+
+    service.getConsolidationLegs(44).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'CONSOLIDATING',
+      },
+      results: [
+        {
+          leg_id: 301,
+          package_id: 44,
+          leg_sequence: 1,
+          source_warehouse_id: 2,
+          staging_warehouse_id: 8,
+          status_code: 'in_transit',
+          status_label: null,
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      package: jasmine.objectContaining({
+        reliefpkg_id: 44,
+      }),
+      results: [
+        jasmine.objectContaining({
+          leg_id: 301,
+          status_code: 'IN_TRANSIT',
+          status_label: 'In transit',
+        }),
+      ],
+    });
+  });
+
+  it('preserves raw consolidation waybill payload artifacts instead of coercing them into objects', () => {
+    let result: unknown;
+
+    service.getConsolidationLegWaybill(44, 301).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/waybill');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      waybill_no: 'PK00044-L01',
+      waybill_payload: 'JVBERi0xLjQKJcTl8uXr...',
+      persisted: true,
+    });
+
+    expect(result).toEqual({
+      waybill_no: 'PK00044-L01',
+      waybill_payload: 'JVBERi0xLjQKJcTl8uXr...',
+      persisted: true,
+    });
+  });
 });

@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 
 import {
   DmisReasonDialogComponent,
@@ -25,7 +27,6 @@ import { OperationsWorkspaceStateService } from '../services/operations-workspac
     OpsConsolidationPanelComponent,
     OpsSplitBannerComponent,
   ],
-  providers: [OperationsWorkspaceStateService],
   template: `
     <div class="ops-shell">
       <header class="ops-hero">
@@ -126,16 +127,23 @@ import { OperationsWorkspaceStateService } from '../services/operations-workspac
 export class ConsolidationPackageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly dialog = inject(MatDialog);
   private readonly notifications = inject(DmisNotificationService);
   readonly state = inject(OperationsWorkspaceStateService);
 
   ngOnInit(): void {
-    const raw = this.route.snapshot.paramMap.get('reliefpkgId');
-    const reliefpkgId = Number(raw);
-    if (reliefpkgId > 0) {
-      this.state.loadConsolidationLegs(reliefpkgId);
-    }
+    this.route.paramMap
+      .pipe(
+        map((params) => Number(params.get('reliefpkgId') ?? 0)),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((reliefpkgId) => {
+        if (reliefpkgId > 0) {
+          this.state.loadConsolidationLegs(reliefpkgId);
+        }
+      });
   }
 
   trackingNumber(): string | null {
@@ -218,7 +226,6 @@ export class ConsolidationPackageComponent implements OnInit {
               ? `Partial release approved. Released: ${response.released.tracking_no}`
               : 'Partial release approved.',
           );
-          this.state.refreshConsolidationLegs();
         },
         error: () => this.notifications.showError('Failed to approve partial release.'),
       });
