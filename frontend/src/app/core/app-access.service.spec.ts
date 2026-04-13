@@ -150,7 +150,7 @@ describe('AppAccessService', () => {
     expect(access.canAccessNavKey('operations.dashboard')).toBeTrue();
   });
 
-  it('requires eligibility permissions and an eligibility role before exposing the eligibility lane', () => {
+  it('uses backend eligibility permissions to expose the eligibility lane without a frontend role allowlist', () => {
     const directorAccess = setup({
       roles: ['ODPEM_DIR_PEOD'],
       permissions: ['operations.eligibility.review'],
@@ -177,7 +177,7 @@ describe('AppAccessService', () => {
       permissions: ['operations.eligibility.review'],
     });
 
-    expect(logisticsAccess.canAccessNavKey('operations.eligibility')).toBeFalse();
+    expect(logisticsAccess.canAccessNavKey('operations.eligibility')).toBeTrue();
 
     const roleWithoutPermission = setup({
       roles: ['ODPEM_DIR_PEOD'],

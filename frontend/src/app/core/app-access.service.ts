@@ -120,20 +120,6 @@ const OPERATIONS_ELIGIBILITY_PERMISSIONS = [
   'operations.eligibility.reject',
 ];
 
-const OPERATIONS_ELIGIBILITY_ROLE_CODES = new Set([
-  'ODPEM_DDG',
-  'DEPUTY_DG',
-  'DDG',
-  'ODPEM_DIR_PEOD',
-  'DIR_PEOD',
-  'DIRECTOR_OF_PEOD',
-  'TST_DIR_PEOD',
-  'ODPEM_DG',
-  'DIRECTOR_GENERAL',
-  'TST_DG',
-  'DG',
-]);
-
 const OPERATIONS_FULFILLMENT_PERMISSIONS = [
   'operations.package.create',
   'operations.package.lock',
@@ -319,8 +305,12 @@ export class AppAccessService {
   }
 
   private canAccessEligibility(): boolean {
-    return this.hasAnyPermission(OPERATIONS_ELIGIBILITY_PERMISSIONS)
-      && (this.isSystemAdministrator() || this.hasAnyRole(OPERATIONS_ELIGIBILITY_ROLE_CODES));
+    // Backend RBAC is the source of truth for eligibility visibility. Do not
+    // add frontend-only role allowlists here because they can drift from the
+    // permissions returned by `/auth/whoami/`.
+    // TODO(dmis-auth-contract): If eligibility lane shaping needs more than
+    // permission-based gating, expose that policy from the backend contract.
+    return this.hasAnyPermission(OPERATIONS_ELIGIBILITY_PERMISSIONS);
   }
 
   private canAccessAnyMasterData(): boolean {
