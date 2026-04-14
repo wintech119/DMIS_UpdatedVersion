@@ -4904,6 +4904,7 @@ def abandon_package_draft(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """
     Abandon a work-in-progress fulfillment draft.
@@ -4919,6 +4920,17 @@ def abandon_package_draft(
     leg is already in transit or received.
     """
     actor_id = _require_actor_id(actor_id)
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="package_abandon_draft",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(
         actor_roles,
         FULFILLMENT_ROLE_CODES,
@@ -5011,6 +5023,7 @@ def abandon_package_draft(
     result["request_status"] = REQUEST_STATUS_APPROVED_FOR_FULFILLMENT
     result["reason"] = reason_text or None
     result["previous_status_code"] = previous_status_code
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
     return result
 
 
@@ -5197,9 +5210,23 @@ def save_package(
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
     permissions: Iterable[str] | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may modify packages.")
     draft_save = bool(payload.get("draft_save"))
+    idempotency_cache_key: str | None = None
+    if not draft_save and idempotency_key is not None:
+        normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+        idempotency_cache_key = _idempotency_cache_key(
+            endpoint="package_commit_allocation",
+            actor_id=actor_id,
+            tenant_context=tenant_context,
+            reliefpkg_id=reliefrqst_id,
+            idempotency_key=normalized_idempotency_key,
+        )
+        cached_result = cache.get(idempotency_cache_key)
+        if isinstance(cached_result, dict):
+            return cached_result
     requested_source_warehouse_id = _optional_positive_int_payload_value(payload, "source_warehouse_id")
     validated_allocations = _validate_allocation_rows(payload["allocations"]) if "allocations" in payload else None
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
@@ -5253,6 +5280,8 @@ def save_package(
     if not package_locked_before_save and package is not None:
         _acquire_package_lock(int(package.reliefpkg_id), actor_id=actor_id, actor_roles=actor_roles or ())
     if package is None:
+        if idempotency_cache_key is not None:
+            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
         return result
     # For draft saves, only persist an explicit user-selected default warehouse.
     # Per-item selection is first-class and must not fabricate a package-level
@@ -5430,13 +5459,17 @@ def save_package(
                 dispatch.status_code = DISPATCH_STATUS_READY
                 dispatch.save(update_fields=["status_code"])
     if not payload.get("allocations"):
-        return get_package(reliefrqst_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
-    return {
+        final_result = get_package(reliefrqst_id, actor_id=actor_id, actor_roles=actor_roles, tenant_context=tenant_context)
+    else:
+        final_result = {
         **result,
         "package_status_code": package_record.status_code,
         "package_status_label": STATUS_LABELS.get(package_record.status_code, package_record.status_code.title()),
         "lock": _package_lock_payload(int(package.reliefpkg_id)),
-    }
+        }
+    if idempotency_cache_key is not None:
+        cache.set(idempotency_cache_key, final_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return final_result
 
 
 @transaction.atomic
@@ -6031,7 +6064,19 @@ def request_partial_release(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="partial_release_request",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may request partial release.")
     _package, _request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -6076,13 +6121,15 @@ def request_partial_release(
         tenant_id=request_record.beneficiary_tenant_id,
         queue_code=QUEUE_CODE_PARTIAL_RELEASE_APPROVAL,
     )
-    return {
+    result = {
         "status": "PARTIAL_RELEASE_REQUESTED",
         "package": _package_summary_payload(
             legacy_service._load_package(reliefpkg_id),
             package_record,
         ),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def split_package(

@@ -16,6 +16,7 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
 )
 from api.tenancy import TenantContext, TenantMembership
+from operations.exceptions import OperationValidationError
 from operations.models import OperationsReliefRequest
 from operations import views as operations_views
 from replenishment.services.allocation_dispatch import InventoryDriftError
@@ -190,6 +191,7 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/70/allocations/commit",
             {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="commit-70",
         )
         override_response = self.client.post(
             "/api/v1/operations/packages/70/allocations/override-approve",
@@ -254,6 +256,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_save.call_args_list[0].kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_save.call_args_list[0].kwargs["permissions"], [])
         self.assertEqual(mock_save.call_args_list[1].kwargs["permissions"], [])
+        self.assertEqual(mock_save.call_args_list[1].kwargs["idempotency_key"], "commit-70")
         self.assertEqual(mock_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_override.call_args.kwargs["idempotency_key"], "override-70")
@@ -277,6 +280,31 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_cancel_package.call_args.kwargs["tenant_context"].active_tenant_id, 20)
         self.assertEqual(mock_cancel_package.call_args.kwargs["idempotency_key"], "cancel-90")
         self.assertEqual(mock_tasks.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.abandon_package_draft", return_value={"status": "DRAFT", "abandoned": True})
+    def test_package_abandon_draft_forwards_idempotency_key(
+        self,
+        mock_abandon_package_draft,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/abandon-draft",
+            {"reason": "Release draft lock"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="abandon-90",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_abandon_package_draft.call_args.args[0], 90)
+        self.assertEqual(mock_abandon_package_draft.call_args.kwargs["payload"]["reason"], "Release draft lock")
+        self.assertEqual(mock_abandon_package_draft.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
+        self.assertEqual(mock_abandon_package_draft.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_abandon_package_draft.call_args.kwargs["idempotency_key"], "abandon-90")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -492,6 +520,7 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/90/partial-release/request",
             {"reason": "Release received legs now"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="partial-request-90",
         )
         partial_approve_response = self.client.post(
             "/api/v1/operations/packages/90/partial-release/approve",
@@ -531,6 +560,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_leg_waybill.call_args.args[:2], (90, 301))
         self.assertEqual(mock_partial_request.call_args.args[0], 90)
         self.assertEqual(mock_partial_request.call_args.kwargs["payload"]["reason"], "Release received legs now")
+        self.assertEqual(mock_partial_request.call_args.kwargs["idempotency_key"], "partial-request-90")
         self.assertEqual(mock_partial_approve.call_args.args[0], 90)
         self.assertEqual(mock_partial_approve.call_args.kwargs["idempotency_key"], "partial-approve-90")
         self.assertEqual(mock_pickup_release.call_args.args[0], 90)
@@ -825,6 +855,27 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.save_package")
+    def test_package_commit_requires_idempotency_key(
+        self,
+        mock_save_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/commit",
+            {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_save_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.submit_dispatch")
     def test_dispatch_handoff_requires_idempotency_key(
         self,
@@ -890,6 +941,27 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_receive_leg.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.request_partial_release")
+    def test_partial_release_request_requires_idempotency_key(
+        self,
+        mock_request_partial_release,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/partial-release/request",
+            {"reason": "Release received legs now"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_request_partial_release.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -974,6 +1046,58 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_cancel_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.abandon_package_draft")
+    def test_package_abandon_draft_requires_idempotency_key(
+        self,
+        mock_abandon_package_draft,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/abandon-draft",
+            {"reason": "Release draft lock"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_abandon_package_draft.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.request_partial_release")
+    def test_partial_release_request_returns_429_when_rate_limited(
+        self,
+        mock_request_partial_release,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/90/partial-release/request",
+                {"reason": "Release received legs now"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="partial-request-90",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_request_partial_release.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1066,6 +1190,37 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response["Retry-After"], "17")
         self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
         mock_cancel_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.abandon_package_draft")
+    def test_package_abandon_draft_returns_429_when_rate_limited(
+        self,
+        mock_abandon_package_draft,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/90/abandon-draft",
+                {"reason": "Release draft lock"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="abandon-90",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_abandon_package_draft.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -1246,11 +1401,8 @@ class OperationsApiTenantIsolationTests(TestCase):
         denied_response = self.client.get("/api/v1/operations/requests/70")
 
         self.assertEqual(allowed_response.status_code, 200)
-        self.assertEqual(denied_response.status_code, 403)
-        self.assertEqual(
-            denied_response.json(),
-            {"errors": {"scope": "Request is outside the active tenant or workflow assignment scope."}},
-        )
+        self.assertEqual(denied_response.status_code, 404)
+        self.assertEqual(denied_response.json(), {"detail": "Not found."})
         self.assertEqual(mock_legacy_get_request.call_count, 1)
 
 
@@ -1305,6 +1457,37 @@ class OperationsViewHelperTests(SimpleTestCase):
         request.user = SimpleNamespace(user_id="13", username="relief_ffp_requester_tst", is_authenticated=True)
 
         self.assertEqual(operations_views._scaled_rate_limit(request, 10), 20)
+
+    def test_service_error_response_hides_scope_errors_as_not_found(self) -> None:
+        response = operations_views._service_error_response(
+            OperationValidationError({"scope": "Request is outside the active tenant or workflow assignment scope."})
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {"detail": "Not found."})
+
+    def test_service_error_response_preserves_non_scope_validation_errors(self) -> None:
+        response = operations_views._service_error_response(
+            OperationValidationError({"reason": "A partial release reason is required."})
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data, {"errors": {"reason": "A partial release reason is required."}})
+
+    def test_acquire_rate_limit_lock_stores_owner_token(self) -> None:
+        owner_token = operations_views._acquire_rate_limit_lock("ops:test:lock")
+
+        self.assertTrue(owner_token)
+        self.assertEqual(cache.get("ops:test:lock"), owner_token)
+
+    def test_release_rate_limit_lock_preserves_newer_owner(self) -> None:
+        cache.set("ops:test:lock", "owner-2", timeout=30)
+
+        operations_views._release_rate_limit_lock("ops:test:lock", "owner-1")
+        self.assertEqual(cache.get("ops:test:lock"), "owner-2")
+
+        operations_views._release_rate_limit_lock("ops:test:lock", "owner-2")
+        self.assertIsNone(cache.get("ops:test:lock"))
 
     @patch(
         "api.authentication.LegacyCompatAuthentication.authenticate",

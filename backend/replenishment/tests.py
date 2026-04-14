@@ -2519,6 +2519,145 @@ class NeedsListWorkflowApiTests(TestCase):
         delay.assert_called_once_with(body["job_id"])
 
     @override_settings(
+        TENANT_SCOPE_ENFORCEMENT=True,
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-b-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=20,
+            active_tenant_id=20,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="TENANT",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="TENANT",
+                    is_primary=True,
+                    access_level="FULL",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=10)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_procurement_export_get_denies_cross_tenant_preview(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_resolve_tenant_context,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "snapshot": {"items": []},
+        }
+
+        response = self.client.get(
+            "/api/v1/replenishment/needs-list/NL-A/procurement/export?format=json",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AsyncJob.objects.count(), 0)
+
+    @override_settings(
+        TENANT_SCOPE_ENFORCEMENT=True,
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-b-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.logger.info")
+    @patch("replenishment.views.import_module")
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=20,
+            active_tenant_id=20,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="TENANT",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="TENANT",
+                    is_primary=True,
+                    access_level="FULL",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=10)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_procurement_export_post_denies_cross_tenant_queueing(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_resolve_tenant_context,
+        mock_import_module,
+        mock_logger_info,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-C",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 203,
+                        "item_name": "Water Pump",
+                        "uom_code": "EA",
+                        "horizon": {"C": {"recommended_qty": 4}},
+                        "procurement": {"est_unit_cost": 12.5, "est_total_cost": 50.0},
+                    }
+                ]
+            },
+        }
+        before_count = AsyncJob.objects.count()
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/procurement/export",
+            {"format": "csv"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AsyncJob.objects.count(), before_count)
+        mock_import_module.assert_not_called()
+        queued_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "job.queued"
+        ]
+        self.assertEqual(queued_logs, [])
+
+    @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         TEST_DEV_AUTH_ENABLED=True,
@@ -2577,8 +2716,10 @@ class NeedsListWorkflowApiTests(TestCase):
         body = response.json()
         self.assertEqual(body.get("status"), "DRAFT")
         self.assertIsNotNone(body.get("needs_list_id"))
-        store_path = workflow_store._store_path()
-        self.assertTrue(store_path.exists())
+        store_path_fn = getattr(workflow_store, "_store_path", None)
+        if callable(store_path_fn):
+            store_path = store_path_fn()
+            self.assertTrue(store_path.exists())
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -5292,6 +5433,52 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="executor",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_completed_normalizes_fulfilled_status_to_completed(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "status": "RECEIVED",
+            "warehouse_id": 10,
+            "received_at": "2026-04-10T12:00:00Z",
+        }
+        mock_transition_status.return_value = {
+            "needs_list_id": "NL-A",
+            "status": "FULFILLED",
+            "warehouse_id": 10,
+            "received_at": "2026-04-10T12:00:00Z",
+            "completed_at": "2026-04-10T13:00:00Z",
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/mark-completed",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json().get("status"), "COMPLETED")
+        self.assertEqual(response.json().get("completed_at"), "2026-04-10T13:00:00Z")
+        mock_update_record.assert_called_once()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="submitter",
         DEV_AUTH_ROLES=["LOGISTICS"],
         DEV_AUTH_PERMISSIONS=[],
@@ -5403,7 +5590,7 @@ class NeedsListWorkflowApiTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(completed.status_code, 200)
-                self.assertEqual(completed.json().get("status"), "FULFILLED")
+                self.assertEqual(completed.json().get("status"), "COMPLETED")
                 self.assertIsNotNone(completed.json().get("completed_at"))
 
     @override_settings(

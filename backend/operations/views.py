@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+import uuid
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -110,10 +111,11 @@ def _service_error_response(exc: Exception) -> Response:
             str(field_name).strip().lower(): str(message).strip().lower()
             for field_name, message in exc.errors.items()
         }
-        if "tenant_scope" in normalized_errors or normalized_errors.get("scope") == (
-            "request is outside the active tenant or workflow assignment scope."
-        ):
-            return Response({"errors": exc.errors}, status=403)
+        scope_message = normalized_errors.get("tenant_scope") or normalized_errors.get(
+            "scope"
+        )
+        if scope_message == "request is outside the active tenant or workflow assignment scope.":
+            return Response({"detail": "Not found."}, status=404)
         return Response({"errors": exc.errors}, status=400)
     if isinstance(exc, OverrideApprovalError):
         return Response({"errors": {"override": exc.message}}, status=400)
@@ -166,12 +168,20 @@ def _scaled_rate_limit(request, base_limit: int) -> int:
     return base_limit
 
 
-def _acquire_rate_limit_lock(lock_key: str) -> bool:
+def _acquire_rate_limit_lock(lock_key: str) -> str | None:
     for _ in range(_RATE_LIMIT_LOCK_ATTEMPTS):
-        if cache.add(lock_key, "1", timeout=_RATE_LIMIT_LOCK_TIMEOUT_SECONDS):
-            return True
+        owner_token = str(uuid.uuid4())
+        if cache.add(lock_key, owner_token, timeout=_RATE_LIMIT_LOCK_TIMEOUT_SECONDS):
+            return owner_token
         time.sleep(_RATE_LIMIT_LOCK_WAIT_SECONDS)
-    return False
+    return None
+
+
+def _release_rate_limit_lock(lock_key: str, owner_token: str | None) -> None:
+    if not owner_token:
+        return
+    if cache.get(lock_key) == owner_token:
+        cache.delete(lock_key)
 
 
 def _rate_limit_response(
@@ -189,7 +199,8 @@ def _rate_limit_response(
     if secondary_cache_key is not None:
         cache.set(secondary_cache_key, {"client_ip": client_ip, "updated_at": now}, timeout=_RATE_LIMIT_CACHE_TIMEOUT_SECONDS)
 
-    if not _acquire_rate_limit_lock(lock_key):
+    lock_owner_token = _acquire_rate_limit_lock(lock_key)
+    if not lock_owner_token:
         logger.warning(
             "operations.rate_limit_lock_timeout",
             extra={
@@ -252,7 +263,7 @@ def _rate_limit_response(
         )
         return None
     finally:
-        cache.delete(lock_key)
+        _release_rate_limit_lock(lock_key, lock_owner_token)
 
 
 def _required_idempotency_key(request) -> str:
@@ -766,6 +777,7 @@ def operations_package_commit_allocation(request, reliefrqst_id: int):
         )
         if rate_limited is not None:
             return rate_limited
+        idempotency_key = _required_idempotency_key(request)
         return Response(
             operations_service.save_package(
                 reliefrqst_id,
@@ -774,6 +786,7 @@ def operations_package_commit_allocation(request, reliefrqst_id: int):
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
                 permissions=_permissions(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -924,6 +937,7 @@ operations_consolidation_leg_waybill.required_permission = PERM_OPERATIONS_WAYBI
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_partial_release_request(request, reliefpkg_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="partial_release_request",
@@ -938,6 +952,7 @@ def operations_partial_release_request(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -1049,6 +1064,14 @@ def operations_package_abandon_draft(request, reliefpkg_id: int):
     APPROVED_FOR_FULFILLMENT).
     """
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="package_abandon_draft",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.abandon_package_draft(
                 reliefpkg_id,
@@ -1056,6 +1079,7 @@ def operations_package_abandon_draft(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:

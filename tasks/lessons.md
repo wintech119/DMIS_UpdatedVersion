@@ -7,3 +7,4 @@
 - When a UI classification helper and its stage-mapping helper disagree, align both against the current data contract and add tests around legacy fallback fields instead of assuming only the newest nested object shape is present.
 - When a security review comment references sensitive data persistence, verify the live model, write path, and migrations together before adding new crypto or backfills; stale comments can describe a risk the current tree already removed.
 - When review comments point at sensitive-data or contract issues, verify the live model and write path first; stale comments often mean the real work is in the remaining adapters, labels, or fallback paths rather than a full rewrite.
+- When workflow storage supports both legacy file hooks and DB-backed paths, guard optional helpers like `_store_path` in tests and add narrow endpoint contract tests for public status normalization instead of relying only on longer workflow happy-path coverage.

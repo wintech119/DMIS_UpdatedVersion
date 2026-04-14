@@ -4914,7 +4914,13 @@ def needs_list_mark_completed(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    if str(response_payload.get("status") or "").strip().upper() in {
+        "FULFILLED",
+        "COMPLETED",
+    }:
+        response_payload["status"] = "COMPLETED"
+    return Response(response_payload)
 
 
 @api_view(["POST"])

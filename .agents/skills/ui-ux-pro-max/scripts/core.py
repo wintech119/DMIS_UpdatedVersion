@@ -167,7 +167,7 @@ class BM25:
 def _load_csv(filepath):
     """Load CSV and return list of dicts"""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r', encoding='utf-8', newline='') as f:
             return list(csv.DictReader(f))
     except (OSError, csv.Error, UnicodeDecodeError) as exc:
         raise ValueError(f"Failed to load CSV '{filepath}': {exc}") from exc
@@ -208,6 +208,7 @@ def _search_csv(filepath, search_cols, output_cols, query, max_results):
 def detect_domain(query):
     """Auto-detect the most relevant domain from query"""
     query_lower = query.lower()
+    query_tokens = set(re.findall(r"\b[a-z0-9]+\b", query_lower))
 
     domain_keywords = {
         "color": ["color", "palette", "hex", "#", "rgb"],
@@ -222,7 +223,14 @@ def detect_domain(query):
         "web": ["aria", "focus", "outline", "semantic", "virtualize", "autocomplete", "form", "input type", "preconnect"]
     }
 
-    scores = {domain: sum(1 for kw in keywords if kw in query_lower) for domain, keywords in domain_keywords.items()}
+    scores = {
+        domain: sum(
+            1
+            for kw in keywords
+            if (kw in query_tokens if re.fullmatch(r"[a-z0-9]+", kw) else kw in query_lower)
+        )
+        for domain, keywords in domain_keywords.items()
+    }
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "style"
 
@@ -240,7 +248,10 @@ def search(query, domain=None, max_results=MAX_RESULTS):
     if not filepath.exists():
         return {"error": f"File not found: {filepath}", "domain": domain}
 
-    results = _search_csv(filepath, config["search_cols"], config["output_cols"], query, max_results)
+    try:
+        results = _search_csv(filepath, config["search_cols"], config["output_cols"], query, max_results)
+    except ValueError as err:
+        return {"error": str(err), "domain": domain}
 
     return {
         "domain": domain,
@@ -261,7 +272,10 @@ def search_stack(query, stack, max_results=MAX_RESULTS):
     if not filepath.exists():
         return {"error": f"Stack file not found: {filepath}", "stack": stack}
 
-    results = _search_csv(filepath, _STACK_COLS["search_cols"], _STACK_COLS["output_cols"], query, max_results)
+    try:
+        results = _search_csv(filepath, _STACK_COLS["search_cols"], _STACK_COLS["output_cols"], query, max_results)
+    except ValueError as err:
+        return {"error": str(err), "stack": stack}
 
     return {
         "domain": "stack",

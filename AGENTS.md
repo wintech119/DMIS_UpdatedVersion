@@ -277,7 +277,7 @@ Enforce per-user + per-tenant + per-IP rate limits. During disaster SURGE phases
 #### Implementation Rules
 
 - **Enforcement key**: `user_id + tenant_id` for authenticated requests (IP as tiebreaker for abuse detection); IP-only for public/unauthenticated
-- **Backend**: Use Django cache framework (Redis in production, LocMemCache in dev) for counters
+- **Backend**: Use Django cache framework with Redis as the default for shared, staging, production-like, and production runtimes; LocMemCache is permitted only for explicit local-only developer modes when counters do not need shared cross-process behavior
 - **Idempotency keys**: Require on critical write actions (approve, dispatch, receipt) to prevent duplicate processing on retries
 - **429 responses**: Return `Retry-After` header with seconds until reset. Frontend should show a toast, not a hard error
 - **System integrations**: Approved service accounts may have elevated limits configured via environment variables

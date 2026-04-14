@@ -1183,6 +1183,52 @@ class OperationsWorkflowContractTests(TestCase):
     @patch("operations.contract_services.legacy_service._current_package_for_request")
     @patch("operations.contract_services.legacy_service._load_request")
     @patch("operations.contract_services.legacy_service.save_package")
+    def test_package_commit_reuses_cached_response_for_same_idempotency_key(
+        self,
+        save_package_mock,
+        load_request_mock,
+        current_package_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        load_request_mock.return_value = self.fulfillment_request
+        current_package_mock.return_value = self.package
+        save_package_mock.return_value = {"status": "COMMITTED", "reliefpkg_id": 90}
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        first = contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="commit-70",
+        )
+        queue_assignment_count = OperationsQueueAssignment.objects.filter(
+            queue_code=QUEUE_CODE_DISPATCH,
+            entity_id=90,
+        ).count()
+        second = contract_services.save_package(
+            70,
+            payload={"allocations": [{"item_id": 101, "inventory_id": 4, "batch_id": 1001, "quantity": "2"}]},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="commit-70",
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(save_package_mock.call_count, 1)
+        self.assertEqual(load_request_mock.call_count, 2)
+        self.assertGreater(queue_assignment_count, 0)
+        self.assertEqual(
+            OperationsQueueAssignment.objects.filter(queue_code=QUEUE_CODE_DISPATCH, entity_id=90).count(),
+            queue_assignment_count,
+        )
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch("operations.contract_services.legacy_service._current_package_for_request")
+    @patch("operations.contract_services.legacy_service._load_request")
+    @patch("operations.contract_services.legacy_service.save_package")
     @override_settings(ODPEM_TENANT_ID=27)
     def test_save_package_routes_override_requests_into_odpem_fulfillment_scope(
         self,
@@ -2563,6 +2609,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="abandon-392",
         )
 
         planned_leg.refresh_from_db()
@@ -2590,6 +2637,87 @@ class OperationsWorkflowContractTests(TestCase):
             to_status=CONSOLIDATION_LEG_STATUS_CANCELLED,
             actor_id="logistics-manager-1",
         )
+
+    @patch("operations.contract_services._package_context_by_package_id")
+    @patch("operations.contract_services.reset_package_allocations")
+    @patch("operations.contract_services.record_status_transition")
+    def test_abandon_package_draft_reuses_cached_response_for_same_idempotency_key(
+        self,
+        record_transition_mock,
+        reset_mock,
+        package_context_mock,
+    ) -> None:
+        request_record = self._create_operations_request_record(relief_request_id=932)
+        package_record = OperationsPackage.objects.create(
+            package_id=3932,
+            package_no="PK03932",
+            relief_request=request_record,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        planned_leg = OperationsConsolidationLeg.objects.create(
+            package=package_record,
+            leg_sequence=1,
+            source_warehouse_id=4,
+            staging_warehouse_id=55,
+            status_code=CONSOLIDATION_LEG_STATUS_PLANNED,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=3932, reliefrqst_id=932, agency_id=501, status_code="P"),
+            self._request_stub(
+                reliefrqst_id=932,
+                agency_id=501,
+                status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+            ),
+            request_record,
+            package_record,
+        )
+        reset_mock.return_value = {
+            "status": PACKAGE_STATUS_DRAFT,
+            "reliefrqst_id": 932,
+            "reliefpkg_id": 3932,
+            "request_no": "RQ00932",
+            "package_no": "PK03932",
+            "operations_allocation_lines_deleted": 1,
+            "legacy_allocation_lines_deleted": 1,
+            "released_stock_summary": {"line_count": 1, "total_qty": "2.0000"},
+        }
+
+        first = contract_services.abandon_package_draft(
+            3932,
+            payload={"reason": "Retry-safe abandon"},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="abandon-3932",
+        )
+        second = contract_services.abandon_package_draft(
+            3932,
+            payload={"reason": "Retry-safe abandon"},
+            actor_id="logistics-manager-1",
+            actor_roles=self.dispatch_roles,
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="abandon-3932",
+        )
+
+        planned_leg.refresh_from_db()
+        self.assertEqual(first, second)
+        self.assertEqual(package_context_mock.call_count, 1)
+        self.assertEqual(reset_mock.call_count, 1)
+        record_transition_mock.assert_called_once_with(
+            entity_type=contract_services.ENTITY_CONSOLIDATION_LEG,
+            entity_id=int(planned_leg.leg_id),
+            from_status=CONSOLIDATION_LEG_STATUS_PLANNED,
+            to_status=CONSOLIDATION_LEG_STATUS_CANCELLED,
+            actor_id="logistics-manager-1",
+        )
+        self.assertEqual(planned_leg.status_code, CONSOLIDATION_LEG_STATUS_CANCELLED)
 
     @patch("operations.contract_services._package_context_by_package_id")
     def test_abandon_package_draft_rejects_committed_package(
@@ -2623,6 +2751,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="abandon-3931",
             )
 
         self.assertEqual(
@@ -2665,6 +2794,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="abandon-393",
             )
 
         self.assertEqual(
@@ -2716,6 +2846,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="abandon-394",
             )
 
         self.assertIn("in-transit", raised.exception.errors["abandon"].lower())
@@ -2749,6 +2880,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="rogue-officer-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=foreign_tenant_context,
+                idempotency_key="abandon-395",
             )
 
         self.assertIn("scope", raised.exception.errors)
@@ -2767,11 +2899,27 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="abandon-396",
             )
 
         self.assertEqual(
             raised.exception.errors["reason"],
             "Reason must be 500 characters or fewer.",
+        )
+
+    def test_abandon_package_draft_requires_idempotency_key(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.abandon_package_draft(
+                396,
+                payload={},
+                actor_id="logistics-manager-1",
+                actor_roles=self.dispatch_roles,
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
         )
 
     @patch("operations.contract_services._delete_legacy_allocation_lines")
@@ -5674,6 +5822,79 @@ class OperationsWorkflowContractTests(TestCase):
             raised.exception.errors,
             {"idempotency_key": "Idempotency-Key header is required."},
         )
+
+    def test_request_partial_release_requires_idempotency_key(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.request_partial_release(
+                90,
+                payload={"reason": "Release received legs now"},
+                actor_id="dispatcher-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
+
+    @patch("operations.contract_services._package_summary_payload", return_value={"reliefpkg_id": 90})
+    @patch("operations.contract_services.legacy_service._load_package")
+    @patch("operations.contract_services.create_role_notifications")
+    @patch("operations.contract_services.assign_roles_to_queue")
+    @patch("operations.contract_services._update_package_workflow_fields")
+    @patch("operations.contract_services._package_leg_summary", return_value={"received_legs": 1, "total_legs": 2})
+    @patch("operations.contract_services._package_context_by_package_id")
+    def test_request_partial_release_reuses_cached_response_for_same_idempotency_key(
+        self,
+        package_context_mock,
+        _package_leg_summary_mock,
+        update_package_workflow_fields_mock,
+        assign_roles_mock,
+        create_notifications_mock,
+        load_package_mock,
+        package_summary_payload_mock,
+    ) -> None:
+        request_record = SimpleNamespace(beneficiary_tenant_id=20)
+        package_record = SimpleNamespace(
+            package_id=90,
+            package_no="PK00090",
+            fulfillment_mode=FULFILLMENT_MODE_DELIVER_FROM_STAGING,
+            status_code=PACKAGE_STATUS_CONSOLIDATING,
+        )
+        package_context_mock.return_value = (
+            self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501),
+            self._request_stub(reliefrqst_id=70, agency_id=501),
+            request_record,
+            package_record,
+        )
+        load_package_mock.return_value = self._package_stub(reliefpkg_id=90, reliefrqst_id=70, agency_id=501)
+
+        first = contract_services.request_partial_release(
+            90,
+            payload={"reason": "Release received legs now"},
+            actor_id="dispatcher-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="partial-request-90",
+        )
+        second = contract_services.request_partial_release(
+            90,
+            payload={"reason": "Changed reason ignored by idempotency"},
+            actor_id="dispatcher-1",
+            actor_roles=["LOGISTICS_MANAGER"],
+            tenant_context=self.dispatch_ready_context,
+            idempotency_key="partial-request-90",
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["status"], "PARTIAL_RELEASE_REQUESTED")
+        package_context_mock.assert_called_once()
+        update_package_workflow_fields_mock.assert_called_once()
+        assign_roles_mock.assert_called_once()
+        create_notifications_mock.assert_called_once()
+        load_package_mock.assert_called_once_with(90)
+        package_summary_payload_mock.assert_called_once()
 
 
 class StagingReservationContractTests(TransactionTestCase):
