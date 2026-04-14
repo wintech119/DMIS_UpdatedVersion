@@ -326,6 +326,7 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/70/allocations/commit",
             {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="11f91359-d448-4b5a-b4fd-f2345a5d040b",
         )
 
         self.assertEqual(response.status_code, 409)
@@ -1473,6 +1474,17 @@ class OperationsViewHelperTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data, {"errors": {"reason": "A partial release reason is required."}})
+
+    def test_required_positive_int_payload_value_rejects_non_integer_values(self) -> None:
+        for raw_value in (True, False, 1.5, "1.5", "abc"):
+            with self.subTest(raw_value=raw_value):
+                with self.assertRaises(OperationValidationError) as captured:
+                    operations_views._required_positive_int_payload_value(raw_value, "source_warehouse_id")
+
+                self.assertEqual(
+                    captured.exception.errors,
+                    {"source_warehouse_id": "Must be a positive integer."},
+                )
 
     def test_acquire_rate_limit_lock_stores_owner_token(self) -> None:
         owner_token = operations_views._acquire_rate_limit_lock("ops:test:lock")

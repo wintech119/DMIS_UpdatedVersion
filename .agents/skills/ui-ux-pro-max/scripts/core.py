@@ -235,8 +235,21 @@ def detect_domain(query):
     return best if scores[best] > 0 else "style"
 
 
+def _validate_query_input(query, **context):
+    """Return a structured error for invalid query input."""
+    if not isinstance(query, str) or not query.strip():
+        response = {"error": "Query must be a non-empty string."}
+        response.update({key: value for key, value in context.items() if value is not None})
+        return response
+    return None
+
+
 def search(query, domain=None, max_results=MAX_RESULTS):
     """Main search function with auto-domain detection"""
+    query_error = _validate_query_input(query, domain=domain)
+    if query_error is not None:
+        return query_error
+    query = query.strip()
     if domain is None:
         domain = detect_domain(query)
     elif domain not in CSV_CONFIG:
@@ -264,6 +277,10 @@ def search(query, domain=None, max_results=MAX_RESULTS):
 
 def search_stack(query, stack, max_results=MAX_RESULTS):
     """Search stack-specific guidelines"""
+    query_error = _validate_query_input(query, stack=stack)
+    if query_error is not None:
+        return query_error
+    query = query.strip()
     if stack not in STACK_CONFIG:
         return {"error": f"Unknown stack: {stack}. Available: {', '.join(AVAILABLE_STACKS)}"}
 

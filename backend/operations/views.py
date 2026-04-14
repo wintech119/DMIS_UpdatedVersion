@@ -288,10 +288,17 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
 def _required_positive_int_payload_value(raw_value: object, field_name: str) -> int:
     if raw_value in (None, ""):
         raise OperationValidationError({field_name: f"{field_name} is required."})
-    try:
-        parsed = int(raw_value)
-    except (TypeError, ValueError) as exc:
-        raise OperationValidationError({field_name: "Must be a positive integer."}) from exc
+    if isinstance(raw_value, bool):
+        raise OperationValidationError({field_name: "Must be a positive integer."})
+    if isinstance(raw_value, int):
+        parsed = raw_value
+    elif isinstance(raw_value, str):
+        normalized = raw_value.strip()
+        if not normalized or not normalized.isdigit():
+            raise OperationValidationError({field_name: "Must be a positive integer."})
+        parsed = int(normalized)
+    else:
+        raise OperationValidationError({field_name: "Must be a positive integer."})
     if parsed <= 0:
         raise OperationValidationError({field_name: "Must be a positive integer."})
     return parsed

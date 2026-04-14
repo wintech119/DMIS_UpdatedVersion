@@ -3,7 +3,7 @@ name: frontend-angular-review-project
 description: Angular frontend review skill for accessibility, security, architecture, component quality, template quality, reactive state safety, routing, forms, and performance. Use when Angular code has been written and should be reviewed before final output. Use the current codebase, Angular documentation, linting, and targeted tests when Angular-specific validation, diagnostics, or framework-aware review guidance is required.
 allowed-tools: Read, Grep, Glob, Bash
 model: sonnet
-skills: frontend, angular, review
+skills: frontend-angular-analysis, frontend-angular-implementation
 ---
 
 ## Role & Context
@@ -256,6 +256,8 @@ When reviewing Angular frontend code:
 * call out hidden maintainability risks, not just obvious bugs
 * distinguish framework-specific issues from general frontend advice
 * use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific findings and recommendations
+* require shared architecture review for any medium- or high-risk frontend work: `system-architecture-review` must have passed, or every `Misaligned` finding must be remediated or formally accepted before final approval
+* confirm `system-architecture-review` was run, rerun it before final output when implementation touched architecture-sensitive frontend areas, and record remediation or acceptance evidence as part of the final review
 
 ## Test Review Standards
 Review frontend tests with the same rigor as production code.
