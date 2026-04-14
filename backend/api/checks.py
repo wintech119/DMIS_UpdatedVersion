@@ -110,6 +110,26 @@ def check_dmis_runtime_dependency_posture(app_configs, **kwargs):
     return messages
 
 
+@register(deploy=True)
+def check_dmis_replenishment_export_audit_schema(app_configs, **kwargs):
+    if not _replenishment_export_audit_schema_required():
+        return []
+
+    status, reason = get_replenishment_export_audit_schema_status()
+    if status != "failed":
+        return []
+
+    return [
+        Error(
+            reason or (
+                "Queued export durability requires the replenishment export audit "
+                "schema update to be applied."
+            ),
+            id="api.E006",
+        )
+    ]
+
+
 @register()
 def check_dmis_rbac_boundary(app_configs, **kwargs):
     messages = []
@@ -161,22 +181,93 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
     return messages
 
 
+def _replenishment_export_audit_schema_required() -> bool:
+    if bool(getattr(settings, "TESTING", False)):
+        return False
+    return bool(getattr(settings, "DMIS_WORKER_REQUIRED", False)) or not bool(
+        getattr(settings, "DMIS_ASYNC_EAGER", False)
+    )
+
+
+def get_replenishment_export_audit_schema_status() -> tuple[str, str | None]:
+    table_name = "needs_list_audit"
+    if not _table_exists(table_name):
+        return "failed", "Required replenishment audit table needs_list_audit is missing."
+
+    if not _column_exists(table_name, "request_id"):
+        return (
+            "failed",
+            "Queued export durability requires needs_list_audit.request_id to exist; "
+            "apply the replenishment export audit schema update.",
+        )
+
+    if connection.vendor == "postgresql":
+        constraint_sql = _constraint_definition(
+            table_name=table_name,
+            constraint_name="c_nla_action",
+        )
+        if constraint_sql is None:
+            return (
+                "failed",
+                "Queued export durability requires the needs_list_audit c_nla_action "
+                "constraint to be present and allow EXPORT_GENERATED.",
+            )
+        if "EXPORT_GENERATED" not in constraint_sql:
+            return (
+                "failed",
+                "Queued export durability requires needs_list_audit.c_nla_action "
+                "to allow EXPORT_GENERATED; apply the replenishment export audit schema update.",
+            )
+
+    return "ok", None
+
+
 def _table_exists(table_name: str) -> bool:
+    try:
+        return table_name in set(connection.introspection.table_names())
+    except DatabaseError:
+        return False
+
+
+def _column_exists(table_name: str, column_name: str) -> bool:
+    if not _table_exists(table_name):
+        return False
+    try:
+        with connection.cursor() as cursor:
+            description = connection.introspection.get_table_description(cursor, table_name)
+    except DatabaseError:
+        return False
+
+    for column in description:
+        if str(getattr(column, "name", "")).strip().lower() == str(column_name).strip().lower():
+            return True
+    return False
+
+
+def _constraint_definition(*, table_name: str, constraint_name: str) -> str | None:
+    if connection.vendor != "postgresql":
+        return None
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT EXISTS(
-                    SELECT 1
-                    FROM information_schema.tables
-                    WHERE table_schema = current_schema() AND table_name = %s
-                )
+                SELECT pg_get_constraintdef(c.oid)
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE n.nspname = current_schema()
+                  AND t.relname = %s
+                  AND c.conname = %s
                 """,
-                [table_name],
+                [table_name, constraint_name],
             )
-            return bool(cursor.fetchone()[0])
+            row = cursor.fetchone()
     except DatabaseError:
-        return False
+        return None
+
+    if not row or not row[0]:
+        return None
+    return str(row[0])
 
 
 def _count_rows(table_name: str) -> int | None:

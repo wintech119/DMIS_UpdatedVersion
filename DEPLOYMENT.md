@@ -57,7 +57,7 @@ Explicit follow-up async migrations:
 - IFRC / Ollama suggestion work
 - transfer generation if latency becomes operationally significant
 - operator repair / replay commands
-- durable object-storage-backed artifacts instead of bounded inline DB payloads
+- object storage for artifacts larger or longer-lived than the current DB-backed queued-export slice
 
 ## Backend environment variables
 
@@ -78,6 +78,7 @@ DB_HOST=<postgres-host>
 DB_PORT=5432
 REDIS_URL=redis://redis:6379/1
 DMIS_ASYNC_EAGER=0
+DMIS_DURABLE_EXPORT_RETENTION_SECONDS=7776000
 
 AUTH_ENABLED=1
 DEV_AUTH_ENABLED=0
@@ -123,6 +124,7 @@ Run the Django API with Gunicorn rather than `manage.py runserver`:
 ```bash
 cd backend
 python manage.py migrate
+python manage.py apply_replenishment_sql_migration 20260414_dmis08_export_audit_request_id.sql --apply
 python manage.py collectstatic --no-input
 gunicorn dmis_api.wsgi:application --bind 127.0.0.1:8000 --workers 4
 ```
@@ -139,6 +141,16 @@ Worker-loss recovery posture:
 - Celery runs queued jobs with late acknowledgement and a Redis visibility timeout so broker redelivery can resume work after worker loss.
 - `job.recovered` in worker logs indicates a previously running async job was picked up again after redelivery.
 - Keep readiness tied to worker heartbeat; if the heartbeat disappears, treat the worker plane as unavailable until a worker is healthy again.
+
+Queued export artifact posture:
+
+- needs-list donation and procurement CSV exports now persist their payloads in the PostgreSQL-backed `async_job_artifact` table before the job is marked `SUCCEEDED`
+- retrieval remains on the authenticated `/api/v1/jobs/{job_id}/download` path and inherits the same needs-list permission and tenant-scope checks as the source workflow
+- `DMIS_DURABLE_EXPORT_RETENTION_SECONDS` defaults to 90 days for non-local runtimes and is the retention window surfaced by `expires_at`
+- `DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES` remains the size guard for this interim DB-backed storage; larger exports should fail closed until object storage is introduced
+- queued exports and production-style readiness now fail closed until `python manage.py apply_replenishment_sql_migration 20260414_dmis08_export_audit_request_id.sql --apply` has been run against the active schema
+- clean up expired durable rows and expired legacy inline payloads with `python manage.py purge_expired_async_job_artifacts --apply`
+- this is an interim hardening step for small CSV outputs, not the final object-storage design
 
 Windows local smoke-test variant:
 
@@ -203,7 +215,7 @@ Current API/runtime signals:
 | `X-Request-ID` / `request_id` | every API response and DRF error body | Lets operators correlate ingress logs, backend logs, and user-reported failures |
 | `auth.request_rejected` | backend warning logs | Indicates missing/invalid auth or rejected local-only auth headers |
 | `auth.jwt_verification_failed` | backend warning logs | Indicates JWT validation failures without logging the raw token |
-| `job.queued` / `job.started` / `job.retrying` / `job.recovered` / `job.succeeded` / `job.failed` | backend worker/API logs | Shows async job lifecycle, retries, worker-loss recovery, and operator-visible failures using the same request/job correlation |
+| `job.queued` / `job.started` / `job.retrying` / `job.recovered` / `job.succeeded` / `job.failed` | backend worker/API logs | Shows async job lifecycle, retries, worker-loss recovery, and operator-visible failures using the same request/job correlation; `job.succeeded` now includes `artifact_id` for durable export evidence |
 | `readiness.not_ready` | backend warning logs and `/api/v1/health/ready/` | Indicates DB, Redis, or queue dependency failure and keeps the instance out of rotation |
 | `request.unhandled_exception` | backend error logs | Indicates an unhandled server-side exception tied to a request ID |
 

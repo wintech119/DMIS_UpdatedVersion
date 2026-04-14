@@ -98,6 +98,14 @@ Job flow summary:
 
 `GET` on the export endpoints now returns JSON preview only. Synchronous `GET ?format=csv` export is intentionally retired.
 
+Durable export notes:
+
+- queued needs-list donation and procurement CSV exports are durably retained in PostgreSQL-backed `async_job_artifact` rows instead of relying on inline worker payloads for new jobs
+- downloads still flow only through the authenticated `/api/v1/jobs/{job_id}/download` endpoint and inherit the same needs-list permission and tenant-scope checks as the source workflow
+- `expires_at` now represents artifact retention expiry; `DMIS_DURABLE_EXPORT_RETENTION_SECONDS` defaults to 90 days outside `local-harness`
+- queued export durability fails closed until the replenishment audit schema update for `needs_list_audit.request_id` / `EXPORT_GENERATED` has been applied
+- this is an interim durability step for small CSV outputs; larger or longer-lived artifacts still need object storage
+
 Frontend note: production-style builds file-replace the local harness switcher/interceptor with no-op implementations. The Angular client now expects a deployment-supplied runtime OIDC config in `frontend/public/auth-config.json`, uses Authorization Code + PKCE for the non-local login path, stores tokens in `sessionStorage` only, and fails protected navigation closed into explicit `/auth/login` or `/access-denied` UX instead of silently rendering an empty shell.
 
 Remaining frontend auth gap: this thread does not add refresh-token rotation or offline session renewal. When the access token expires or the backend rejects it, the frontend clears the stored session and forces a fresh OIDC sign-in.
@@ -219,6 +227,7 @@ Check migration status:
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL connection |
 | `REDIS_URL` | Required for `prod-like-local`, `shared-dev`, `staging`, and `production`; recommended by default for `local-harness` |
 | `DMIS_ASYNC_EAGER` | Leave unset or `1` only for `local-harness`; non-local runtimes must keep it `0` |
+| `DMIS_DURABLE_EXPORT_RETENTION_SECONDS` | Retention window for durable queued export artifacts; defaults to 90 days outside `local-harness` |
 | `AUTH_ENABLED` | Set to `1` to enforce Keycloak JWT validation |
 | `AUTH_ISSUER` | Keycloak realm URL |
 | `AUTH_AUDIENCE` | Client ID registered in Keycloak |

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime
 
 from django.db import models
 from django.utils import timezone
@@ -73,11 +73,31 @@ class AsyncJob(models.Model):
     def is_terminal(self) -> bool:
         return self.status in {self.Status.SUCCEEDED, self.Status.FAILED}
 
+    def durable_artifact_or_none(self):
+        try:
+            return self.durable_artifact
+        except self.__class__.durable_artifact.RelatedObjectDoesNotExist:
+            return None
+
+    @property
+    def artifact_payload_text(self) -> str | None:
+        durable_artifact = self.durable_artifact_or_none()
+        if durable_artifact is not None and durable_artifact.payload_text:
+            return durable_artifact.payload_text
+        return self.artifact_payload
+
     @property
     def artifact_ready(self) -> bool:
-        return self.status == self.Status.SUCCEEDED and bool(self.artifact_payload)
+        if self.status != self.Status.SUCCEEDED:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        return bool(self.artifact_payload_text)
 
     def clear_artifact(self) -> None:
+        durable_artifact = self.durable_artifact_or_none()
+        if durable_artifact is not None:
+            durable_artifact.delete()
         self.artifact_filename = None
         self.artifact_content_type = None
         self.artifact_sha256 = None
@@ -112,8 +132,7 @@ class AsyncJob(models.Model):
         artifact_filename: str,
         artifact_content_type: str,
         artifact_sha256: str,
-        artifact_payload: str,
-        artifact_ttl_seconds: int,
+        artifact_expires_at: datetime,
     ) -> None:
         self.status = self.Status.SUCCEEDED
         self.error_message = None
@@ -122,6 +141,32 @@ class AsyncJob(models.Model):
         self.artifact_filename = artifact_filename
         self.artifact_content_type = artifact_content_type
         self.artifact_sha256 = artifact_sha256
-        self.artifact_payload = artifact_payload
-        ttl_seconds = max(int(artifact_ttl_seconds), 60)
-        self.expires_at = timezone.now() + timedelta(seconds=ttl_seconds)
+        self.artifact_payload = None
+        self.expires_at = artifact_expires_at
+
+
+class AsyncJobArtifact(models.Model):
+    class StorageBackend(models.TextChoices):
+        DB_TEXT = "DB_TEXT", "Database Text"
+
+    artifact_id = models.BigAutoField(primary_key=True)
+    job = models.OneToOneField(
+        AsyncJob,
+        on_delete=models.CASCADE,
+        related_name="durable_artifact",
+    )
+    storage_backend = models.CharField(
+        max_length=20,
+        choices=StorageBackend.choices,
+        default=StorageBackend.DB_TEXT,
+    )
+    payload_text = models.TextField()
+    size_bytes = models.PositiveIntegerField()
+    retention_expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "async_job_artifact"
+
+    def __str__(self) -> str:
+        return f"{self.job.job_type}:{self.job.job_id} [{self.storage_backend}]"

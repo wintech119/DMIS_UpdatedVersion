@@ -10,6 +10,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from api import checks as api_checks
 from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication, local_auth_harness_enabled
 from api.models import AsyncJob
@@ -97,12 +98,26 @@ def _queue_readiness_check() -> tuple[str, str | None]:
     return "ok", None
 
 
+def _export_audit_schema_readiness_check() -> tuple[str, str | None]:
+    if not bool(getattr(settings, "DMIS_WORKER_REQUIRED", False)) and bool(
+        getattr(settings, "DMIS_ASYNC_EAGER", False)
+    ):
+        return "skipped", "Queued export audit schema is optional while async jobs run eagerly."
+
+    return api_checks.get_replenishment_export_audit_schema_status()
+
+
 def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
     database_status, database_reason = _database_readiness_check()
     redis_status, redis_reason = _redis_readiness_check()
     queue_status, queue_reason = _queue_readiness_check()
+    export_schema_status, export_schema_reason = _export_audit_schema_readiness_check()
     redis_required = bool(getattr(settings, "DMIS_REDIS_REQUIRED", False))
     queue_required = bool(getattr(settings, "DMIS_WORKER_REQUIRED", False))
+    export_schema_required = not (
+        not bool(getattr(settings, "DMIS_WORKER_REQUIRED", False))
+        and bool(getattr(settings, "DMIS_ASYNC_EAGER", False))
+    )
 
     checks: dict[str, dict[str, Any]] = {
         "database": {
@@ -117,6 +132,10 @@ def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
             "required": queue_required,
             "status": queue_status,
         },
+        "export_audit_schema": {
+            "required": export_schema_required,
+            "status": export_schema_status,
+        },
     }
     if database_reason:
         checks["database"]["reason"] = database_reason
@@ -124,6 +143,8 @@ def _readiness_payload(request=None) -> tuple[dict[str, Any], int]:
         checks["redis"]["reason"] = redis_reason
     if queue_reason:
         checks["queue"]["reason"] = queue_reason
+    if export_schema_reason:
+        checks["export_audit_schema"]["reason"] = export_schema_reason
 
     runtime_env = str(getattr(settings, "DMIS_RUNTIME_ENV", "")).strip() or "unknown"
     statuses = {check["status"] for check in checks.values()}
@@ -245,7 +266,7 @@ def _authorize_async_job(request, job: AsyncJob):
 @permission_classes([IsAuthenticated])
 def async_job_status(request, job_id: str):
     try:
-        job = AsyncJob.objects.get(job_id=job_id)
+        job = AsyncJob.objects.select_related("durable_artifact").get(job_id=job_id)
     except AsyncJob.DoesNotExist:
         return Response({"detail": "Not found."}, status=404)
 
@@ -261,7 +282,7 @@ def async_job_status(request, job_id: str):
 @permission_classes([IsAuthenticated])
 def async_job_download(request, job_id: str):
     try:
-        job = AsyncJob.objects.get(job_id=job_id)
+        job = AsyncJob.objects.select_related("durable_artifact").get(job_id=job_id)
     except AsyncJob.DoesNotExist:
         return Response({"detail": "Not found."}, status=404)
 
@@ -280,6 +301,31 @@ def async_job_download(request, job_id: str):
         )
 
     if not job.artifact_ready:
+        if job.status == AsyncJob.Status.SUCCEEDED:
+            durable_artifact = job.durable_artifact_or_none()
+            api_logger.error(
+                "async_job.artifact_missing",
+                extra=build_log_extra(
+                    request,
+                    event="async_job.artifact_missing",
+                    status_code=500,
+                    job_id=job.job_id,
+                    job_type=job.job_type,
+                    source_resource_type=job.source_resource_type,
+                    source_resource_id=job.source_resource_id,
+                    artifact_id=(
+                        durable_artifact.artifact_id if durable_artifact is not None else None
+                    ),
+                ),
+            )
+            return Response(
+                {
+                    "job_id": job.job_id,
+                    "status": job.status,
+                    "detail": "The job artifact is unavailable due to a storage inconsistency.",
+                },
+                status=500,
+            )
         return Response(
             {
                 "job_id": job.job_id,
@@ -290,7 +336,7 @@ def async_job_download(request, job_id: str):
         )
 
     response = HttpResponse(
-        job.artifact_payload,
+        job.artifact_payload_text,
         content_type=job.artifact_content_type or "text/plain",
     )
     filename = str(job.artifact_filename or f"{job.job_id}.txt").replace('"', "")

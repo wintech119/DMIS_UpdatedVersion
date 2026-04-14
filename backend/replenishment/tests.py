@@ -2251,6 +2251,65 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(queued_logs[0].get("source_snapshot_version"), job.source_snapshot_version)
 
     @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "replenishment.views.get_replenishment_export_audit_schema_status",
+        return_value=(
+            "failed",
+            "Queued export durability requires needs_list_audit.request_id to exist; apply the replenishment export audit schema update.",
+        ),
+    )
+    @patch("replenishment.views.logger.error")
+    @patch("replenishment.views.import_module")
+    def test_donations_export_post_blocks_when_export_audit_schema_is_missing(
+        self,
+        mock_import_module,
+        mock_logger_error,
+        _mock_schema_status,
+    ) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 202,
+                        "item_name": "Generator",
+                        "uom_code": "EA",
+                        "horizon": {"B": {"recommended_qty": 2}},
+                    }
+                ]
+            },
+        }
+
+        with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+            "replenishment.views.workflow_store.get_record", return_value=record
+        ):
+            response = self.client.post(
+                "/api/v1/replenishment/needs-list/NL-A/donations/export",
+                {"format": "csv"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(AsyncJob.objects.count(), 0)
+        self.assertIn("Queued export is unavailable", response.json()["errors"]["async"])
+        self.assertIn("request_id", response.json()["detail"])
+        mock_import_module.assert_not_called()
+        mock_logger_error.assert_called_once()
+
+    @override_settings(
         TENANT_SCOPE_ENFORCEMENT=True,
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,

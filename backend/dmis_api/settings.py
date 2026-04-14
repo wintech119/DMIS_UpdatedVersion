@@ -393,6 +393,16 @@ def default_async_eager_for_runtime_env(*, runtime_env: str, testing: bool) -> b
     return runtime_env == "local-harness"
 
 
+def default_durable_export_retention_seconds_for_runtime_env(
+    *,
+    runtime_env: str,
+    testing: bool,
+) -> int:
+    if testing or runtime_env in {"test", "local-harness"}:
+        return 86400
+    return 7776000
+
+
 def _validate_redis_url(redis_url: str, *, runtime_env: str) -> None:
     parsed = urlparse(redis_url)
     if parsed.scheme not in _SUPPORTED_REDIS_URL_SCHEMES:
@@ -850,7 +860,21 @@ DMIS_WORKER_REQUIRED = worker_required_for_runtime_env(
     runtime_env=DMIS_RUNTIME_ENV,
     testing=TESTING,
 )
-DMIS_ASYNC_ARTIFACT_TTL_SECONDS = _get_int_env("DMIS_ASYNC_ARTIFACT_TTL_SECONDS", 86400) or 86400
+_default_durable_export_retention_seconds = default_durable_export_retention_seconds_for_runtime_env(
+    runtime_env=DMIS_RUNTIME_ENV,
+    testing=TESTING,
+)
+DMIS_ASYNC_ARTIFACT_TTL_SECONDS = (
+    _get_int_env("DMIS_ASYNC_ARTIFACT_TTL_SECONDS", _default_durable_export_retention_seconds)
+    or _default_durable_export_retention_seconds
+)
+DMIS_DURABLE_EXPORT_RETENTION_SECONDS = (
+    _get_int_env(
+        "DMIS_DURABLE_EXPORT_RETENTION_SECONDS",
+        DMIS_ASYNC_ARTIFACT_TTL_SECONDS,
+    )
+    or DMIS_ASYNC_ARTIFACT_TTL_SECONDS
+)
 DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES = (
     _get_int_env("DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES", 524288) or 524288
 )

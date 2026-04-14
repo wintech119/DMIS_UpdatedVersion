@@ -24,6 +24,7 @@ from rest_framework.response import Response
 
 from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication
+from api.checks import get_replenishment_export_audit_schema_status
 from api.models import AsyncJob
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
@@ -1028,6 +1029,32 @@ def _enqueue_needs_list_export_job(
                 }
             },
             status=400,
+        )
+
+    audit_schema_status, audit_schema_reason = get_replenishment_export_audit_schema_status()
+    if audit_schema_status == "failed":
+        logger.error(
+            "job.queue_blocked",
+            extra=build_log_extra(
+                request,
+                event="job.queue_blocked",
+                needs_list_id=needs_list_id,
+                job_type=job_type,
+                dependency="export_audit_schema",
+                error_message=audit_schema_reason,
+            ),
+        )
+        return Response(
+            {
+                "errors": {
+                    "async": (
+                        "Queued export is unavailable until the replenishment export audit "
+                        "schema update is applied."
+                    )
+                },
+                "detail": audit_schema_reason,
+            },
+            status=503,
         )
 
     tenant_context = _tenant_context(request)
