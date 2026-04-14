@@ -106,6 +106,14 @@ def _permissions(request) -> list[str]:
 
 def _service_error_response(exc: Exception) -> Response:
     if isinstance(exc, OperationValidationError):
+        normalized_errors = {
+            str(field_name).strip().lower(): str(message).strip().lower()
+            for field_name, message in exc.errors.items()
+        }
+        if "tenant_scope" in normalized_errors or normalized_errors.get("scope") == (
+            "request is outside the active tenant or workflow assignment scope."
+        ):
+            return Response({"errors": exc.errors}, status=403)
         return Response({"errors": exc.errors}, status=400)
     if isinstance(exc, OverrideApprovalError):
         return Response({"errors": {"override": exc.message}}, status=400)

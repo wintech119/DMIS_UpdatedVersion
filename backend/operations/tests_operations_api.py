@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 
@@ -14,6 +15,8 @@ from api.rbac import (
     PERM_OPERATIONS_REQUEST_CREATE_SELF,
     PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
 )
+from api.tenancy import TenantContext, TenantMembership
+from operations.models import OperationsReliefRequest
 from operations import views as operations_views
 from replenishment.services.allocation_dispatch import InventoryDriftError
 
@@ -1130,6 +1133,125 @@ class OperationsPermissionRuntimeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"agencies": [], "events": [], "items": []})
         mock_reference_data.assert_called_once()
+
+
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=False,
+    DEBUG=True,
+    AUTH_USE_DB_RBAC=False,
+)
+class OperationsApiTenantIsolationTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    @staticmethod
+    def _tenant_context(tenant_id: int, tenant_code: str) -> TenantContext:
+        membership = TenantMembership(
+            tenant_id=tenant_id,
+            tenant_code=tenant_code,
+            tenant_name=tenant_code,
+            tenant_type="TENANT",
+            is_primary=True,
+            access_level="FULL",
+        )
+        return TenantContext(
+            requested_tenant_id=tenant_id,
+            active_tenant_id=tenant_id,
+            active_tenant_code=tenant_code,
+            active_tenant_type="TENANT",
+            memberships=(membership,),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+    @patch("operations.contract_services.legacy_service._request_summary", return_value={"status_code": "DRAFT"})
+    @patch("operations.contract_services.legacy_service.get_request", return_value={"reliefrqst_id": 70, "tracking_no": "RQ00070"})
+    @patch("operations.contract_services.ReliefPkg.objects.filter")
+    @patch("operations.contract_services.operations_policy.get_agency_scope", return_value=SimpleNamespace(tenant_id=10))
+    @patch("operations.contract_services._legacy_helper")
+    @patch("operations.views.resolve_tenant_context")
+    def test_request_detail_denies_cross_tenant_reader(
+        self,
+        mock_resolve_tenant_context,
+        mock_legacy_helper,
+        _mock_get_agency_scope,
+        mock_reliefpkg_filter,
+        mock_legacy_get_request,
+        _mock_request_summary,
+    ) -> None:
+        request_date = date(2026, 4, 7)
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=10,
+            requesting_agency_id=501,
+            beneficiary_tenant_id=10,
+            beneficiary_agency_id=501,
+            origin_mode="SELF",
+            event_id=12,
+            request_date=request_date,
+            urgency_code="H",
+            status_code="DRAFT",
+            create_by_id="user-a",
+            update_by_id="user-a",
+        )
+
+        legacy_request = SimpleNamespace(
+            reliefrqst_id=70,
+            agency_id=501,
+            request_date=request_date,
+            tracking_no="RQ00070",
+            eligible_event_id=12,
+            urgency_ind="H",
+            rqst_notes_text=None,
+            review_by_id=None,
+            review_dtime=None,
+            create_by_id="user-a",
+            create_dtime=None,
+            status_code=0,
+        )
+        mock_legacy_helper.return_value = lambda *_args, **_kwargs: legacy_request
+        mock_reliefpkg_filter.return_value.order_by.return_value = []
+
+        tenant_contexts = {
+            "user-a": self._tenant_context(10, "TENANT_A"),
+            "user-b": self._tenant_context(20, "TENANT_B"),
+        }
+        mock_resolve_tenant_context.side_effect = (
+            lambda request, user, permissions: tenant_contexts[str(user.user_id)]
+        )
+
+        user_a = Principal(
+            user_id="user-a",
+            username="user-a",
+            roles=["AGENCY_DISTRIBUTOR"],
+            permissions=[PERM_OPERATIONS_REQUEST_EDIT_DRAFT],
+        )
+        user_b = Principal(
+            user_id="user-b",
+            username="user-b",
+            roles=["AGENCY_DISTRIBUTOR"],
+            permissions=[PERM_OPERATIONS_REQUEST_EDIT_DRAFT],
+        )
+
+        self.client.force_authenticate(user=user_a)
+        allowed_response = self.client.get("/api/v1/operations/requests/70")
+
+        self.client.force_authenticate(user=user_b)
+        denied_response = self.client.get("/api/v1/operations/requests/70")
+
+        self.assertEqual(allowed_response.status_code, 200)
+        self.assertEqual(denied_response.status_code, 403)
+        self.assertEqual(
+            denied_response.json(),
+            {"errors": {"scope": "Request is outside the active tenant or workflow assignment scope."}},
+        )
+        self.assertEqual(mock_legacy_get_request.call_count, 1)
 
 
 class OperationsViewHelperTests(SimpleTestCase):
