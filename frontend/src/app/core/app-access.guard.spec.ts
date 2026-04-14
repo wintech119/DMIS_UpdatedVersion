@@ -4,7 +4,7 @@ import { asyncScheduler, firstValueFrom, isObservable, of, scheduled } from 'rxj
 
 import { AppAccessService } from './app-access.service';
 import { AuthSessionService, AuthSessionState } from './auth-session.service';
-import { appAccessGuard, appAccessMatchGuard } from './app-access.guard';
+import { appAccessGuard, appAccessMatchGuard, normalizeRequestedUrlString } from './app-access.guard';
 
 describe('appAccessGuard', () => {
   function setup(options: {
@@ -163,5 +163,14 @@ describe('appAccessGuard', () => {
 
     expect(access.canAccessNavKey).toHaveBeenCalledWith('master.any');
     expect(result).toBeTrue();
+  });
+
+  it('normalizes safe returnUrls and rejects scheme, credential, and encoded host attacks', () => {
+    expect(normalizeRequestedUrlString('/replenishment/dashboard')).toBe('/replenishment/dashboard');
+    expect(normalizeRequestedUrlString('/%2F%2Fevil.example')).toBe('/');
+    expect(normalizeRequestedUrlString('/https:%2F%2Fevil.example')).toBe('/');
+    expect(normalizeRequestedUrlString('/ops@evil.example')).toBe('/');
+    expect(normalizeRequestedUrlString('/ops\\dispatch')).toBe('/');
+    expect(normalizeRequestedUrlString('/auth/login')).toBe('/');
   });
 });

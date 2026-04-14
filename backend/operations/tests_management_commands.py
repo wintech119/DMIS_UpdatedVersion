@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
+from typing import TypeAlias
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
@@ -40,7 +41,12 @@ from replenishment.legacy_models import Inventory, ItemBatch
 from operations.management.commands import reset_package_allocations
 
 
-_USE_CURRENT_UPDATE_TIME = object()
+class _UseCurrentUpdateTimeSentinel:
+    pass
+
+
+_SentinelType: TypeAlias = _UseCurrentUpdateTimeSentinel
+_USE_CURRENT_UPDATE_TIME = _UseCurrentUpdateTimeSentinel()
 
 
 class ImportReliefManagementAuthorityCommandTests(TestCase):
@@ -756,6 +762,11 @@ class SeedOperationsRbacPermissionsCommandTests(SimpleTestCase):
         insert_role_permissions.assert_called_once()
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
     resolver_path = (
         "operations.management.commands.repair_request_level_fulfillment_queue_scope."
@@ -1077,7 +1088,7 @@ class RepairInventoryAggregatesCommandTests(TransactionTestCase):
         defective_qty: Decimal = Decimal("0.0000"),
         expired_qty: Decimal = Decimal("0.0000"),
         status_code: str = "A",
-        update_dtime: datetime | None | object = _USE_CURRENT_UPDATE_TIME,
+        update_dtime: datetime | None | _SentinelType = _USE_CURRENT_UPDATE_TIME,
     ) -> ItemBatch:
         ItemBatch.objects.filter(batch_id=batch_id).delete()
         return ItemBatch.objects.create(

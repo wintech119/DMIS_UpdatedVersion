@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { normalizeRequestedUrlString } from '../core/app-access.guard';
 import { AuthSessionService, AuthSessionStatus } from '../core/auth-session.service';
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
 
@@ -123,7 +124,7 @@ export class DmisAuthLoginPageComponent {
 
   readonly working = signal(false);
   readonly returnUrl = signal(this.defaultReturnUrl);
-  readonly loginEnabled = computed(() => this.authSession.loginAvailable());
+  readonly loginEnabled = computed(() => this.authSession.loginAvailable() && !this.authSession.authenticated());
   readonly message = computed(() =>
     messageForStatus(
       this.route.snapshot.queryParamMap.get('reason'),
@@ -134,24 +135,36 @@ export class DmisAuthLoginPageComponent {
 
   constructor() {
     const initialReturnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
-    this.returnUrl.set(initialReturnUrl?.trim() || this.defaultReturnUrl);
+    this.returnUrl.set(this.resolveReturnUrl(initialReturnUrl));
 
     if (this.authSession.authenticated()) {
-      void this.router.navigateByUrl(this.returnUrl(), { replaceUrl: true });
+      void this.router.navigateByUrl(this.resolveReturnUrl(this.returnUrl()), { replaceUrl: true });
     }
 
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
-      this.returnUrl.set(params.get('returnUrl')?.trim() || this.defaultReturnUrl);
+      this.returnUrl.set(this.resolveReturnUrl(params.get('returnUrl')));
     });
   }
 
   async signIn(): Promise<void> {
     this.working.set(true);
     try {
-      await this.authSession.startLogin(this.returnUrl());
+      await this.authSession.startLogin(this.resolveReturnUrl(this.returnUrl()));
     } finally {
       this.working.set(false);
     }
+  }
+
+  private resolveReturnUrl(rawValue: string | null | undefined): string {
+    const trimmed = String(rawValue ?? '').trim();
+    if (!trimmed) {
+      return this.defaultReturnUrl;
+    }
+    const normalized = normalizeRequestedUrlString(trimmed);
+    if (!normalized || (normalized === '/' && trimmed !== '/')) {
+      return this.defaultReturnUrl;
+    }
+    return normalized;
   }
 }
 
@@ -243,7 +256,10 @@ export class DmisAuthCallbackPageComponent {
     return messageForStatus('expired_or_invalid_token', state.status, state.message);
   });
 
-  readonly showRetry = computed(() => this.authSession.state().status !== 'bootstrapping');
+  readonly showRetry = computed(() => {
+    const status = this.authSession.state().status;
+    return status !== 'bootstrapping' && status !== 'authenticated';
+  });
 }
 
 @Component({

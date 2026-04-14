@@ -1,18 +1,27 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
 
 import { AuthSessionService } from '../core/auth-session.service';
 import { AuthRbacService } from '../replenishment/services/auth-rbac.service';
 import {
   DmisAccessDeniedPageComponent,
+  DmisAuthCallbackPageComponent,
   DmisAuthLoginPageComponent,
 } from './auth-pages.component';
 
 describe('Auth pages', () => {
+  function activatedRouteWith(queryParams: Record<string, string> = {}) {
+    return {
+      snapshot: {
+        queryParamMap: convertToParamMap(queryParams),
+      },
+      queryParamMap: of(convertToParamMap(queryParams)),
+    };
+  }
+
   it('shows the non-local OIDC configuration warning on the login page when login is unavailable', async () => {
     const authSession = {
       loginAvailable: signal(false),
@@ -34,12 +43,7 @@ describe('Auth pages', () => {
         { provide: AuthSessionService, useValue: authSession },
         {
           provide: ActivatedRoute,
-          useValue: {
-            snapshot: {
-              queryParamMap: convertToParamMap({ reason: 'unauthenticated' }),
-            },
-            queryParamMap: of(convertToParamMap({ reason: 'unauthenticated' })),
-          },
+          useValue: activatedRouteWith({ reason: 'unauthenticated' }),
         },
       ],
     }).compileComponents();
@@ -49,6 +53,135 @@ describe('Auth pages', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('OIDC login is not configured for this deployment');
+  });
+
+  it('renders the sign-in button and forwards the sanitized returnUrl when login is available', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(false),
+      state: signal({
+        status: 'unauthenticated' as const,
+        message: 'Sign in to continue.',
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin').and.returnValue(Promise.resolve()),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ reason: 'unauthenticated', returnUrl: '/operations/dispatch' }),
+        },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('.auth-primary') as HTMLButtonElement | null;
+    expect(button).not.toBeNull();
+
+    button?.click();
+    await fixture.whenStable();
+
+    expect(authSession.startLogin).toHaveBeenCalledWith('/operations/dispatch');
+  });
+
+  it('redirects authenticated users to a safe returnUrl without rendering the sign-in button', async () => {
+    const authSession = {
+      loginAvailable: signal(true),
+      authenticated: signal(true),
+      state: signal({
+        status: 'authenticated' as const,
+        message: null,
+        configured: true,
+        oidcEnabled: true,
+      }),
+      startLogin: jasmine.createSpy('startLogin'),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthLoginPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+        {
+          provide: ActivatedRoute,
+          useValue: activatedRouteWith({ returnUrl: '/https:%2F%2Fevil.example' }),
+        },
+      ],
+    }).compileComponents();
+
+    const router = TestBed.inject(Router);
+    const navigateByUrl = spyOn(router, 'navigateByUrl').and.returnValue(Promise.resolve(true));
+
+    const fixture = TestBed.createComponent(DmisAuthLoginPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(navigateByUrl).toHaveBeenCalledWith('/replenishment/dashboard', { replaceUrl: true });
+    expect((fixture.nativeElement as HTMLElement).querySelector('.auth-primary')).toBeNull();
+  });
+
+  it('shows bootstrapping UI on the callback page without a retry link', async () => {
+    const authSession = {
+      state: signal({
+        status: 'bootstrapping' as const,
+        message: null,
+        configured: true,
+        oidcEnabled: true,
+      }),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthCallbackPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthCallbackPageComponent);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('validating the authorization response');
+    expect(element.querySelector('.auth-link')).toBeNull();
+  });
+
+  it('shows redirecting UI on the callback page without a retry link after authentication', async () => {
+    const authSession = {
+      state: signal({
+        status: 'authenticated' as const,
+        message: null,
+        configured: true,
+        oidcEnabled: true,
+      }),
+    };
+
+    await TestBed.configureTestingModule({
+      imports: [DmisAuthCallbackPageComponent],
+      providers: [
+        provideRouter([]),
+        provideNoopAnimations(),
+        { provide: AuthSessionService, useValue: authSession },
+      ],
+    }).compileComponents();
+
+    const fixture = TestBed.createComponent(DmisAuthCallbackPageComponent);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('Redirecting you back into DMIS');
+    expect(element.querySelector('.auth-link')).toBeNull();
   });
 
   it('shows the signed-in user on the access denied page', async () => {

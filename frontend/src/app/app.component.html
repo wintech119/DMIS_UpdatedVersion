@@ -1,5 +1,5 @@
-<a class="skip-to-main" href="#main-content">Skip to main content</a>
 @if (showShellChrome()) {
+  <a class="skip-to-main" href="#main-content">Skip to main content</a>
   <div class="app-layout">
     <app-sidenav
       [currentUser]="currentUser()"
@@ -36,7 +36,8 @@
     </div>
   </div>
 } @else {
-  <main id="main-content" class="auth-shell">
+  <a class="skip-to-main" href="#auth-main">Skip to main content</a>
+  <main id="auth-main" class="auth-shell">
     <router-outlet />
   </main>
 }

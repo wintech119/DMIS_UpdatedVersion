@@ -85,7 +85,7 @@ describe('AppComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
-    localStorage.clear();
+    localStorage.removeItem('dmis_local_harness_user');
     delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
   });
 
@@ -190,7 +190,7 @@ describe('AppComponent', () => {
   });
 
   it('limits the local harness client gate to local browser hosts', () => {
-    delete (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'];
+    (globalThis as typeof globalThis & Record<string, unknown>)['__DMIS_LOCAL_AUTH_HARNESS_BUILD__'] = false;
 
     expect(localAuthHarnessBuildEnabled()).toBeFalse();
     expect(localAuthHarnessClientEnabled({ hostname: 'localhost' })).toBeFalse();

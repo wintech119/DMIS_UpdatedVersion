@@ -10,6 +10,7 @@ from django.db import IntegrityError, ProgrammingError
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
+from api.tenancy import TenantContext, TenantMembership
 from replenishment import views
 from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
@@ -690,7 +691,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
 
         result = get_allocation_options(11)
 
-        self.assertFalse(result["items"][0]["override_required"])
+        self.assertTrue(result["items"][0]["override_required"])
         self.assertEqual(result["items"][0]["compliance_markers"], ["allocation_order_override"])
 
     @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
@@ -720,7 +721,7 @@ class AllocationDispatchHelperTests(SimpleTestCase):
     @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
     @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
     @patch("replenishment.services.allocation_dispatch._load_needs_list")
-    def test_commit_allocation_commits_order_override_with_reason_code_only(
+    def test_commit_allocation_submits_order_override_for_approval(
         self,
         mock_load_needs_list,
         mock_load_needs_items,
@@ -751,15 +752,16 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
             actor_user_id="tester",
             override_reason_code="FEFO_BYPASS",
+            override_note="Supervisor review required.",
             allow_pending_override=True,
         )
 
-        self.assertEqual(result["status"], "COMMITTED")
-        self.assertFalse(result["override_required"])
+        self.assertEqual(result["status"], "PENDING_OVERRIDE_APPROVAL")
+        self.assertTrue(result["override_required"])
         self.assertEqual(result["override_markers"], ["allocation_order_override"])
         self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
         self.assertEqual(_log_audit_mock.call_args.kwargs["reason_code"], "FEFO_BYPASS")
-        stock_delta_mock.assert_called_once()
+        stock_delta_mock.assert_not_called()
         header_updates_mock.assert_called_once()
 
     @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
@@ -1317,3 +1319,108 @@ class AllocationDispatchApiTests(TestCase):
         self.assertFalse(mock_transition_status.called)
         self.assertFalse(mock_update_record.called)
         self.assertFalse(mock_upsert_link.called)
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=19,
+            active_tenant_id=19,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="PARISH",
+            memberships=(
+                TenantMembership(
+                    tenant_id=19,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="PARISH",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_cross_tenant_actor_without_state_change(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_tenant_context,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-11",
+            "status": "IN_PREPARATION",
+            "warehouse_id": 1,
+            "event_id": 7,
+            "prep_started_at": "2026-03-24T10:00:00Z",
+        }
+        mock_execution_link.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            selected_method="FIFO",
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.json().get("errors", {}))
+        mock_dispatch_package.assert_not_called()
+        mock_transition_status.assert_not_called()
+        mock_update_record.assert_not_called()
+        mock_upsert_link.assert_not_called()
+
+    @override_settings(
+        DEV_AUTH_ROLES=["UNRELATED_ROLE"],
+        DEV_AUTH_PERMISSIONS=[],
+    )
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_wrong_role_without_state_change(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        mock_get_record.assert_not_called()
+        mock_execution_link.assert_not_called()
+        mock_dispatch_package.assert_not_called()
+        mock_transition_status.assert_not_called()
+        mock_update_record.assert_not_called()
+        mock_upsert_link.assert_not_called()

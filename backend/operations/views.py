@@ -4,6 +4,7 @@ import logging
 import math
 import time
 from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.core.cache import cache
@@ -67,6 +68,7 @@ _RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
 _RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
 _RATE_LIMIT_LOCK_ATTEMPTS = 20
 _SURGE_PHASES = {"SURGE", "STABILIZED"}
+_MAX_ITEM_PREVIEW_DRAFT_ALLOCATIONS = 200
 _SURGE_ROLE_CODES = {
     ROLE_LOGISTICS_OFFICER,
     ROLE_LOGISTICS_MANAGER,
@@ -262,6 +264,86 @@ def _optional_positive_int_query_param(raw_value: str | None, field_name: str) -
     if parsed <= 0:
         raise OperationValidationError({field_name: "Must be a positive integer."})
     return parsed
+
+
+def _required_positive_int_payload_value(raw_value: object, field_name: str) -> int:
+    if raw_value in (None, ""):
+        raise OperationValidationError({field_name: f"{field_name} is required."})
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise OperationValidationError({field_name: "Must be a positive integer."}) from exc
+    if parsed <= 0:
+        raise OperationValidationError({field_name: "Must be a positive integer."})
+    return parsed
+
+
+def _validated_item_preview_draft_allocations(raw_value: object) -> list[dict[str, Any]]:
+    if raw_value in (None, ""):
+        return []
+    if not isinstance(raw_value, list):
+        raise OperationValidationError({"draft_allocations": "draft_allocations must be provided as an array."})
+    if len(raw_value) > _MAX_ITEM_PREVIEW_DRAFT_ALLOCATIONS:
+        raise OperationValidationError(
+            {
+                "draft_allocations": (
+                    f"draft_allocations must contain no more than "
+                    f"{_MAX_ITEM_PREVIEW_DRAFT_ALLOCATIONS} entries."
+                )
+            }
+        )
+
+    errors: dict[str, str] = {}
+    normalized_rows: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(raw_value):
+        field_prefix = f"draft_allocations[{index}]"
+        if not isinstance(raw_row, Mapping):
+            errors[field_prefix] = "Each draft allocation must be an object."
+            continue
+
+        missing_fields = [
+            field_name
+            for field_name in ("item_id", "inventory_id", "batch_id", "quantity")
+            if raw_row.get(field_name) in (None, "")
+        ]
+        if missing_fields:
+            errors[field_prefix] = f"Missing required field(s): {', '.join(missing_fields)}."
+            continue
+
+        quantity_text = str(raw_row.get("quantity")).strip()
+        try:
+            quantity = Decimal(quantity_text)
+        except (ArithmeticError, InvalidOperation, ValueError):
+            errors[f"{field_prefix}.quantity"] = "Must be a decimal number."
+            continue
+        if quantity <= 0:
+            errors[f"{field_prefix}.quantity"] = "Must be greater than zero."
+            continue
+
+        normalized_row = dict(raw_row)
+        for field_name in ("item_id", "inventory_id", "batch_id"):
+            try:
+                normalized_row[field_name] = _required_positive_int_payload_value(
+                    raw_row.get(field_name),
+                    f"{field_prefix}.{field_name}",
+                )
+            except OperationValidationError as exc:
+                errors.update(exc.errors)
+
+        if raw_row.get("source_record_id") not in (None, ""):
+            try:
+                normalized_row["source_record_id"] = _required_positive_int_payload_value(
+                    raw_row.get("source_record_id"),
+                    f"{field_prefix}.source_record_id",
+                )
+            except OperationValidationError as exc:
+                errors.update(exc.errors)
+
+        normalized_rows.append(normalized_row)
+
+    if errors:
+        raise OperationValidationError(errors)
+    return normalized_rows
 
 
 def _payload_object(payload: object) -> dict[str, Any]:
@@ -550,13 +632,24 @@ operations_package_draft.required_permission = [PERM_OPERATIONS_PACKAGE_CREATE, 
 def operations_package_unlock(request, reliefrqst_id: int):
     try:
         payload = _payload_object(request.data)
+        permissions = {str(permission).strip().lower() for permission in _permissions(request)}
+        force = _boolean_payload_flag(payload, "force", default=False)
+        if force and PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE.lower() not in permissions:
+            return Response(
+                {
+                    "errors": {
+                        "force": "Override approval permission is required to force-release a package lock."
+                    }
+                },
+                status=403,
+            )
         return Response(
             operations_service.release_package_lock(
                 reliefrqst_id,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
-                force=_boolean_payload_flag(payload, "force", default=False),
+                force=force,
             )
         )
     except Exception as exc:
@@ -624,13 +717,23 @@ operations_item_allocation_options.required_permission = PERM_OPERATIONS_PACKAGE
 def operations_item_allocation_preview(request, reliefrqst_id: int, item_id: int):
     try:
         payload = _payload_object(request.data)
+        source_warehouse_id = _required_positive_int_payload_value(
+            payload.get("source_warehouse_id"),
+            "source_warehouse_id",
+        )
+        draft_allocations = _validated_item_preview_draft_allocations(payload.get("draft_allocations", []))
+        normalized_payload = {
+            **payload,
+            "source_warehouse_id": source_warehouse_id,
+            "draft_allocations": draft_allocations,
+        }
         return Response(
             operations_service.get_item_allocation_preview(
                 reliefrqst_id,
                 item_id,
-                payload=payload,
-                source_warehouse_id=payload.get("source_warehouse_id"),
-                draft_allocations=payload.get("draft_allocations"),
+                payload=normalized_payload,
+                source_warehouse_id=source_warehouse_id,
+                draft_allocations=draft_allocations,
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
@@ -648,6 +751,13 @@ operations_item_allocation_preview.required_permission = PERM_OPERATIONS_PACKAGE
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_commit_allocation(request, reliefrqst_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="package_commit_allocation",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.save_package(
                 reliefrqst_id,
@@ -670,6 +780,14 @@ operations_package_commit_allocation.required_permission = [PERM_OPERATIONS_PACK
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_override_approve(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="package_override_approve",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.approve_override(
                 reliefrqst_id,
@@ -677,6 +795,7 @@ def operations_package_override_approve(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -714,7 +833,7 @@ operations_consolidation_legs.required_permission = [
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: int):
     try:
-        _required_idempotency_key(request)
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_dispatch",
@@ -730,6 +849,7 @@ def operations_consolidation_leg_dispatch(request, reliefpkg_id: int, leg_id: in
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -744,7 +864,7 @@ operations_consolidation_leg_dispatch.required_permission = PERM_OPERATIONS_CONS
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int):
     try:
-        _required_idempotency_key(request)
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="consolidation_leg_receive",
@@ -760,6 +880,7 @@ def operations_consolidation_leg_receive(request, reliefpkg_id: int, leg_id: int
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -823,7 +944,7 @@ operations_partial_release_request.required_permission = PERM_OPERATIONS_PARTIAL
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_partial_release_approve(request, reliefpkg_id: int):
     try:
-        _required_idempotency_key(request)
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="partial_release_approve",
@@ -838,6 +959,7 @@ def operations_partial_release_approve(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -880,6 +1002,13 @@ operations_pickup_release.required_permission = PERM_OPERATIONS_PICKUP_RELEASE
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_cancel(request, reliefpkg_id: int):
     try:
+        rate_limited = _rate_limit_response(
+            request,
+            scope="package_cancel",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.cancel_package(
                 reliefpkg_id,

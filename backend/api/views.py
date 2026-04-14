@@ -406,7 +406,7 @@ def _load_local_auth_harness_users() -> tuple[list[dict[str, object]], list[str]
 
     order_index = {value.lower(): index for index, value in enumerate(configured_usernames)}
     users = []
-    for key, user in sorted(users_by_username.items(), key=lambda item: order_index.get(item[0], 10_000)):
+    for _, user in sorted(users_by_username.items(), key=lambda item: order_index.get(item[0], 10_000)):
         memberships = sorted(
             user["memberships"].values(),
             key=lambda membership: (

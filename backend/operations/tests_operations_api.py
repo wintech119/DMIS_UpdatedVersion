@@ -9,7 +9,11 @@ from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from api.authentication import Principal
-from api.rbac import PERM_OPERATIONS_REQUEST_CREATE_SELF, PERM_OPERATIONS_REQUEST_EDIT_DRAFT
+from api.rbac import (
+    PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE,
+    PERM_OPERATIONS_REQUEST_CREATE_SELF,
+    PERM_OPERATIONS_REQUEST_EDIT_DRAFT,
+)
 from operations import views as operations_views
 from replenishment.services.allocation_dispatch import InventoryDriftError
 
@@ -188,6 +192,7 @@ class OperationsApiTests(SimpleTestCase):
             "/api/v1/operations/packages/70/allocations/override-approve",
             {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}], "override_reason_code": "FEFO_BYPASS", "override_note": "Approved"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY="override-70",
         )
         dispatch_queue_response = self.client.get("/api/v1/operations/dispatch/queue")
         dispatch_detail_response = self.client.get("/api/v1/operations/dispatch/90")
@@ -243,6 +248,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_save.call_args_list[1].kwargs["permissions"], [])
         self.assertEqual(mock_override.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_override.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_override.call_args.kwargs["idempotency_key"], "override-70")
         self.assertEqual(mock_dispatch_queue.call_args.kwargs["actor_id"], "ops-dev")
         self.assertEqual(mock_dispatch_queue.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_dispatch_queue.call_args.kwargs["tenant_context"].active_tenant_id, 20)
@@ -301,7 +307,10 @@ class OperationsApiTests(SimpleTestCase):
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
-    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch(
+        "operations.views.resolve_roles_and_permissions",
+        return_value=(["LOGISTICS_MANAGER"], [PERM_OPERATIONS_PACKAGE_OVERRIDE_APPROVE]),
+    )
     @patch(
         "operations.views.operations_service.release_package_lock",
         return_value={
@@ -350,6 +359,26 @@ class OperationsApiTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["errors"]["body"], "Request body must be a JSON object.")
+        mock_unlock.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.release_package_lock")
+    def test_package_unlock_rejects_force_without_override_permission(
+        self,
+        mock_unlock,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post("/api/v1/operations/packages/70/unlock", {"force": True}, format="json")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"force": "Override approval permission is required to force-release a package lock."}},
+        )
         mock_unlock.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
@@ -485,12 +514,15 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_list_legs.call_args.args[0], 90)
         self.assertEqual(mock_dispatch_leg.call_args.args[:2], (90, 301))
         self.assertEqual(mock_dispatch_leg.call_args.kwargs["payload"]["driver_name"], "Jane Driver")
+        self.assertEqual(mock_dispatch_leg.call_args.kwargs["idempotency_key"], "dispatch-leg-301")
         self.assertEqual(mock_receive_leg.call_args.args[:2], (90, 301))
         self.assertEqual(mock_receive_leg.call_args.kwargs["payload"]["received_by_name"], "Receiver")
+        self.assertEqual(mock_receive_leg.call_args.kwargs["idempotency_key"], "receive-leg-301")
         self.assertEqual(mock_leg_waybill.call_args.args[:2], (90, 301))
         self.assertEqual(mock_partial_request.call_args.args[0], 90)
         self.assertEqual(mock_partial_request.call_args.kwargs["payload"]["reason"], "Release received legs now")
         self.assertEqual(mock_partial_approve.call_args.args[0], 90)
+        self.assertEqual(mock_partial_approve.call_args.kwargs["idempotency_key"], "partial-approve-90")
         self.assertEqual(mock_pickup_release.call_args.args[0], 90)
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["collected_by_name"], "Community Driver")
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["collected_by_id_ref"], "NID-7788")
@@ -728,6 +760,36 @@ class OperationsApiTests(SimpleTestCase):
             {"errors": {"draft_allocations": "draft_allocations must be provided as an array."}},
         )
 
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    def test_item_allocation_preview_rejects_invalid_draft_allocation_row_shape(
+        self,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocation-options/101/preview",
+            {
+                "source_warehouse_id": 1,
+                "draft_allocations": [
+                    {
+                        "item_id": 101,
+                        "inventory_id": 1,
+                        "quantity": "2.0000",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"draft_allocations[0]": "Missing required field(s): batch_id."}},
+        )
+
     @patch("operations.views.operations_service.list_requests")
     @patch(
         "operations.views.LegacyCompatAuthentication.authenticate",
@@ -838,6 +900,118 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
         mock_approve_partial_release.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.approve_override")
+    def test_package_override_approve_requires_idempotency_key(
+        self,
+        mock_approve_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/70/allocations/override-approve",
+            {"override_reason_code": "FEFO_BYPASS", "override_note": "Approved"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_approve_override.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.approve_override")
+    def test_package_override_approve_returns_429_when_rate_limited(
+        self,
+        mock_approve_override,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/70/allocations/override-approve",
+                {"override_reason_code": "FEFO_BYPASS", "override_note": "Approved"},
+                format="json",
+                HTTP_IDEMPOTENCY_KEY="override-70",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_approve_override.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.save_package")
+    def test_package_commit_allocation_returns_429_when_rate_limited(
+        self,
+        mock_save_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/70/allocations/commit",
+                {"allocations": [{"item_id": 101, "inventory_id": 1, "batch_id": 1001, "quantity": "2"}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_save_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.cancel_package")
+    def test_package_cancel_returns_429_when_rate_limited(
+        self,
+        mock_cancel_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        with patch(
+            "operations.views._rate_limit_response",
+            return_value=Response(
+                {"detail": "Rate limit exceeded."},
+                status=429,
+                headers={"Retry-After": "17"},
+            ),
+        ):
+            response = self.client.post(
+                "/api/v1/operations/packages/90/cancel",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "17")
+        self.assertEqual(response.json(), {"detail": "Rate limit exceeded."})
+        mock_cancel_package.assert_not_called()
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)

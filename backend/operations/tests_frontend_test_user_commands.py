@@ -8,11 +8,16 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from operations.management.commands.seed_relief_management_frontend_test_users import Command
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
     def test_ensure_user_annotation_uses_frontend_user_spec(self) -> None:
         self.assertEqual(
@@ -303,11 +308,8 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         self.assertEqual(ensure_user.call_count, 5)
         self.assertEqual(ensure_tenant_membership.call_count, 5)
         self.assertEqual(ensure_user_role.call_count, 5)
-        self.assertEqual(ensure_tenant_membership.call_args_list[0].kwargs["tenant_id"], 27)
-        self.assertEqual(ensure_tenant_membership.call_args_list[1].kwargs["tenant_id"], 27)
-        self.assertEqual(ensure_tenant_membership.call_args_list[2].kwargs["tenant_id"], 27)
-        self.assertEqual(ensure_tenant_membership.call_args_list[3].kwargs["tenant_id"], 27)
-        self.assertEqual(ensure_tenant_membership.call_args_list[4].kwargs["tenant_id"], 19)
+        tenant_ids = [call.kwargs["tenant_id"] for call in ensure_tenant_membership.call_args_list]
+        self.assertEqual(tenant_ids, [27, 27, 27, 27, 19])
 
     @patch(
         "operations.management.commands.seed_relief_management_frontend_test_users.Command._resolve_role",

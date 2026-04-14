@@ -169,7 +169,7 @@ class DesignSystemGenerator:
         """Extract results list from search result dict."""
         return search_result.get("results", [])
 
-    def generate(self, query: str, project_name: str = None) -> dict:
+    def generate(self, query: str, project_name: str | None = None) -> dict:
         """Generate complete design system recommendation."""
         # Step 1: First search product to get category
         product_result = search(query, "product", 1)
@@ -205,7 +205,9 @@ class DesignSystemGenerator:
         # Combine effects from both reasoning and style search
         style_effects = best_style.get("Effects & Animation", "")
         reasoning_effects = reasoning.get("key_effects", "")
-        combined_effects = style_effects if style_effects else reasoning_effects
+        combined_effects = " | ".join(
+            dict.fromkeys(effect for effect in (style_effects, reasoning_effects) if effect)
+        )
 
         return {
             "project_name": project_name or query.upper(),
@@ -472,8 +474,14 @@ def format_markdown(design_system: dict) -> str:
 
 
 # ============ MAIN ENTRY POINT ============
-def generate_design_system(query: str, project_name: str = None, output_format: str = "ascii", 
-                           persist: bool = False, page: str = None, output_dir: str = None) -> str:
+def generate_design_system(
+    query: str,
+    project_name: str | None = None,
+    output_format: str = "ascii",
+    persist: bool = False,
+    page: str | None = None,
+    output_dir: str | None = None,
+) -> str | dict[str, Any]:
     """
     Main entry point for design system generation.
 
@@ -491,13 +499,16 @@ def generate_design_system(query: str, project_name: str = None, output_format: 
     generator = DesignSystemGenerator()
     design_system = generator.generate(query, project_name)
     
-    # Persist to files if requested
-    if persist:
-        persist_design_system(design_system, page, output_dir, query)
+    output = format_markdown(design_system) if output_format == "markdown" else format_ascii_box(design_system)
 
-    if output_format == "markdown":
-        return format_markdown(design_system)
-    return format_ascii_box(design_system)
+    if persist:
+        persisted = persist_design_system(design_system, page, output_dir, query)
+        return {
+            **persisted,
+            "output": output,
+        }
+
+    return output
 
 
 # ============ PERSISTENCE FUNCTIONS ============
@@ -507,7 +518,12 @@ def _safe_slug(value: str, fallback: str) -> str:
     return slug or fallback
 
 
-def persist_design_system(design_system: dict, page: str = None, output_dir: str = None, page_query: str = None) -> dict:
+def persist_design_system(
+    design_system: dict,
+    page: str | None = None,
+    output_dir: str | None = None,
+    page_query: str | None = None,
+) -> dict:
     """
     Persist design system to design-system/<project>/ folder using Master + Overrides pattern.
     
@@ -821,7 +837,7 @@ def format_master_md(design_system: dict) -> str:
     return "\n".join(lines)
 
 
-def format_page_override_md(design_system: dict, page_name: str, page_query: str = None) -> str:
+def format_page_override_md(design_system: dict, page_name: str, page_query: str | None = None) -> str:
     """Format a page-specific override file with intelligent AI-generated content."""
     project = design_system.get("project_name", "PROJECT")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

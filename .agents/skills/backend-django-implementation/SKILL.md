@@ -3,7 +3,7 @@ name: backend-django-implementation
 description: Django backend implementation skill for writing production-quality Python, Django, Django REST Framework, and PostgreSQL code. Use when building or modifying backend components including models, serializers, services, selectors, views, permissions, migrations, and background tasks. Use the current codebase, project docs, and targeted tests when framework-aware validation or implementation guidance is required.
 allowed-tools: Read, Grep, Glob, Bash
 model: sonnet
-skills: backend-django-implementation
+skills: backend, django, implementation
 ---
 
 ## Role & Context
@@ -196,6 +196,8 @@ Do not rely on serializers alone for:
 Views must:
 * require the correct authentication classes
 * use appropriate permission classes
+* resolve caller RBAC in `backend/**/views.py` with `resolve_roles_and_permissions(request, request.user)` when action-level authorization matters
+* authorize reads and writes against the resolved permissions list (or `Principal.permissions`) before returning data or mutating state
 * scope querysets safely
 * delegate reads to selectors when useful
 * delegate writes and workflow logic to services
@@ -205,6 +207,7 @@ Views must:
 Avoid:
 * embedding complex write workflows directly in views
 * overly broad querysets
+* relying on DRF permission classes or generic route checks alone for action-level authorization
 * permission logic implied only by filtered UI access
 
 Where DRF behavior or serializer/view patterns need framework-aware validation, reference the current codebase, project docs, and targeted tests.

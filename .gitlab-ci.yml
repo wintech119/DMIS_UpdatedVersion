@@ -51,6 +51,7 @@ auth_posture_validation:
           "DB_PASSWORD": "dmis",
           "DB_HOST": "db",
           "DB_PORT": "5432",
+          "REDIS_URL": "redis://redis:6379/0",
       }
 
       cases = [
@@ -192,6 +193,7 @@ secure_posture_validation:
           "DB_PASSWORD": "dmis",
           "DB_HOST": "db",
           "DB_PORT": "5432",
+          "REDIS_URL": "redis://redis:6379/0",
           "AUTH_ENABLED": "1",
           "DEV_AUTH_ENABLED": "0",
           "LOCAL_AUTH_HARNESS_ENABLED": "0",

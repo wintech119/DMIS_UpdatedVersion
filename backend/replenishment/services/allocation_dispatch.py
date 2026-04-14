@@ -1237,7 +1237,12 @@ def _reservation_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset({"insufficient_on_hand_stock"})
+_APPROVAL_REQUIRED_OVERRIDE_MARKERS = frozenset(
+    {
+        "allocation_order_override",
+        "insufficient_on_hand_stock",
+    }
+)
 
 
 def _approval_required_override_markers(markers: Sequence[str]) -> list[str]:
@@ -1498,12 +1503,14 @@ def get_allocation_options(
             candidates,
             remaining_qty,
         )
-        _, _, compliance_markers = detect_override_requirement(
+        override_required, _, compliance_markers = detect_override_requirement(
             item,
             suggested_allocations,
             candidates,
         )
-        approval_required = bool(_approval_required_override_markers(compliance_markers))
+        approval_required = override_required or bool(
+            _approval_required_override_markers(compliance_markers)
+        )
 
         group = {
             "needs_list_item_id": needs_item.needs_list_item_id,

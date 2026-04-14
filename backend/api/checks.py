@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from django.conf import settings
-from django.core.checks import Error, Tags, Warning, register
+from django.core.checks import Error, Tags, Warning as DjangoWarning, register
 from django.db import DatabaseError, connection
 from dmis_api import settings as dmis_settings
 
@@ -116,7 +116,7 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
 
     if not getattr(settings, "AUTH_USE_DB_RBAC", False):
         messages.append(
-            Warning(
+            DjangoWarning(
                 "AUTH_USE_DB_RBAC is disabled; DMIS RBAC is expected as the canonical auth source.",
                 id="api.W001",
             )
@@ -150,7 +150,7 @@ def check_dmis_rbac_boundary(app_configs, **kwargs):
     if populated:
         details = ", ".join(f"{name}={count}" for name, count in populated)
         messages.append(
-            Warning(
+            DjangoWarning(
                 "Django auth membership tables contain rows. "
                 "DMIS RBAC remains canonical; validate these are framework-only artifacts "
                 f"and not business authorization dependencies ({details}).",

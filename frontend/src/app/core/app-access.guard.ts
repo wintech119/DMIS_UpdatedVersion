@@ -93,13 +93,25 @@ function normalizeRequestedUrl(segments: UrlSegment[], routePath?: string | null
   return '/';
 }
 
-function normalizeRequestedUrlString(value: string): string {
+export function normalizeRequestedUrlString(value: string): string {
   const normalized = String(value ?? '').trim();
-  if (!normalized.startsWith('/') || normalized.startsWith('//')) {
+  const decoded = decodeRequestedUrl(normalized);
+  if (!decoded.startsWith('/') || decoded.startsWith('//')) {
     return '/';
   }
-  if (normalized.startsWith('/auth/login') || normalized.startsWith('/auth/callback')) {
+  if (decoded.includes('@') || decoded.includes('\\') || /^[^/]*:/.test(decoded.slice(1))) {
     return '/';
   }
-  return normalized || '/';
+  if (decoded.startsWith('/auth/login') || decoded.startsWith('/auth/callback')) {
+    return '/';
+  }
+  return decoded || '/';
+}
+
+function decodeRequestedUrl(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
