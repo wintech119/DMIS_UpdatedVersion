@@ -1,13 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, of, throwError, timer } from 'rxjs';
+import { filter, map, switchMap, take, timeout } from 'rxjs/operators';
 import { StockStatusResponse, StockStatusItem, calculateSeverity } from '../models/stock-status.model';
 import {
+  AsyncJobResponse,
   DonationsResponse,
   MySubmissionsResponse,
   NeedsListFulfillmentSourcesResponse,
   NeedsListResponse,
+  QueuedNeedsListExportResponse,
   NeedsListSummaryVersionResponse,
   TransferDraft,
   TransferDraftsResponse
@@ -547,19 +549,19 @@ export class ReplenishmentService {
     );
   }
 
-  exportDonationNeeds(needsListId: string, format: 'csv' | 'pdf' = 'csv'): Observable<Blob> {
-    return this.http.get(
-      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/donations/export?format=${format}`,
-      { responseType: 'blob' }
+  exportDonationNeeds(needsListId: string, format: 'csv' = 'csv'): Observable<Blob> {
+    return this.exportNeedsListAsync(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/donations/export`,
+      format
     );
   }
 
   // -- Procurement Methods (Horizon C) --
 
-  exportProcurementNeeds(needsListId: string, format: 'csv' | 'pdf' = 'csv'): Observable<Blob> {
-    return this.http.get(
-      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/procurement/export?format=${format}`,
-      { responseType: 'blob' }
+  exportProcurementNeeds(needsListId: string, format: 'csv' = 'csv'): Observable<Blob> {
+    return this.exportNeedsListAsync(
+      `${this.apiUrl}/needs-list/${encodeURIComponent(needsListId)}/procurement/export`,
+      format
     );
   }
 
@@ -732,5 +734,67 @@ export class ReplenishmentService {
     }
     const parsed = parseFloat(value);
     return isNaN(parsed) ? null : parsed;
+  }
+
+  getAsyncJobStatus(jobId: string): Observable<AsyncJobResponse> {
+    return this.http.get<AsyncJobResponse>(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  waitForAsyncJob(
+    jobId: string,
+    pollIntervalMs = 2000,
+    timeoutMs = 60000
+  ): Observable<AsyncJobResponse> {
+    return timer(0, pollIntervalMs).pipe(
+      switchMap(() => this.getAsyncJobStatus(jobId)),
+      map(job => {
+        if (job.status === 'FAILED') {
+          throw new Error(this.buildAsyncJobFailureMessage(job.job_id, job.error_message));
+        }
+        return job;
+      }),
+      filter(job => job.status === 'SUCCEEDED'),
+      take(1),
+      timeout({
+        first: timeoutMs,
+        with: () =>
+          throwError(() => new Error(`Export job ${jobId} did not finish within 60 seconds.`))
+      })
+    );
+  }
+
+  downloadAsyncJobArtifact(jobId: string): Observable<Blob> {
+    return this.http.get(`/api/v1/jobs/${encodeURIComponent(jobId)}/download`, {
+      responseType: 'blob'
+    });
+  }
+
+  private exportNeedsListAsync(endpoint: string, format: 'csv'): Observable<Blob> {
+    if (format !== 'csv') {
+      return throwError(() => new Error('Only CSV export is supported.'));
+    }
+
+    return this.http.post<QueuedNeedsListExportResponse>(endpoint, { format }).pipe(
+      switchMap(job => this.waitForQueuedExport(job)),
+      switchMap(job => this.downloadAsyncJobArtifact(job.job_id))
+    );
+  }
+
+  private waitForQueuedExport(job: QueuedNeedsListExportResponse): Observable<AsyncJobResponse> {
+    if (job.status === 'FAILED') {
+      return throwError(() => new Error(this.buildAsyncJobFailureMessage(job.job_id, job.error_message)));
+    }
+    if (job.status === 'SUCCEEDED') {
+      return of(job);
+    }
+    return this.waitForAsyncJob(job.job_id);
+  }
+
+  private buildAsyncJobFailureMessage(jobId: string, errorMessage: string | null | undefined): string {
+    const detail = String(errorMessage ?? '').trim();
+    if (detail) {
+      return `Export job ${jobId} failed: ${detail}`;
+    }
+    return `Export job ${jobId} failed.`;
   }
 }

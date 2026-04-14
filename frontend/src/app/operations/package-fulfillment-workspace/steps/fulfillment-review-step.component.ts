@@ -10,12 +10,20 @@ import { formatAllocationMethod, formatExecutionStatus, formatSourceType } from 
 import { OpsStatusChipComponent } from '../../shared/ops-status-chip.component';
 import { MasterDataService } from '../../../master-data/services/master-data.service';
 
+interface ReviewWarehouseSubgroup {
+  inventoryId: number;
+  warehouseName: string;
+  subtotal: number;
+  rows: AllocationSelectionPayload[];
+}
+
 interface ReviewGroup {
   itemId: number;
   itemName: string;
   itemCode: string;
   selectedQty: number;
   rows: AllocationSelectionPayload[];
+  warehouses: ReviewWarehouseSubgroup[];
 }
 
 @Component({
@@ -76,12 +84,19 @@ interface ReviewGroup {
         </div>
       }
 
+      @if (stockIntegrityWarning) {
+        <div class="ops-callout ops-callout--warning" role="status">
+          <mat-icon aria-hidden="true">warning_amber</mat-icon>
+          <span>{{ stockIntegrityWarning }}</span>
+        </div>
+      }
+
       @if (store.planRequiresOverride() && !store.hasPendingOverride()) {
         <div class="ops-callout ops-callout--warning" role="status">
           <mat-icon aria-hidden="true">policy</mat-icon>
           <span>
-            This selection bypasses the backend recommendation. The reservation will route for narrow override approval
-            before dispatch can continue.
+            This selection bypasses the backend recommendation. Record the override reason before you commit the
+            reservation.
           </span>
         </div>
       }
@@ -121,7 +136,7 @@ interface ReviewGroup {
             <p class="ops-empty__copy">Go back to the selection step to choose stock lines.</p>
           </div>
         } @else {
-          <!-- Desktop: single unified table -->
+          <!-- Desktop: single unified table, items grouped, warehouses sub-grouped -->
           <div class="review-table-wrap review-table-scroll desktop-only">
             <table class="review-table">
               <thead>
@@ -135,26 +150,47 @@ interface ReviewGroup {
               </thead>
               <tbody>
                 @for (group of reviewGroups(); track group.itemId) {
-                  @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? ''); let first = $first) {
-                    <tr [class.review-row--group-start]="first">
-                      <td class="review-cell--item">
-                        @if (first) {
-                          <span class="review-item-name">{{ group.itemName }}</span>
-                          <span class="review-item-meta">{{ group.itemCode }} · {{ group.selectedQty | number:'1.0-4' }} total</span>
-                        }
-                      </td>
-                      <td class="review-cell--truncate" [title]="batchLabel(row)">{{ batchLabel(row) }}</td>
-                      <td><span class="ops-chip ops-chip--outline">{{ formatSource(row.source_type) }}</span></td>
-                      <td class="review-cell--truncate" [title]="warehouseLabel(row)">{{ warehouseLabel(row) }}</td>
-                      <td class="review-col--qty">{{ row.quantity | number:'1.0-4' }}</td>
-                    </tr>
+                  @for (wh of group.warehouses; track wh.inventoryId; let firstWh = $first) {
+                    @if (group.warehouses.length > 1) {
+                      <tr class="review-row--warehouse-header">
+                        <td class="review-cell--item">
+                          @if (firstWh) {
+                            <span class="review-item-name">{{ group.itemName }}</span>
+                            <span class="review-item-meta">{{ group.itemCode }} · {{ group.selectedQty | number:'1.0-4' }} total</span>
+                          }
+                        </td>
+                        <td colspan="3" class="review-cell--warehouse-label">
+                          <mat-icon class="review-icon--inline" aria-hidden="true">warehouse</mat-icon>
+                          {{ wh.warehouseName }}
+                        </td>
+                        <td class="review-col--qty review-cell--warehouse-subtotal">
+                          {{ wh.subtotal | number:'1.0-4' }}
+                        </td>
+                      </tr>
+                    }
+                    @for (row of wh.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? ''); let firstRow = $first) {
+                      <tr
+                        [class.review-row--group-start]="firstWh && firstRow && group.warehouses.length === 1"
+                        [class.review-row--sub]="group.warehouses.length > 1">
+                        <td class="review-cell--item">
+                          @if (firstWh && firstRow && group.warehouses.length === 1) {
+                            <span class="review-item-name">{{ group.itemName }}</span>
+                            <span class="review-item-meta">{{ group.itemCode }} · {{ group.selectedQty | number:'1.0-4' }} total</span>
+                          }
+                        </td>
+                        <td class="review-cell--truncate" [title]="batchLabel(row)">{{ batchLabel(row) }}</td>
+                        <td><span class="ops-chip ops-chip--outline">{{ formatSource(row.source_type) }}</span></td>
+                        <td class="review-cell--truncate" [title]="warehouseLabel(row)">{{ warehouseLabel(row) }}</td>
+                        <td class="review-col--qty">{{ row.quantity | number:'1.0-4' }}</td>
+                      </tr>
+                    }
                   }
                 }
               </tbody>
             </table>
           </div>
 
-          <!-- Mobile: compact card list -->
+          <!-- Mobile: compact card list, items grouped, warehouses sub-grouped -->
           <div class="review-mobile-scroll mobile-only">
             @for (group of reviewGroups(); track group.itemId) {
               <div class="review-mobile-group">
@@ -162,15 +198,24 @@ interface ReviewGroup {
                   <span class="review-item-name">{{ group.itemName }}</span>
                   <strong>{{ group.selectedQty | number:'1.0-4' }}</strong>
                 </div>
-                @for (row of group.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? '')) {
-                  <div class="review-mobile-row">
-                    <div class="review-mobile-row__lead">
-                      <span>{{ batchLabel(row) }}</span>
-                      <span class="ops-chip ops-chip--outline">{{ formatSource(row.source_type) }}</span>
-                      <span class="review-mobile-row__warehouse">{{ warehouseLabel(row) }}</span>
+                @for (wh of group.warehouses; track wh.inventoryId) {
+                  @if (group.warehouses.length > 1) {
+                    <div class="review-mobile-warehouse-header">
+                      <mat-icon class="review-icon--inline" aria-hidden="true">warehouse</mat-icon>
+                      <span>{{ wh.warehouseName }}</span>
+                      <strong>{{ wh.subtotal | number:'1.0-4' }}</strong>
                     </div>
-                    <strong>{{ row.quantity | number:'1.0-4' }}</strong>
-                  </div>
+                  }
+                  @for (row of wh.rows; track row.inventory_id + '-' + row.batch_id + '-' + row.source_type + '-' + (row.source_record_id ?? '')) {
+                    <div class="review-mobile-row">
+                      <div class="review-mobile-row__lead">
+                        <span>{{ batchLabel(row) }}</span>
+                        <span class="ops-chip ops-chip--outline">{{ formatSource(row.source_type) }}</span>
+                        <span class="review-mobile-row__warehouse">{{ warehouseLabel(row) }}</span>
+                      </div>
+                      <strong>{{ row.quantity | number:'1.0-4' }}</strong>
+                    </div>
+                  }
                 }
               </div>
             }
@@ -349,6 +394,39 @@ interface ReviewGroup {
       border-top: none;
     }
 
+    .review-row--warehouse-header td {
+      background: color-mix(in srgb, var(--color-surface-container-low, #f3f3f4) 70%, transparent);
+      border-top: 1px solid var(--color-border, #e5e5e2);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--color-text-secondary, #787774);
+      padding-top: 0.4rem;
+      padding-bottom: 0.4rem;
+    }
+
+    .review-row--warehouse-header:first-child td {
+      border-top: none;
+    }
+
+    .review-cell--warehouse-label {
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .review-cell--warehouse-label .review-icon--inline {
+      margin-right: 0.25rem;
+      vertical-align: -2px;
+    }
+
+    .review-cell--warehouse-subtotal {
+      color: var(--color-text-primary, #37352F);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .review-row--sub td {
+      border-top: 1px dashed color-mix(in srgb, var(--color-border, #e5e5e2) 60%, transparent);
+    }
+
     .review-cell--item {
       vertical-align: top;
       padding-top: 0.5rem;
@@ -406,6 +484,27 @@ interface ReviewGroup {
       padding: 0.45rem 0.65rem;
       background: var(--color-surface-container-low, #f3f3f4);
       font-size: 0.82rem;
+    }
+
+    .review-mobile-warehouse-header {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.65rem;
+      background: color-mix(in srgb, var(--color-surface-container-low, #f3f3f4) 50%, transparent);
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: var(--color-text-secondary, #787774);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      border-top: 1px solid var(--color-border, #e5e5e2);
+    }
+
+    .review-mobile-warehouse-header strong {
+      margin-left: auto;
+      color: var(--color-text-primary, #37352F);
+      font-variant-numeric: tabular-nums;
+      text-transform: none;
     }
 
     .review-mobile-row {
@@ -528,6 +627,7 @@ interface ReviewGroup {
 })
 export class FulfillmentReviewStepComponent {
   @Input() submissionErrors: string[] = [];
+  @Input() stockIntegrityWarning: string | null = null;
   @Input() overrideApprovalHint: string | null = null;
   @Input() canApproveOverride = false;
 
@@ -559,16 +659,37 @@ export class FulfillmentReviewStepComponent {
     return options
       .map((item) => {
         const rows = this.store.getSelectedRows(item.item_id).filter((row) => this.toNumber(row.quantity) > 0);
+        const warehouses = this.buildWarehouseSubgroups(rows);
         return {
           itemId: item.item_id,
           itemName: item.item_name || `Item ${item.item_id}`,
           itemCode: item.item_code || `Item ID ${item.item_id}`,
           selectedQty: rows.reduce((sum, row) => sum + this.toNumber(row.quantity), 0),
           rows,
+          warehouses,
         };
       })
       .filter((group) => group.rows.length > 0);
   });
+
+  private buildWarehouseSubgroups(rows: AllocationSelectionPayload[]): ReviewWarehouseSubgroup[] {
+    const map = new Map<number, ReviewWarehouseSubgroup>();
+    for (const row of rows) {
+      const key = row.inventory_id;
+      if (!map.has(key)) {
+        map.set(key, {
+          inventoryId: key,
+          warehouseName: this.warehouseLabel(row),
+          subtotal: 0,
+          rows: [],
+        });
+      }
+      const entry = map.get(key)!;
+      entry.rows.push(row);
+      entry.subtotal += this.toNumber(row.quantity);
+    }
+    return [...map.values()];
+  }
 
   reservationStateLabel(): string {
     if (this.store.hasPendingOverride()) {

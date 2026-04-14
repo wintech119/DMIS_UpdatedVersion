@@ -69,7 +69,7 @@ export class ProcurementExportComponent {
     this.router.navigate(['/replenishment/needs-list', this.needsListId, 'review']);
   }
 
-  exportAs(format: 'csv' | 'pdf'): void {
+  exportAs(format: 'csv'): void {
     this.exporting.set(true);
     this.replenishmentService.exportProcurementNeeds(this.needsListId, format).subscribe({
       next: (blob) => {
@@ -82,9 +82,10 @@ export class ProcurementExportComponent {
         URL.revokeObjectURL(url);
         this.notifications.showSuccess(`Procurement needs exported as ${format.toUpperCase()}.`);
       },
-      error: () => {
+      error: (error: unknown) => {
         this.exporting.set(false);
-        this.notifications.showError('Failed to export procurement needs.');
+        const message = error instanceof Error ? error.message : 'Failed to export procurement needs.';
+        this.notifications.showError(message);
       }
     });
   }

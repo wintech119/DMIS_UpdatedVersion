@@ -10,10 +10,12 @@ from django.db import IntegrityError, ProgrammingError
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
+from api.tenancy import TenantContext, TenantMembership
 from replenishment import views
 from replenishment.services.allocation_dispatch import (
     LegacyWorkflowContext,
     AllocationDispatchError,
+    InventoryDriftError,
     STATUS_APPROVED,
     _ensure_legacy_request_package,
     _fetch_batch_candidates,
@@ -26,6 +28,7 @@ from replenishment.services.allocation_dispatch import (
     build_greedy_allocation_plan,
     build_waybill_payload,
     detect_override_requirement,
+    get_allocation_options,
     get_current_allocation,
     OverrideApprovalError,
     release_allocation,
@@ -37,6 +40,15 @@ from replenishment.services.allocation_dispatch import (
 
 class AllocationDispatchHelperTests(SimpleTestCase):
     databases = {"default"}
+
+    def test_upsert_execution_link_rejects_dispatched_without_legacy_ids(self) -> None:
+        with self.assertRaises(ValueError):
+            views._upsert_execution_link(
+                needs_list_id=11,
+                actor_user_id="dev-user",
+                execution_status=views.NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                dispatched=True,
+            )
 
     def test_tracking_number_preserves_prefix_for_large_ids(self) -> None:
         self.assertEqual(_tracking_no("PK", 100000), "PK100000")
@@ -388,6 +400,105 @@ class AllocationDispatchHelperTests(SimpleTestCase):
             [1, 2],
         )
 
+    @patch("replenishment.legacy_models.Inventory.objects")
+    @patch("replenishment.legacy_models.ItemBatch.objects")
+    def test_apply_stock_delta_raises_inventory_drift_when_batch_has_stock_but_inventory_aggregate_does_not(
+        self,
+        mock_itembatch_objects,
+        mock_inventory_objects,
+    ) -> None:
+        batch = SimpleNamespace(
+            batch_id=95015,
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("300"),
+            version_nbr=1,
+            available_qty=Decimal("300"),
+        )
+        inventory = SimpleNamespace(
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("0"),
+            version_nbr=1,
+            available_qty=Decimal("0"),
+        )
+        mock_itembatch_objects.select_for_update.return_value.get.return_value = batch
+        mock_inventory_objects.select_for_update.return_value.get.return_value = inventory
+
+        with self.assertRaises(InventoryDriftError) as raised:
+            _apply_stock_delta_for_rows(
+                [
+                    {
+                        "item_id": 195,
+                        "inventory_id": 1,
+                        "batch_id": 95015,
+                        "quantity": "25",
+                        "source_type": "ON_HAND",
+                    }
+                ],
+                actor_user_id="tester",
+                delta_sign=1,
+                update_needs_list=False,
+                consume_stock=False,
+            )
+
+        self.assertIn("out of sync", str(raised.exception))
+        self.assertIn("inventory 1", str(raised.exception))
+
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.legacy_models.Inventory.objects")
+    @patch("replenishment.legacy_models.ItemBatch.objects")
+    def test_apply_stock_delta_raises_inventory_drift_error_when_aggregate_row_under_reports_stock(
+        self,
+        mock_itembatch_objects,
+        mock_inventory_objects,
+        _mock_log_audit,
+    ) -> None:
+        batch = SimpleNamespace(
+            batch_id=95015,
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("300"),
+            version_nbr=1,
+            available_qty=Decimal("300"),
+        )
+        inventory = SimpleNamespace(
+            inventory_id=1,
+            item_id=195,
+            reserved_qty=Decimal("0"),
+            usable_qty=Decimal("0"),
+            version_nbr=1,
+            available_qty=Decimal("0"),
+        )
+        mock_itembatch_objects.select_for_update.return_value.get.return_value = batch
+        mock_inventory_objects.select_for_update.return_value.get.return_value = inventory
+
+        with self.assertRaises(InventoryDriftError) as raised:
+            _apply_stock_delta_for_rows(
+                [
+                    {
+                        "item_id": 195,
+                        "inventory_id": 1,
+                        "batch_id": 95015,
+                        "quantity": "2",
+                        "source_type": "ON_HAND",
+                    }
+                ],
+                actor_user_id="tester",
+                delta_sign=1,
+                update_needs_list=False,
+                consume_stock=False,
+            )
+
+        self.assertEqual(raised.exception.code, "inventory_drift")
+        self.assertIn("out of sync with batch stock", str(raised.exception))
+        mock_itembatch_objects.filter.assert_not_called()
+        mock_inventory_objects.filter.assert_not_called()
+        _mock_log_audit.assert_not_called()
+
     def test_sort_needs_list_items_orders_critical_before_high_before_normal(self) -> None:
         needs_list = SimpleNamespace(submitted_at=None, create_dtime=None)
         items = [
@@ -490,6 +601,232 @@ class AllocationDispatchHelperTests(SimpleTestCase):
         self.assertTrue(override_required)
         self.assertEqual([row["batch_id"] for row in recommended], [100])
         self.assertIn("allocation_order_override", markers)
+
+    @patch("replenishment.services.allocation_dispatch.detect_override_requirement")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 101,
+                    "inventory_id": 10,
+                    "batch_id": 1001,
+                    "quantity": Decimal("2.0000"),
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates")
+    @patch(
+        "replenishment.services.allocation_dispatch._fetch_batch_candidates",
+        return_value=[
+            {
+                "batch_id": 1001,
+                "inventory_id": 10,
+                "available_qty": Decimal("2.0000"),
+                "usable_qty": Decimal("2.0000"),
+                "reserved_qty": Decimal("0"),
+                "source_type": "ON_HAND",
+                "source_record_id": None,
+            }
+        ],
+    )
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch.sort_needs_list_items_for_allocation")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    @patch("replenishment.services.allocation_dispatch.NeedsListItem.objects.filter")
+    def test_get_allocation_options_only_flags_approval_required_overrides(
+        self,
+        needs_list_item_filter_mock,
+        mock_load_needs_list,
+        mock_load_items,
+        mock_sort_items,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        mock_sort_candidates,
+        _mock_greedy_plan,
+        mock_detect_override_requirement,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(
+            needs_list_id=11,
+            needs_list_no="NL-11",
+            warehouse_id=3,
+            event_id=12,
+            status_code="APPROVED",
+            submitted_at=None,
+            create_dtime=None,
+        )
+        needs_item = SimpleNamespace(
+            needs_list_item_id=19,
+            item_id=101,
+            required_qty=Decimal("2.0000"),
+            fulfilled_qty=Decimal("0"),
+            reserved_qty=Decimal("0"),
+            effective_criticality_level="HIGH",
+            uom_code="EA",
+        )
+        mock_load_items.return_value = [needs_item]
+        mock_sort_items.return_value = [needs_item]
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=101,
+            item_code="ITM-101",
+            item_name="Water Container",
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+        mock_sort_candidates.side_effect = lambda item, candidates, as_of_date=None: list(candidates)
+        mock_detect_override_requirement.return_value = (
+            True,
+            [],
+            ["allocation_order_override"],
+        )
+
+        item_ids_qs = MagicMock()
+        item_ids_qs.values_list.return_value = [101]
+        conflicts_qs = MagicMock()
+        conflicts_qs.exclude.return_value.values.return_value.distinct.return_value.exists.return_value = False
+        needs_list_item_filter_mock.side_effect = [item_ids_qs, conflicts_qs]
+
+        result = get_allocation_options(11)
+
+        self.assertTrue(result["items"][0]["override_required"])
+        self.assertEqual(result["items"][0]["compliance_markers"], ["allocation_order_override"])
+
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._log_audit")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 1,
+                    "inventory_id": 10,
+                    "batch_id": 100,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": "EA",
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_submits_order_override_for_approval(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        _mock_sort_candidates,
+        _mock_allocation_plan,
+        upsert_rows_mock,
+        stock_delta_mock,
+        _log_audit_mock,
+        header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
+        mock_load_needs_items.return_value = [SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=1,
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+
+        result = commit_allocation(
+            LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+            [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+            actor_user_id="tester",
+            override_reason_code="FEFO_BYPASS",
+            override_note="Supervisor review required.",
+            allow_pending_override=True,
+        )
+
+        self.assertEqual(result["status"], "PENDING_OVERRIDE_APPROVAL")
+        self.assertTrue(result["override_required"])
+        self.assertEqual(result["override_markers"], ["allocation_order_override"])
+        self.assertEqual(upsert_rows_mock.call_args.kwargs["notes"], "FEFO_BYPASS")
+        self.assertEqual(_log_audit_mock.call_args.kwargs["reason_code"], "FEFO_BYPASS")
+        stock_delta_mock.assert_not_called()
+        header_updates_mock.assert_called_once()
+
+    @patch("replenishment.services.allocation_dispatch._apply_package_header_updates")
+    @patch("replenishment.services.allocation_dispatch._apply_stock_delta_for_rows")
+    @patch("replenishment.services.allocation_dispatch._upsert_package_rows")
+    @patch(
+        "replenishment.services.allocation_dispatch.build_greedy_allocation_plan",
+        return_value=(
+            [
+                {
+                    "item_id": 1,
+                    "inventory_id": 10,
+                    "batch_id": 100,
+                    "quantity": Decimal("2.0000"),
+                    "source_type": "ON_HAND",
+                    "source_record_id": None,
+                    "uom_code": "EA",
+                }
+            ],
+            Decimal("0"),
+        ),
+    )
+    @patch("replenishment.services.allocation_dispatch.sort_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch._fetch_batch_candidates", return_value=[])
+    @patch("replenishment.services.allocation_dispatch.Item.objects.filter")
+    @patch("replenishment.services.allocation_dispatch._ensure_legacy_request_package")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list_items")
+    @patch("replenishment.services.allocation_dispatch._load_needs_list")
+    def test_commit_allocation_requires_reason_code_for_order_override(
+        self,
+        mock_load_needs_list,
+        mock_load_needs_items,
+        mock_ensure_package,
+        mock_item_filter,
+        _mock_fetch_candidates,
+        _mock_sort_candidates,
+        _mock_allocation_plan,
+        upsert_rows_mock,
+        stock_delta_mock,
+        _header_updates_mock,
+    ) -> None:
+        mock_load_needs_list.return_value = SimpleNamespace(needs_list_id=11, warehouse_id=1, needs_list_no="NL-11")
+        mock_load_needs_items.return_value = [SimpleNamespace(item_id=1, required_qty="2", fulfilled_qty="0")]
+        mock_ensure_package.return_value = (
+            SimpleNamespace(reliefrqst_id=70, version_nbr=1, tracking_no="RQ00070"),
+            SimpleNamespace(reliefpkg_id=90, reliefrqst_id=70, version_nbr=1, status_code="A", tracking_no="PK00090"),
+        )
+        mock_item_filter.return_value.first.return_value = SimpleNamespace(
+            item_id=1,
+            can_expire_flag=False,
+            issuance_order="FIFO",
+        )
+
+        with self.assertRaises(OverrideApprovalError) as raised:
+            commit_allocation(
+                LegacyWorkflowContext(needs_list_id=11, reliefrqst_id=70, reliefpkg_id=90),
+                [{"item_id": 1, "inventory_id": 10, "batch_id": 101, "quantity": "2"}],
+                actor_user_id="tester",
+                allow_pending_override=True,
+            )
+
+        self.assertEqual(raised.exception.code, "override_details_missing")
+        upsert_rows_mock.assert_not_called()
+        stock_delta_mock.assert_not_called()
+        _header_updates_mock.assert_not_called()
 
     def test_validate_override_approval_rejects_self_approval_and_bad_roles(self) -> None:
         with self.assertRaises(OverrideApprovalError):
@@ -716,14 +1053,12 @@ class AllocationDispatchApiTests(TestCase):
         self.client = APIClient()
 
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
     def test_commit_requires_agency_and_urgency_for_first_formal_allocation(
         self,
         _mock_store_enabled,
         mock_get_record,
-        _mock_use_db,
         _mock_needs_list_pk,
     ) -> None:
         mock_get_record.return_value = {
@@ -761,7 +1096,6 @@ class AllocationDispatchApiTests(TestCase):
     @patch("replenishment.views.allocation_dispatch.approve_override")
     @patch("replenishment.views._execution_link_for_record")
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.NeedsList.objects.select_for_update")
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
@@ -770,7 +1104,6 @@ class AllocationDispatchApiTests(TestCase):
         _mock_store_enabled,
         mock_get_record,
         mock_select_for_update,
-        _mock_use_db,
         _mock_needs_list_pk,
         mock_execution_link,
         mock_approve_override,
@@ -845,14 +1178,12 @@ class AllocationDispatchApiTests(TestCase):
 
     @patch("replenishment.views._execution_link_for_record")
     @patch("replenishment.views._execution_needs_list_pk", return_value=11)
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views.workflow_store.get_record")
     @patch("replenishment.views.workflow_store.store_enabled_or_raise")
     def test_override_approve_requires_pending_override_execution_status(
         self,
         _mock_store_enabled,
         mock_get_record,
-        _mock_use_db,
         _mock_needs_list_pk,
         mock_execution_link,
     ) -> None:
@@ -883,7 +1214,6 @@ class AllocationDispatchApiTests(TestCase):
         self.assertIn("status", response.json().get("errors", {}))
 
     @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11", "waybill_no": "WB-PK00090"})
-    @patch("replenishment.views._use_db_workflow_store", return_value=True)
     @patch("replenishment.views._upsert_execution_link")
     @patch("replenishment.views.allocation_dispatch.dispatch_package")
     @patch("replenishment.views._execution_link_for_record")
@@ -900,7 +1230,6 @@ class AllocationDispatchApiTests(TestCase):
         mock_execution_link,
         mock_dispatch_package,
         _mock_upsert_link,
-        _mock_use_db,
         _mock_serialize,
     ) -> None:
         record = {
@@ -936,3 +1265,162 @@ class AllocationDispatchApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_dispatch_package.called)
         self.assertEqual(response.json().get("waybill_no"), "WB-PK00090")
+
+    @patch("replenishment.views._serialize_workflow_record", return_value={"needs_list_id": "11"})
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_missing_dispatch_identifiers_without_transition(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+        _mock_serialize,
+    ) -> None:
+        record = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-11",
+            "status": "IN_PREPARATION",
+            "warehouse_id": 1,
+            "event_id": 7,
+            "prep_started_at": "2026-03-24T10:00:00Z",
+        }
+        mock_get_record.return_value = record
+        mock_execution_link.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            selected_method="FIFO",
+        )
+        mock_dispatch_package.return_value = {
+            "status": "DISPATCHED",
+            "reliefrqst_id": None,
+            "reliefpkg_id": None,
+            "waybill_no": None,
+            "waybill_payload": None,
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("legacy_context_missing", response.json().get("errors", {}))
+        self.assertFalse(mock_transition_status.called)
+        self.assertFalse(mock_update_record.called)
+        self.assertFalse(mock_upsert_link.called)
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=19,
+            active_tenant_id=19,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="PARISH",
+            memberships=(
+                TenantMembership(
+                    tenant_id=19,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="PARISH",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=27)
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_cross_tenant_actor_without_state_change(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_tenant_context,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "11",
+            "needs_list_no": "NL-11",
+            "status": "IN_PREPARATION",
+            "warehouse_id": 1,
+            "event_id": 7,
+            "prep_started_at": "2026-03-24T10:00:00Z",
+        }
+        mock_execution_link.return_value = SimpleNamespace(
+            needs_list_id=11,
+            reliefrqst_id=70,
+            reliefpkg_id=90,
+            selected_method="FIFO",
+        )
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.json().get("errors", {}))
+        mock_dispatch_package.assert_not_called()
+        mock_transition_status.assert_not_called()
+        mock_update_record.assert_not_called()
+        mock_upsert_link.assert_not_called()
+
+    @override_settings(
+        DEV_AUTH_ROLES=["UNRELATED_ROLE"],
+        DEV_AUTH_PERMISSIONS=[],
+    )
+    @patch("replenishment.views._upsert_execution_link")
+    @patch("replenishment.views.allocation_dispatch.dispatch_package")
+    @patch("replenishment.views._execution_link_for_record")
+    @patch("replenishment.views.workflow_store.update_record")
+    @patch("replenishment.views.workflow_store.transition_status")
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_mark_dispatched_rejects_wrong_role_without_state_change(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        mock_transition_status,
+        mock_update_record,
+        mock_execution_link,
+        mock_dispatch_package,
+        mock_upsert_link,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/11/mark-dispatched",
+            {"transport_mode": "TRUCK"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        mock_get_record.assert_not_called()
+        mock_execution_link.assert_not_called()
+        mock_dispatch_package.assert_not_called()
+        mock_transition_status.assert_not_called()
+        mock_update_record.assert_not_called()
+        mock_upsert_link.assert_not_called()

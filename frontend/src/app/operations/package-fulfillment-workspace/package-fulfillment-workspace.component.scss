@@ -213,9 +213,21 @@
 
 .ops-step-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 12px;
   margin-top: 20px;
+}
+
+.ops-step-actions__spacer {
+  flex: 1 1 auto;
+}
+
+.ops-step-actions__cancel {
+  /* Tertiary destructive action — outlined warn, kept visually distinct
+     from Save Draft and the primary Continue/Commit button. */
+  font-weight: 500;
 }
 
 .ops-confirmation {

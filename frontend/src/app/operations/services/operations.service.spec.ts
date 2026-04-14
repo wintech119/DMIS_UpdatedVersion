@@ -3,6 +3,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { OperationsService } from './operations.service';
+import { formatStagingSelectionBasis, formatPackageStatus } from '../models/operations-status.util';
+import { formatOperationsPackageStatus, getOperationsDispatchStage } from '../operations-display.util';
 
 describe('OperationsService', () => {
   let service: OperationsService;
@@ -50,6 +52,7 @@ describe('OperationsService', () => {
         reliefrqst_id: 12,
         source_warehouse_id: 2,
         status_code: 'P',
+        consolidation_status: 'not-a-real-status',
         allocation: {
           allocation_lines: [
             {
@@ -80,6 +83,7 @@ describe('OperationsService', () => {
         reliefpkg_id: 44,
         source_warehouse_id: 2,
         status_label: 'Ready for Dispatch',
+        consolidation_status: null,
       }),
       allocation: jasmine.objectContaining({
         reserved_stock_summary: jasmine.objectContaining({
@@ -88,6 +92,43 @@ describe('OperationsService', () => {
       }),
       compatibility_only: false,
     }));
+  });
+
+  it('normalizes alphabetical fallback staging basis and legacy V package status', () => {
+    let result: unknown;
+
+    service.getPackage(12).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/12');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      request: {
+        reliefrqst_id: 12,
+        status_code: 'APPROVED_FOR_FULFILLMENT',
+      },
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'V',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      },
+      items: [],
+      compatibility_only: false,
+    });
+
+    expect(result).toEqual(jasmine.objectContaining({
+      package: jasmine.objectContaining({
+        status_code: 'V',
+        status_label: 'Ready for Dispatch',
+        staging_selection_basis: 'ALPHABETICAL_FALLBACK',
+      }),
+    }));
+    expect(formatPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(formatOperationsPackageStatus('V')).toBe('Ready for Dispatch');
+    expect(getOperationsDispatchStage({ status_code: 'V' })).toBe('ready');
+    expect(formatStagingSelectionBasis('ALPHABETICAL_FALLBACK')).toBe('Alphabetical fallback');
   });
 
   it('loads the dispatch worklist from the real dispatch queue endpoint', () => {
@@ -421,5 +462,132 @@ describe('OperationsService', () => {
         }),
       ],
     });
+  });
+
+  it('normalizes partial release approval responses from the current child-package keys', () => {
+    let result: unknown;
+
+    service.approvePartialRelease(44, { approval_reason: 'Approved for split.' }).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/partial-release/approve');
+    expect(request.request.method).toBe('POST');
+    request.flush({
+      parent: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'SPLIT',
+        consolidation_status: 'PARTIAL_RELEASE_REQUESTED',
+      },
+      released_child: {
+        reliefpkg_id: 45,
+        reliefrqst_id: 12,
+        status_code: 'READY_FOR_PICKUP',
+      },
+      residual_child: {
+        reliefpkg_id: 46,
+        reliefrqst_id: 12,
+        status_code: 'CONSOLIDATING',
+        consolidation_status: 'LEGS_IN_TRANSIT',
+      },
+    });
+
+    expect(result).toEqual({
+      parent: jasmine.objectContaining({
+        reliefpkg_id: 44,
+        consolidation_status: 'PARTIAL_RELEASE_REQUESTED',
+      }),
+      released: jasmine.objectContaining({
+        reliefpkg_id: 45,
+        status_code: 'READY_FOR_PICKUP',
+      }),
+      residual: jasmine.objectContaining({
+        reliefpkg_id: 46,
+        consolidation_status: 'LEGS_IN_TRANSIT',
+      }),
+    });
+  });
+
+  it('normalizes consolidation leg status codes before deriving the fallback label', () => {
+    let result: unknown;
+
+    service.getConsolidationLegs(44).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      package: {
+        reliefpkg_id: 44,
+        reliefrqst_id: 12,
+        status_code: 'CONSOLIDATING',
+      },
+      results: [
+        {
+          leg_id: 301,
+          package_id: 44,
+          leg_sequence: 1,
+          source_warehouse_id: 2,
+          staging_warehouse_id: 8,
+          status_code: 'in_transit',
+          status_label: null,
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      package: jasmine.objectContaining({
+        reliefpkg_id: 44,
+      }),
+      results: [
+        jasmine.objectContaining({
+          leg_id: 301,
+          status_code: 'IN_TRANSIT',
+          status_label: 'In transit',
+        }),
+      ],
+    });
+  });
+
+  it('preserves raw consolidation waybill payload artifacts instead of coercing them into objects', () => {
+    let result: unknown;
+
+    service.getConsolidationLegWaybill(44, 301).subscribe((value) => {
+      result = value;
+    });
+
+    const request = httpMock.expectOne('/api/v1/operations/packages/44/consolidation-legs/301/waybill');
+    expect(request.request.method).toBe('GET');
+    request.flush({
+      waybill_no: 'PK00044-L01',
+      waybill_payload: 'JVBERi0xLjQKJcTl8uXr...',
+      persisted: true,
+    });
+
+    expect(result).toEqual({
+      waybill_no: 'PK00044-L01',
+      waybill_payload: 'JVBERi0xLjQKJcTl8uXr...',
+      persisted: true,
+    });
+  });
+
+  it('adds an idempotency key when submitting a dispatch handoff', () => {
+    service.submitDispatchHandoff(44, { transport_mode: 'TRUCK' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/dispatch/44/handoff');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^dispatch-44-/);
+    request.flush({ reliefpkg_id: 44, status: 'DISPATCHED' });
+  });
+
+  it('adds an idempotency key when confirming receipt', () => {
+    service.confirmReceipt(44, { received_by_name: 'Receiver One' }).subscribe();
+
+    const request = httpMock.expectOne('/api/v1/operations/receipt-confirmation/44');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Idempotency-Key')).toMatch(/^receipt-44-/);
+    request.flush({ reliefpkg_id: 44, status: 'RECEIVED' });
   });
 });

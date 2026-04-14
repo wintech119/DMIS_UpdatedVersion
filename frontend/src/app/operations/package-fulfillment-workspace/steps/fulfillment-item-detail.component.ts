@@ -12,7 +12,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSelectModule } from '@angular/material/select';
 
-import { LookupItem } from '../../../master-data/models/master-data.models';
 import { AllocationCandidate, AllocationItemGroup } from '../../models/operations.model';
 import { OperationsWorkspaceStateService } from '../../services/operations-workspace-state.service';
 import { formatSourceType } from '../../models/operations-status.util';
@@ -24,6 +23,11 @@ interface WarehouseGroup {
   totalAvailable: number;
   batchCount: number;
   candidates: AllocationCandidate[];
+}
+
+interface WarehouseSelectOption {
+  label: string;
+  value: string;
 }
 
 const COMPLIANCE_LABELS: Record<string, string> = {
@@ -57,7 +61,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
           @if (isOverridden()) {
             <span class="detail__badge detail__badge--override">Overridden</span>
           }
-          @if (warehouseOptions().length > 1) {
+          @if (warehouseSelectOptions().length > 1) {
             <mat-form-field appearance="outline" class="detail__warehouse-select">
               <mat-label>Source</mat-label>
               <mat-select
@@ -66,9 +70,9 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                 [disabled]="readOnly()"
                 panelClass="detail-warehouse-panel"
                 [attr.aria-label]="'Source warehouse for ' + (item().item_name || 'this item')">
-                @for (wh of warehouseOptions(); track wh.value) {
-                  <mat-option [value]="stringifyValue(wh.value)">
-                    {{ wh.label }}{{ stringifyValue(wh.value) === defaultWarehouseId() ? ' (default)' : '' }}
+                @for (wh of warehouseSelectOptions(); track wh.value) {
+                  <mat-option [value]="wh.value">
+                    {{ wh.label }}
                   </mat-option>
                 }
               </mat-select>
@@ -162,6 +166,97 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         </p>
       }
 
+      <!-- Already-issued informational banner — precedes warehouse picker. -->
+      @if (item().fully_issued) {
+        <p class="detail__notice detail__notice--info" role="status">
+          <mat-icon aria-hidden="true">info</mat-icon>
+          This item is already fully issued ({{ item().issue_qty | number:'1.0-2' }} / {{ item().request_qty | number:'1.0-2' }}).
+          Cancel the previous package to free this quantity before re-allocating from another batch.
+        </p>
+      }
+
+      <!-- Multi-warehouse continuation callout — only when backend recommends it. -->
+      @if (continuationVisible()) {
+        <section
+          class="detail__continuation"
+          role="region"
+          [attr.aria-label]="'Multi-warehouse continuation for ' + (item().item_name || 'this item')">
+          <header class="detail__continuation-head">
+            <mat-icon aria-hidden="true">call_split</mat-icon>
+            <div>
+              <h4 class="detail__continuation-title">
+                @if (continuationHasShortfall()) {
+                  {{ continuationShortfall() | number:'1.0-4' }} units still need coverage
+                } @else {
+                  Other eligible warehouses available
+                }
+              </h4>
+              <p class="detail__continuation-copy">
+                @if (continuationHasShortfall()) {
+                  Add another warehouse below to keep building this item's allocation. Your current
+                  selections will be preserved.
+                } @else {
+                  Add another eligible warehouse below to allocate from multiple sources while
+                  keeping the current {{ item().issuance_order }} rule order.
+                }
+              </p>
+            </div>
+            @if (continuationLoading()) {
+              <span class="detail__continuation-loading" aria-live="polite">
+                <mat-icon aria-hidden="true">progress_activity</mat-icon>
+                Recalculating&hellip;
+              </span>
+            }
+          </header>
+
+          <ul class="detail__alternate-list" role="list">
+            @for (alt of visibleAlternateWarehouses(); track alt.warehouse_id) {
+              <li class="detail__alternate-card" role="listitem">
+                <div class="detail__alternate-head">
+                  <span class="detail__alternate-name">{{ alt.warehouse_name }}</span>
+                  @if (!continuationHasShortfall()) {
+                    <span class="detail__alternate-badge detail__alternate-badge--ok">
+                      <mat-icon aria-hidden="true">check_circle</mat-icon>
+                      Eligible
+                    </span>
+                  } @else if (alt.can_fully_cover) {
+                    <span class="detail__alternate-badge detail__alternate-badge--ok">
+                      <mat-icon aria-hidden="true">check_circle</mat-icon>
+                      Fully covers shortfall
+                    </span>
+                  } @else {
+                    <span class="detail__alternate-badge detail__alternate-badge--partial">
+                      <mat-icon aria-hidden="true">timelapse</mat-icon>
+                      Partial cover
+                    </span>
+                  }
+                </div>
+                <dl class="detail__alternate-figures">
+                  <div>
+                    <dt>Available</dt>
+                    <dd>{{ alt.available_qty | number:'1.0-4' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Suggested</dt>
+                    <dd>{{ alt.suggested_qty | number:'1.0-4' }}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  matButton="outlined"
+                  color="primary"
+                  class="detail__alternate-action"
+                  [disabled]="readOnly() || addingWarehouse()"
+                  (click)="onAddWarehouse(alt.warehouse_id)">
+                  <mat-icon aria-hidden="true">add</mat-icon>
+                  Add this warehouse
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
       <!-- Available Warehouses -->
       <p class="detail__section-eyebrow">Available Warehouses</p>
 
@@ -221,7 +316,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                           type="number"
                           min="0"
                           step="any"
-                          [disabled]="readOnly()"
+                          [disabled]="readOnly() || !!item().fully_issued"
                           [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                           (ngModelChange)="onQtyChange(c, $event)"
                           [attr.aria-label]="'Quantity to reserve for batch ' + (c.batch_no || c.batch_id)"
@@ -263,7 +358,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
                   type="number"
                   min="0"
                   step="any"
-                  [disabled]="readOnly()"
+                  [disabled]="readOnly() || !!item().fully_issued"
                   [ngModel]="store().getSelectedQtyForCandidate(item().item_id, c)"
                   (ngModelChange)="onQtyChange(c, $event)"
                 />
@@ -277,7 +372,7 @@ const COMPLIANCE_LABELS: Record<string, string> = {
         <p class="detail__notice detail__notice--warning" role="status">
           <mat-icon aria-hidden="true">policy</mat-icon>
           This selection no longer matches the system's {{ item().issuance_order }} recommendation.
-          Submit an override reason in the next step.
+          Capture an override reason in the next step.
         </p>
       }
     </div>
@@ -492,6 +587,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       color: #8c1d13;
     }
 
+    .metric-card__value--status[data-status='fully_issued'] {
+      color: #17447f;
+    }
+
     .metric-card--status[data-status='partial'] {
       background: rgba(253, 232, 177, 0.25);
     }
@@ -502,6 +601,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
 
     .metric-card--status[data-status='over_allocated'] {
       background: rgba(253, 221, 216, 0.25);
+    }
+
+    .metric-card--status[data-status='fully_issued'] {
+      background: rgba(219, 234, 254, 0.45);
     }
 
     /* ── Progress bar ── */
@@ -532,6 +635,10 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     .metric-card__bar-fill[data-status='over_allocated'] {
       background: #dc3545;
       animation: bar-pulse 1.5s ease-in-out infinite;
+    }
+
+    .metric-card__bar-fill[data-status='fully_issued'] {
+      background: #2563eb;
     }
 
     @keyframes bar-pulse {
@@ -577,6 +684,11 @@ const COMPLIANCE_LABELS: Record<string, string> = {
     .detail__notice--warning {
       background: #fffbeb;
       color: #92400e;
+    }
+
+    .detail__notice--info {
+      background: #eff6ff;
+      color: #17447f;
     }
 
     /* ── Section eyebrow ── */
@@ -750,6 +862,159 @@ const COMPLIANCE_LABELS: Record<string, string> = {
       font-size: 0.78rem;
     }
 
+    /* ── Continuation callout (multi-warehouse) ── */
+    .detail__continuation {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--color-border-warning, rgba(217, 119, 6, 0.32));
+      background: var(--color-surface-warning, rgba(254, 243, 199, 0.5));
+    }
+
+    .detail__continuation-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .detail__continuation-head mat-icon {
+      color: var(--color-text-warning, #b45309);
+      flex-shrink: 0;
+    }
+
+    .detail__continuation-title {
+      margin: 0 0 2px;
+      font-size: 0.95rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__continuation-copy {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__continuation-loading {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.78rem;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__continuation-loading mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      animation: detail-continuation-spin 1.2s linear infinite;
+    }
+
+    @keyframes detail-continuation-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .detail__continuation-loading mat-icon {
+        animation: none;
+        transform: none;
+      }
+    }
+
+    .detail__alternate-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .detail__alternate-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid rgba(55, 53, 47, 0.1);
+    }
+
+    .detail__alternate-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .detail__alternate-name {
+      font-size: 0.88rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__alternate-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      font-weight: var(--weight-semibold, 600);
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .detail__alternate-badge mat-icon {
+      font-size: 13px;
+      width: 13px;
+      height: 13px;
+    }
+
+    .detail__alternate-badge--ok {
+      background: var(--color-surface-success, rgba(34, 197, 94, 0.12));
+      color: var(--color-text-success, #166534);
+    }
+
+    .detail__alternate-badge--partial {
+      background: var(--color-surface-warning, rgba(217, 119, 6, 0.12));
+      color: var(--color-text-warning, #b45309);
+    }
+
+    .detail__alternate-figures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin: 0;
+    }
+
+    .detail__alternate-figures div {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail__alternate-figures dt {
+      margin: 0;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-secondary, #787774);
+    }
+
+    .detail__alternate-figures dd {
+      margin: 0;
+      font-size: 0.92rem;
+      font-weight: var(--weight-semibold, 600);
+      color: var(--color-text-primary, #37352F);
+    }
+
+    .detail__alternate-action {
+      align-self: flex-start;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 1100px) {
       .detail__metrics {
@@ -790,8 +1055,6 @@ export class FulfillmentItemDetailComponent {
   readonly item = input.required<AllocationItemGroup>();
   readonly readOnly = input(false);
   readonly store = input.required<OperationsWorkspaceStateService>();
-  readonly warehouseOptions = input<LookupItem[]>([]);
-  readonly defaultWarehouseId = input<string>('');
   readonly back = output<void>();
   readonly itemAvailabilityIssue = computed(() => this.store().getItemAvailabilityIssue(this.item()));
 
@@ -800,9 +1063,27 @@ export class FulfillmentItemDetailComponent {
   );
 
   readonly isOverridden = computed(() => {
-    const defaultId = this.defaultWarehouseId();
+    const defaultId = this.item().source_warehouse_id != null ? String(this.item().source_warehouse_id) : '';
     const effective = this.effectiveWarehouse();
     return !!defaultId && !!effective && effective !== defaultId;
+  });
+
+  readonly warehouseSelectOptions = computed<WarehouseSelectOption[]>(() => {
+    const options = new Map<string, string>();
+    for (const candidate of this.item().candidates) {
+      options.set(String(candidate.inventory_id), candidate.warehouse_name || `Warehouse ${candidate.inventory_id}`);
+    }
+    for (const alternate of this.item().alternate_warehouses ?? []) {
+      options.set(String(alternate.warehouse_id), alternate.warehouse_name || `Warehouse ${alternate.warehouse_id}`);
+    }
+    const effectiveWarehouseId = this.effectiveWarehouse();
+    if (effectiveWarehouseId) {
+      options.set(
+        effectiveWarehouseId,
+        options.get(effectiveWarehouseId) ?? `Warehouse ${effectiveWarehouseId}`,
+      );
+    }
+    return [...options.entries()].map(([value, label]) => ({ value, label }));
   });
 
   // ── Metric card computed signals ──
@@ -827,7 +1108,8 @@ export class FulfillmentItemDetailComponent {
     return Math.min(this.reservingQty() / remaining, 1);
   });
 
-  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated'>(() => {
+  readonly fillStatus = computed<'not_started' | 'partial' | 'filled' | 'over_allocated' | 'fully_issued'>(() => {
+    if (this.item().fully_issued) return 'fully_issued';
     const remaining = this.remainingQty();
     const reserving = this.reservingQty();
     if (reserving <= 0) return 'not_started';
@@ -842,6 +1124,7 @@ export class FulfillmentItemDetailComponent {
       case 'partial': return 'Partly Filled';
       case 'filled': return 'Filled';
       case 'over_allocated': return 'Over-Allocated';
+      case 'fully_issued': return 'Already Issued';
     }
   });
 
@@ -864,13 +1147,49 @@ export class FulfillmentItemDetailComponent {
       : 'Increase reservation to cover';
   });
 
+  // ── Continuation (multi-warehouse) computed signals ──
+
+  readonly visibleAlternateWarehouses = computed(() => {
+    const item = this.item();
+    const alternates = item.alternate_warehouses ?? [];
+    if (alternates.length === 0) {
+      return alternates;
+    }
+    const loaded = new Set(this.store().loadedWarehousesByItem()[item.item_id] ?? []);
+    return alternates.filter((alt) => !loaded.has(alt.warehouse_id));
+  });
+
+  readonly continuationVisible = computed(() => {
+    if (this.readOnly()) return false;
+    return this.visibleAlternateWarehouses().length > 0;
+  });
+
+  readonly continuationHasShortfall = computed(() => this.continuationShortfall() > 0);
+
+  readonly continuationShortfall = computed(() => {
+    const item = this.item();
+    const effective = item.effective_remaining_qty ?? item.remaining_shortfall_qty ?? '0';
+    const parsed = Number.parseFloat(String(effective));
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+
+  readonly continuationLoading = computed(
+    () => this.store().previewLoadingByItem()[this.item().item_id] ?? false,
+  );
+
+  readonly addingWarehouse = computed(
+    () => this.store().addingWarehouseByItem()[this.item().item_id] ?? false,
+  );
+
   readonly warehouseGroups = computed<WarehouseGroup[]>(() => {
     const candidates = this.item().candidates;
     const map = new Map<number, WarehouseGroup>();
+    const insertionIndexByInventoryId = new Map<number, number>();
 
     for (const c of candidates) {
       const key = c.inventory_id;
       if (!map.has(key)) {
+        insertionIndexByInventoryId.set(key, insertionIndexByInventoryId.size);
         map.set(key, {
           name: c.warehouse_name || `Inventory ${c.inventory_id}`,
           inventoryId: c.inventory_id,
@@ -885,7 +1204,26 @@ export class FulfillmentItemDetailComponent {
       group.candidates.push(c);
     }
 
-    return [...map.values()];
+    // Respect the backend's FEFO/FIFO warehouse ranking when the
+    // `warehouse_cards` payload is present. Cards provide the canonical
+    // rank for each inventory_id; any loaded warehouse not covered by
+    // the ranking falls to the end but keeps its relative insertion order.
+    const rankByInventoryId = new Map<number, number>();
+    for (const card of this.item().warehouse_cards ?? []) {
+      rankByInventoryId.set(card.warehouse_id, card.rank);
+    }
+    const unranked = Number.MAX_SAFE_INTEGER;
+    return [...map.values()].sort((left, right) => {
+      const leftRank = rankByInventoryId.get(left.inventoryId) ?? unranked;
+      const rightRank = rankByInventoryId.get(right.inventoryId) ?? unranked;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return (
+        (insertionIndexByInventoryId.get(left.inventoryId) ?? unranked)
+        - (insertionIndexByInventoryId.get(right.inventoryId) ?? unranked)
+      );
+    });
   });
 
   onQtyChange(candidate: AllocationCandidate, value: number | string): void {
@@ -905,8 +1243,8 @@ export class FulfillmentItemDetailComponent {
     this.store().updateItemWarehouse(this.item().item_id, warehouseId);
   }
 
-  stringifyValue(value: unknown): string {
-    return String(value ?? '');
+  onAddWarehouse(warehouseId: number): void {
+    this.store().addItemWarehouse(this.item().item_id, warehouseId);
   }
 
   formatSource(sourceType: string): string {

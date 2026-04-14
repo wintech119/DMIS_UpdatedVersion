@@ -1,224 +1,263 @@
 # DMIS Threat Model
 
-## Overview
+Last updated: 2026-04-09
+Status: Current-state pre-production threat model
 
-This document identifies key threats to the Disaster Management Information System (DMIS) and the mitigations implemented to address them. Based on STRIDE threat modeling methodology.
+## Purpose
 
-## Threat Categories (STRIDE)
+This document captures the principal threats to the current DMIS implementation and the mitigations required to reach a production-ready posture.
+
+It replaces the earlier Flask-centric threat model and reflects the active Angular + Django architecture, the multi-tenant access model, and the remaining Flask retirement risk.
+
+## Modeling Approach
+
+This review uses STRIDE as the primary threat framing and cross-checks the results against OWASP ASVS Level 2 expectations and the non-functional requirements for scalability, performance, reliability, availability, and security.
+
+## Scope and Assumptions
+
+- Angular SPA is the user-facing client
+- Django is the primary application runtime
+- PostgreSQL is the system of record
+- Redis is intended for shared coordination and caching
+- OIDC/JWT is the intended production identity model
+- Legacy Flask code may still exist in the live or rollback path until explicitly retired
+
+## High-Priority Current Risks
+
+| Priority | Threat | Why It Matters Now | Required Direction |
+| --- | --- | --- | --- |
+| Critical | Authentication bypass or spoofing through dev-only behavior | Auth can be env-disabled and dev-user override behavior is still near the production path | Make auth mandatory in non-local environments and remove dev impersonation from production builds |
+| Critical | Tenant boundary failure | Tenant access is primarily enforced in application logic across complex workflows | Strengthen tenant-safe service boundaries, audit cross-tenant flows, and reduce ad hoc data access |
+| High | Application-level denial of service | Expensive synchronous endpoints and limited global throttling can degrade response during emergency operations | Add global throttling, async offload, queue controls, and edge protections |
+| High | Availability degradation from optional infrastructure | Redis is optional in code even though shared counters and coordination rely on it | Make Redis mandatory in production and monitor it as a critical dependency |
+| High | Audit and artifact gaps | Some operational artifacts are rebuilt from state rather than durably stored | Persist artifacts and strengthen audit evidence for operational workflows |
+| High | Unsafe deployment by documentation drift | Security and deployment docs still contain stale Flask assumptions | Align docs to the actual stack and use them as production gates |
+
+## STRIDE Analysis
 
 ### S - Spoofing Identity
 
-#### Threat: Credential Theft
+#### Threat: Dev-user impersonation reaches production behavior
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Attacker steals user credentials through phishing, brute force, or credential stuffing |
-| **Impact** | Unauthorized access to system, data breach, fraudulent transactions |
-| **Likelihood** | High |
-| **Severity** | Critical |
+| --- | --- |
+| Description | The frontend currently registers a dev-user interceptor and stores a selected dev identity in local storage. If backend toggles are misconfigured, users can impersonate other principals. |
+| Impact | Unauthorized access, audit corruption, privileged action spoofing |
+| Likelihood | Medium today; unacceptable for production |
+| Severity | Critical |
 
-**Mitigations:**
-- Rate limiting on login endpoint (5 attempts/minute)
-- Password hashing with Werkzeug (PBKDF2-SHA256)
-- Account lockout after failed attempts
-- Session timeout and secure cookie settings
-- Audit logging of all authentication events
+Required mitigations:
 
-#### Threat: Session Hijacking
+- remove dev-user features from production frontend bundles
+- hard-disable dev impersonation on production backend deployments
+- require production OIDC/JWT auth for all user access
+- alert on any attempt to send internal-only auth override headers
 
-| Aspect | Details |
-|--------|---------|
-| **Description** | Attacker steals or forges session tokens |
-| **Impact** | Impersonation of legitimate users |
-| **Likelihood** | Medium |
-| **Severity** | High |
-
-**Mitigations:**
-- Secure, HttpOnly, SameSite=Lax cookies
-- TLS for all connections (HSTS enabled)
-- Session regeneration on login
-- IP-based session validation (optional)
-
-### T - Tampering with Data
-
-#### Threat: SQL Injection
+#### Threat: Weak privileged identity controls
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Attacker injects malicious SQL through input fields |
-| **Impact** | Data breach, data modification, privilege escalation |
-| **Likelihood** | Medium |
-| **Severity** | Critical |
+| --- | --- |
+| Description | National, tenant-admin, and platform-admin roles have elevated authority, but stronger controls such as MFA and formal access review are not yet clearly enforced in the active implementation. |
+| Impact | Full administrative compromise |
+| Likelihood | Medium |
+| Severity | Critical |
 
-**Mitigations:**
-- SQLAlchemy ORM with parameterized queries
-- Input validation on all user inputs
-- Database user with minimal privileges
-- SAST scanning with Bandit and Semgrep
+Required mitigations:
 
-#### Threat: Donation/Inventory Manipulation
+- MFA for all privileged roles
+- quarterly access review for privileged roles
+- auditable approval and role-assignment workflows
+- break-glass procedure with explicit logging and review
+
+### T - Tampering With Data
+
+#### Threat: Unsafe or inconsistent workflow mutation across SQL-heavy paths
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Malicious insider modifies donation or inventory records |
-| **Impact** | Financial loss, audit trail corruption |
-| **Likelihood** | Low |
-| **Severity** | High |
+| --- | --- |
+| Description | Large portions of the replenishment and operations flows still rely on request-path raw SQL and hybrid data access patterns. |
+| Impact | Data integrity errors, inconsistent reservations, workflow corruption |
+| Likelihood | Medium |
+| Severity | High |
 
-**Mitigations:**
-- Optimistic locking (version_nbr) on all records
-- Audit logging of all data modifications
-- Role-based access control (separation of duties)
-- Two-stage verification workflow for donations
+Existing strengths:
+
+- PostgreSQL remains the system of record
+- some transactional boundaries and locks already exist
+
+Required mitigations:
+
+- consolidate critical write paths behind reusable service boundaries
+- reduce direct SQL duplication for hot workflows
+- add idempotency and compensating behavior for mutating operations
+- expand integrity checks for stock, allocation, approval, and dispatch flows
+
+#### Threat: Artifact tampering or loss
+
+| Aspect | Details |
+| --- | --- |
+| Description | Documents such as waybills are not always durably stored as immutable artifacts. |
+| Impact | Weak audit evidence, dispute risk, operational ambiguity |
+| Likelihood | Medium |
+| Severity | High |
+
+Required mitigations:
+
+- persist generated artifacts to object storage or equivalent durable storage
+- hash and version critical generated documents
+- record generation metadata in audit logs
 
 ### R - Repudiation
 
-#### Threat: Denial of Actions
+#### Threat: Operational actions cannot be proven strongly enough
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | User denies performing actions (approvals, dispatches) |
-| **Impact** | Inability to hold users accountable, legal disputes |
-| **Likelihood** | Medium |
-| **Severity** | Medium |
+| --- | --- |
+| Description | Approval, dispatch, and fulfillment workflows need durable, attributable records. Documentation and artifact persistence are not yet consistently aligned with this need. |
+| Impact | Weak accountability, audit disputes, compliance issues |
+| Likelihood | Medium |
+| Severity | High |
 
-**Mitigations:**
-- Comprehensive audit logging (NIST 800-53 AU controls)
-- Structured log format for SIEM ingestion
-- User ID, timestamp, action, and outcome recorded
-- Logs include IP address for correlation
-- Jamaica timezone standardization for legal compliance
+Required mitigations:
+
+- durable audit logging for privileged and state-changing actions
+- trace IDs and request IDs propagated across systems
+- stored artifacts for critical workflow outputs
+- retention and export policy for audit evidence
 
 ### I - Information Disclosure
 
-#### Threat: Sensitive Data Exposure
+#### Threat: Sensitive operational or tenant data leaks across boundaries
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Unauthorized access to PII, donation details, or credentials |
-| **Impact** | Privacy violation, reputational damage, legal liability |
-| **Likelihood** | Medium |
-| **Severity** | High |
+| --- | --- |
+| Description | Multi-tenant access is enforced mainly in application logic, and frontend routes do not always apply consistent guards. |
+| Impact | Cross-tenant exposure, unauthorized operational visibility |
+| Likelihood | Medium |
+| Severity | High |
 
-**Mitigations:**
-- TLS encryption in transit
-- PostgreSQL encryption at rest (Neon-managed)
-- No sensitive data in URLs (query string protection)
-- Email obfuscation in logs
-- Generic error messages (no stack traces to users)
-- Content Security Policy (CSP) to prevent data exfiltration
+Required mitigations:
 
-#### Threat: Error Message Information Leak
+- tenant checks in every sensitive backend service and query path
+- consistent frontend route guards
+- least-privilege data loading patterns
+- stronger review of multi-tenant query behavior
+
+#### Threat: Sensitive implementation detail leaks from insecure deployment posture
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Detailed error messages reveal system internals |
-| **Impact** | Information useful for further attacks |
-| **Likelihood** | Medium |
-| **Severity** | Medium |
+| --- | --- |
+| Description | Current deploy checks show development-oriented settings that should not exist in production. |
+| Impact | Elevated attack surface and easier exploitation |
+| Likelihood | High if deployed as-is |
+| Severity | High |
 
-**Mitigations:**
-- Production-safe error handling (DEBUG=false by default)
-- Generic user-facing error messages
-- Server-side logging with sanitization
-- Custom error pages (403, 404, 429, 500)
+Required mitigations:
+
+- secure Django deployment settings in all non-local environments
+- deployment validation gate before release
+- environment-specific configuration review in CI/CD
 
 ### D - Denial of Service
 
-#### Threat: Application-Level DoS
+#### Threat: Expensive synchronous workflows exhaust app capacity
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Attacker floods endpoints with requests |
-| **Impact** | System unavailable during disaster response |
-| **Likelihood** | High |
-| **Severity** | High |
+| --- | --- |
+| Description | Long-running work remains coupled to synchronous API calls, while several screens and endpoints process substantial data in-memory. |
+| Impact | Slow responses, worker exhaustion, degraded emergency operations |
+| Likelihood | High |
+| Severity | High |
 
-**Mitigations:**
-- Flask-Limiter rate limiting on all endpoints
-- Tiered limits: auth (5/min), API (60/min), exports (3/hour)
-- NGINX rate limiting at reverse proxy
-- Default limits: 200/hour, 50/minute
-- Rate limit exceeded events logged for alerting
+Required mitigations:
 
-#### Threat: Resource Exhaustion
+- worker queue for exports, notifications, and expensive downstream actions
+- server-side pagination and bounded query sizes
+- endpoint-specific and global throttling
+- performance budgets and regression checks
+
+#### Threat: Shared coordination fails under multi-node load
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Attacker triggers expensive operations (exports, reports) |
-| **Impact** | Database/server overload |
-| **Likelihood** | Medium |
-| **Severity** | Medium |
+| --- | --- |
+| Description | Redis-dependent circuit breaker and rate-limit behavior fall back to in-process memory when Redis is absent. |
+| Impact | Inconsistent protection across workers and degraded resilience |
+| Likelihood | Medium |
+| Severity | High |
 
-**Mitigations:**
-- Rate limiting on expensive endpoints (10/min)
-- Export limits (3/hour)
-- Query timeouts
-- Connection pool limits
+Required mitigations:
+
+- production deployments must require Redis
+- add health and alerting for cache dependency loss
+- define degraded-mode behavior explicitly
 
 ### E - Elevation of Privilege
 
-#### Threat: RBAC Bypass
+#### Threat: Authorization gaps across route, feature, and workflow boundaries
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | User accesses resources beyond their role |
-| **Impact** | Unauthorized data access or actions |
-| **Likelihood** | Low |
-| **Severity** | High |
+| --- | --- |
+| Description | Backend authorization is stronger than frontend gating, but route coverage and UI behavior are inconsistent. Privilege drift is possible where logic is duplicated or UI states mask auth failures. |
+| Impact | Unauthorized access attempts, confused-deputy behavior, reduced trust in controls |
+| Likelihood | Medium |
+| Severity | High |
 
-**Mitigations:**
-- Centralized RBAC with @role_required decorator
-- Feature registry with role-based access
-- Server-side authorization checks on all routes
-- Client-side restrictions for UX only (not security)
+Required mitigations:
 
-#### Threat: Privilege Escalation via Role Assignment
+- complete frontend guard coverage
+- keep backend authorization as the source of truth
+- centralize frontend auth state and permission handling
+- test high-risk roles and tenant scenarios regularly
+
+#### Threat: Legacy Flask path bypasses modernized controls
 
 | Aspect | Details |
-|--------|---------|
-| **Description** | Lower-privilege user assigns admin roles |
-| **Impact** | Complete system compromise |
-| **Likelihood** | Low |
-| **Severity** | Critical |
+| --- | --- |
+| Description | If Flask remains reachable for live users, it can become an alternate control path with different protections, audit behavior, or data semantics. |
+| Impact | Split-brain authorization and incomplete hardening |
+| Likelihood | Medium during transition |
+| Severity | High |
 
-**Mitigations:**
-- Role assignment validation (can only assign roles you're permitted)
-- CUSTODIAN cannot assign SYSTEM_ADMINISTRATOR
-- Audit logging of all role changes
-- Server-side validation of role assignments
+Required mitigations:
 
-## OWASP Top 10 Coverage
+- explicit inventory of all Flask entry points
+- redirect, isolate, or retire each legacy route
+- no implicit live dependency on Flask for production workflows
 
-| Risk | Mitigation Status |
-|------|-------------------|
-| A01 - Broken Access Control | RBAC, role_required decorator, server-side checks |
-| A02 - Cryptographic Failures | TLS 1.2+, PBKDF2 password hashing, secure cookies |
-| A03 - Injection | SQLAlchemy ORM, parameterized queries, input validation |
-| A04 - Insecure Design | Threat modeling, security architecture review |
-| A05 - Security Misconfiguration | Production-safe defaults, SAST scanning |
-| A06 - Vulnerable Components | pip-audit, safety dependency scanning |
-| A07 - Auth Failures | Rate limiting, session security, lockout |
-| A08 - Data Integrity | Optimistic locking, audit logging |
-| A09 - Security Logging | NIST 800-53 compliant audit logging |
-| A10 - Server-Side Request Forgery | SafeApiClient with domain allowlist |
+## OWASP Risk Alignment
 
-## Risk Summary Matrix
+| OWASP Area | DMIS Current Concern |
+| --- | --- |
+| A01 Broken Access Control | Route inconsistency, tenant-scope reliance on application logic, legacy path risk |
+| A02 Cryptographic Failures | Production-safe transport and cookie settings must be enforced consistently |
+| A04 Insecure Design | Current-state and target-state docs were previously misaligned with the real platform |
+| A05 Security Misconfiguration | Deploy checks already show critical production hardening gaps |
+| A06 Vulnerable and Outdated Components | Legacy Flask footprint increases platform complexity and review scope |
+| A07 Identification and Authentication Failures | Auth optionality and dev impersonation are the highest current identity risks |
+| A08 Software and Data Integrity Failures | Generated artifacts and workflow mutations need stronger durability and control |
+| A09 Security Logging and Monitoring Failures | Telemetry and operational detection are not yet strong enough for production confidence |
+| A10 SSRF and External Dependency Risks | Future async and external integrations need explicit allowlists, retries, and circuit breakers |
 
-| Threat | Likelihood | Severity | Risk Level | Mitigation Status |
-|--------|------------|----------|------------|-------------------|
-| Credential Theft | High | Critical | Critical | Mitigated |
-| Session Hijacking | Medium | High | High | Mitigated |
-| SQL Injection | Medium | Critical | High | Mitigated |
-| Data Manipulation | Low | High | Medium | Mitigated |
-| Action Repudiation | Medium | Medium | Medium | Mitigated |
-| Information Disclosure | Medium | High | High | Mitigated |
-| Denial of Service | High | High | High | Mitigated |
-| Privilege Escalation | Low | Critical | Medium | Mitigated |
+## Production Exit Criteria From This Threat Model
 
----
+The following conditions should be met before production launch:
 
-*Document Version: 1.0*
-*Last Updated: December 2025*
-*Owner: ODPEM IT Security Team*
-*Review Frequency: Quarterly*
+- no production path depends on dev-user impersonation
+- no non-local deployment can run with auth disabled
+- no critical workflow depends on Flask remaining live
+- tenant-safe authorization is validated across high-risk workflows
+- global throttling and expensive-work offload are in place
+- readiness, metrics, logging, and alerting exist for critical dependencies
+- critical artifacts are durably stored
+- security documentation reflects the active stack
+
+## Review Triggers
+
+Re-run this threat model when any of the following change:
+
+- auth provider or token model
+- tenant model or cross-tenant policy
+- queueing or background processing architecture
+- artifact storage design
+- Flask retirement status
+- deployment topology or operational hosting model

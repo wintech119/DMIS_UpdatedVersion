@@ -1,25 +1,30 @@
 ﻿import csv
 import io
+import hashlib
 import logging
 import re
 import math
 import json
 import os
+import uuid
 from decimal import Decimal, InvalidOperation
 from datetime import timedelta
+from importlib import import_module
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
-from django.db import DatabaseError, OperationalError, ProgrammingError, transaction
-from django.http import HttpResponse
+from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.urls import reverse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
+from api.apps import build_log_extra, get_request_id
 from api.authentication import LegacyCompatAuthentication
+from api.models import AsyncJob
 from api.permissions import NeedsListPermission, NeedsListPreviewPermission, ProcurementPermission
 from api.rbac import (
     PERM_MASTERDATA_EDIT,
@@ -58,7 +63,7 @@ from api.tenancy import (
     tenant_context_to_dict,
 )
 from api.task_engine import TaskRule, resolve_available_tasks
-from replenishment import rules, workflow_store as workflow_store_file, workflow_store_db
+from replenishment import rules, workflow_store_db
 from replenishment.models import (
     NeedsList,
     NeedsListAllocationLine,
@@ -268,41 +273,12 @@ class DuplicateConflictValidationError(ValueError):
     """Raised when duplicate-conflict validation input is malformed."""
 
 
-def _use_db_workflow_store() -> bool:
-    # Backward-compatible test/dev override: the JSON workflow store remains the
-    # default for explicit dev-store runs and test execution.
-    if os.getenv("NEEDS_WORKFLOW_DEV_STORE", "0") == "1":
-        return False
-
-    backend_override = str(os.getenv("NEEDS_WORKFLOW_BACKEND", "")).strip().lower()
-    if backend_override in {"db", "database", "postgres", "postgresql"}:
-        return True
-    if backend_override in {"file", "json", "dev"}:
-        return False
-
-    if getattr(settings, "TESTING", False):
-        return False
-    if not getattr(settings, "AUTH_USE_DB_RBAC", False):
-        return False
-
-    engine = str(settings.DATABASES.get("default", {}).get("ENGINE", "")).lower()
-    return "postgresql" in engine
-
-
-class _WorkflowStoreProxy:
-    def __getattr__(self, name: str):
-        module = workflow_store_db if _use_db_workflow_store() else workflow_store_file
-        return getattr(module, name)
-
-
-workflow_store = _WorkflowStoreProxy()
+workflow_store = workflow_store_db
 
 
 def _workflow_target_status(status: str) -> str:
     normalized = str(status or "").upper()
-    if _use_db_workflow_store():
-        return _DB_STATUS_TRANSITIONS.get(normalized, normalized)
-    return normalized
+    return _DB_STATUS_TRANSITIONS.get(normalized, normalized)
 
 
 def _status_matches(
@@ -524,8 +500,13 @@ def _upsert_execution_link(
     received: bool = False,
     cancelled: bool = False,
 ) -> NeedsListExecutionLink | None:
-    if not _use_db_workflow_store():
-        return None
+    if (
+        execution_status == NeedsListExecutionLink.ExecutionStatus.DISPATCHED
+        and (reliefrqst_id is None or reliefpkg_id is None)
+    ):
+        raise ValueError(
+            "Execution links cannot transition to DISPATCHED without both reliefrqst_id and reliefpkg_id."
+        )
     now = timezone.now()
     try:
         defaults: Dict[str, Any] = {
@@ -592,8 +573,6 @@ def _replace_execution_allocation_lines(
     override_note: str | None = None,
     supervisor_user_id: str | None = None,
 ) -> None:
-    if not _use_db_workflow_store():
-        return
     try:
         NeedsListAllocationLine.objects.filter(needs_list=needs_list).delete()
         item_map = {item.item_id: item for item in needs_list.items.all()}
@@ -866,6 +845,255 @@ def _safe_content_disposition_ref(value: object, fallback: object) -> str:
         return cleaned
     fallback_cleaned = _clean(fallback)
     return fallback_cleaned or "needs_list"
+
+
+_ASYNC_EXPORT_JOB_TYPES = {
+    "donation": AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+    "procurement": AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+}
+
+
+def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
+    serialized = _serialize_workflow_record(record, include_overrides=False)
+    normalized_status = _normalize_status_for_ui(serialized.get("status"))
+    updated_at = (
+        serialized.get("updated_at")
+        or serialized.get("approved_at")
+        or serialized.get("submitted_at")
+        or serialized.get("created_at")
+    )
+    return f"{serialized.get('needs_list_id') or needs_list_id}|{updated_at or ''}|{normalized_status}"
+
+
+def _async_job_status_url(job: AsyncJob) -> str:
+    return reverse("async_job_status", kwargs={"job_id": job.job_id})
+
+
+def _async_job_download_url(job: AsyncJob) -> str:
+    return reverse("async_job_download", kwargs={"job_id": job.job_id})
+
+
+def _serialize_export_job(job: AsyncJob) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "job_id": job.job_id,
+        "job_type": job.job_type,
+        "status": job.status,
+        "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "expires_at": job.expires_at.isoformat() if job.expires_at else None,
+        "retry_count": job.retry_count,
+        "max_retries": job.max_retries,
+        "error_message": job.error_message,
+        "artifact_ready": job.artifact_ready,
+        "status_url": _async_job_status_url(job),
+    }
+    if job.artifact_ready:
+        payload["download_url"] = _async_job_download_url(job)
+    return payload
+
+
+def _async_export_dedupe_key(
+    *,
+    job_type: str,
+    needs_list_id: str,
+    actor_user_id: str | None,
+    snapshot_version: str,
+) -> str:
+    base = "|".join(
+        [
+            job_type,
+            str(needs_list_id or "").strip(),
+            str(actor_user_id or "").strip(),
+            str(snapshot_version or "").strip(),
+        ]
+    )
+    return f"async-export:{hashlib.sha256(base.encode('utf-8')).hexdigest()}"
+
+
+def _queue_export_job_log_extra(
+    request,
+    *,
+    job: AsyncJob,
+    needs_list_id: str,
+    tenant_id: int | None,
+    tenant_code: str | None,
+    data_version: str,
+) -> dict[str, object]:
+    return build_log_extra(
+        request,
+        event="job.queued",
+        job_id=job.job_id,
+        job_type=job.job_type,
+        needs_list_id=needs_list_id,
+        tenant_id=tenant_id,
+        tenant_code=tenant_code,
+        actor_user_id=job.actor_user_id,
+        actor_username=job.actor_username,
+        source_resource_type=job.source_resource_type,
+        source_resource_id=job.source_resource_id,
+        source_snapshot_version=data_version,
+        retry_count=job.retry_count,
+    )
+
+
+def _enqueue_needs_list_export_job(
+    request,
+    *,
+    needs_list_id: str,
+    record: Dict[str, Any],
+    export_kind: str,
+) -> Response:
+    export_kind_normalized = str(export_kind or "").strip().lower()
+    job_type = _ASYNC_EXPORT_JOB_TYPES.get(export_kind_normalized)
+    if job_type is None:
+        return Response({"errors": {"export": "Unsupported export kind."}}, status=400)
+
+    payload_data = request.data if isinstance(request.data, dict) else {}
+    requested_format = str(
+        payload_data.get("format")
+        or request.query_params.get("format")
+        or "csv"
+    ).strip().lower()
+    if requested_format != "csv":
+        return Response(
+            {
+                "errors": {
+                    "format": "Only CSV export is supported for queued needs-list exports."
+                }
+            },
+            status=400,
+        )
+
+    tenant_context = _tenant_context(request)
+    tenant_id = _record_tenant_id(record)
+    tenant_code = tenant_context.active_tenant_code
+    actor_user_id = _actor_id(request)
+    actor_username = _audit_username(request)
+    request_id = get_request_id(request)
+    data_version = _needs_list_snapshot_version(record, needs_list_id)
+    dedupe_key = _async_export_dedupe_key(
+        job_type=job_type,
+        needs_list_id=needs_list_id,
+        actor_user_id=actor_user_id,
+        snapshot_version=data_version,
+    )
+
+    created = False
+    try:
+        with transaction.atomic():
+            job = (
+                AsyncJob.objects.select_for_update()
+                .filter(active_dedupe_key=dedupe_key)
+                .first()
+            )
+            if job is None:
+                job = AsyncJob.objects.create(
+                    job_id=str(uuid.uuid4()),
+                    job_type=job_type,
+                    status=AsyncJob.Status.QUEUED,
+                    actor_user_id=actor_user_id,
+                    actor_username=actor_username,
+                    tenant_id=tenant_id,
+                    tenant_code=tenant_code,
+                    request_id=request_id if request_id != "-" else None,
+                    source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+                    source_resource_id=needs_list_id,
+                    source_snapshot_version=data_version,
+                    active_dedupe_key=dedupe_key,
+                )
+                created = True
+    except IntegrityError:
+        job = AsyncJob.objects.get(active_dedupe_key=dedupe_key)
+
+    if created:
+        logger.info(
+            "job.queued",
+            extra=_queue_export_job_log_extra(
+                request,
+                job=job,
+                needs_list_id=needs_list_id,
+                tenant_id=tenant_id,
+                tenant_code=tenant_code,
+                data_version=data_version,
+            ),
+        )
+        try:
+            async_tasks = import_module("api.tasks")
+            async_tasks.run_async_job.delay(job.job_id)
+            job.refresh_from_db()
+        except ModuleNotFoundError as exc:
+            if exc.name == "celery":
+                job.mark_failed(
+                    error_message="Async worker plane is unavailable because Celery is not installed."
+                )
+                job.save(
+                    update_fields=[
+                        "status",
+                        "error_message",
+                        "finished_at",
+                        "active_dedupe_key",
+                        "artifact_filename",
+                        "artifact_content_type",
+                        "artifact_sha256",
+                        "artifact_payload",
+                        "expires_at",
+                    ]
+                )
+                logger.error(
+                    "job.failed",
+                    extra=build_log_extra(
+                        request,
+                        event="job.failed",
+                        job_id=job.job_id,
+                        job_type=job.job_type,
+                        needs_list_id=needs_list_id,
+                        tenant_id=tenant_id,
+                        tenant_code=tenant_code,
+                        actor_user_id=job.actor_user_id,
+                        actor_username=job.actor_username,
+                        source_resource_type=job.source_resource_type,
+                        source_resource_id=job.source_resource_id,
+                        source_snapshot_version=data_version,
+                        error_message=job.error_message,
+                    ),
+                )
+                return Response(
+                    {
+                        "errors": {
+                            "async": "Queued export is unavailable because the worker plane dependency is not installed."
+                        }
+                    },
+                    status=503,
+                )
+            raise
+
+    payload = {
+        "needs_list_id": needs_list_id,
+        "format": requested_format,
+        "data_version": data_version,
+        **_serialize_export_job(job),
+    }
+    if not created:
+        payload["deduplicated"] = True
+    return Response(payload, status=202)
+
+
+def _needs_list_export_preview_response(
+    *,
+    needs_list_id: str,
+    record: Dict[str, Any],
+    export_kind: str,
+) -> Response:
+    snapshot = workflow_store.apply_overrides(record)
+    return Response(
+        needs_list.build_needs_list_export_preview(
+            snapshot=snapshot,
+            export_kind=export_kind,
+            needs_list_id=needs_list_id,
+            export_format="json",
+        )
+    )
 
 
 def _reviewer_must_differ_from_submitter(record: Dict[str, Any], actor: str | None) -> Response | None:
@@ -1507,8 +1735,6 @@ def _execution_needs_list_pk(record: Mapping[str, Any]) -> int | None:
     needs_list_pk = _to_int_or_none(record.get("needs_list_id"))
     if needs_list_pk is not None:
         return needs_list_pk
-    if not _use_db_workflow_store():
-        return None
     needs_list_no = str(record.get("needs_list_no") or "").strip()
     if not needs_list_no:
         return None
@@ -1529,7 +1755,7 @@ def _execution_needs_list_pk(record: Mapping[str, Any]) -> int | None:
 
 def _execution_link_for_record(record: Mapping[str, Any]) -> NeedsListExecutionLink | None:
     needs_list_pk = _execution_needs_list_pk(record)
-    if needs_list_pk is None or not _use_db_workflow_store():
+    if needs_list_pk is None:
         return None
     try:
         return (
@@ -1665,8 +1891,6 @@ def _release_execution_reservations(
     reason_code: str,
     cancel: bool = False,
 ) -> None:
-    if not _use_db_workflow_store():
-        return
     link = _execution_link_for_record(record)
     if (
         link is None
@@ -4524,46 +4748,47 @@ def needs_list_mark_dispatched(request, needs_list_id: str):
     from_status = str(record.get("status") or "").upper()
     target_status = _workflow_target_status("DISPATCHED")
     link = _execution_link_for_record(record)
-    if (
-        _use_db_workflow_store()
-        and link is not None
-        and link.reliefrqst_id is not None
-        and link.reliefpkg_id is not None
-    ):
-        try:
-            with transaction.atomic():
-                dispatch_result = allocation_dispatch.dispatch_package(
-                    _allocation_context_from_record(record, request.data or {}, link=link),
-                    actor_user_id=actor_user_id,
-                    transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+    try:
+        with transaction.atomic():
+            dispatch_result = allocation_dispatch.dispatch_package(
+                _allocation_context_from_record(record, request.data or {}, link=link),
+                actor_user_id=actor_user_id,
+                transport_mode=str((request.data or {}).get("transport_mode") or "").strip() or None,
+            )
+            reliefrqst_id = dispatch_result.get("reliefrqst_id")
+            reliefpkg_id = dispatch_result.get("reliefpkg_id")
+            if reliefrqst_id is None or reliefpkg_id is None:
+                raise allocation_dispatch.AllocationDispatchError(
+                    "Dispatch did not return committed request/package identifiers.",
+                    code="legacy_context_missing",
                 )
-                record = workflow_store.transition_status(
-                    record,
-                    target_status,
-                    actor_user_id,
-                    stage="DISPATCHED",
+            execution_needs_list_id = getattr(link, "needs_list_id", None) or _execution_needs_list_pk(
+                record
+            )
+            if execution_needs_list_id is None:
+                raise allocation_dispatch.AllocationDispatchError(
+                    "Dispatch requires a persisted needs list execution context.",
+                    code="legacy_context_missing",
                 )
-                workflow_store.update_record(needs_list_id, record)
-                _upsert_execution_link(
-                    needs_list_id=link.needs_list_id,
-                    actor_user_id=actor_user_id,
-                    reliefrqst_id=dispatch_result.get("reliefrqst_id"),
-                    reliefpkg_id=dispatch_result.get("reliefpkg_id"),
-                    execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
-                    waybill_no=dispatch_result.get("waybill_no"),
-                    waybill_payload=dispatch_result.get("waybill_payload"),
-                    dispatched=True,
-                )
-        except allocation_dispatch.AllocationDispatchError as exc:
-            return Response({"errors": {exc.code: exc.message}}, status=409)
-    else:
-        record = workflow_store.transition_status(
-            record,
-            target_status,
-            actor_user_id,
-            stage="DISPATCHED",
-        )
-        workflow_store.update_record(needs_list_id, record)
+            record = workflow_store.transition_status(
+                record,
+                target_status,
+                actor_user_id,
+                stage="DISPATCHED",
+            )
+            workflow_store.update_record(needs_list_id, record)
+            _upsert_execution_link(
+                needs_list_id=execution_needs_list_id,
+                actor_user_id=actor_user_id,
+                reliefrqst_id=reliefrqst_id,
+                reliefpkg_id=reliefpkg_id,
+                execution_status=NeedsListExecutionLink.ExecutionStatus.DISPATCHED,
+                waybill_no=dispatch_result.get("waybill_no"),
+                waybill_payload=dispatch_result.get("waybill_payload"),
+                dispatched=True,
+            )
+    except allocation_dispatch.AllocationDispatchError as exc:
+        return Response({"errors": {exc.code: exc.message}}, status=409)
 
     logger.info(
         "needs_list_dispatched",
@@ -4689,7 +4914,13 @@ def needs_list_mark_completed(request, needs_list_id: str):
         },
     )
 
-    return Response(_serialize_workflow_record(record, include_overrides=True))
+    response_payload = _serialize_workflow_record(record, include_overrides=True)
+    if str(response_payload.get("status") or "").strip().upper() in {
+        "FULFILLED",
+        "COMPLETED",
+    }:
+        response_payload["status"] = "COMPLETED"
+    return Response(response_payload)
 
 
 @api_view(["POST"])
@@ -4782,8 +5013,6 @@ def _allocation_record_or_response(
     scope_error = _require_record_scope(request, record, write=write)
     if scope_error:
         return None, scope_error
-    if not _use_db_workflow_store():
-        return None, _allocation_contracts_unavailable_response()
     if _execution_needs_list_pk(record) is None:
         return None, Response({"errors": {"needs_list_id": "Needs list is not DB-backed."}}, status=409)
     return record, None
@@ -5318,7 +5547,7 @@ def needs_list_donations(request, needs_list_id: str):
     items = snapshot.get("items", [])
 
     horizon_b_lines = []
-    if _use_db_workflow_store() and _execution_needs_list_pk(record) is not None:
+    if _execution_needs_list_pk(record) is not None:
         try:
             options = allocation_dispatch.get_allocation_options(_execution_needs_list_pk(record))
             candidates_by_item: dict[int, list[dict[str, Any]]] = {}
@@ -5406,12 +5635,6 @@ def needs_list_donations_allocate(request, needs_list_id: str):
     if scope_error:
         return scope_error
 
-    if not _use_db_workflow_store():
-        return Response(
-            {"errors": {"donations": "donation_allocation_not_implemented"}},
-            status=501,
-        )
-
     raw_payload = request.data or {}
     metadata = raw_payload if isinstance(raw_payload, dict) else {}
     allocations = raw_payload if isinstance(raw_payload, list) else list(metadata.get("allocations") or [])
@@ -5445,7 +5668,7 @@ def needs_list_donations_allocate(request, needs_list_id: str):
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_donations_export(request, needs_list_id: str):
@@ -5461,49 +5684,37 @@ def needs_list_donations_export(request, needs_list_id: str):
     if scope_error:
         return scope_error
 
-    fmt = request.query_params.get("format", "csv").lower()
-    snapshot = workflow_store.apply_overrides(record)
-    items = snapshot.get("items", [])
-    horizon_b_items = [
-        item for item in items
-        if ((item.get("horizon") or {}).get("B") or {}).get("recommended_qty", 0) > 0
-    ]
-
-    if fmt == "csv":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty"])
-        for item in horizon_b_items:
-            writer.writerow([
-                item["item_id"],
-                item.get("item_name", ""),
-                item.get("uom_code", "EA"),
-                item["horizon"]["B"]["recommended_qty"],
-            ])
-        response = HttpResponse(output.getvalue(), content_type="text/csv")
-        ref = _safe_content_disposition_ref(
-            record.get("needs_list_no"),
-            needs_list_id,
+    if request.method == "POST":
+        return _enqueue_needs_list_export_job(
+            request,
+            needs_list_id=needs_list_id,
+            record=record,
+            export_kind="donation",
         )
-        response["Content-Disposition"] = f'attachment; filename="donation_needs_{ref}.csv"'
-        return response
 
-    return Response({
-        "needs_list_id": needs_list_id,
-        "format": fmt,
-        "items": [
+    fmt = str(request.query_params.get("format") or "json").strip().lower()
+    if fmt == "csv":
+        return Response(
             {
-                "item_id": item["item_id"],
-                "item_name": item.get("item_name", ""),
-                "uom": item.get("uom_code", "EA"),
-                "required_qty": item["horizon"]["B"]["recommended_qty"],
-            }
-            for item in horizon_b_items
-        ],
-    })
+                "errors": {
+                    "format": "Synchronous CSV export has been retired. Queue this export with POST on the same endpoint."
+                }
+            },
+            status=409,
+        )
+    if fmt != "json":
+        return Response(
+            {"errors": {"format": "Only JSON preview is available with GET."}},
+            status=400,
+        )
+    return _needs_list_export_preview_response(
+        needs_list_id=needs_list_id,
+        record=record,
+        export_kind="donation",
+    )
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @authentication_classes([LegacyCompatAuthentication])
 @permission_classes([NeedsListPermission])
 def needs_list_procurement_export(request, needs_list_id: str):
@@ -5519,53 +5730,34 @@ def needs_list_procurement_export(request, needs_list_id: str):
     if scope_error:
         return scope_error
 
-    fmt = request.query_params.get("format", "csv").lower()
-    snapshot = workflow_store.apply_overrides(record)
-    items = snapshot.get("items", [])
-    horizon_c_items = [
-        item for item in items
-        if ((item.get("horizon") or {}).get("C") or {}).get("recommended_qty", 0) > 0
-    ]
-
-    if fmt == "csv":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Item ID", "Item Name", "UOM", "Required Qty", "Est Unit Cost", "Est Total Cost"])
-        for item in horizon_c_items:
-            proc = item.get("procurement") or {}
-            qty = item["horizon"]["C"]["recommended_qty"]
-            unit_cost = proc.get("est_unit_cost") or 0
-            writer.writerow([
-                item["item_id"],
-                item.get("item_name", ""),
-                item.get("uom_code", "EA"),
-                qty,
-                unit_cost,
-                unit_cost * qty if unit_cost else "",
-            ])
-        response = HttpResponse(output.getvalue(), content_type="text/csv")
-        ref = _safe_content_disposition_ref(
-            record.get("needs_list_no"),
-            needs_list_id,
+    if request.method == "POST":
+        return _enqueue_needs_list_export_job(
+            request,
+            needs_list_id=needs_list_id,
+            record=record,
+            export_kind="procurement",
         )
-        response["Content-Disposition"] = f'attachment; filename="procurement_needs_{ref}.csv"'
-        return response
 
-    return Response({
-        "needs_list_id": needs_list_id,
-        "format": fmt,
-        "items": [
+    fmt = str(request.query_params.get("format") or "json").strip().lower()
+    if fmt == "csv":
+        return Response(
             {
-                "item_id": item["item_id"],
-                "item_name": item.get("item_name", ""),
-                "uom": item.get("uom_code", "EA"),
-                "required_qty": item["horizon"]["C"]["recommended_qty"],
-                "est_unit_cost": (item.get("procurement") or {}).get("est_unit_cost"),
-                "est_total_cost": (item.get("procurement") or {}).get("est_total_cost"),
-            }
-            for item in horizon_c_items
-        ],
-    })
+                "errors": {
+                    "format": "Synchronous CSV export has been retired. Queue this export with POST on the same endpoint."
+                }
+            },
+            status=409,
+        )
+    if fmt != "json":
+        return Response(
+            {"errors": {"format": "Only JSON preview is available with GET."}},
+            status=400,
+        )
+    return _needs_list_export_preview_response(
+        needs_list_id=needs_list_id,
+        record=record,
+        export_kind="procurement",
+    )
 
 
 needs_list_draft.required_permission = PERM_NEEDS_LIST_CREATE_DRAFT

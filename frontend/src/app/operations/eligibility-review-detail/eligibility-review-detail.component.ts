@@ -9,6 +9,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { AppAccessService } from '../../core/app-access.service';
 import { DmisConfirmDialogComponent, ConfirmDialogData } from '../../replenishment/shared/dmis-confirm-dialog/dmis-confirm-dialog.component';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisNotificationService } from '../../replenishment/services/notification.service';
@@ -22,6 +23,7 @@ import {
   formatOperationsLineCount,
   formatOperationsRequestStatus,
   formatOperationsUrgency,
+  getRequestFulfillmentEntryAction,
   OperationsTone,
   extractOperationsErrorMessage,
   getOperationsRequestTone,
@@ -58,6 +60,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly notify = inject(DmisNotificationService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly appAccess = inject(AppAccessService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -75,6 +78,13 @@ export class EligibilityReviewDetailComponent implements OnInit {
   readonly canDecide = computed(() => {
     const detail = this.detail();
     return detail ? detail.can_edit && !detail.decision_made : false;
+  });
+  readonly fulfillmentEntryAction = computed(() => {
+    const detail = this.detail();
+    if (!detail) {
+      return null;
+    }
+    return getRequestFulfillmentEntryAction(detail, this.appAccess.canAccessNavKey('operations.fulfillment'));
   });
 
   readonly decisionLabel = computed(() => {
@@ -229,7 +239,7 @@ export class EligibilityReviewDetailComponent implements OnInit {
 
   openFulfillment(): void {
     const detail = this.detail();
-    if (!detail) {
+    if (!detail || this.fulfillmentEntryAction()?.disabled) {
       return;
     }
     this.router.navigate(['/operations/package-fulfillment', detail.reliefrqst_id]);

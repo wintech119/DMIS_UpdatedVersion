@@ -26,6 +26,30 @@
     </div>
   </section>
 
+  <ng-template #draftPersistenceActions>
+    <button
+      mat-stroked-button
+      color="warn"
+      type="button"
+      class="ops-step-actions__cancel"
+      aria-label="Cancel fulfillment"
+      [disabled]="!canCancel()"
+      (click)="cancelFulfillment()">
+      <mat-icon>cancel</mat-icon>
+      Cancel
+    </button>
+    @if (canSaveDraft()) {
+      <button
+        mat-stroked-button
+        type="button"
+        [disabled]="savingDraft() || store.submitting() || store.loading()"
+        (click)="saveDraft()">
+        <mat-icon>{{ savingDraft() ? 'hourglass_top' : 'save' }}</mat-icon>
+        {{ savingDraft() ? 'Saving...' : 'Save Draft' }}
+      </button>
+    }
+  </ng-template>
+
   @if (store.loading()) {
     <dmis-skeleton-loader variant="summary-card" [count]="4" />
   }
@@ -41,8 +65,24 @@
     </dmis-empty-state>
   }
 
+  @if (store.lockConflict(); as conflict) {
+    <app-ops-package-lock-state
+      [conflict]="conflict"
+      [currentUserRef]="auth.currentUserRef()"
+      [currentUserRoles]="auth.roles()"
+      [unlocking]="store.unlocking()"
+      [refreshing]="store.loading()"
+      (refresh)="onRefreshAfterLockConflict()"
+      (releaseOwn)="onReleaseOwnLock()"
+      (forceRelease)="onForceReleaseLock()" />
+  }
+
   @if (!store.loading() && !store.loadError() && packageDetail(); as detail) {
     <app-ops-metric-strip [items]="workspaceMetrics()" />
+
+    <app-ops-split-banner
+      [parent]="store.parentSplitInfo()"
+      [children]="store.splitChildren()" />
 
     <button
       type="button"
@@ -118,7 +158,7 @@
               <article class="ops-rail-card">
                 <span class="ops-rail-card__label">Selection Method</span>
                 <strong>{{ formatAllocationMethod(store.selectedMethod()) }}</strong>
-                <p class="ops-rail-card__hint">Items must follow {{ formatAllocationMethod(store.selectedMethod()) }} ordering. Deviations require override approval.</p>
+                <p class="ops-rail-card__hint">Items should follow {{ formatAllocationMethod(store.selectedMethod()) }} ordering. Order deviations need a recorded reason, while stock blockers still route for approval.</p>
               </article>
               <article class="ops-rail-card">
                 <span class="ops-rail-card__label">Bypass Visibility</span>
@@ -138,6 +178,7 @@
       </div>
     </div>
 
+    @if (!store.lockConflict()) {
     <dmis-step-tracker
       [steps]="trackerSteps()"
       [activeIndex]="currentStepIndex()"
@@ -152,6 +193,8 @@
           <app-fulfillment-plan-step [readOnly]="lockPlanEdits()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="backToRequest()">Back to Request</button>
+            <span class="ops-step-actions__spacer"></span>
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" (click)="goToDetails()">Continue</button>
           </div>
         </div>
@@ -163,6 +206,8 @@
           <app-fulfillment-details-step [lockOperationalFields]="lockOperationalFields()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <span class="ops-step-actions__spacer"></span>
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" (click)="goToReview()">Review Reservation</button>
           </div>
         </div>
@@ -173,10 +218,13 @@
         <div id="ops-fulfillment-step-2-panel" role="tabpanel" aria-labelledby="ops-fulfillment-step-2-tab">
           <app-fulfillment-review-step
             [submissionErrors]="submissionErrors()"
+            [stockIntegrityWarning]="reservationIntegrityWarning()"
             [overrideApprovalHint]="overrideApprovalHint()"
             [canApproveOverride]="canApprovePendingOverride()" />
           <div class="ops-step-actions">
             <button mat-stroked-button type="button" (click)="stepper.previous()">Back</button>
+            <span class="ops-step-actions__spacer"></span>
+            <ng-container [ngTemplateOutlet]="draftPersistenceActions"></ng-container>
             <button mat-flat-button color="primary" type="button" [disabled]="commitActionDisabled()" (click)="submitReservation()">
               <mat-icon>{{ store.submitting() ? 'hourglass_top' : 'task_alt' }}</mat-icon>
               {{ store.submitting() ? 'Saving...' : commitActionLabel() }}
@@ -208,6 +256,18 @@
 
                 <div class="ops-step-actions">
                   <button mat-stroked-button type="button" (click)="resetConfirmation()">Review Again</button>
+                  <span class="ops-step-actions__spacer"></span>
+                  <button
+                    mat-stroked-button
+                    color="warn"
+                    type="button"
+                    class="ops-step-actions__cancel"
+                    aria-label="Cancel fulfillment"
+                    [disabled]="!canCancel()"
+                    (click)="cancelFulfillment()">
+                    <mat-icon>cancel</mat-icon>
+                    Cancel
+                  </button>
                   @if (store.hasCommittedAllocation() && !store.hasPendingOverride()) {
                     <button mat-stroked-button color="primary" type="button" (click)="openDispatch()">
                       Open Dispatch Workspace
@@ -221,5 +281,6 @@
         </div>
       </mat-step>
     </mat-stepper>
+    }
   }
 </div>

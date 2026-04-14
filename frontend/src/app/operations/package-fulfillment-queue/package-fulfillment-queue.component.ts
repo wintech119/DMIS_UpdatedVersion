@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 
+import { AuthRbacService } from '../../replenishment/services/auth-rbac.service';
 import { DmisEmptyStateComponent } from '../../replenishment/shared/dmis-empty-state/dmis-empty-state.component';
 import { DmisSkeletonLoaderComponent } from '../../replenishment/shared/dmis-skeleton-loader/dmis-skeleton-loader.component';
 import { OpsMetricStripComponent, OpsMetricStripItem } from '../shared/ops-metric-strip.component';
@@ -24,15 +25,20 @@ import {
   formatOperationsAge,
   formatOperationsDateTime,
   formatOperationsLineCount,
+  buildOperationsQueueSeenStorageKey,
+  countOperationsUnreadIds,
   getOperationsPackageTone,
   getOperationsRequestTone,
   getOperationsUrgencyTone,
   handleRovingRadioKeydown,
+  mergeOperationsQueueSeenEntries,
   mapOperationsToneToChipTone,
   OperationsTone,
+  readOperationsQueueSeenEntries,
+  writeOperationsQueueSeenEntries,
 } from '../operations-display.util';
 
-type FulfillmentFilter = 'all' | 'awaiting' | 'preparing' | 'ready' | 'dispatched';
+type FulfillmentFilter = 'all' | 'awaiting' | 'drafts' | 'preparing' | 'ready' | 'dispatched';
 
 @Component({
   selector: 'app-package-fulfillment-queue',
@@ -51,20 +57,24 @@ type FulfillmentFilter = 'all' | 'awaiting' | 'preparing' | 'ready' | 'dispatche
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PackageFulfillmentQueueComponent implements OnInit {
+  private readonly auth = inject(AuthRbacService);
   private readonly operationsService = inject(OperationsService);
   private readonly router = inject(Router);
+  private readonly seenStorageScope = 'package-fulfillment';
 
   readonly loading = signal(true);
   readonly items = signal<PackageQueueItem[]>([]);
   readonly searchTerm = signal('');
   readonly activeFilter = signal<FulfillmentFilter>('all');
+  readonly seenFilters = signal<Record<string, number[]>>({});
 
   readonly filterOptions: readonly { label: string; value: FulfillmentFilter }[] = [
-    { label: 'All', value: 'all' },
     { label: 'Awaiting', value: 'awaiting' },
+    { label: 'Drafts', value: 'drafts' },
     { label: 'Preparing', value: 'preparing' },
     { label: 'Ready', value: 'ready' },
     { label: 'Dispatched', value: 'dispatched' },
+    { label: 'All', value: 'all' },
   ];
 
   readonly filteredItems = computed(() => {
@@ -97,10 +107,12 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     const items = this.items();
     const total = items.length;
     const awaiting = items.filter((item) => this.getFulfillmentStage(item) === 'awaiting').length;
+    const drafts = items.filter((item) => this.getFulfillmentStage(item) === 'drafts').length;
     const preparing = items.filter((item) => this.getFulfillmentStage(item) === 'preparing').length;
     const ready = items.filter((item) => this.getFulfillmentStage(item) === 'ready').length;
     return [
       { label: 'Awaiting Fulfillment', value: awaiting, note: 'New work in queue' },
+      { label: 'Drafts To Resume', value: drafts, note: 'Saved package work' },
       { label: 'Preparing', value: preparing, note: 'Reservation in progress' },
       { label: 'Ready to Dispatch', value: ready, note: 'Packages committed' },
       { label: 'All Requests', value: total, note: 'Visible in the queue' },
@@ -120,8 +132,23 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     return {
       total: rows.length,
       awaiting: rows.filter((r) => this.getFulfillmentStage(r) === 'awaiting').length,
+      drafts: rows.filter((r) => this.getFulfillmentStage(r) === 'drafts').length,
       preparing: rows.filter((r) => this.getFulfillmentStage(r) === 'preparing').length,
       ready: rows.filter((r) => this.getFulfillmentStage(r) === 'ready').length,
+    };
+  });
+
+  readonly unreadCounts = computed<Record<FulfillmentFilter, number>>(() => {
+    const rows = this.items();
+    const seen = this.seenFilters();
+
+    return {
+      all: 0,
+      awaiting: countOperationsUnreadIds(this.getFilterRequestIds('awaiting', rows), seen['awaiting']),
+      drafts: countOperationsUnreadIds(this.getFilterRequestIds('drafts', rows), seen['drafts']),
+      preparing: countOperationsUnreadIds(this.getFilterRequestIds('preparing', rows), seen['preparing']),
+      ready: countOperationsUnreadIds(this.getFilterRequestIds('ready', rows), seen['ready']),
+      dispatched: countOperationsUnreadIds(this.getFilterRequestIds('dispatched', rows), seen['dispatched']),
     };
   });
 
@@ -136,6 +163,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
   readonly getUrgencyTone = getOperationsUrgencyTone;
 
   ngOnInit(): void {
+    this.loadSeenFilters();
     this.refreshQueue();
   }
 
@@ -165,12 +193,23 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     return exec === 'PENDING_OVERRIDE_APPROVAL';
   }
 
+  isDraft(row: PackageQueueItem): boolean {
+    return String(row.current_package?.status_code ?? '').trim().toUpperCase() === 'DRAFT';
+  }
+
   isReady(row: PackageQueueItem): boolean {
-    const pkg = row.current_package;
-    if (!pkg) {
-      return false;
-    }
-    return pkg.status_code === 'P' && !this.isOverridePending(row);
+    const normalizedStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
+    return (
+      normalizedStatus === 'COMMITTED'
+      || normalizedStatus === 'READY_FOR_DISPATCH'
+      || normalizedStatus === 'READY_FOR_PICKUP'
+      || (normalizedStatus === 'P' && !this.isOverridePending(row))
+      || (
+        !normalizedStatus
+        && String(row.package_status ?? '').trim().toUpperCase() === 'P'
+        && !this.isOverridePending(row)
+      )
+    );
   }
 
   onSearch(value: string): void {
@@ -179,17 +218,45 @@ export class PackageFulfillmentQueueComponent implements OnInit {
 
   setFilter(filter: FulfillmentFilter): void {
     this.activeFilter.set(filter);
+    this.markFilterSeen(filter);
   }
 
   onFilterKeydown(event: KeyboardEvent, index: number): void {
     handleRovingRadioKeydown(event, index, this.filterOptions, (value) => this.setFilter(value));
   }
 
+  hasUnread(filter: FulfillmentFilter): boolean {
+    return filter !== 'all' && this.unreadCount(filter) > 0;
+  }
+
+  unreadCount(filter: FulfillmentFilter): number {
+    return this.unreadCounts()[filter] ?? 0;
+  }
+
+  filterAriaLabel(label: string, filter: FulfillmentFilter): string {
+    const unread = this.unreadCount(filter);
+    if (!unread) {
+      return label;
+    }
+    return `${label}, ${unread} new ${unread === 1 ? 'request' : 'requests'}`;
+  }
+
   getFulfillmentStage(row: PackageQueueItem): FulfillmentFilter {
-    const pkgStatus = row.current_package?.status_code ?? row.package_status;
-    if (!pkgStatus) return 'awaiting';
-    if (pkgStatus === 'P') return this.isOverridePending(row) ? 'preparing' : 'ready';
-    if (pkgStatus === 'D' || pkgStatus === 'C') return 'dispatched';
+    const currentStatus = String(row.current_package?.status_code ?? '').trim().toUpperCase();
+    const legacyStatus = String(row.package_status ?? '').trim().toUpperCase();
+    if (!currentStatus && !legacyStatus) return 'awaiting';
+    if (currentStatus === 'DRAFT') return 'drafts';
+    if (currentStatus === 'PENDING_OVERRIDE_APPROVAL') return 'preparing';
+    if (
+      currentStatus === 'COMMITTED'
+      || currentStatus === 'READY_FOR_DISPATCH'
+      || currentStatus === 'READY_FOR_PICKUP'
+    ) {
+      return 'ready';
+    }
+    if (currentStatus === 'DISPATCHED' || currentStatus === 'RECEIVED') return 'dispatched';
+    if (legacyStatus === 'P') return this.isOverridePending(row) ? 'preparing' : 'ready';
+    if (legacyStatus === 'D' || legacyStatus === 'C') return 'dispatched';
     return row.current_package ? 'preparing' : 'awaiting';
   }
 
@@ -199,6 +266,7 @@ export class PackageFulfillmentQueueComponent implements OnInit {
     this.operationsService.getPackagesQueue().subscribe({
       next: (response) => {
         this.items.set(response.results);
+        this.syncSeenFilterForActiveView();
         this.loading.set(false);
       },
       error: () => {
@@ -206,5 +274,44 @@ export class PackageFulfillmentQueueComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  private getSeenStorageKey(): string | null {
+    return buildOperationsQueueSeenStorageKey(this.seenStorageScope, this.auth.currentUserRef());
+  }
+
+  private loadSeenFilters(): void {
+    this.seenFilters.set(readOperationsQueueSeenEntries(this.getSeenStorageKey()));
+  }
+
+  private markFilterSeen(filter: FulfillmentFilter): void {
+    if (filter === 'all') {
+      return;
+    }
+
+    const ids = this.getFilterRequestIds(filter);
+    if (!ids.length) {
+      return;
+    }
+
+    const next = mergeOperationsQueueSeenEntries(this.seenFilters(), filter, ids);
+    this.seenFilters.set(next);
+    writeOperationsQueueSeenEntries(this.getSeenStorageKey(), next);
+  }
+
+  private syncSeenFilterForActiveView(): void {
+    const filter = this.activeFilter();
+    if (filter !== 'all') {
+      this.markFilterSeen(filter);
+    }
+  }
+
+  private getFilterRequestIds(
+    filter: Exclude<FulfillmentFilter, 'all'>,
+    rows: readonly PackageQueueItem[] = this.items(),
+  ): number[] {
+    return rows
+      .filter((row) => this.getFulfillmentStage(row) === filter)
+      .map((row) => row.reliefrqst_id);
   }
 }

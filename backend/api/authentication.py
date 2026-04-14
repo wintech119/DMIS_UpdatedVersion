@@ -9,7 +9,13 @@ from django.db import DatabaseError, connection
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
-logger = logging.getLogger(__name__)
+from api.apps import build_log_extra
+
+logger = logging.getLogger("dmis.security")
+
+LOCAL_AUTH_HARNESS_HEADER = "HTTP_X_DMIS_LOCAL_USER"
+LEGACY_DEV_AUTH_HEADER = "HTTP_X_DEV_USER"
+
 
 @dataclass
 class Principal:
@@ -18,6 +24,19 @@ class Principal:
     roles: list[str]
     permissions: list[str] = field(default_factory=list)
     is_authenticated: bool = True
+
+
+def _log_auth_warning(
+    event: str,
+    *,
+    request=None,
+    exception: Exception | None = None,
+    **extra,
+) -> None:
+    payload = build_log_extra(request, event=event, **extra)
+    if exception is not None:
+        payload["exception_class"] = exception.__class__.__name__
+    logger.warning(event, extra=payload)
 
 
 def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
@@ -53,7 +72,7 @@ def _verify_jwt_with_jwks(token: str, jwks_url: str) -> dict:
             raise AuthenticationFailed("Invalid JWT payload.")
         return payload
     except (PyJWKClientError, InvalidTokenError, AuthenticationFailed, ValueError) as exc:
-        logger.warning("JWT verification failed: %s", exc)
+        _log_auth_warning("auth.jwt_verification_failed", exception=exc)
         if isinstance(exc, AuthenticationFailed):
             raise
         raise AuthenticationFailed("Invalid bearer token.") from exc
@@ -71,10 +90,62 @@ def _parse_roles(value) -> list[str]:
     return [str(value)]
 
 
+def local_auth_harness_enabled() -> bool:
+    return bool(
+        settings.LOCAL_AUTH_HARNESS_ENABLED
+        and settings.DEV_AUTH_ENABLED
+        and settings.DEBUG
+        and not settings.AUTH_ENABLED
+    )
+
+
+def _configured_local_auth_harness_users() -> set[str]:
+    return {
+        str(value or "").strip().lower()
+        for value in getattr(settings, "LOCAL_AUTH_HARNESS_USERNAMES", [])
+        if str(value or "").strip()
+    }
+
+
+def _requested_local_auth_harness_user(request) -> str:
+    return str(request.META.get(LOCAL_AUTH_HARNESS_HEADER, "")).strip()
+
+
+def _enforce_dev_override_header_policy(request) -> None:
+    legacy_header_value = str(request.META.get(LEGACY_DEV_AUTH_HEADER, "")).strip()
+    if legacy_header_value:
+        _log_auth_warning("auth.rejected_legacy_dev_header", request=request)
+        raise AuthenticationFailed(
+            "X-Dev-User is no longer supported. Use the local auth harness flow only in explicit local-harness mode."
+        )
+
+    local_harness_header_value = _requested_local_auth_harness_user(request)
+    if local_harness_header_value and not local_auth_harness_enabled():
+        _log_auth_warning(
+            "auth.rejected_local_harness_header_outside_local_mode",
+            request=request,
+        )
+        raise AuthenticationFailed(
+            "X-DMIS-Local-User is disabled outside DMIS local-harness mode."
+        )
+
+
 def _resolve_dev_override_principal(request) -> Principal | None:
-    requested = str(request.META.get("HTTP_X_DEV_USER", "")).strip()
+    requested = _requested_local_auth_harness_user(request)
     if not requested:
         return None
+
+    if not local_auth_harness_enabled():
+        _log_auth_warning("auth.local_harness_override_rejected_when_disabled", request=request)
+        raise AuthenticationFailed("X-DMIS-Local-User is only allowed in DMIS local-harness mode.")
+
+    allowed_users = _configured_local_auth_harness_users()
+    if not allowed_users:
+        _log_auth_warning("auth.local_harness_enabled_without_allowlist", request=request)
+        raise AuthenticationFailed("X-DMIS-Local-User is enabled, but no local harness users are configured.")
+    if requested.lower() not in allowed_users:
+        _log_auth_warning("auth.local_harness_rejected_non_allowlisted_user", request=request)
+        raise AuthenticationFailed("X-DMIS-Local-User is not allowlisted for DMIS local-harness mode.")
 
     try:
         with connection.cursor() as cursor:
@@ -89,12 +160,12 @@ def _resolve_dev_override_principal(request) -> Principal | None:
             )
             row = cursor.fetchone()
     except DatabaseError as exc:
-        logger.warning("DEV auth override lookup failed: %s", exc)
-        return None
+        _log_auth_warning("auth.dev_override_lookup_failed", request=request, exception=exc)
+        raise AuthenticationFailed("X-DMIS-Local-User could not be resolved safely.") from exc
 
     if not row:
-        logger.warning("DEV auth override user not found: %s", requested)
-        return None
+        _log_auth_warning("auth.dev_override_user_not_found", request=request)
+        raise AuthenticationFailed("X-DMIS-Local-User did not match a configured local harness user.")
 
     user_id = int(row[0])
     roles, permissions = _fetch_dev_override_roles_and_permissions(user_id)
@@ -138,8 +209,8 @@ def _fetch_dev_override_roles_and_permissions(user_id: int) -> tuple[list[str], 
                 if str(row[0]).strip() and str(row[1]).strip()
             ]
     except DatabaseError as exc:
-        logger.warning("DEV auth override role lookup failed: %s", exc)
-        return [], []
+        _log_auth_warning("auth.dev_override_role_lookup_failed", exception=exc)
+        raise AuthenticationFailed("X-DMIS-Local-User RBAC lookup failed.") from exc
 
     return roles, permissions
 
@@ -150,6 +221,8 @@ class LegacyCompatAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request) -> Optional[Tuple[Principal, None]]:
+        _enforce_dev_override_header_policy(request)
+
         if settings.DEV_AUTH_ENABLED and settings.AUTH_ENABLED:
             raise AuthenticationFailed(
                 "Invalid auth configuration: DEV_AUTH_ENABLED cannot be true when AUTH_ENABLED is true."

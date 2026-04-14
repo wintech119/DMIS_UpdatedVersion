@@ -1,4 +1,16 @@
+import { PackageLegSummary, PackageSummary, RequestSummary } from './models/operations.model';
+
 export type OperationsTone = 'draft' | 'review' | 'success' | 'warning' | 'danger' | 'muted';
+
+export interface FulfillmentEntryAction {
+  label: 'Open Fulfillment' | 'Continue from Stock-Aware Selection';
+  disabled: boolean;
+  disabledReason: string | null;
+}
+
+export type OperationsDispatchStage = 'ready' | 'in_transit' | 'completed' | 'unknown';
+
+const OPERATIONS_QUEUE_SEEN_LIMIT = 250;
 
 const REQUEST_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
@@ -28,6 +40,7 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   // Legacy single-char codes
   A: 'Draft',
   P: 'Pending',
+  V: 'Ready for Dispatch',
   D: 'Dispatched',
   C: 'Completed',
   // Operations-layer status codes
@@ -38,12 +51,17 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   DISPATCHED: 'Dispatched',
   RECEIVED: 'Received',
   CANCELLED: 'Cancelled',
+  // Staged fulfillment status codes
+  CONSOLIDATING: 'Consolidating',
+  READY_FOR_PICKUP: 'Ready for Pickup',
+  SPLIT: 'Split',
 };
 
 const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   // Legacy single-char codes
   A: 'draft',
   P: 'review',
+  V: 'success',
   D: 'warning',
   C: 'success',
   // Operations-layer status codes
@@ -54,6 +72,46 @@ const PACKAGE_STATUS_TONES: Record<string, OperationsTone> = {
   DISPATCHED: 'warning',
   RECEIVED: 'success',
   CANCELLED: 'muted',
+  // Staged fulfillment status codes
+  CONSOLIDATING: 'warning',
+  READY_FOR_PICKUP: 'review',
+  SPLIT: 'muted',
+};
+
+const CONSOLIDATION_STATUS_LABELS: Record<string, string> = {
+  AWAITING_LEGS: 'Awaiting legs',
+  LEGS_IN_TRANSIT: 'Legs in transit',
+  PARTIALLY_RECEIVED: 'Partially received',
+  ALL_RECEIVED: 'All received',
+  PARTIAL_RELEASE_REQUESTED: 'Partial release requested',
+};
+
+const CONSOLIDATION_STATUS_TONES: Record<string, OperationsTone> = {
+  AWAITING_LEGS: 'draft',
+  LEGS_IN_TRANSIT: 'warning',
+  PARTIALLY_RECEIVED: 'warning',
+  ALL_RECEIVED: 'success',
+  PARTIAL_RELEASE_REQUESTED: 'review',
+};
+
+const CONSOLIDATION_LEG_STATUS_LABELS: Record<string, string> = {
+  PLANNED: 'Planned',
+  IN_TRANSIT: 'In transit',
+  RECEIVED_AT_STAGING: 'Received at staging',
+  CANCELLED: 'Cancelled',
+};
+
+const CONSOLIDATION_LEG_STATUS_TONES: Record<string, OperationsTone> = {
+  PLANNED: 'draft',
+  IN_TRANSIT: 'warning',
+  RECEIVED_AT_STAGING: 'success',
+  CANCELLED: 'muted',
+};
+
+const FULFILLMENT_MODE_LABELS: Record<string, string> = {
+  DIRECT: 'Direct dispatch',
+  DELIVER_FROM_STAGING: 'Deliver from staging',
+  PICKUP_AT_STAGING: 'Pickup at staging',
 };
 
 const URGENCY_LABELS: Record<string, string> = {
@@ -70,6 +128,62 @@ const URGENCY_TONES: Record<string, OperationsTone> = {
   L: 'muted',
 };
 
+const FULFILLMENT_ENTRY_REQUEST_STATUSES = new Set([
+  'APPROVED_FOR_FULFILLMENT',
+  'PARTIALLY_FULFILLED',
+  'FULFILLED',
+]);
+
+const FULFILLMENT_RESUME_PACKAGE_STATUSES = new Set([
+  'A',
+  'P',
+  'D',
+  'C',
+  'DRAFT',
+  'PENDING_OVERRIDE_APPROVAL',
+  'COMMITTED',
+  'CONSOLIDATING',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+  'SPLIT',
+]);
+
+const NON_CANCELABLE_FULFILLMENT_STATUSES = new Set([
+  'D',
+  'C',
+  'COMMITTED',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+  'SPLIT',
+  'CANCELLED',
+]);
+
+// Packages may enter the dispatch workspace only after stock has been committed.
+// DRAFT / PENDING_OVERRIDE_APPROVAL / CONSOLIDATING packages must be kept out —
+// opening the dispatch workspace for them would show a meaningless empty state
+// and previously caused the backend to materialize an orphan dispatch record.
+const DISPATCH_READY_PACKAGE_STATUSES = new Set([
+  // Legacy single-char codes (D=Dispatched, C=Completed/Received)
+  'D',
+  'C',
+  // Operations-layer status codes
+  'COMMITTED',
+  'READY_FOR_DISPATCH',
+  'READY_FOR_PICKUP',
+  'DISPATCHED',
+  'RECEIVED',
+]);
+
+const FULFILLMENT_ACCESS_DISABLED_REASON =
+  'Only fulfillment logistics roles can open the package workspace.';
+
+const PACKAGE_DISPATCH_NOT_READY_REASON =
+  'Dispatch preparation unlocks after the package is committed in fulfillment.';
+
 export function formatOperationsRequestStatus(code: number | string | null | undefined): string {
   const normalized = String(code ?? '').trim().toUpperCase();
   return REQUEST_STATUS_LABELS[normalized] ?? 'Unknown';
@@ -85,6 +199,7 @@ function normalizeOperationsPackageStatus(
   executionStatus: string | null | undefined,
 ): string {
   const normalizedExecutionStatus = String(executionStatus ?? '').trim().toUpperCase();
+  const normalizedCode = String(code ?? '').trim().toUpperCase();
   switch (normalizedExecutionStatus) {
     case 'PENDING_OVERRIDE_APPROVAL':
     case 'COMMITTED':
@@ -94,7 +209,7 @@ function normalizeOperationsPackageStatus(
     case 'OVERRIDE_APPROVED':
       return 'READY_FOR_DISPATCH';
     default:
-      return String(code ?? '').trim().toUpperCase();
+      return normalizedCode === 'V' ? 'COMMITTED' : normalizedCode;
   }
 }
 
@@ -112,6 +227,205 @@ export function getOperationsPackageTone(
 ): OperationsTone {
   const normalized = normalizeOperationsPackageStatus(code, executionStatus);
   return PACKAGE_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function getFulfillmentEntryAction(options: {
+  requestStatus: string | null | undefined;
+  packageStatus?: string | null | undefined;
+  executionStatus?: string | null | undefined;
+  hasExistingPackage?: boolean;
+  hasFulfillmentAccess?: boolean;
+}): FulfillmentEntryAction | null {
+  const requestStatus = String(options.requestStatus ?? '').trim().toUpperCase();
+  const packageStatus = normalizeOperationsPackageStatus(options.packageStatus, options.executionStatus);
+  const hasFulfillmentAccess = options.hasFulfillmentAccess ?? true;
+  const hasExistingPackage = Boolean(options.hasExistingPackage) || Boolean(packageStatus);
+
+  if (!FULFILLMENT_ENTRY_REQUEST_STATUSES.has(requestStatus) && !hasExistingPackage) {
+    return null;
+  }
+
+  const shouldContinue = requestStatus === 'PARTIALLY_FULFILLED'
+    || requestStatus === 'FULFILLED'
+    || (hasExistingPackage && FULFILLMENT_RESUME_PACKAGE_STATUSES.has(packageStatus));
+
+  return {
+    label: shouldContinue ? 'Continue from Stock-Aware Selection' : 'Open Fulfillment',
+    disabled: !hasFulfillmentAccess,
+    disabledReason: hasFulfillmentAccess ? null : FULFILLMENT_ACCESS_DISABLED_REASON,
+  };
+}
+
+export function getRequestFulfillmentEntryAction(
+  request: Pick<RequestSummary, 'status_code' | 'reliefpkg_id'> & {
+    packages?: readonly Pick<PackageSummary, 'status_code' | 'execution_status'>[];
+  },
+  hasFulfillmentAccess = true,
+): FulfillmentEntryAction | null {
+  const currentPackage = request.packages?.[0];
+  return getFulfillmentEntryAction({
+    requestStatus: request.status_code,
+    packageStatus: currentPackage?.status_code,
+    executionStatus: currentPackage?.execution_status,
+    hasExistingPackage: Boolean(request.reliefpkg_id) || Boolean(request.packages?.length),
+    hasFulfillmentAccess,
+  });
+}
+
+export function isFulfillmentCancellationAllowed(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): boolean {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
+  if (!normalized) {
+    return true;
+  }
+  return !NON_CANCELABLE_FULFILLMENT_STATUSES.has(normalized);
+}
+
+export function isPackageDispatchReady(
+  code: string | null | undefined,
+  executionStatus?: string | null | undefined,
+): boolean {
+  const normalized = normalizeOperationsPackageStatus(code, executionStatus);
+  return DISPATCH_READY_PACKAGE_STATUSES.has(normalized);
+}
+
+export interface PackageDispatchAction {
+  disabled: boolean;
+  disabledReason: string | null;
+}
+
+export function getPackageDispatchAction(
+  pkg: Pick<PackageSummary, 'status_code' | 'execution_status'> | null | undefined,
+): PackageDispatchAction {
+  if (!pkg) {
+    return { disabled: true, disabledReason: PACKAGE_DISPATCH_NOT_READY_REASON };
+  }
+  const ready = isPackageDispatchReady(pkg.status_code, pkg.execution_status);
+  return {
+    disabled: !ready,
+    disabledReason: ready ? null : PACKAGE_DISPATCH_NOT_READY_REASON,
+  };
+}
+
+export function getOperationsDispatchStage(pkg: {
+  status_code: string | null | undefined;
+  execution_status?: string | null | undefined;
+  received_dtime?: string | null | undefined;
+}): OperationsDispatchStage {
+  const normalized = normalizeOperationsPackageStatus(pkg.status_code, pkg.execution_status);
+  if (pkg.received_dtime) {
+    return 'completed';
+  }
+  if (normalized === 'D' || normalized === 'DISPATCHED') {
+    return 'in_transit';
+  }
+  if (normalized === 'C' || normalized === 'RECEIVED') {
+    return 'completed';
+  }
+  if (
+    normalized === 'P'
+    || normalized === 'COMMITTED'
+    || normalized === 'READY_FOR_DISPATCH'
+    || normalized === 'READY_FOR_PICKUP'
+  ) {
+    return 'ready';
+  }
+  return 'unknown';
+}
+
+export function formatOperationsConsolidationStatus(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_STATUS_LABELS[normalized] ?? 'Unknown';
+}
+
+export function getOperationsConsolidationStatusTone(code: string | null | undefined): OperationsTone {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function formatOperationsConsolidationLegStatus(code: string | null | undefined): string {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_LEG_STATUS_LABELS[normalized] ?? 'Unknown';
+}
+
+export function getOperationsConsolidationLegTone(code: string | null | undefined): OperationsTone {
+  const normalized = String(code ?? '').trim().toUpperCase();
+  return CONSOLIDATION_LEG_STATUS_TONES[normalized] ?? 'muted';
+}
+
+export function formatOperationsFulfillmentMode(code: string | null | undefined): string {
+  const raw = String(code ?? '').trim();
+  if (!raw) {
+    return 'Not set';
+  }
+  const normalized = raw.toUpperCase();
+  return FULFILLMENT_MODE_LABELS[normalized] ?? raw;
+}
+
+/**
+ * Format a leg progress label like "2 / 4 legs" for staged consolidation
+ * packages. Returns "No legs planned" when the package has no legs yet
+ * (either direct fulfillment or staged but not yet committed).
+ */
+export function formatLegProgressLabel(
+  summary: PackageLegSummary | null | undefined,
+): string {
+  if (!summary || summary.total_legs === 0) {
+    return 'No legs planned';
+  }
+  return `${summary.received_legs} / ${summary.total_legs} legs`;
+}
+
+/**
+ * Map a leg summary to a status tone for the queue chip.
+ * - success when all legs received (ready to dispatch)
+ * - warning when partially received (some legs still missing)
+ * - review when legs are in transit
+ * - draft when nothing has been dispatched from source warehouses yet
+ */
+export function getLegProgressTone(
+  summary: PackageLegSummary | null | undefined,
+): OperationsTone {
+  if (!summary || summary.total_legs === 0) {
+    return 'muted';
+  }
+  if (summary.all_received) {
+    return 'success';
+  }
+  if (summary.received_legs > 0) {
+    return 'warning';
+  }
+  if (summary.in_transit_legs > 0) {
+    return 'review';
+  }
+  return 'draft';
+}
+
+/**
+ * Classify a package's consolidation stage for filter/count logic on the
+ * Consolidation queue. Works from the leg_summary rollup so the queue does
+ * not need a second roundtrip per row.
+ */
+export type ConsolidationStage = 'awaiting' | 'in_transit' | 'partial' | 'ready';
+
+export function getConsolidationStageFromLegs(
+  summary: PackageLegSummary | null | undefined,
+): ConsolidationStage {
+  if (!summary || summary.total_legs === 0) {
+    return 'awaiting';
+  }
+  if (summary.all_received) {
+    return 'ready';
+  }
+  if (summary.received_legs > 0) {
+    return 'partial';
+  }
+  if (summary.in_transit_legs > 0) {
+    return 'in_transit';
+  }
+  return 'awaiting';
 }
 
 export function formatOperationsUrgency(code: string | null | undefined): string {
@@ -311,6 +625,100 @@ export function mapOperationsToneToChipTone(
   }
 }
 
+export function buildOperationsQueueSeenStorageKey(
+  scope: string,
+  userRef: string | null | undefined,
+): string | null {
+  const normalizedScope = String(scope ?? '').trim().toLowerCase();
+  const normalizedUserRef = String(userRef ?? '').trim().toLowerCase();
+  if (!normalizedScope || !normalizedUserRef) {
+    return null;
+  }
+  return `dmis_operations_queue_seen:${normalizedScope}:${normalizedUserRef}`;
+}
+
+export function readOperationsQueueSeenEntries(
+  storageKey: string | null | undefined,
+): Record<string, number[]> {
+  if (!storageKey) {
+    return {};
+  }
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!isOperationsRecord(parsed)) {
+      return {};
+    }
+
+    const entries: Record<string, number[]> = {};
+    for (const [filterKey, ids] of Object.entries(parsed)) {
+      const normalized = normalizeOperationsQueueIds(ids);
+      if (normalized.length) {
+        entries[filterKey] = normalized;
+      }
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
+export function mergeOperationsQueueSeenEntries(
+  current: Record<string, readonly number[]> | null | undefined,
+  filterKey: string,
+  ids: readonly number[],
+): Record<string, number[]> {
+  const normalizedFilterKey = String(filterKey ?? '').trim();
+  if (!normalizedFilterKey) {
+    return sanitizeOperationsQueueSeenEntries(current);
+  }
+
+  const existing = normalizeOperationsQueueIds(current?.[normalizedFilterKey]);
+  const incoming = normalizeOperationsQueueIds(ids);
+  if (!incoming.length) {
+    return sanitizeOperationsQueueSeenEntries(current);
+  }
+
+  const merged = normalizeOperationsQueueIds([...existing, ...incoming]);
+  return {
+    ...sanitizeOperationsQueueSeenEntries(current),
+    [normalizedFilterKey]: merged,
+  };
+}
+
+export function writeOperationsQueueSeenEntries(
+  storageKey: string | null | undefined,
+  entries: Record<string, readonly number[]> | null | undefined,
+): void {
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(sanitizeOperationsQueueSeenEntries(entries)));
+  } catch {
+    // localStorage can be unavailable or full; unread indicators can still work in-memory.
+  }
+}
+
+export function countOperationsUnreadIds(
+  ids: readonly number[],
+  seenIds: readonly number[] | null | undefined,
+): number {
+  const currentIds = normalizeOperationsQueueIds(ids, { cap: false });
+  if (!currentIds.length) {
+    return 0;
+  }
+
+  const seen = new Set(normalizeOperationsQueueIds(seenIds, { cap: false }));
+  return currentIds.reduce((count, id) => count + (seen.has(id) ? 0 : 1), 0);
+}
+
 function getRovingRadioTargetIndex(
   key: string,
   currentIndex: number,
@@ -363,4 +771,45 @@ export function handleRovingRadioKeydown<T extends string>(
 
 function isOperationsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function sanitizeOperationsQueueSeenEntries(
+  entries: Record<string, readonly number[]> | null | undefined,
+): Record<string, number[]> {
+  if (!entries || !isOperationsRecord(entries)) {
+    return {};
+  }
+
+  const sanitized: Record<string, number[]> = {};
+  for (const [filterKey, ids] of Object.entries(entries)) {
+    const normalized = normalizeOperationsQueueIds(ids);
+    if (normalized.length) {
+      sanitized[filterKey] = normalized;
+    }
+  }
+  return sanitized;
+}
+
+function normalizeOperationsQueueIds(
+  values: readonly number[] | unknown,
+  options?: { cap?: boolean },
+): number[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const unique = new Set<number>();
+  for (const value of values) {
+    const normalized = Number(value);
+    if (!Number.isInteger(normalized) || normalized <= 0 || unique.has(normalized)) {
+      continue;
+    }
+    unique.add(normalized);
+  }
+
+  const normalized = Array.from(unique);
+  if (options?.cap === false) {
+    return normalized;
+  }
+  return normalized.slice(-OPERATIONS_QUEUE_SEEN_LIMIT);
 }

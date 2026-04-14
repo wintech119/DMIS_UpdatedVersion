@@ -221,6 +221,31 @@ export interface NeedsListSummaryVersionResponse {
   data_version: string;
 }
 
+export type AsyncJobStatus = 'QUEUED' | 'RUNNING' | 'RETRYING' | 'SUCCEEDED' | 'FAILED';
+
+export interface AsyncJobResponse {
+  job_id: string;
+  job_type: string;
+  status: AsyncJobStatus;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string | null;
+  retry_count: number;
+  max_retries: number;
+  error_message: string | null;
+  artifact_ready: boolean;
+  status_url: string;
+  download_url?: string;
+}
+
+export interface QueuedNeedsListExportResponse extends AsyncJobResponse {
+  needs_list_id: string;
+  format: string;
+  data_version: string;
+  deduplicated?: boolean;
+}
+
 export interface NeedsListResponse {
   event_id: number;
   event_name?: string;
