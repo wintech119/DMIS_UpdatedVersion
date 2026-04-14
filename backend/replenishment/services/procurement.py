@@ -494,6 +494,8 @@ def list_procurements(
     filters: Optional[Dict[str, Any]] = None,
     *,
     include_items: bool = False,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """List procurement orders with optional filters."""
     qs = Procurement.objects.select_related("supplier", "needs_list").all()
@@ -510,12 +512,23 @@ def list_procurements(
         if filters.get("supplier_id"):
             qs = qs.filter(supplier_id=int(filters["supplier_id"]))
 
-    if include_items:
-        qs = qs.prefetch_related("items")
+    ordered_qs = qs.order_by("-create_dtime")
+    total_count: int | None = None
+    if limit is not None:
+        offset = max(int(offset), 0)
+        limit = max(int(limit), 1)
+        total_count = ordered_qs.count()
+        ordered_qs = ordered_qs[offset: offset + limit]
 
-    procurements = list(qs.order_by("-create_dtime"))
+    if include_items:
+        ordered_qs = ordered_qs.prefetch_related("items")
+
+    procurements = list(ordered_qs)
+    if total_count is None:
+        total_count = len(procurements)
+
     if not procurements:
-        return [], 0
+        return [], total_count
 
     warehouse_names, _ = data_access.get_warehouse_names(
         [proc.target_warehouse_id for proc in procurements]
@@ -543,7 +556,7 @@ def list_procurements(
             item_lookup=item_lookup,
         )
         for proc in procurements
-    ], len(procurements)
+    ], total_count
 
 
 def get_procurement(procurement_id: int) -> Dict[str, Any]:

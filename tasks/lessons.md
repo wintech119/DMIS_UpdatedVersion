@@ -11,3 +11,5 @@
 - When optimizing hot Django list endpoints, keep summary surfaces summary-only by default, batch shared lookups, and add tests that prove expensive per-row hydration stays opt-in rather than silently returning.
 - When a paginated Django summary endpoint still needs item-derived metrics, split cheap header filtering/sorting from page hydration so tenant scope and page windows cut the expensive item load before serialization.
 - When adding early tenant-aware prefilters, preserve the existing read-all contract for NEOC/national contexts; requested-tenant state can shape active context without becoming an implicit deny-by-omission filter.
+- When a list endpoint still needs one Python-only filter, keep the common case on DB-side count/slice/order and fall back to bounded batch scanning for the edge filter instead of materializing the full header set in memory.
+- When adding pagination to an existing API list surface, keep the stable collection key if possible and add explicit count/next/previous metadata so current consumers can stay compatible while the response becomes bounded.

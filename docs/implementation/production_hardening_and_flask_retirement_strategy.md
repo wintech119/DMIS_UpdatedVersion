@@ -154,8 +154,8 @@ Current implementation note:
 - Needs-list donation and procurement CSV exports now queue as async jobs with status/download endpoints, retry-aware lifecycle logging, and queue readiness tied to worker heartbeat.
 - Durable object storage for larger or longer-lived artifacts remains a follow-up; the current slice uses bounded inline storage only for small CSV outputs.
 - DMIS-07 reduced request-path amplification on two live Django read surfaces:
-  - needs-list list filters now narrow the DB-backed record set before item hydration, and `my-submissions` now paginates header rows before hydrating the requested page of summary records
-  - procurement list responses now default to summary rows, batch warehouse lookups, and avoid inline line-item serialization unless a caller explicitly opts in with `include_items=true`
+  - needs-list list filters now narrow the DB-backed record set before item hydration, and `my-submissions` now uses a bounded header-page path so date/status/warehouse ordering and page selection happen before full-record hydration; method-filtered pages fall back to bounded batch scanning instead of full header materialization
+  - procurement list responses now default to summary rows, batch warehouse lookups, avoid inline line-item serialization unless a caller explicitly opts in with `include_items=true`, and return bounded pages via `page` / `page_size` while keeping the `procurements` payload key stable
 - DMIS-07 follow-up hotspots still worth profiling and prioritizing:
   - `allocation_dispatch.get_allocation_options` for larger approved needs lists
   - broader needs-list dashboard/list feeds that still materialize full item snapshots per record

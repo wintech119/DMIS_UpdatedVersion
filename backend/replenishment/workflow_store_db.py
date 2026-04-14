@@ -13,13 +13,15 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timezone
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, Sequence, Tuple
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Q
+from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Cast, Coalesce
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.dateparse import parse_datetime
 from decimal import Decimal, InvalidOperation
 
+from .legacy_models import Warehouse
 from .models import (
     NeedsList,
     NeedsListItem,
@@ -966,6 +968,120 @@ def _record_queryset(
     return queryset
 
 
+def _header_queryset(
+    statuses: Iterable[object] | None = None,
+    *,
+    mine_actor: str | None = None,
+    owner_visibility_actor: str | None = None,
+    owner_visibility_statuses: Iterable[object] | None = None,
+    event_id: int | None = None,
+    warehouse_id: int | None = None,
+    phase: str | None = None,
+    exclude_statuses: Iterable[object] | None = None,
+    allowed_warehouse_ids: Iterable[int] | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    sort_by: str = "date",
+    sort_order: str = "desc",
+) -> QuerySet[NeedsList]:
+    if "warehouse" in connection.introspection.table_names():
+        warehouse_name_annotation = Coalesce(
+            Subquery(
+                Warehouse.objects.filter(
+                    warehouse_id=OuterRef("warehouse_id")
+                ).values("warehouse_name")[:1]
+            ),
+            Value(""),
+        )
+    else:
+        warehouse_name_annotation = Cast("warehouse_id", output_field=CharField())
+    queryset = _record_queryset(
+        statuses,
+        mine_actor=mine_actor,
+        owner_visibility_actor=owner_visibility_actor,
+        owner_visibility_statuses=owner_visibility_statuses,
+        event_id=event_id,
+        warehouse_id=warehouse_id,
+        phase=phase,
+        exclude_statuses=exclude_statuses,
+        allowed_warehouse_ids=allowed_warehouse_ids,
+    ).annotate(
+        submission_sort_at=Coalesce(
+            "update_dtime",
+            "approved_at",
+            "submitted_at",
+            "create_dtime",
+            output_field=DateTimeField(),
+        ),
+        warehouse_name_sort=warehouse_name_annotation,
+    )
+
+    if date_from is not None:
+        queryset = queryset.filter(submission_sort_at__gte=date_from)
+    if date_to is not None:
+        queryset = queryset.filter(submission_sort_at__lte=date_to)
+
+    descending = str(sort_order or "desc").strip().lower() != "asc"
+    if sort_by == "status":
+        primary_field = "status_code"
+    elif sort_by == "warehouse":
+        primary_field = "warehouse_name_sort"
+    else:
+        primary_field = "submission_sort_at"
+
+    primary_order = f"-{primary_field}" if descending else primary_field
+    secondary_order = "-needs_list_id" if descending else "needs_list_id"
+    return queryset.order_by(primary_order, secondary_order)
+
+
+def _serialize_record_headers(needs_lists: Sequence[NeedsList]) -> list[Dict[str, object]]:
+    needs_list_rows = list(needs_lists)
+    if not needs_list_rows:
+        return []
+
+    warehouse_names, _ = data_access.get_warehouse_names(
+        [needs_list.warehouse_id for needs_list in needs_list_rows]
+    )
+    event_names, _ = data_access.get_event_names(
+        [needs_list.event_id for needs_list in needs_list_rows]
+    )
+    metadata_by_id = _load_workflow_metadata_map(needs_list_rows)
+
+    headers: list[Dict[str, object]] = []
+    for needs_list in needs_list_rows:
+        needs_list_id = int(needs_list.needs_list_id)
+        metadata = metadata_by_id.get(needs_list_id, {})
+        selected_method = metadata.get("selected_method")
+        warehouse_name = warehouse_names.get(
+            needs_list.warehouse_id,
+            f"Warehouse {needs_list.warehouse_id}",
+        )
+        event_name = event_names.get(
+            needs_list.event_id,
+            f"Event {needs_list.event_id}",
+        )
+        headers.append(
+            {
+                "needs_list_id": str(needs_list_id),
+                "needs_list_no": needs_list.needs_list_no,
+                "status": needs_list.status_code,
+                "event_id": needs_list.event_id,
+                "event_name": event_name,
+                "warehouse_id": needs_list.warehouse_id,
+                "warehouse_name": warehouse_name,
+                "phase": needs_list.event_phase,
+                "selected_method": selected_method,
+                "created_by": needs_list.create_by_id,
+                "created_at": _iso_or_none(needs_list.create_dtime),
+                "updated_at": _iso_or_none(needs_list.update_dtime),
+                "submitted_at": _iso_or_none(needs_list.submitted_at),
+                "approved_at": _iso_or_none(needs_list.approved_at),
+            }
+        )
+
+    return headers
+
+
 def list_record_headers(
     statuses: Iterable[object] | None = None,
     *,
@@ -1007,44 +1123,99 @@ def list_record_headers(
         .order_by("-calculation_dtime", "-needs_list_id")
     )
     needs_lists = list(queryset)
-    if not needs_lists:
-        return []
+    return _serialize_record_headers(needs_lists)
 
-    warehouse_names, _ = data_access.get_warehouse_names(
-        [needs_list.warehouse_id for needs_list in needs_lists]
-    )
-    event_names, _ = data_access.get_event_names(
-        [needs_list.event_id for needs_list in needs_lists]
-    )
-    metadata_by_id = _load_workflow_metadata_map(needs_lists)
 
-    headers: list[Dict[str, object]] = []
-    for needs_list in needs_lists:
-        needs_list_id = int(needs_list.needs_list_id)
-        metadata = metadata_by_id.get(needs_list_id, {})
-        selected_method = metadata.get("selected_method")
-        warehouse_name = warehouse_names.get(needs_list.warehouse_id, f"Warehouse {needs_list.warehouse_id}")
-        event_name = event_names.get(needs_list.event_id, f"Event {needs_list.event_id}")
-        headers.append(
-            {
-                "needs_list_id": str(needs_list_id),
-                "needs_list_no": needs_list.needs_list_no,
-                "status": needs_list.status_code,
-                "event_id": needs_list.event_id,
-                "event_name": event_name,
-                "warehouse_id": needs_list.warehouse_id,
-                "warehouse_name": warehouse_name,
-                "phase": needs_list.event_phase,
-                "selected_method": selected_method,
-                "created_by": needs_list.create_by_id,
-                "created_at": _iso_or_none(needs_list.create_dtime),
-                "updated_at": _iso_or_none(needs_list.update_dtime),
-                "submitted_at": _iso_or_none(needs_list.submitted_at),
-                "approved_at": _iso_or_none(needs_list.approved_at),
-            }
+def list_record_headers_page(
+    statuses: Iterable[object] | None = None,
+    *,
+    mine_actor: str | None = None,
+    owner_visibility_actor: str | None = None,
+    owner_visibility_statuses: Iterable[object] | None = None,
+    event_id: int | None = None,
+    warehouse_id: int | None = None,
+    phase: str | None = None,
+    exclude_statuses: Iterable[object] | None = None,
+    allowed_warehouse_ids: Iterable[int] | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    sort_by: str = "date",
+    sort_order: str = "desc",
+    method_filter: str | None = None,
+    offset: int = 0,
+    limit: int = 10,
+) -> tuple[list[Dict[str, object]], int]:
+    offset = max(int(offset), 0)
+    limit = max(int(limit), 1)
+    queryset = (
+        _header_queryset(
+            statuses,
+            mine_actor=mine_actor,
+            owner_visibility_actor=owner_visibility_actor,
+            owner_visibility_statuses=owner_visibility_statuses,
+            event_id=event_id,
+            warehouse_id=warehouse_id,
+            phase=phase,
+            exclude_statuses=exclude_statuses,
+            allowed_warehouse_ids=allowed_warehouse_ids,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
+        .only(
+            "needs_list_id",
+            "needs_list_no",
+            "event_id",
+            "warehouse_id",
+            "event_phase",
+            "status_code",
+            "create_by_id",
+            "create_dtime",
+            "update_dtime",
+            "submitted_at",
+            "approved_at",
+            "notes_text",
+        )
+    )
 
-    return headers
+    normalized_method = str(method_filter or "").strip().upper()
+    if not normalized_method:
+        total_count = queryset.count()
+        needs_lists = list(queryset[offset: offset + limit])
+        return _serialize_record_headers(needs_lists), total_count
+
+    matched_needs_lists: list[NeedsList] = []
+    matched_count = 0
+    batch: list[NeedsList] = []
+    batch_size = max(limit * 4, 50)
+    for needs_list in queryset.iterator(chunk_size=batch_size):
+        batch.append(needs_list)
+        if len(batch) < batch_size:
+            continue
+        metadata_by_id = _load_workflow_metadata_map(batch)
+        for candidate in batch:
+            metadata = metadata_by_id.get(int(candidate.needs_list_id), {})
+            selected_method = str(metadata.get("selected_method") or "").strip().upper()
+            if selected_method != normalized_method:
+                continue
+            if matched_count >= offset and len(matched_needs_lists) < limit:
+                matched_needs_lists.append(candidate)
+            matched_count += 1
+        batch = []
+
+    if batch:
+        metadata_by_id = _load_workflow_metadata_map(batch)
+        for candidate in batch:
+            metadata = metadata_by_id.get(int(candidate.needs_list_id), {})
+            selected_method = str(metadata.get("selected_method") or "").strip().upper()
+            if selected_method != normalized_method:
+                continue
+            if matched_count >= offset and len(matched_needs_lists) < limit:
+                matched_needs_lists.append(candidate)
+            matched_count += 1
+
+    return _serialize_record_headers(matched_needs_lists), matched_count
 
 
 def get_records_by_ids(

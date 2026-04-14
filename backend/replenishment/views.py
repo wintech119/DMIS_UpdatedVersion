@@ -2549,21 +2549,56 @@ def _parse_iso_datetime(value: object) -> Any | None:
 
 
 def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size: int = 10, max_page_size: int = 100) -> Dict[str, Any]:
-    page = _parse_positive_int(request.query_params.get("page"), "page", {}) or 1
-    page_size = _parse_positive_int(request.query_params.get("page_size"), "page_size", {}) or default_page_size
-    page_size = max(1, min(page_size, max_page_size))
-
+    page, page_size = _parse_pagination_params(
+        request,
+        default_page_size=default_page_size,
+        max_page_size=max_page_size,
+    )
     total_count = len(items)
     start = (page - 1) * page_size
     end = start + page_size
     page_items = items[start:end] if start < total_count else []
+
+    return _build_paginated_payload(
+        request,
+        items=page_items,
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _parse_pagination_params(
+    request,
+    *,
+    default_page_size: int = 10,
+    max_page_size: int = 100,
+) -> tuple[int, int]:
+    page = _parse_positive_int(request.query_params.get("page"), "page", {}) or 1
+    page_size = (
+        _parse_positive_int(request.query_params.get("page_size"), "page_size", {})
+        or default_page_size
+    )
+    page_size = max(1, min(page_size, max_page_size))
+    return page, page_size
+
+
+def _build_paginated_payload(
+    request,
+    *,
+    items: list[Dict[str, Any]],
+    total_count: int,
+    page: int,
+    page_size: int,
+    result_key: str = "results",
+) -> Dict[str, Any]:
 
     next_url = None
     prev_url = None
     query = request.query_params.copy()
     query["page_size"] = str(page_size)
 
-    if end < total_count:
+    if page * page_size < total_count:
         query["page"] = str(page + 1)
         next_url = request.build_absolute_uri(
             f"{request.path}?{query.urlencode()}"
@@ -2578,7 +2613,7 @@ def _paginate_results(request, items: list[Dict[str, Any]], *, default_page_size
         "count": total_count,
         "next": next_url,
         "previous": prev_url,
-        "results": page_items,
+        result_key: items,
     }
 
 
@@ -2720,8 +2755,9 @@ def needs_list_my_submissions(request):
 
     # Terminal statuses hidden by default unless explicitly requested via filter.
     _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
+    page, page_size = _parse_pagination_params(request)
     scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
-    headers = workflow_store.list_record_headers(
+    headers, total_count = workflow_store.list_record_headers_page(
         store_status_filters,
         mine_actor=actor if mine_only else None,
         owner_visibility_actor=None if mine_only else actor,
@@ -2730,51 +2766,15 @@ def needs_list_my_submissions(request):
         warehouse_id=warehouse_id_filter,
         exclude_statuses=None if ui_status_filters else _DEFAULT_EXCLUDED_STATUSES,
         allowed_warehouse_ids=scoped_warehouse_ids,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        method_filter=method_filter,
+        offset=(page - 1) * page_size,
+        limit=page_size,
     )
-
-    filtered_headers: list[Dict[str, Any]] = []
-    for header in headers:
-        header_status = _normalize_status_for_ui(header.get("status"))
-        if ui_status_filters and header_status not in ui_status_filters:
-            continue
-
-        if method_filter is not None:
-            row_method = _normalize_horizon_key(header.get("selected_method"))
-            if row_method != method_filter:
-                continue
-
-        header_timestamp = _parse_iso_datetime(
-            header.get("updated_at")
-            or header.get("approved_at")
-            or header.get("submitted_at")
-            or header.get("created_at")
-        )
-        if date_from and (header_timestamp is None or header_timestamp < date_from):
-            continue
-        if date_to and (header_timestamp is None or header_timestamp > date_to):
-            continue
-
-        filtered_headers.append(header)
-
-    reverse = sort_order == "desc"
-    if sort_by == "status":
-        filtered_headers.sort(
-            key=lambda row: _normalize_status_for_ui(row.get("status")),
-            reverse=reverse,
-        )
-    elif sort_by == "warehouse":
-        filtered_headers.sort(
-            key=lambda row: str(row.get("warehouse_name") or ""),
-            reverse=reverse,
-        )
-    else:
-        filtered_headers.sort(
-            key=lambda row: _record_sort_timestamp({"updated_at": row.get("updated_at")}),
-            reverse=reverse,
-        )
-
-    paginated = _paginate_results(request, filtered_headers)
-    page_ids = [row.get("needs_list_id") for row in paginated.get("results", [])]
+    page_ids = [row.get("needs_list_id") for row in headers]
     page_records = workflow_store.get_records_by_ids(page_ids, include_audit_logs=False)
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
@@ -2783,7 +2783,7 @@ def needs_list_my_submissions(request):
         for record in page_records
     }
     summaries: list[Dict[str, Any]] = []
-    for header in paginated.get("results", []):
+    for header in headers:
         record = records_by_id.get(str(header.get("needs_list_id")))
         if not record:
             continue
@@ -2798,8 +2798,15 @@ def needs_list_my_submissions(request):
         summary["allowed_actions"] = _available_actions_for_record(request, record)
         summaries.append(summary)
 
-    paginated["results"] = summaries
-    return Response(paginated)
+    return Response(
+        _build_paginated_payload(
+            request,
+            items=summaries,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
+        )
+    )
 
 
 @api_view(["GET"])
@@ -5978,11 +5985,27 @@ def procurement_list_create(request):
             request.query_params.get("include_items"),
             default=False,
         )
+        page, page_size = _parse_pagination_params(
+            request,
+            default_page_size=100,
+            max_page_size=200,
+        )
         procurements, count = procurement_service.list_procurements(
             filters or None,
             include_items=include_items,
+            offset=(page - 1) * page_size,
+            limit=page_size,
         )
-        return Response({"procurements": procurements, "count": count})
+        return Response(
+            _build_paginated_payload(
+                request,
+                items=procurements,
+                total_count=count,
+                page=page,
+                page_size=page_size,
+                result_key="procurements",
+            )
+        )
 
     # POST - create
     data = request.data
