@@ -16,6 +16,11 @@
 - Add or update focused frontend tests when behavior changes.
 - If the UI exposes a workflow or rule not documented in `../docs`, flag it rather than silently normalizing it.
 
+## Requirements-To-Design Gate
+- For requirements docs, feature specs, change notices, and other pre-implementation design work, use `../.codex/skills/requirements-to-design/SKILL.md`.
+- If the user wants to implement a module, feature set, or single feature from approved requirements, specs, or requirement deltas, do not begin frontend implementation until that design handoff is complete.
+- Keep the detailed workflow in the skill; do not duplicate it here.
+
 ## Mandatory Architecture Review
 - For medium- and high-risk frontend work, use the shared architecture reviewer at `../.agents/skills/system-architecture-review/SKILL.md` before finalizing a plan.
 - Run the same architecture review again before final output when implementation work touches architecture-sensitive frontend areas.
