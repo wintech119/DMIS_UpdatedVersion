@@ -390,6 +390,11 @@ class SeedReliefManagementFrontendTestUsersCommandTests(SimpleTestCase):
         )
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class CleanupReliefManagementFrontendTestDataCommandTests(SimpleTestCase):
     @patch(
         "operations.management.commands.cleanup_relief_management_frontend_test_data.Command._fetch_agency",

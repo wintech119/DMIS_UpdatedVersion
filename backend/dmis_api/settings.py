@@ -308,7 +308,7 @@ def _should_load_local_env() -> bool:
 def _normalize_runtime_environment(*, testing: bool) -> str:
     raw = os.getenv("DMIS_RUNTIME_ENV", "").strip().lower()
     if testing:
-        return raw or "test"
+        return raw if raw in _RUNTIME_ENVIRONMENTS else "test"
     if raw not in _RUNTIME_ENVIRONMENTS:
         allowed = ", ".join(sorted(_RUNTIME_ENVIRONMENTS))
         raise RuntimeError(

@@ -22,11 +22,16 @@ def default_frontend_test_agency_name(tenant_code: object) -> str:
 def local_harness_user_name(prefix: str, token: object = "", *, max_length: int = 20) -> str:
     normalized_prefix = normalize_tenant_token(prefix)
     normalized_token = normalize_tenant_token(token)
+    suffix = "_TST"
+    base_parts = [normalized_prefix]
     if normalized_token:
-        candidate = f"{normalized_prefix}_{normalized_token}_TST"
-    else:
-        candidate = f"{normalized_prefix}_TST"
-    return candidate[:max_length].rstrip("_")
+        base_parts.append(normalized_token)
+    base = "_".join(part for part in base_parts if part).strip("_")
+    allowed_base_length = max(max_length - len(suffix), 0)
+    truncated_base = base[:allowed_base_length].strip("_")
+    if not truncated_base:
+        return suffix.lstrip("_")[:max_length]
+    return f"{truncated_base}{suffix}".strip("_")
 
 
 @dataclass(frozen=True)

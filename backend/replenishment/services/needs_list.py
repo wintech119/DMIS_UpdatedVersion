@@ -142,6 +142,9 @@ def _build_export_rows(
     *,
     export_kind: str,
 ) -> list[dict[str, object]]:
+    if export_kind not in {"donation", "procurement"}:
+        raise ValueError(f"Unsupported export kind: {export_kind}")
+
     items = snapshot.get("items") if isinstance(snapshot, dict) else []
     if not isinstance(items, list):
         return []
@@ -188,8 +191,6 @@ def _build_export_rows(
                 }
             )
             continue
-
-        raise ValueError(f"Unsupported export kind: {export_kind}")
 
     return rows
 

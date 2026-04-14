@@ -19,6 +19,7 @@ from api.tenancy import resolve_tenant_context, tenant_context_to_dict
 from operations import policy as operations_policy
 
 readiness_logger = logging.getLogger("dmis.readiness")
+api_logger = logging.getLogger("dmis.api")
 
 
 @api_view(["GET"])
@@ -205,11 +206,25 @@ def _authorize_async_job(request, job: AsyncJob):
     )
 
     if job.job_type == AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT:
+        source_view_name = "needs_list_donations_export"
         required_permission = getattr(needs_list_donations_export, "required_permission", None)
     elif job.job_type == AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT:
+        source_view_name = "needs_list_procurement_export"
         required_permission = getattr(needs_list_procurement_export, "required_permission", None)
     else:
         return None, Response({"detail": "Not found."}, status=404)
+
+    if required_permission is None:
+        api_logger.warning(
+            "async_job.required_permission_missing",
+            extra=build_log_extra(
+                request,
+                event="async_job.required_permission_missing",
+                status_code=500,
+                view_name=source_view_name,
+            ),
+        )
+        return None, Response({"detail": "Async job authorization is misconfigured."}, status=500)
 
     if not user_has_required_permission(request, request.user, required_permission):
         return None, Response({"detail": "Forbidden."}, status=403)

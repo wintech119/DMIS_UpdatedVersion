@@ -91,7 +91,8 @@ All API routes under `/api/v1/`:
 3. **RBAC**: DB tables `role`, `permission`, `user_role`, `role_permission` when `AUTH_USE_DB_RBAC=1`; otherwise roles from JWT claim
 
 ### Data Access Pattern
-- `replenishment/services/data_access.py` and `operations/services.py` use **raw SQL** against legacy PostgreSQL tables (not Django ORM for legacy data)
+- Centralize **raw SQL** against legacy PostgreSQL tables in `replenishment/services/data_access.py` (not Django ORM for legacy data)
+- Use `operations/services.py` only for higher-level orchestration that calls the shared data-access helpers
 - `inventory_id` = `warehouse_id` (1:1 mapping in legacy schema)
 - Burn rate calculated from `reliefpkg` + `reliefpkg_item` tables
 - Needs list workflow state managed via `workflow_store.py` (file-based) or `workflow_store_db.py` (DB-backed)
@@ -224,13 +225,13 @@ Field-first mindset, works on mobile during hurricane response. Low tolerance fo
 #### Backend (Django views)
 
 **Reuse existing helpers** in `replenishment/views.py`:
-- `_parse_positive_int(value, field_name, errors)` â€” validates integers with regex, type check, and >0 range
-- `_parse_optional_bool(value, field_name, errors)` â€” whitelist-based boolean parsing
-- `_parse_optional_datetime(value, field_name, errors)` â€” ISO datetime with timezone awareness
-- `_parse_selected_item_keys(raw_keys, errors)` â€” array of `\d+_\d+` formatted keys
+- `_parse_positive_int(value, field_name, errors)` - validates integers with regex, type check, and >0 range
+- `_parse_optional_bool(value, field_name, errors)` - whitelist-based boolean parsing
+- `_parse_optional_datetime(value, field_name, errors)` - ISO datetime with timezone awareness
+- `_parse_selected_item_keys(raw_keys, errors)` - array of `\d+_\d+` formatted keys
 
 **Reuse masterdata validation framework** in `masterdata/services/validation.py`:
-- `validate_record(cfg, data)` â€” config-driven field validation (required, max_length, pattern, choices, uniqueness, FK existence, cross-field rules)
+- `validate_record(cfg, data)` - config-driven field validation (required, max_length, pattern, choices, uniqueness, FK existence, cross-field rules)
 
 **Rules for all new and modified views**:
 - **String fields**: Always enforce `max_length` matching the DB column. Reject with 400, don't silently truncate
@@ -239,10 +240,10 @@ Field-first mindset, works on mobile during hurricane response. Low tolerance fo
 - **Free-text fields** (reason, notes, comment): Enforce max_length (typically 500), `.strip()` before storage
 - **Query params** (search, order_by, status): Validate against allowed values; for `order_by` use a whitelist of column names
 - **Array inputs**: Validate type is list, enforce max length on the array, validate each element
-- **Date fields**: Use `_parse_optional_datetime()` â€” never pass raw strings to SQL or ORM
+- **Date fields**: Use `_parse_optional_datetime()` - never pass raw strings to SQL or ORM
 
 **SQL safety**:
-- All raw SQL must use `%s` parameterized placeholders â€” never f-strings or `.format()` with user values
+- All raw SQL must use `%s` parameterized placeholders - never f-strings or `.format()` with user values
 - Table/column names in dynamic SQL must come from hardcoded registries (e.g., `TABLE_REGISTRY`) or be quoted via `connection.ops.quote_name()`
 - Schema names must be validated with `re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema)` (see `masterdata/services/data_access.py:66`)
 
@@ -254,20 +255,20 @@ Field-first mindset, works on mobile during hurricane response. Low tolerance fo
 - Required fields: `Validators.required` on the `FormControl` + `required` attribute in template
 - Numeric fields: `Validators.min()` / `Validators.max()` + HTML `type="number"` with `min`/`max` attributes
 - `.trim()` user text before submitting to API (reason, notes, comments)
-- No `innerHTML` bindings with user-provided content â€” use `{{ interpolation }}` (Angular auto-escapes)
+- No `innerHTML` bindings with user-provided content - use `{{ interpolation }}` (Angular auto-escapes)
 
 ### Secret & API Key Protection
 
 - **Never commit secrets**: API keys, tokens, passwords, `DJANGO_SECRET_KEY`, DB credentials, Keycloak client secrets, and Ollama keys must never appear in source code, templates, or commit history
 - **Environment variables only**: All secrets are loaded from `backend/.env` (local) or environment variables (production). See `dmis_api/settings.py` for the `.env` loader
 - **`.env` is gitignored**: Only `.env.example` (with placeholder values) may be committed. Never copy real values into example files
-- **Frontend**: No secrets in Angular code â€” the frontend is a public bundle. Auth tokens come from Keycloak at runtime, not from config files. `environment.ts` must contain only non-secret config (API base URLs, feature flags)
+- **Frontend**: No secrets in Angular code - the frontend is a public bundle. Auth tokens come from Keycloak at runtime, not from config files. `environment.ts` must contain only non-secret config (API base URLs, feature flags)
 - **Git hygiene**: Before committing, verify no secrets in staged files. Never add `.env`, `credentials.json`, `*.pem`, or `*.key` files to git
-- **If a secret is accidentally committed**: Rotate it immediately â€” removing from history is not sufficient since it may already be cached or cloned
+- **If a secret is accidentally committed**: Rotate it immediately - removing from history is not sufficient since it may already be cached or cloned
 
 ### Rate Limiting Policy
 
-Enforce per-user + per-tenant + per-IP rate limits. During disaster SURGE phases, field users cannot afford to be blocked â€” limits are tuned to protect the system without impeding legitimate emergency operations.
+Enforce per-user + per-tenant + per-IP rate limits. During disaster SURGE phases, field users cannot afford to be blocked - limits are tuned to protect the system without impeding legitimate emergency operations.
 
 #### Tiered Limits (per authenticated user per minute)
 
@@ -291,14 +292,14 @@ Enforce per-user + per-tenant + per-IP rate limits. During disaster SURGE phases
 #### Surge-Phase Handling
 
 - **Burst-tolerant rate limiting**: Use a token-bucket or sliding-window algorithm (not fixed-window) so short bursts during SURGE don't trigger false 429s. A field user rapidly refreshing stock status after a warehouse update must not be penalized
-- **IP as secondary signal**: For authenticated users, enforce limits primarily by `user_id + tenant_id`. IP is a secondary signal only â€” field teams often share mobile hotspots or satellite links where many users appear behind a single IP
+- **IP as secondary signal**: For authenticated users, enforce limits primarily by `user_id + tenant_id`. IP is a secondary signal only - field teams often share mobile hotspots or satellite links where many users appear behind a single IP
 - **Temporary surge overrides**: Designated field roles (`LOGISTICS_OFFICER`, `LOGISTICS_MANAGER`, `AGENCY_DISTRIBUTOR`, and roles with `national.act_cross_tenant`) get 2x limits automatically when an active event exists in SURGE or STABILIZED phase
 - **429 spike monitoring**: During active events, alert on sustained 429 rates (>5% of requests over a 5-minute window). This indicates limits are too aggressive for the operational tempo and must be tuned in real-time
 
 #### Implementation Rules
 
 - **Enforcement key**: `user_id + tenant_id` for authenticated requests (IP as tiebreaker for abuse detection); IP-only for public/unauthenticated
-- **Backend**: Use Django cache framework (Redis in production, LocMemCache in dev) for counters
+- **Backend**: Use Django cache framework with Redis in any shared, staging, or production-like environment. `LocMemCache` is acceptable only for explicit single-developer local runs; correctness-critical enforcement must not rely on in-process memory outside local-only development
 - **Idempotency keys**: Require on critical write actions (approve, dispatch, receipt) to prevent duplicate processing on retries
 - **429 responses**: Return `Retry-After` header with seconds until reset. Frontend should show a toast, not a hard error
 - **System integrations**: Approved service accounts may have elevated limits configured via environment variables
@@ -306,14 +307,14 @@ Enforce per-user + per-tenant + per-IP rate limits. During disaster SURGE phases
 
 ### Insecure Direct Object Reference (IDOR) Prevention
 
-Every endpoint that accepts an object ID (needs list, relief request, procurement, warehouse, transfer, etc.) must verify the requesting user is authorized to access that specific object â€” not just that they hold the right permission.
+Every endpoint that accepts an object ID (needs list, relief request, procurement, warehouse, transfer, etc.) must verify the requesting user is authorized to access that specific object - not just that they hold the right permission.
 
 #### Authorization Checks by Layer
 
 **1. Tenant scoping (mandatory when `TENANT_SCOPE_ENFORCEMENT=1`)**
 - Every object query must filter by the authenticated user's `tenant_id` from `Principal` context
 - Cross-tenant access only permitted for principals with `national.read_all_tenants` (read) or `national.act_cross_tenant` (write)
-- Raw SQL queries must include `WHERE tenant_id = %s` â€” never rely on the URL path alone
+- Raw SQL queries must include `WHERE tenant_id = %s` - never rely on the URL path alone
 
 **2. Ownership / role-gated access**
 
@@ -327,13 +328,13 @@ Every endpoint that accepts an object ID (needs list, relief request, procuremen
 
 **3. Implementation rules for views**
 - After fetching an object by ID, **always check** `obj.tenant_id == request_tenant_id` (or national override) before returning data
-- Never trust the URL path parameter alone â€” `/api/v1/replenishment/needs-list/{id}` must verify the caller can see that specific needs list
-- For list endpoints, filter querysets/SQL by tenant â€” don't fetch all then filter in Python
+- Never trust the URL path parameter alone - `/api/v1/replenishment/needs-list/{id}` must verify the caller can see that specific needs list
+- For list endpoints, filter querysets/SQL by tenant - don't fetch all then filter in Python
 - Workflow state transitions must verify the caller holds the permission for the *current* state, not just any workflow permission
 - Use `resolve_roles_and_permissions()` from `api/rbac.py` to get the full permission set, then check against the specific action
 
 **4. Frontend guard alignment**
-- `appAccessGuard` and `appAccessMatchGuard` control route visibility but are NOT security â€” backend must independently enforce
+- `appAccessGuard` and `appAccessMatchGuard` control route visibility but are NOT security - backend must independently enforce
 - Never hide a UI element as a substitute for backend authorization. Hidden buttons can still be called via devtools
 
 **5. Testing IDOR**

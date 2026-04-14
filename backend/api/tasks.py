@@ -283,12 +283,13 @@ def run_async_job(self, job_id: str) -> str:
         _with_job_context(job, _log_success)
         return job.status
     except AsyncJobPermanentError as exc:
-        job = _mark_job_failed(job_id, error_message=str(exc))
+        error_message = str(exc)
+        job = _mark_job_failed(job_id, error_message=error_message)
 
         def _log_failed() -> None:
             job_logger.error(
                 "job.failed",
-                extra=_job_log_extra(job, event="job.failed", error_message=str(exc)),
+                extra=_job_log_extra(job, event="job.failed", error_message=error_message),
             )
 
         _with_job_context(job, _log_failed)

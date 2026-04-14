@@ -19,6 +19,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from core import search, DATA_DIR
 
 
@@ -46,8 +47,11 @@ class DesignSystemGenerator:
         filepath = DATA_DIR / REASONING_FILE
         if not filepath.exists():
             return []
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return list(csv.DictReader(f))
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return list(csv.DictReader(f))
+        except (OSError, csv.Error, UnicodeDecodeError):
+            return []
 
     def _multi_domain_search(
         self,
@@ -494,7 +498,11 @@ def generate_design_system(
         output_dir: Optional output directory (defaults to current working directory)
 
     Returns:
-        Formatted design system string
+        `str` when `persist` is false: the formatted design-system output.
+        `dict[str, Any]` when `persist` is true with:
+        - `output`: the formatted design-system output
+        - `design_system_dir`: the persisted project-scoped design-system directory
+        - `created_files`: the files written during persistence
     """
     generator = DesignSystemGenerator()
     design_system = generator.generate(query, project_name)

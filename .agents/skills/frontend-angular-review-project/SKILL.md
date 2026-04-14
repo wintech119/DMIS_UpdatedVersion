@@ -42,7 +42,7 @@ When reviewing Angular code, always check for:
 7. routing, navigation, and guard issues
 8. performance bottlenecks and unnecessary rerendering
 
-Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific review findings.
+Use the current codebase, Angular documentation, linting, and targeted tests where necessary to validate Angular-specific review findings. Treat `angular-eslint` template accessibility rules as review blockers: verify the repository ESLint config enables the template accessibility rules, confirm CI/lint gating enforces them, and do not approve PRs with unresolved template accessibility violations.
 
 ## Angular Architecture Review
 Review whether the frontend is structured in a maintainable way.

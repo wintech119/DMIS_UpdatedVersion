@@ -363,10 +363,15 @@ For each Flask capability, mark it as one of:
 The highest-value next actions are:
 
 1. treat the updated `docs/security/*` files as the new production-readiness baseline
+   see checklist 6 (`Delivery and Governance`)
 2. create a concrete engineering backlog mapped to Phase 1 through Phase 5
+   see checklist 6 (`Delivery and Governance`) and the Exit Rule
 3. harden auth and deployment defaults first
+   see checklist 1 (`Security Baseline`) and checklist 2 (`Authorization and Tenant Safety`)
 4. require Redis and add readiness plus observability next
+   see checklist 3 (`Platform Reliability and Availability`) and checklist 5 (`Data and Audit Integrity`)
 5. parallelize Flask route inventory and parity validation while the platform hardening work proceeds
+   see checklist 7 (`Flask Retirement`)
 
 ## What "Almost Production Ready" Means Here
 

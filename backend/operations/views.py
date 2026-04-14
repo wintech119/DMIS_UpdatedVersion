@@ -214,7 +214,7 @@ def _rate_limit_response(
         tokens = min(float(effective_limit), current_tokens + (elapsed * refill_rate))
 
         if tokens < 1.0:
-            retry_after = max(1, int(math.ceil((1.0 - tokens) / refill_rate)))
+            retry_after = max(1, math.ceil((1.0 - tokens) / refill_rate))
             cache.set(
                 cache_key,
                 {"tokens": tokens, "updated_at": now},
@@ -974,6 +974,7 @@ operations_partial_release_approve.required_permission = PERM_OPERATIONS_PARTIAL
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_pickup_release(request, reliefpkg_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="pickup_release",
@@ -988,6 +989,7 @@ def operations_pickup_release(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -1002,6 +1004,7 @@ operations_pickup_release.required_permission = PERM_OPERATIONS_PICKUP_RELEASE
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_package_cancel(request, reliefpkg_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
         rate_limited = _rate_limit_response(
             request,
             scope="package_cancel",
@@ -1016,6 +1019,7 @@ def operations_package_cancel(request, reliefpkg_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:

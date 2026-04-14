@@ -5447,11 +5447,23 @@ def approve_override(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="package_override_approve",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefrqst_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     if tenant_context is None:
         execution_link = _execution_link_for_request(reliefrqst_id)
         if execution_link is not None:
-            return compat_approve_override(
+            result = compat_approve_override(
                 LegacyWorkflowContext(
                     needs_list_id=int(execution_link.needs_list_id),
                     reliefrqst_id=int(execution_link.reliefrqst_id or reliefrqst_id),
@@ -5466,10 +5478,12 @@ def approve_override(
                 override_note=str(payload.get("override_note") or "").strip(),
                 submitter_user_id=execution_link.override_requested_by or execution_link.needs_list.submitted_by,
             )
+            cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+            return result
         request = _load_request(reliefrqst_id)
         package = _current_package_for_request(reliefrqst_id)
         allocator_user_id = str(request.create_by_id or (package.create_by_id if package is not None else actor_id))
-        return _save_package_allocation(
+        result = _save_package_allocation(
             reliefrqst_id,
             payload=payload,
             actor_id=actor_id,
@@ -5479,6 +5493,8 @@ def approve_override(
             supervisor_role_codes=actor_roles,
             override_submitter_user_id=allocator_user_id,
         )
+        cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+        return result
     normalized_roles = _require_roles(actor_roles, [ROLE_LOGISTICS_MANAGER], message="Only Logistics Managers may approve overrides.")
     request = legacy_service._load_request(reliefrqst_id)
     request_probe = _request_access_probe_from_legacy(request)
@@ -5579,6 +5595,7 @@ def approve_override(
                 tenant_id=request_record.beneficiary_tenant_id,
                 queue_code=QUEUE_CODE_DISPATCH,
             )
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
     return result
 
 
@@ -5591,7 +5608,19 @@ def dispatch_consolidation_leg(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="consolidation_leg_dispatch",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(actor_roles, DISPATCH_ROLE_CODES, message="Only dispatch roles may hand off consolidation legs.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -5681,11 +5710,13 @@ def dispatch_consolidation_leg(
         tenant_id=request_record.beneficiary_tenant_id,
         queue_code=QUEUE_CODE_STAGING_RECEIPT,
     )
-    return {
+    result = {
         "status": CONSOLIDATION_LEG_STATUS_IN_TRANSIT,
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 @transaction.atomic
@@ -5697,7 +5728,19 @@ def receive_consolidation_leg(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="consolidation_leg_receive",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may receive consolidation legs.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -5809,11 +5852,13 @@ def receive_consolidation_leg(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
-    return {
+    result = {
         "status": leg.status_code,
         "package": _package_summary_payload(package, package_record),
         "leg": _consolidation_leg_payload(leg),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def get_consolidation_leg_waybill(
@@ -5862,7 +5907,19 @@ def pickup_release(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="pickup_release",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may complete pickup release.")
     package, request, request_record, package_record = _package_context_by_package_id(
         reliefpkg_id,
@@ -5959,10 +6016,12 @@ def pickup_release(
         else REQUEST_STATUS_PARTIALLY_FULFILLED
     )
     _sync_operations_request(request, actor_id=actor_id, status_code=next_request_status)
-    return {
+    result = {
         "status": "RECEIVED",
         "package": _package_summary_payload(package, package_record),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def request_partial_release(
@@ -6304,7 +6363,19 @@ def approve_partial_release(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="partial_release_approve",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     normalized_roles = _require_roles(
         actor_roles,
         [ROLE_LOGISTICS_MANAGER],
@@ -6356,6 +6427,7 @@ def approve_partial_release(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
+    cache.set(idempotency_cache_key, split_result, timeout=_IDEMPOTENCY_TTL_SECONDS)
     return split_result
 
 
@@ -6367,7 +6439,19 @@ def cancel_package(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="package_cancel",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefpkg_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     del payload
     _require_roles(actor_roles, FULFILLMENT_ROLE_CODES, message="Only fulfillment roles may cancel packages.")
     package, request, request_record, package_record = _package_context_by_package_id(
@@ -6470,11 +6554,13 @@ def cancel_package(
         role_codes=FULFILLMENT_ROLE_CODES + DISPATCH_ROLE_CODES,
         tenant_id=request_record.beneficiary_tenant_id,
     )
-    return {
+    result = {
         "status": PACKAGE_STATUS_CANCELLED,
         "package": _package_summary_payload(package, package_record),
         "request": _request_summary_payload(request, request_record),
     }
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def list_dispatch_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:

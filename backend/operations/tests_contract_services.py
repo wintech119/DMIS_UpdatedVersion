@@ -934,6 +934,7 @@ class OperationsWorkflowContractTests(TestCase):
                     actor_id="manager-1",
                     actor_roles=["LOGISTICS_MANAGER"],
                     tenant_context=self.dispatch_ready_context,
+                    idempotency_key="override-70",
                 )
 
         self.assertEqual(
@@ -1951,6 +1952,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="receive-leg-190",
             )
 
         self.assertEqual(result["package"]["status_code"], PACKAGE_STATUS_READY_FOR_PICKUP)
@@ -2047,6 +2049,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="dispatch-leg-191",
         )
 
         self.assertEqual(result["status"], CONSOLIDATION_LEG_STATUS_IN_TRANSIT)
@@ -2235,6 +2238,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="pickup-192",
         )
 
         package_record.refresh_from_db()
@@ -2335,6 +2339,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="pickup-193",
         )
 
         package_record.refresh_from_db()
@@ -2395,6 +2400,7 @@ class OperationsWorkflowContractTests(TestCase):
                 actor_id="logistics-manager-1",
                 actor_roles=self.dispatch_roles,
                 tenant_context=self.dispatch_ready_context,
+                idempotency_key="cancel-290",
             )
 
         self.assertEqual(
@@ -2468,6 +2474,7 @@ class OperationsWorkflowContractTests(TestCase):
             actor_id="logistics-manager-1",
             actor_roles=self.dispatch_roles,
             tenant_context=self.dispatch_ready_context,
+            idempotency_key="cancel-291",
         )
 
         package_record.refresh_from_db()
@@ -5629,6 +5636,36 @@ class OperationsWorkflowContractTests(TestCase):
                 90,
                 payload={"received_by_name": "Receiver One"},
                 actor_id="receiver-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
+
+    def test_pickup_release_requires_idempotency_key(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.pickup_release(
+                90,
+                payload={"released_by_name": "Receiver One"},
+                actor_id="receiver-1",
+                actor_roles=["LOGISTICS_MANAGER"],
+                tenant_context=self.dispatch_ready_context,
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"idempotency_key": "Idempotency-Key header is required."},
+        )
+
+    def test_cancel_package_requires_idempotency_key(self) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.cancel_package(
+                90,
+                payload=None,
+                actor_id="dispatcher-1",
                 actor_roles=["LOGISTICS_MANAGER"],
                 tenant_context=self.dispatch_ready_context,
             )

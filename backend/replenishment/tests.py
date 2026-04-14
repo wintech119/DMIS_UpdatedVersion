@@ -18,6 +18,7 @@ from api.rbac import (
     PERM_CRITICALITY_HAZARD_MANAGE,
     PERM_CRITICALITY_OVERRIDE_MANAGE,
 )
+from api.tenancy import TenantContext, TenantMembership
 from replenishment import rules, views, workflow_store_db
 try:
     from replenishment import workflow_store
@@ -2228,6 +2229,143 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(queued_logs), 1)
         self.assertEqual(queued_logs[0].get("job_id"), job.job_id)
         self.assertEqual(queued_logs[0].get("source_snapshot_version"), job.source_snapshot_version)
+
+    @override_settings(
+        TENANT_SCOPE_ENFORCEMENT=True,
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-b-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=20,
+            active_tenant_id=20,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="TENANT",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="TENANT",
+                    is_primary=True,
+                    access_level="FULL",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=10)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_donations_export_get_denies_cross_tenant_preview(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_resolve_tenant_context,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "snapshot": {"items": []},
+        }
+
+        response = self.client.get(
+            "/api/v1/replenishment/needs-list/NL-A/donations/export?format=json",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AsyncJob.objects.count(), 0)
+
+    @override_settings(
+        TENANT_SCOPE_ENFORCEMENT=True,
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-b-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.logger.info")
+    @patch("replenishment.views.import_module")
+    @patch(
+        "replenishment.views.resolve_tenant_context",
+        return_value=TenantContext(
+            requested_tenant_id=20,
+            active_tenant_id=20,
+            active_tenant_code="TENANT_B",
+            active_tenant_type="TENANT",
+            memberships=(
+                TenantMembership(
+                    tenant_id=20,
+                    tenant_code="TENANT_B",
+                    tenant_name="Tenant B",
+                    tenant_type="TENANT",
+                    is_primary=True,
+                    access_level="FULL",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        ),
+    )
+    @patch("replenishment.views.resolve_warehouse_tenant_id", return_value=10)
+    @patch("replenishment.views.workflow_store.get_record")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_donations_export_post_denies_cross_tenant_queueing(
+        self,
+        _mock_store_enabled,
+        mock_get_record,
+        _mock_resolve_warehouse_tenant_id,
+        _mock_resolve_tenant_context,
+        mock_import_module,
+        mock_logger_info,
+    ) -> None:
+        mock_get_record.return_value = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {
+                "items": [
+                    {
+                        "item_id": 202,
+                        "item_name": "Generator",
+                        "uom_code": "EA",
+                        "horizon": {"B": {"recommended_qty": 2}},
+                    }
+                ]
+            },
+        }
+
+        response = self.client.post(
+            "/api/v1/replenishment/needs-list/NL-A/donations/export",
+            {"format": "csv"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AsyncJob.objects.count(), 0)
+        mock_import_module.assert_not_called()
+        queued_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_info.call_args_list
+            if call.args and call.args[0] == "job.queued"
+        ]
+        self.assertEqual(queued_logs, [])
 
     @override_settings(
         AUTH_ENABLED=False,

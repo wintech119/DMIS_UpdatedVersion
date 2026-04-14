@@ -121,6 +121,7 @@ frontend/src/app/
 ## Key Business Logic
 
 ### Event Phases
+
 | Phase | Demand Window | Planning Window |
 |-------|---------------|-----------------|
 | SURGE | 6 hours | 72 hours |
@@ -294,6 +295,7 @@ Every endpoint that accepts an object ID (needs list, relief request, procuremen
 - Raw SQL queries must include `WHERE tenant_id = %s` — never rely on the URL path alone
 
 **2. Ownership / role-gated access**
+
 | Resource | Who can read | Who can write/act |
 |----------|-------------|-------------------|
 | Needs list | Creator, assigned reviewers, tenant logistics roles, national roles | Only current workflow actor (submitter can't approve their own) |

@@ -113,6 +113,12 @@ class BM25:
 
     def fit(self, documents):
         """Build BM25 index from documents"""
+        self.corpus = []
+        self.doc_lengths = []
+        self.avgdl = 0
+        self.idf = {}
+        self.doc_freqs = defaultdict(int)
+        self.N = 0
         self.corpus = [self.tokenize(doc) for doc in documents]
         self.N = len(self.corpus)
         if self.N == 0:
@@ -169,6 +175,13 @@ def _load_csv(filepath):
 
 def _search_csv(filepath, search_cols, output_cols, query, max_results):
     """Core search function using BM25"""
+    if not isinstance(max_results, int):
+        raise ValueError("max_results must be an integer.")
+    if max_results < 0:
+        raise ValueError("max_results must be greater than or equal to 0.")
+    if max_results == 0:
+        return []
+
     if not filepath.exists():
         return []
 

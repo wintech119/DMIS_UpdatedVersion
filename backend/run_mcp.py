@@ -11,7 +11,11 @@ if backend_dir not in sys.path:
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmis_api.settings")
 # Keep MCP aligned with normal app runtime (PostgreSQL-first).
 os.environ.setdefault("DJANGO_USE_SQLITE", "0")
+os.environ.setdefault("DMIS_RUNTIME_ENV", "local-harness")
 os.environ.setdefault("DJANGO_DEBUG", "1")
+os.environ.setdefault("AUTH_ENABLED", "0")
+os.environ.setdefault("DEV_AUTH_ENABLED", "1")
+os.environ.setdefault("LOCAL_AUTH_HARNESS_ENABLED", "1")
 os.environ.setdefault("DMIS_LOAD_LOCAL_ENV", "1")
 
 from django_ai_boost import main

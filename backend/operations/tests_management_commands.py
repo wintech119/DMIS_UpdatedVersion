@@ -1031,6 +1031,11 @@ class RepairRequestLevelFulfillmentQueueScopeCommandTests(TestCase):
         self.assertEqual(notification.recipient_tenant_id, 19)
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class RepairInventoryAggregatesCommandTests(TransactionTestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -1282,6 +1287,11 @@ class RepairInventoryAggregatesCommandTests(TransactionTestCase):
             )
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class ReleasePackageLockCommandTests(TestCase):
     resolver_path = "operations.contract_services._resolve_request_level_fulfillment_tenant_id"
 
@@ -1406,6 +1416,11 @@ class ReleasePackageLockCommandTests(TestCase):
             call_command("release_package_lock", request_no="RQ95009")
 
 
+@override_settings(
+    AUTH_ENABLED=False,
+    DEV_AUTH_ENABLED=True,
+    TEST_DEV_AUTH_ENABLED=True,
+)
 class ResetPackageAllocationsCommandTests(TestCase):
     def _create_request(self, *, relief_request_id: int = 95009, request_no: str = "RQ95009") -> OperationsReliefRequest:
         return OperationsReliefRequest.objects.create(
@@ -1514,11 +1529,12 @@ class ResetPackageAllocationsCommandTests(TestCase):
             {"package": "Package is already dispatched.", "lock": "Release the active lock first."}
         )
 
-        with self.assertRaisesRegex(
-            CommandError,
-            "Package is already dispatched\\., Release the active lock first\\.",
-        ):
+        with self.assertRaises(CommandError) as raised:
             call_command("reset_package_allocations", request_no="RQ95009", apply=True)
+
+        message = str(raised.exception)
+        self.assertIn("Package is already dispatched", message)
+        self.assertIn("Release the active lock first", message)
 
     @patch(
         "operations.management.commands.reset_package_allocations.ReliefPkgItem.objects.filter",

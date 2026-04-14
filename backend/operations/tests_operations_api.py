@@ -215,7 +215,12 @@ class OperationsApiTests(SimpleTestCase):
             format="json",
             HTTP_IDEMPOTENCY_KEY="receipt-90",
         )
-        cancel_response = self.client.post("/api/v1/operations/packages/90/cancel", {}, format="json")
+        cancel_response = self.client.post(
+            "/api/v1/operations/packages/90/cancel",
+            {},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="cancel-90",
+        )
         tasks_response = self.client.get("/api/v1/operations/tasks")
 
         self.assertEqual(packages_response.status_code, 200)
@@ -267,6 +272,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_cancel_package.call_args.args[0], 90)
         self.assertEqual(mock_cancel_package.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
         self.assertEqual(mock_cancel_package.call_args.kwargs["tenant_context"].active_tenant_id, 20)
+        self.assertEqual(mock_cancel_package.call_args.kwargs["idempotency_key"], "cancel-90")
         self.assertEqual(mock_tasks.call_args.kwargs["actor_roles"], ["LOGISTICS_MANAGER"])
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
@@ -499,6 +505,7 @@ class OperationsApiTests(SimpleTestCase):
                 "release_notes": "Pickup at gate",
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="pickup-90",
         )
 
         self.assertEqual(recommendation_response.status_code, 200)
@@ -528,6 +535,7 @@ class OperationsApiTests(SimpleTestCase):
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["collected_by_id_ref"], "NID-7788")
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["released_by_name"], "Receiver")
         self.assertEqual(mock_pickup_release.call_args.kwargs["payload"]["release_notes"], "Pickup at gate")
+        self.assertEqual(mock_pickup_release.call_args.kwargs["idempotency_key"], "pickup-90")
 
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
@@ -925,6 +933,48 @@ class OperationsApiTests(SimpleTestCase):
     @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
     @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
     @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.pickup_release")
+    def test_pickup_release_requires_idempotency_key(
+        self,
+        mock_pickup_release,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/pickup-release",
+            {"released_by_name": "Receiver"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_pickup_release.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
+    @patch("operations.views.operations_service.cancel_package")
+    def test_package_cancel_requires_idempotency_key(
+        self,
+        mock_cancel_package,
+        _mock_roles,
+        _mock_permission,
+        _mock_tenant_context,
+    ) -> None:
+        response = self.client.post(
+            "/api/v1/operations/packages/90/cancel",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"idempotency_key": "Idempotency-Key header is required."}})
+        mock_cancel_package.assert_not_called()
+
+    @patch("operations.views.resolve_tenant_context", return_value=SimpleNamespace(active_tenant_id=20))
+    @patch("operations.permissions.OperationsPermission.has_permission", return_value=True)
+    @patch("operations.views.resolve_roles_and_permissions", return_value=(["LOGISTICS_MANAGER"], []))
     @patch("operations.views.operations_service.approve_override")
     def test_package_override_approve_returns_429_when_rate_limited(
         self,
@@ -1006,6 +1056,7 @@ class OperationsApiTests(SimpleTestCase):
                 "/api/v1/operations/packages/90/cancel",
                 {},
                 format="json",
+                HTTP_IDEMPOTENCY_KEY="cancel-90",
             )
 
         self.assertEqual(response.status_code, 429)

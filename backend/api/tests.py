@@ -19,6 +19,7 @@ from api.authentication import Principal
 from api.models import AsyncJob
 from api.permissions import NeedsListPermission
 from dmis_api import settings as dmis_settings
+from replenishment import views as replenishment_views
 
 
 @api_view(["GET"])
@@ -839,6 +840,36 @@ class AsyncJobApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json(), {"detail": "Forbidden."})
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("api.views.api_logger.warning")
+    def test_async_job_status_reports_missing_source_permission_configuration(
+        self,
+        mock_warning,
+    ) -> None:
+        AsyncJob.objects.create(
+            job_id="job-status-misconfigured",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-MISCONFIGURED",
+        )
+
+        with patch.object(replenishment_views.needs_list_donations_export, "required_permission", None):
+            response = self.client.get("/api/v1/jobs/job-status-misconfigured")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Async job authorization is misconfigured."})
+        mock_warning.assert_called_once()
 
     @override_settings(
         AUTH_ENABLED=False,

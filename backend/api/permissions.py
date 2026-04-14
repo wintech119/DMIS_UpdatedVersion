@@ -33,9 +33,7 @@ class NeedsListPreviewPermission(BasePermission):
         user = request.user
         if not getattr(user, "is_authenticated", False):
             return False
-
-        _, permissions = resolve_roles_and_permissions(request, user)
-        return REQUIRED_PERMISSION in permissions
+        return user_has_required_permission(request, user, REQUIRED_PERMISSION)
 
 
 class NeedsListPermission(BasePermission):
