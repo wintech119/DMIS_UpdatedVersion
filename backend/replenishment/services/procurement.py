@@ -163,6 +163,16 @@ def _normalize_approval_tier_for_model(raw_tier: object) -> str | None:
 
 
 def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
+    return _serialize_procurement_payload(proc)
+
+
+def _serialize_procurement_payload(
+    proc: Procurement,
+    *,
+    include_items: bool = True,
+    warehouse_name: str | None = None,
+    item_lookup: Dict[int, Dict[str, str | None]] | None = None,
+) -> Dict[str, Any]:
     """Serialize a Procurement instance to a response dict."""
     supplier_data = None
     if proc.supplier:
@@ -179,14 +189,12 @@ def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
             "status_code": s.status_code,
         }
 
-    # Fetch warehouse name from legacy table
-    warehouse_name = ""
-    try:
-        from replenishment.services.data_access import get_warehouse_name
-        with transaction.atomic():
-            warehouse_name = get_warehouse_name(proc.target_warehouse_id) or ""
-    except Exception:
-        pass
+    if warehouse_name is None:
+        warehouse_name = ""
+        try:
+            warehouse_name = data_access.get_warehouse_name(proc.target_warehouse_id) or ""
+        except Exception:
+            pass
 
     # Get approval info
     phase = "BASELINE"
@@ -194,36 +202,43 @@ def _serialize_procurement(proc: Procurement) -> Dict[str, Any]:
         phase = proc.needs_list.event_phase or "BASELINE"
     approval = _get_approval_info(proc.total_value, phase)
 
-    # Batch-fetch item names
-    proc_items = list(proc.items.order_by("procurement_item_id"))
-    item_ids = [pi.item_id for pi in proc_items]
-    item_names_map: Dict[int, str] = {}
-    if item_ids:
-        try:
-            from replenishment.services.data_access import get_item_names
-            with transaction.atomic():
-                names_data, _ = get_item_names(item_ids)
-            item_names_map = {
-                iid: info.get("name", "") for iid, info in names_data.items()
-            }
-        except Exception:
-            pass
-
     items = []
-    for pi in proc_items:
-        items.append(
-            {
-                "procurement_item_id": pi.procurement_item_id,
-                "item_id": pi.item_id,
-                "item_name": item_names_map.get(pi.item_id, ""),
-                "ordered_qty": float(pi.ordered_qty),
-                "unit_price": float(pi.unit_price) if pi.unit_price is not None else None,
-                "line_total": float(pi.line_total) if pi.line_total is not None else None,
-                "uom_code": pi.uom_code,
-                "received_qty": float(pi.received_qty),
-                "status_code": pi.status_code,
-            }
+    if include_items:
+        proc_items = sorted(
+            list(proc.items.all()),
+            key=lambda item: item.procurement_item_id,
         )
+        item_names_map: Dict[int, str] = {}
+        if item_lookup is None:
+            item_ids = [pi.item_id for pi in proc_items]
+            if item_ids:
+                try:
+                    names_data, _ = data_access.get_item_names(item_ids)
+                    item_names_map = {
+                        iid: info.get("name", "") for iid, info in names_data.items()
+                    }
+                except Exception:
+                    pass
+        else:
+            item_names_map = {
+                item_id: info.get("name", "") if isinstance(info, dict) else ""
+                for item_id, info in item_lookup.items()
+            }
+
+        for pi in proc_items:
+            items.append(
+                {
+                    "procurement_item_id": pi.procurement_item_id,
+                    "item_id": pi.item_id,
+                    "item_name": item_names_map.get(pi.item_id, ""),
+                    "ordered_qty": float(pi.ordered_qty),
+                    "unit_price": float(pi.unit_price) if pi.unit_price is not None else None,
+                    "line_total": float(pi.line_total) if pi.line_total is not None else None,
+                    "uom_code": pi.uom_code,
+                    "received_qty": float(pi.received_qty),
+                    "status_code": pi.status_code,
+                }
+            )
 
     return {
         "procurement_id": proc.procurement_id,
@@ -477,6 +492,8 @@ def create_procurement_standalone(
 
 def list_procurements(
     filters: Optional[Dict[str, Any]] = None,
+    *,
+    include_items: bool = False,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """List procurement orders with optional filters."""
     qs = Procurement.objects.select_related("supplier", "needs_list").all()
@@ -493,8 +510,40 @@ def list_procurements(
         if filters.get("supplier_id"):
             qs = qs.filter(supplier_id=int(filters["supplier_id"]))
 
+    if include_items:
+        qs = qs.prefetch_related("items")
+
     procurements = list(qs.order_by("-create_dtime"))
-    return [_serialize_procurement(p) for p in procurements], len(procurements)
+    if not procurements:
+        return [], 0
+
+    warehouse_names, _ = data_access.get_warehouse_names(
+        [proc.target_warehouse_id for proc in procurements]
+    )
+
+    item_lookup: Dict[int, Dict[str, str | None]] | None = None
+    if include_items:
+        all_item_ids = sorted(
+            {
+                item.item_id
+                for proc in procurements
+                for item in proc.items.all()
+            }
+        )
+        if all_item_ids:
+            item_lookup, _ = data_access.get_item_names(all_item_ids)
+        else:
+            item_lookup = {}
+
+    return [
+        _serialize_procurement_payload(
+            proc,
+            include_items=include_items,
+            warehouse_name=warehouse_names.get(proc.target_warehouse_id),
+            item_lookup=item_lookup,
+        )
+        for proc in procurements
+    ], len(procurements)
 
 
 def get_procurement(procurement_id: int) -> Dict[str, Any]:

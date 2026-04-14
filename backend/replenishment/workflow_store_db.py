@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Iterable, Tuple
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Q
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.dateparse import parse_datetime
 from decimal import Decimal, InvalidOperation
@@ -75,6 +76,22 @@ def _record_owned_by_actor(needs_list: NeedsList, actor: str | None) -> bool:
 
     owner = _normalize_actor(getattr(needs_list, "create_by_id", None))
     return bool(owner) and owner == normalized_actor
+
+
+def _iso_or_none(value: object) -> str | None:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()  # type: ignore[union-attr]
+    return str(value).strip() or None
+
+
+def _normalize_status_filters(statuses: Iterable[object] | None) -> list[str]:
+    normalized: set[str] = set()
+    for status in statuses or []:
+        value = str(status or "").strip().upper()
+        if not value:
+            continue
+        normalized.add(_STATUS_ALIASES.get(value, value))
+    return sorted(normalized)
 
 
 def _utc_now() -> datetime:
@@ -264,6 +281,47 @@ def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
                 exc_info=True,
             )
     return legacy
+
+
+def _load_workflow_metadata_map(needs_lists: Iterable[NeedsList]) -> Dict[int, Dict[str, object]]:
+    needs_list_rows = list(needs_lists)
+    metadata_by_id: Dict[int, Dict[str, object]] = {}
+    needs_list_ids = [int(needs_list.needs_list_id) for needs_list in needs_list_rows]
+
+    if needs_list_ids:
+        try:
+            _ensure_workflow_metadata_table()
+            table_name = _workflow_metadata_table_name()
+            placeholders = ",".join(["%s"] * len(needs_list_ids))
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT needs_list_id, metadata_json
+                    FROM {table_name}
+                    WHERE needs_list_id IN ({placeholders})
+                    """,
+                    needs_list_ids,
+                )
+                for raw_needs_list_id, raw_metadata in cursor.fetchall():
+                    parsed = _parse_workflow_metadata(raw_metadata)
+                    if parsed:
+                        metadata_by_id[int(raw_needs_list_id)] = parsed
+        except Exception as exc:  # pragma: no cover - defensive fallback path
+            logger.warning(
+                "Workflow metadata bulk lookup failed for needs_list_ids=%s: %s",
+                needs_list_ids,
+                exc,
+            )
+
+    for needs_list in needs_list_rows:
+        needs_list_id = int(needs_list.needs_list_id)
+        if needs_list_id in metadata_by_id:
+            continue
+        legacy = _parse_workflow_metadata(needs_list.notes_text)
+        if legacy:
+            metadata_by_id[needs_list_id] = legacy
+
+    return metadata_by_id
 
 
 def _save_workflow_metadata(needs_list: NeedsList, metadata: Dict[str, object]) -> None:
@@ -850,42 +908,197 @@ def get_record(needs_list_id: str) -> Dict[str, object] | None:
         return None
 
 
-def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
-    """
-    List needs list records, optionally filtered by status.
-
-    Accepts legacy API status aliases and maps them to database status values.
-    """
+def _record_queryset(
+    statuses: Iterable[object] | None = None,
+    *,
+    mine_actor: str | None = None,
+    owner_visibility_actor: str | None = None,
+    owner_visibility_statuses: Iterable[object] | None = None,
+    event_id: int | None = None,
+    warehouse_id: int | None = None,
+    phase: str | None = None,
+    exclude_statuses: Iterable[object] | None = None,
+    allowed_warehouse_ids: Iterable[int] | None = None,
+):
     queryset = NeedsList.objects.all()
 
-    if statuses:
-        normalized: set[str] = set()
-        for status in statuses:
-            value = str(status or "").strip().upper()
-            if not value:
-                continue
-            normalized.add(_STATUS_ALIASES.get(value, value))
-        if normalized:
-            queryset = queryset.filter(status_code__in=list(normalized))
+    normalized_statuses = _normalize_status_filters(statuses)
+    if normalized_statuses:
+        queryset = queryset.filter(status_code__in=normalized_statuses)
 
-    queryset = queryset.order_by("-calculation_dtime", "-needs_list_id").prefetch_related(
-        "items",
-        "audit_logs",
-        "audit_logs__needs_list_item",
+    normalized_excluded_statuses = _normalize_status_filters(exclude_statuses)
+    if normalized_excluded_statuses:
+        queryset = queryset.exclude(status_code__in=normalized_excluded_statuses)
+
+    normalized_mine_actor = _normalize_actor(mine_actor)
+    normalized_owner_actor = _normalize_actor(owner_visibility_actor)
+    normalized_owner_statuses = _normalize_status_filters(owner_visibility_statuses)
+    if normalized_mine_actor:
+        queryset = queryset.filter(create_by_id__iexact=normalized_mine_actor)
+    elif normalized_owner_statuses:
+        if normalized_owner_actor:
+            queryset = queryset.exclude(
+                ~Q(create_by_id__iexact=normalized_owner_actor)
+                & Q(status_code__in=normalized_owner_statuses)
+            )
+        else:
+            queryset = queryset.exclude(status_code__in=normalized_owner_statuses)
+
+    if event_id is not None:
+        queryset = queryset.filter(event_id=event_id)
+    if warehouse_id is not None:
+        queryset = queryset.filter(warehouse_id=warehouse_id)
+    if phase:
+        queryset = queryset.filter(event_phase=str(phase or "").strip().upper())
+
+    if allowed_warehouse_ids is not None:
+        scoped_warehouse_ids = sorted(
+            {
+                int(candidate)
+                for candidate in allowed_warehouse_ids
+                if candidate is not None
+            }
+        )
+        if not scoped_warehouse_ids:
+            return NeedsList.objects.none()
+        queryset = queryset.filter(warehouse_id__in=scoped_warehouse_ids)
+
+    return queryset
+
+
+def list_record_headers(
+    statuses: Iterable[object] | None = None,
+    *,
+    mine_actor: str | None = None,
+    owner_visibility_actor: str | None = None,
+    owner_visibility_statuses: Iterable[object] | None = None,
+    event_id: int | None = None,
+    warehouse_id: int | None = None,
+    phase: str | None = None,
+    exclude_statuses: Iterable[object] | None = None,
+    allowed_warehouse_ids: Iterable[int] | None = None,
+) -> list[Dict[str, object]]:
+    queryset = (
+        _record_queryset(
+            statuses,
+            mine_actor=mine_actor,
+            owner_visibility_actor=owner_visibility_actor,
+            owner_visibility_statuses=owner_visibility_statuses,
+            event_id=event_id,
+            warehouse_id=warehouse_id,
+            phase=phase,
+            exclude_statuses=exclude_statuses,
+            allowed_warehouse_ids=allowed_warehouse_ids,
+        )
+        .only(
+            "needs_list_id",
+            "needs_list_no",
+            "event_id",
+            "warehouse_id",
+            "event_phase",
+            "status_code",
+            "create_by_id",
+            "create_dtime",
+            "update_dtime",
+            "submitted_at",
+            "approved_at",
+            "notes_text",
+        )
+        .order_by("-calculation_dtime", "-needs_list_id")
     )
     needs_lists = list(queryset)
     if not needs_lists:
         return []
 
-    warehouse_ids = sorted({needs_list.warehouse_id for needs_list in needs_lists})
-    event_ids = sorted({needs_list.event_id for needs_list in needs_lists})
-    warehouse_names, _ = data_access.get_warehouse_names(warehouse_ids)
-    event_names, _ = data_access.get_event_names(event_ids)
+    warehouse_names, _ = data_access.get_warehouse_names(
+        [needs_list.warehouse_id for needs_list in needs_lists]
+    )
+    event_names, _ = data_access.get_event_names(
+        [needs_list.event_id for needs_list in needs_lists]
+    )
+    metadata_by_id = _load_workflow_metadata_map(needs_lists)
 
+    headers: list[Dict[str, object]] = []
+    for needs_list in needs_lists:
+        needs_list_id = int(needs_list.needs_list_id)
+        metadata = metadata_by_id.get(needs_list_id, {})
+        selected_method = metadata.get("selected_method")
+        warehouse_name = warehouse_names.get(needs_list.warehouse_id, f"Warehouse {needs_list.warehouse_id}")
+        event_name = event_names.get(needs_list.event_id, f"Event {needs_list.event_id}")
+        headers.append(
+            {
+                "needs_list_id": str(needs_list_id),
+                "needs_list_no": needs_list.needs_list_no,
+                "status": needs_list.status_code,
+                "event_id": needs_list.event_id,
+                "event_name": event_name,
+                "warehouse_id": needs_list.warehouse_id,
+                "warehouse_name": warehouse_name,
+                "phase": needs_list.event_phase,
+                "selected_method": selected_method,
+                "created_by": needs_list.create_by_id,
+                "created_at": _iso_or_none(needs_list.create_dtime),
+                "updated_at": _iso_or_none(needs_list.update_dtime),
+                "submitted_at": _iso_or_none(needs_list.submitted_at),
+                "approved_at": _iso_or_none(needs_list.approved_at),
+            }
+        )
+
+    return headers
+
+
+def get_records_by_ids(
+    needs_list_ids: Iterable[object],
+    *,
+    include_audit_logs: bool = True,
+) -> list[Dict[str, object]]:
+    ordered_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for raw_needs_list_id in needs_list_ids:
+        try:
+            parsed_needs_list_id = int(str(raw_needs_list_id).strip())
+        except (TypeError, ValueError):
+            continue
+        if parsed_needs_list_id in seen_ids:
+            continue
+        seen_ids.add(parsed_needs_list_id)
+        ordered_ids.append(parsed_needs_list_id)
+
+    if not ordered_ids:
+        return []
+
+    prefetch_paths = ["items"]
+    if include_audit_logs:
+        prefetch_paths.extend(["audit_logs", "audit_logs__needs_list_item"])
+
+    needs_lists = list(
+        NeedsList.objects.filter(needs_list_id__in=ordered_ids)
+        .prefetch_related(*prefetch_paths)
+    )
+    if not needs_lists:
+        return []
+
+    needs_list_by_id = {
+        int(needs_list.needs_list_id): needs_list for needs_list in needs_lists
+    }
+    ordered_needs_lists = [
+        needs_list_by_id[needs_list_id]
+        for needs_list_id in ordered_ids
+        if needs_list_id in needs_list_by_id
+    ]
+    if not ordered_needs_lists:
+        return []
+
+    warehouse_names, _ = data_access.get_warehouse_names(
+        [needs_list.warehouse_id for needs_list in ordered_needs_lists]
+    )
+    event_names, _ = data_access.get_event_names(
+        [needs_list.event_id for needs_list in ordered_needs_lists]
+    )
     all_item_ids = sorted(
         {
             item.item_id
-            for needs_list in needs_lists
+            for needs_list in ordered_needs_lists
             for item in needs_list.items.all()
         }
     )
@@ -898,10 +1111,28 @@ def list_records(statuses: list[str] | None = None) -> list[Dict[str, object]]:
             event_name=event_names.get(needs_list.event_id),
             db_items=needs_list.items.all(),
             item_lookup=item_lookup,
-            audit_logs=needs_list.audit_logs.all(),
+            audit_logs=needs_list.audit_logs.all() if include_audit_logs else (),
         )
-        for needs_list in needs_lists
+        for needs_list in ordered_needs_lists
     ]
+
+
+def list_records(
+    statuses: list[str] | None = None,
+    *,
+    include_audit_logs: bool = True,
+) -> list[Dict[str, object]]:
+    """
+    List needs list records, optionally filtered by status.
+
+    Accepts legacy API status aliases and maps them to database status values.
+    """
+    needs_list_ids = list(
+        _record_queryset(statuses)
+        .order_by("-calculation_dtime", "-needs_list_id")
+        .values_list("needs_list_id", flat=True)
+    )
+    return get_records_by_ids(needs_list_ids, include_audit_logs=include_audit_logs)
 
 
 @transaction.atomic

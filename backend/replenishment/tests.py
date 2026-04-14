@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, connection, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
@@ -1723,6 +1724,25 @@ class NeedsListWorkflowApiTests(TestCase):
 
     def _draft_payload(self) -> dict:
         return {"event_id": 1, "warehouse_id": 1, "phase": "BASELINE"}
+
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    def test_accessible_read_warehouse_ids_keeps_read_all_context_unbounded(self) -> None:
+        request = APIRequestFactory().get(
+            "/api/v1/replenishment/needs-list/",
+            {"tenant_id": "1"},
+        )
+        context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            self.assertIsNone(views._accessible_read_warehouse_ids(request))
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -3439,6 +3459,150 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
         TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_needs_list_list_mine_filter_limits_hydrated_records(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            mine_draft = self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            ).json()
+
+            with self.settings(
+                DEV_AUTH_USER_ID="another-user",
+                DEV_AUTH_ROLES=["LOGISTICS"],
+                DEV_AUTH_PERMISSIONS=[],
+            ):
+                self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    self._draft_payload(),
+                    format="json",
+                )
+
+            with patch(
+                "replenishment.views.workflow_store.get_records_by_ids",
+                wraps=workflow_store_db.get_records_by_ids,
+            ) as mock_get_records_by_ids:
+                response = self.client.get(
+                    "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        hydrated_ids = list(mock_get_records_by_ids.call_args.args[0])
+        self.assertEqual(hydrated_ids, [mine_draft.get("needs_list_id")])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="neoc-reader",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.workflow_store.list_record_headers", return_value=[])
+    def test_needs_list_list_does_not_narrow_read_all_context_with_requested_tenant(
+        self,
+        mock_list_record_headers,
+    ) -> None:
+        context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            response = self.client.get("/api/v1/replenishment/needs-list/?tenant_id=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(mock_list_record_headers.call_args.kwargs.get("allowed_warehouse_ids"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_needs_list_list_does_not_hydrate_execution_payload_per_row(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+
+            with patch(
+                "replenishment.views._execution_payload_for_record",
+                side_effect=AssertionError("list endpoint should not hydrate execution payload"),
+            ):
+                response = self.client.get(
+                    "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("needs_lists", response.json())
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
         DEV_AUTH_USER_ID="reviewer",
         DEV_AUTH_ROLES=["EXECUTIVE"],
         DEV_AUTH_PERMISSIONS=[],
@@ -3558,6 +3722,145 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(result.get("id"), draft.get("needs_list_id"))
         self.assertIn("horizon_summary", result)
         self.assertIn("status", result)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_paginates_before_record_hydration(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            for warehouse_id in (1, 2, 3):
+                self.client.post(
+                    "/api/v1/replenishment/needs-list/draft",
+                    {**self._draft_payload(), "warehouse_id": warehouse_id},
+                    format="json",
+                )
+
+            with patch(
+                "replenishment.views.workflow_store.get_records_by_ids",
+                wraps=workflow_store_db.get_records_by_ids,
+            ) as mock_get_records_by_ids:
+                response = self.client.get(
+                    "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=1"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body.get("count"), 3)
+        self.assertEqual(len(body.get("results", [])), 1)
+        hydrated_ids = list(mock_get_records_by_ids.call_args.args[0])
+        self.assertEqual(len(hydrated_ids), 1)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="neoc-reader",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.workflow_store.list_record_headers", return_value=[])
+    def test_my_submissions_does_not_narrow_read_all_context_with_requested_tenant(
+        self,
+        mock_list_record_headers,
+    ) -> None:
+        context = TenantContext(
+            requested_tenant_id=1,
+            active_tenant_id=1,
+            active_tenant_code="ODPEM-NEOC",
+            active_tenant_type="NATIONAL",
+            memberships=(),
+            can_read_all_tenants=True,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?tenant_id=1&page=1&page_size=10"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(mock_list_record_headers.call_args.kwargs.get("allowed_warehouse_ids"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.data_access.get_item_categories")
+    @patch("replenishment.views.data_access.get_category_burn_fallback_rates")
+    @patch("replenishment.views.data_access.get_burn_by_item")
+    @patch("replenishment.views.data_access.get_inbound_transfers_by_item")
+    @patch("replenishment.views.data_access.get_inbound_donations_by_item")
+    @patch("replenishment.views.data_access.get_available_by_item")
+    def test_my_submissions_does_not_hydrate_execution_payload_per_row(
+        self,
+        mock_available,
+        mock_donations,
+        mock_transfers,
+        mock_burn,
+        mock_fallback,
+        mock_categories,
+    ) -> None:
+        mock_available.return_value = ({1: 10.0}, [], None)
+        mock_donations.return_value = ({}, [])
+        mock_transfers.return_value = ({}, [])
+        mock_burn.return_value = ({1: 24.0}, [], "reliefpkg", {"filter": "test"})
+        mock_fallback.return_value = ({}, [], {})
+        mock_categories.return_value = ({1: 10}, [])
+
+        with patch.dict(os.environ, {"NEEDS_WORKFLOW_DEV_STORE": "1"}):
+            self.client.post(
+                "/api/v1/replenishment/needs-list/draft",
+                self._draft_payload(),
+                format="json",
+            )
+
+            with patch(
+                "replenishment.views._execution_payload_for_record",
+                side_effect=AssertionError("summary endpoint should not hydrate execution payload"),
+            ):
+                response = self.client.get(
+                    "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=10"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.json())
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -6480,6 +6783,35 @@ class ProcurementPermissionApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch("replenishment.views.procurement_service.list_procurements", return_value=([], 0))
+    def test_procurement_list_opt_in_item_payload_passthrough(
+        self,
+        mock_list_procurements,
+    ) -> None:
+        default_response = self.client.get("/api/v1/replenishment/procurement/")
+        self.assertEqual(default_response.status_code, 200)
+        mock_list_procurements.assert_called_with(None, include_items=False)
+
+        include_items_response = self.client.get(
+            "/api/v1/replenishment/procurement/?needs_list_id=NL-1&include_items=true"
+        )
+        self.assertEqual(include_items_response.status_code, 200)
+        self.assertEqual(mock_list_procurements.call_args_list[-1].args, ({"needs_list_id": "NL-1"},))
+        self.assertEqual(
+            mock_list_procurements.call_args_list[-1].kwargs,
+            {"include_items": True},
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     @patch("replenishment.views.procurement_service.list_suppliers", return_value=[])
     def test_supplier_create_requires_create_permission(self, _mock_list_suppliers) -> None:
         get_response = self.client.get("/api/v1/replenishment/suppliers/")
@@ -6891,6 +7223,92 @@ class ProcurementDraftUpdateTests(TestCase):
         self.assertEqual(line.line_total, Decimal("0.00"))
 
 
+class ProcurementListPerformanceTests(TestCase):
+    def _create_procurement(self, procurement_no: str, *, item_ids: list[int]) -> Procurement:
+        procurement = Procurement.objects.create(
+            procurement_no=procurement_no,
+            event_id=1,
+            target_warehouse_id=1,
+            procurement_method="SINGLE_SOURCE",
+            status_code="DRAFT",
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        for offset, item_id in enumerate(item_ids, start=1):
+            ProcurementItem.objects.create(
+                procurement=procurement,
+                item_id=item_id,
+                ordered_qty=Decimal(str(offset)),
+                unit_price=Decimal("2.00"),
+                line_total=Decimal(str(offset * 2)),
+                uom_code="EA",
+                create_by_id="tester",
+                update_by_id="tester",
+            )
+        return procurement
+
+    def test_list_procurements_summary_uses_batched_helpers_and_skips_item_payloads(self) -> None:
+        self._create_procurement("PROC-LIST-001", item_ids=[100, 101])
+        self._create_procurement("PROC-LIST-002", item_ids=[200])
+
+        with patch(
+            "replenishment.services.procurement.data_access.get_warehouse_names",
+            return_value=({1: "Kingston Central Depot"}, []),
+        ) as mock_get_warehouse_names, patch(
+            "replenishment.services.procurement.data_access.get_warehouse_name"
+        ) as mock_get_warehouse_name, patch(
+            "replenishment.services.procurement.data_access.get_item_names"
+        ) as mock_get_item_names:
+            procurements, count = procurement_service.list_procurements()
+
+        self.assertEqual(count, 2)
+        self.assertEqual(len(procurements), 2)
+        self.assertTrue(all(row.get("items") == [] for row in procurements))
+        mock_get_warehouse_names.assert_called_once_with([1, 1])
+        mock_get_warehouse_name.assert_not_called()
+        mock_get_item_names.assert_not_called()
+
+    def test_list_procurements_include_items_batches_item_name_lookup(self) -> None:
+        self._create_procurement("PROC-LIST-003", item_ids=[100, 101])
+        self._create_procurement("PROC-LIST-004", item_ids=[101, 102])
+
+        with patch(
+            "replenishment.services.procurement.data_access.get_warehouse_names",
+            return_value=({1: "Kingston Central Depot"}, []),
+        ) as mock_get_warehouse_names, patch(
+            "replenishment.services.procurement.data_access.get_item_names",
+            return_value=(
+                {
+                    100: {"name": "Water", "code": "WTR"},
+                    101: {"name": "Blanket", "code": "BLN"},
+                    102: {"name": "Flashlight", "code": "FLS"},
+                },
+                [],
+            ),
+        ) as mock_get_item_names, patch(
+            "replenishment.services.procurement.data_access.get_warehouse_name"
+        ) as mock_get_warehouse_name:
+            procurements, count = procurement_service.list_procurements(include_items=True)
+
+        self.assertEqual(count, 2)
+        self.assertEqual(len(procurements[0].get("items", [])), 2)
+        self.assertEqual(len(procurements[1].get("items", [])), 2)
+        mock_get_warehouse_names.assert_called_once_with([1, 1])
+        mock_get_item_names.assert_called_once_with([100, 101, 102])
+        mock_get_warehouse_name.assert_not_called()
+
+    def test_list_procurements_summary_query_count_is_constant_with_line_items(self) -> None:
+        self._create_procurement("PROC-LIST-005", item_ids=[100, 101, 102])
+        self._create_procurement("PROC-LIST-006", item_ids=[103, 104, 105])
+
+        with CaptureQueriesContext(connection) as captured:
+            procurements, count = procurement_service.list_procurements()
+
+        self.assertEqual(count, 2)
+        self.assertEqual(len(procurements), 2)
+        self.assertEqual(len(captured), 1)
+
+
 class ProcurementReceiveItemsTests(TestCase):
     def test_receive_items_rejects_invalid_received_qty(self) -> None:
         proc = Procurement.objects.create(
@@ -7119,3 +7537,4 @@ class ProcurementNumberGenerationTests(TestCase):
         self.assertEqual(ctx.exception.code, "invalid_ordered_qty")
         self.assertIn("item 100", ctx.exception.message)
         self.assertEqual(Procurement.objects.count(), procurement_count)
+

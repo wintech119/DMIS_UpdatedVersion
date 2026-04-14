@@ -153,6 +153,14 @@ Current implementation note:
 - DMIS-06 established the first Celery-backed worker-plane slice for the Django modular monolith.
 - Needs-list donation and procurement CSV exports now queue as async jobs with status/download endpoints, retry-aware lifecycle logging, and queue readiness tied to worker heartbeat.
 - Durable object storage for larger or longer-lived artifacts remains a follow-up; the current slice uses bounded inline storage only for small CSV outputs.
+- DMIS-07 reduced request-path amplification on two live Django read surfaces:
+  - needs-list list filters now narrow the DB-backed record set before item hydration, and `my-submissions` now paginates header rows before hydrating the requested page of summary records
+  - procurement list responses now default to summary rows, batch warehouse lookups, and avoid inline line-item serialization unless a caller explicitly opts in with `include_items=true`
+- DMIS-07 follow-up hotspots still worth profiling and prioritizing:
+  - `allocation_dispatch.get_allocation_options` for larger approved needs lists
+  - broader needs-list dashboard/list feeds that still materialize full item snapshots per record
+  - procurement detail, receive, and update flows under production-scale item counts
+  - transfer generation if real operational latency continues to grow
 
 ### Workstream C: Performance and Scalability Hardening
 

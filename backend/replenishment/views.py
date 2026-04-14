@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, transaction
+from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.urls import reverse
@@ -706,6 +706,71 @@ def _should_enforce_tenant_scope(request) -> bool:
     When enabled, all tenant-scoped read/write paths are enforced.
     """
     return bool(getattr(settings, "TENANT_SCOPE_ENFORCEMENT", False))
+
+
+def _accessible_read_warehouse_ids(request) -> set[int] | None:
+    if not _should_enforce_tenant_scope(request):
+        return None
+
+    context = _tenant_context(request)
+    # Read-all national/NEOC users should keep their cross-tenant visibility; a
+    # requested tenant can influence the active context without becoming a hard
+    # pre-hydration warehouse filter on list endpoints.
+    if context.can_read_all_tenants:
+        return None
+
+    if context.requested_tenant_id is not None and context.active_tenant_id is not None:
+        tenant_ids = {context.active_tenant_id}
+    else:
+        tenant_ids = set(context.membership_tenant_ids)
+        if not tenant_ids and context.active_tenant_id is not None:
+            tenant_ids.add(context.active_tenant_id)
+
+    if not tenant_ids:
+        return set()
+
+    placeholders = ",".join(["%s"] * len(tenant_ids))
+    warehouse_ids: set[int] = set()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT DISTINCT warehouse_id
+                FROM tenant_warehouse
+                WHERE
+                    tenant_id IN ({placeholders})
+                    AND effective_date <= CURRENT_DATE
+                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+                """,
+                list(tenant_ids),
+            )
+            warehouse_ids.update(
+                parsed
+                for raw_warehouse_id, in cursor.fetchall()
+                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
+            )
+    except DatabaseError:
+        warehouse_ids.clear()
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT warehouse_id
+                FROM warehouse
+                WHERE tenant_id IN ({placeholders})
+                """,
+                list(tenant_ids),
+            )
+            warehouse_ids.update(
+                parsed
+                for raw_warehouse_id, in cursor.fetchall()
+                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
+            )
+    except DatabaseError:
+        pass
+
+    return warehouse_ids
 
 
 def _tenant_scope_denied_response(
@@ -1927,7 +1992,12 @@ def _release_execution_reservations(
     )
 
 
-def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool = True) -> Dict[str, Any]:
+def _serialize_workflow_record(
+    record: Dict[str, Any],
+    include_overrides: bool = True,
+    *,
+    include_execution_payload: bool = True,
+) -> Dict[str, Any]:
     snapshot = (
         workflow_store.apply_overrides(record)
         if include_overrides
@@ -1991,7 +2061,8 @@ def _serialize_workflow_record(record: Dict[str, Any], include_overrides: bool =
             "tenant_id": _record_tenant_id(record, snapshot),
         }
     )
-    response.update(_execution_payload_for_record(record))
+    if include_execution_payload:
+        response.update(_execution_payload_for_record(record))
     return response
 
 
@@ -2558,49 +2629,32 @@ def needs_list_list(request):
     if errors:
         return Response({"errors": errors}, status=400)
 
-    records = workflow_store.list_records(statuses)
     actor = _normalize_actor(_actor_id(request))
+    scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
+    record_ids = [
+        row.get("needs_list_id")
+        for row in workflow_store.list_record_headers(
+            statuses,
+            mine_actor=actor if mine_only else None,
+            event_id=event_id_filter,
+            warehouse_id=warehouse_id_filter,
+            phase=phase_filter,
+            exclude_statuses=_CLOSED_NEEDS_LIST_STATUSES if not include_closed else None,
+            allowed_warehouse_ids=scoped_warehouse_ids,
+        )
+    ]
+    records = workflow_store.get_records_by_ids(record_ids, include_audit_logs=False)
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
     filtered_records: list[Dict[str, Any]] = []
     for record in records:
         if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
             continue
-        status_value = str(record.get("status") or "").upper()
-        if not include_closed and status_value in _CLOSED_NEEDS_LIST_STATUSES:
-            continue
-
-        if mine_only:
-            if not actor:
-                continue
-            if not _record_owned_by_actor(record, actor):
-                continue
-
-        if event_id_filter is not None:
-            record_event_id = _to_int_or_none(record.get("event_id"))
-            if record_event_id != event_id_filter:
-                continue
-
-        if warehouse_id_filter is not None:
-            record_warehouse_id = _to_int_or_none(record.get("warehouse_id"))
-            record_warehouse_ids = {
-                _to_int_or_none(value)
-                for value in (record.get("warehouse_ids") or [])
-            }
-            if (
-                record_warehouse_id != warehouse_id_filter
-                and warehouse_id_filter not in record_warehouse_ids
-            ):
-                continue
-
-        if phase_filter and str(record.get("phase") or "").strip().upper() != phase_filter:
-            continue
-
         filtered_records.append(record)
 
     serialized = []
     for record in filtered_records:
-        row = _serialize_workflow_record(record)
+        row = _serialize_workflow_record(record, include_execution_payload=False)
         row["allowed_actions"] = _available_actions_for_record(request, record)
         serialized.append(row)
     if mine_only:
@@ -2666,57 +2720,86 @@ def needs_list_my_submissions(request):
 
     # Terminal statuses hidden by default unless explicitly requested via filter.
     _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
+    scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
+    headers = workflow_store.list_record_headers(
+        store_status_filters,
+        mine_actor=actor if mine_only else None,
+        owner_visibility_actor=None if mine_only else actor,
+        owner_visibility_statuses=_OWNER_ONLY_SUBMISSION_STATUSES,
+        event_id=event_id_filter,
+        warehouse_id=warehouse_id_filter,
+        exclude_statuses=None if ui_status_filters else _DEFAULT_EXCLUDED_STATUSES,
+        allowed_warehouse_ids=scoped_warehouse_ids,
+    )
 
-    records = workflow_store.list_records(store_status_filters)
-    tenant_context = _tenant_context(request)
-    enforce_tenant_scope = _should_enforce_tenant_scope(request)
-    summaries: list[Dict[str, Any]] = []
-    for record in records:
-        if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
-            continue
-        serialized = _serialize_workflow_record(record, include_overrides=True)
-        summary = _serialize_submission_summary(serialized)
-        summary["allowed_actions"] = _available_actions_for_record(request, record)
-        summary_status = str(summary.get("status") or "").strip().upper()
-        if (
-            mine_only or _submission_status_requires_actor_scope(summary_status)
-        ) and not _record_owned_by_actor(record, actor):
-            continue
-        if ui_status_filters and summary_status not in ui_status_filters:
-            continue
-        # When no explicit status filter is applied, hide terminal statuses.
-        if not ui_status_filters and summary_status in _DEFAULT_EXCLUDED_STATUSES:
+    filtered_headers: list[Dict[str, Any]] = []
+    for header in headers:
+        header_status = _normalize_status_for_ui(header.get("status"))
+        if ui_status_filters and header_status not in ui_status_filters:
             continue
 
-        if event_id_filter is not None and summary.get("event", {}).get("id") != event_id_filter:
-            continue
-        if warehouse_id_filter is not None and summary.get("warehouse", {}).get("id") != warehouse_id_filter:
-            continue
         if method_filter is not None:
-            row_method = _normalize_horizon_key(summary.get("selected_method"))
+            row_method = _normalize_horizon_key(header.get("selected_method"))
             if row_method != method_filter:
                 continue
 
-        summary_ts = _parse_iso_datetime(summary.get("last_updated_at"))
-        if date_from and (summary_ts is None or summary_ts < date_from):
+        header_timestamp = _parse_iso_datetime(
+            header.get("updated_at")
+            or header.get("approved_at")
+            or header.get("submitted_at")
+            or header.get("created_at")
+        )
+        if date_from and (header_timestamp is None or header_timestamp < date_from):
             continue
-        if date_to and (summary_ts is None or summary_ts > date_to):
+        if date_to and (header_timestamp is None or header_timestamp > date_to):
             continue
 
-        summaries.append(summary)
+        filtered_headers.append(header)
 
     reverse = sort_order == "desc"
     if sort_by == "status":
-        summaries.sort(key=lambda row: str(row.get("status") or ""), reverse=reverse)
+        filtered_headers.sort(
+            key=lambda row: _normalize_status_for_ui(row.get("status")),
+            reverse=reverse,
+        )
     elif sort_by == "warehouse":
-        summaries.sort(
-            key=lambda row: str((row.get("warehouse") or {}).get("name") or ""),
+        filtered_headers.sort(
+            key=lambda row: str(row.get("warehouse_name") or ""),
             reverse=reverse,
         )
     else:
-        summaries.sort(key=lambda row: _record_sort_timestamp({"updated_at": row.get("last_updated_at")}), reverse=reverse)
+        filtered_headers.sort(
+            key=lambda row: _record_sort_timestamp({"updated_at": row.get("updated_at")}),
+            reverse=reverse,
+        )
 
-    return Response(_paginate_results(request, summaries))
+    paginated = _paginate_results(request, filtered_headers)
+    page_ids = [row.get("needs_list_id") for row in paginated.get("results", [])]
+    page_records = workflow_store.get_records_by_ids(page_ids, include_audit_logs=False)
+    tenant_context = _tenant_context(request)
+    enforce_tenant_scope = _should_enforce_tenant_scope(request)
+    records_by_id = {
+        str(record.get("needs_list_id")): record
+        for record in page_records
+    }
+    summaries: list[Dict[str, Any]] = []
+    for header in paginated.get("results", []):
+        record = records_by_id.get(str(header.get("needs_list_id")))
+        if not record:
+            continue
+        if enforce_tenant_scope and not can_access_record(tenant_context, record, write=False):
+            continue
+        serialized = _serialize_workflow_record(
+            record,
+            include_overrides=True,
+            include_execution_payload=False,
+        )
+        summary = _serialize_submission_summary(serialized)
+        summary["allowed_actions"] = _available_actions_for_record(request, record)
+        summaries.append(summary)
+
+    paginated["results"] = summaries
+    return Response(paginated)
 
 
 @api_view(["GET"])
@@ -5891,7 +5974,14 @@ def procurement_list_create(request):
             val = request.query_params.get(key)
             if val:
                 filters[key] = val
-        procurements, count = procurement_service.list_procurements(filters or None)
+        include_items = _query_param_truthy(
+            request.query_params.get("include_items"),
+            default=False,
+        )
+        procurements, count = procurement_service.list_procurements(
+            filters or None,
+            include_items=include_items,
+        )
         return Response({"procurements": procurements, "count": count})
 
     # POST - create
