@@ -22,6 +22,7 @@ from api import rbac
 from api.authentication import Principal
 from api.models import AsyncJob, AsyncJobArtifact
 from api.permissions import NeedsListPermission
+from api.tenancy import TenantContext, TenantMembership
 from dmis_api import settings as dmis_settings
 from replenishment.models import NeedsList, NeedsListAudit
 from replenishment import views as replenishment_views
@@ -1274,6 +1275,66 @@ class AsyncJobApiTests(TestCase):
         )
         mock_error.assert_called_once()
 
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4D", "warehouse_id": 10},
+    )
+    def test_async_job_download_denies_cross_tenant_access(
+        self,
+        _mock_get_record,
+    ) -> None:
+        job = AsyncJob.objects.create(
+            job_id="job-download-idor",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4D",
+            artifact_filename="procurement_needs_NL-ASYNC-4D.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="idor123",
+            artifact_payload="item_id,item_name\n1,Generator\n",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=2,
+            active_tenant_code="AGENCY_B",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=2,
+                    tenant_code="AGENCY_B",
+                    tenant_name="Agency B",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context), patch(
+            "api.tenancy.resolve_warehouse_tenant_id",
+            return_value=1,
+        ):
+            response = self.client.get(f"/api/v1/jobs/{job.job_id}/download")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_scope", response.json().get("errors", {}))
+
 
 class AsyncJobTaskTests(TestCase):
     @staticmethod
@@ -1550,7 +1611,7 @@ class AsyncJobArtifactMigrationTests(TestCase):
         self.assertEqual(retained_job.artifact_payload, "item_id,item_name\n1,Water\n")
         self.assertFalse(AsyncJobArtifact.objects.filter(job=expired_job).exists())
 
-    def test_backfill_migration_skips_jobs_without_retention_expiry(self) -> None:
+    def test_backfill_migration_fails_for_jobs_without_retention_expiry(self) -> None:
         migration_module = import_module("api.migrations.0002_async_job_artifact")
         retained_job = AsyncJob.objects.create(
             job_id="migration-inline-no-expiry",
@@ -1565,7 +1626,8 @@ class AsyncJobArtifactMigrationTests(TestCase):
             expires_at=None,
         )
 
-        migration_module.backfill_durable_async_job_artifacts(django_apps, None)
+        with self.assertRaisesMessage(RuntimeError, "explicit retention policy"):
+            migration_module.backfill_durable_async_job_artifacts(django_apps, None)
 
         self.assertFalse(AsyncJobArtifact.objects.filter(job=retained_job).exists())
 
@@ -1681,6 +1743,20 @@ class AsyncJobArtifactCleanupCommandTests(TestCase):
 
 
 class AsyncJobModelTests(SimpleTestCase):
+    def test_artifact_payload_text_prefers_durable_artifact_when_present(self) -> None:
+        durable_artifact = type("DurableArtifactStub", (), {"payload_text": ""})()
+        job = AsyncJob(
+            job_id="async-job-durable-artifact-canonical",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+            artifact_payload="legacy-inline-payload",
+        )
+
+        with patch.object(AsyncJob, "durable_artifact_or_none", return_value=durable_artifact):
+            self.assertEqual(job.artifact_payload_text, "")
+
     def test_mark_succeeded_requires_timezone_aware_expiry(self) -> None:
         job = AsyncJob(
             job_id="async-job-aware-expiry",

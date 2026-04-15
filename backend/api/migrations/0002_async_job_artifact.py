@@ -13,12 +13,17 @@ def backfill_durable_async_job_artifacts(apps, schema_editor) -> None:
     AsyncJobArtifact = apps.get_model("api", "AsyncJobArtifact")
 
     now = timezone.now()
-    jobs = (
+    candidate_jobs = (
         AsyncJob.objects.filter(status="SUCCEEDED")
         .filter(artifact_payload__isnull=False)
         .exclude(artifact_payload="")
-        .filter(expires_at__gt=now)
     )
+    if candidate_jobs.filter(expires_at__isnull=True).exists():
+        raise RuntimeError(
+            "AsyncJob durable artifact backfill requires an explicit retention policy "
+            "for succeeded jobs with inline artifacts and null expires_at."
+        )
+    jobs = candidate_jobs.filter(expires_at__gt=now)
 
     artifacts = []
     for job in jobs.iterator(chunk_size=BATCH_SIZE):

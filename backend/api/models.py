@@ -82,7 +82,7 @@ class AsyncJob(models.Model):
     @property
     def artifact_payload_text(self) -> str | None:
         durable_artifact = self.durable_artifact_or_none()
-        if durable_artifact is not None and durable_artifact.payload_text:
+        if durable_artifact is not None:
             return durable_artifact.payload_text
         return self.artifact_payload
 
