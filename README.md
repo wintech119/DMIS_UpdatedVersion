@@ -14,9 +14,8 @@ DMIS is delivered as a Django + Angular application.
 ## Important architecture note
 
 - Angular + Django is the production path of record for shared-dev, staging, and production.
-- The legacy Flask runtime is disabled by default with `DMIS_FLASK_RUNTIME_MODE=disabled`.
-- `DMIS_FLASK_RUNTIME_MODE=rollback-only` is the only supported override, and only as a temporary operator-controlled rollback exception pending DMIS-10 full decommission.
-- Standard protected-branch releases now publish a neutral live-stack bundle containing `backend/`, built Angular browser assets, deployment guidance, and manifest metadata. The live bundle excludes `app/` and the root Flask packaging metadata.
+- DMIS-10 fully decommissioned the legacy Flask runtime, packaging metadata, and rollback gate from the repo and deployable system.
+- Standard protected-branch releases publish a live-stack bundle containing `backend/`, built Angular browser assets, deployment guidance, and manifest metadata.
 - New features are implemented only in Django + Angular.
 - The local multi-user workflow harness is documented in `docs/implementation/dmis_00_local_multi_user_test_harness.md`.
 - Architecture and security source-of-truth docs live in:
@@ -29,7 +28,7 @@ DMIS is delivered as a Django + Angular application.
 ## Runtime posture
 
 - `scripts/run_new_stack.ps1` is a dev-only local harness helper. It is not a production, staging, shared-dev, or prod-like deployment path.
-- Shared-dev, staging, and production should not route traffic to Flask or assume Flask is installed for normal service startup.
+- Shared-dev, staging, and production run only the Angular + Django platform. No Flask runtime, package, or rollback path remains in the supported deployment model.
 - The local multi-user harness is local-only and uses `X-DMIS-Local-User` only when the app is running in explicit `local-harness` mode.
 - The default local-harness workflow is Redis-backed via `REDIS_URL=redis://localhost:6379/1`.
 - `local-harness` defaults to `DMIS_ASYNC_EAGER=1`, so queued jobs run inline unless you intentionally switch to a real worker.

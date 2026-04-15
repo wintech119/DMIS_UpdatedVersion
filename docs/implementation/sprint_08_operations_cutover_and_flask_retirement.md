@@ -4,7 +4,7 @@ Last updated: 2026-03-24
 Status: Historical cutover plan
 
 Historical note:
-This document records the Sprint 08 plan that moved live Operations navigation and APIs off Flask. The completed DMIS-09 posture is Angular + Django as the live path of record, with Flask disabled by default and retained only as a temporary rollback-only exception.
+This document records the Sprint 08 plan that moved live Operations navigation and APIs off Flask. DMIS-09 completed live-path retirement, and DMIS-10 later fully removed the legacy Flask runtime and rollback gate from the repo.
 
 ## Purpose
 
@@ -39,16 +39,16 @@ This document is the cutover source of truth for removing Flask Operations from 
 
 - remove or disable default Operations nav links that point to Flask
 - redirect or retire public Flask Operations entry points used by live users
-- mark any remaining Flask Operations endpoints as rollback-only or internal-only
+- mark any remaining Flask Operations endpoints as temporary transitional exceptions during the historical cutover window only
 - update release notes, QA notes, and handoff artifacts to show the cutover state
 - capture any residual fallback procedure explicitly rather than leaving Flask as an implicit live dependency
 
-## Rollback Rule
+## Historical Rollback Rule
 
-If a release-blocking parity defect is found late in Sprint 08 or Sprint 10:
+If a release-blocking parity defect was found late in Sprint 08 or Sprint 10:
 
 - record the blocker and affected route or API
-- decide explicitly whether the Flask path is a temporary rollback path for that specific capability
+- decide explicitly whether the Flask path is a temporary rollback path for that specific capability during the historical cutover only
 - update the release handoff and scope disposition record in the same change set
 - do not silently leave Flask in the live path without naming the rollback decision
 
@@ -58,4 +58,4 @@ If a release-blocking parity defect is found late in Sprint 08 or Sprint 10:
 - backend parity note for stock, reservation, approval, dispatch, and audit behavior
 - frontend parity note for workflow screens and navigation
 - QA cutover evidence showing live-user-path removal of Flask Operations
-- explicit retirement or rollback-only status for each legacy Operations entry point
+- explicit retirement status for each legacy Operations entry point and any temporary cutover exception that existed before DMIS-10

@@ -1,7 +1,7 @@
 ﻿# Migration Scaffold (Operations Cutover)
 
 Historical note:
-This document captures the May 15 cutover-era migration plan. It is not current deployment guidance. The current shared-dev, staging, and production path of record is Angular + Django, with the legacy Flask runtime disabled by default and available only through the temporary `DMIS_FLASK_RUNTIME_MODE=rollback-only` exception.
+This document captures the May 15 cutover-era migration plan. It is not current deployment guidance. The current shared-dev, staging, and production path of record is Angular + Django, and DMIS-10 later fully removed the legacy Flask runtime and rollback gate from the repo.
 
 This repository is migrating under a strangler architecture, but the May 15 target is a real Operations cutover rather than a permanent split runtime.
 
@@ -9,7 +9,7 @@ This repository is migrating under a strangler architecture, but the May 15 targ
 
 - Django and Angular are authoritative for `Supply Replenishment`
 - Django and Angular are authoritative for the live `Operations` path
-- Flask Operations is behavior reference and rollback-only scaffolding, not the approved live destination
+- Flask Operations was behavior reference and temporary cutover scaffolding during the historical migration window, not the approved live destination
 
 ## Domain Boundary
 
@@ -28,7 +28,7 @@ Do not migrate `needs_list` execution endpoints as if they were the final fulfil
 2. build a Django `operations` domain keyed by `reliefrqst_id` and `reliefpkg_id`
 3. build Angular `operations/*` routes and screens on top of the new backend contracts
 4. cut over live navigation and APIs away from Flask before May 15
-5. leave Flask only as named rollback scaffolding when explicitly required
+5. keep any temporary Flask fallback explicitly time-boxed during the historical cutover window
 
 ## First Backend Slice
 

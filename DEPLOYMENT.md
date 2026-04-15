@@ -21,9 +21,7 @@ DMIS shared-dev, staging, and production deployments now assume only the Angular
 
 - the standard release artifact is the neutral bundle `goj_dmis_live_stack_<version>.tar.gz`
 - the bundle contains `backend/`, built Angular browser assets from `frontend/dist/dmis-frontend/browser`, `manifest.yml`, `README.md`, `DEPLOYMENT.md`, and `docs/deploy/nginx.conf.example`
-- the bundle intentionally excludes `app/`, the root Flask packaging metadata, and Flask template/static packaging assumptions
-- the legacy Flask runtime is disabled by default with `DMIS_FLASK_RUNTIME_MODE=disabled`
-- `DMIS_FLASK_RUNTIME_MODE=rollback-only` is a temporary operator-controlled rollback exception only; do not keep it fronted by normal ingress, navigation, or deployment automation
+- DMIS-10 removed the legacy Flask runtime, its root packaging metadata, and its rollback gate from the repo and deployable system
 
 ## Runtime environments
 
@@ -179,7 +177,7 @@ npm run build
 ```
 
 Do not treat the local harness scripts as a production or staging deployment path.
-Do not treat the legacy Flask runtime as part of the normal shared-dev, staging, or production startup path.
+Do not reintroduce a parallel Flask runtime, package, or rollback path into shared-dev, staging, or production startup.
 
 ## Reverse proxy
 

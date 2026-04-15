@@ -1,3 +1,0 @@
-"""
-DRIMS Utilities Package
-"""

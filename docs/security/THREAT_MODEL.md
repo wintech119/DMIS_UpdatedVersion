@@ -1,13 +1,13 @@
 # DMIS Threat Model
 
-Last updated: 2026-04-09
+Last updated: 2026-04-15
 Status: Current-state pre-production threat model
 
 ## Purpose
 
 This document captures the principal threats to the current DMIS implementation and the mitigations required to reach a production-ready posture.
 
-It replaces the earlier Flask-centric threat model and reflects the active Angular + Django architecture, the multi-tenant access model, and the remaining Flask retirement risk.
+It replaces the earlier Flask-centric threat model and reflects the active Angular + Django architecture, the multi-tenant access model, and the post-DMIS-10 requirement to prevent alternate-runtime drift.
 
 ## Modeling Approach
 
@@ -20,7 +20,7 @@ This review uses STRIDE as the primary threat framing and cross-checks the resul
 - PostgreSQL is the system of record
 - Redis is intended for shared coordination and caching
 - OIDC/JWT is the intended production identity model
-- Legacy Flask code may still exist in the live or rollback path until explicitly retired
+- No legacy Flask runtime or rollback path remains in the supported repo or deployment model
 
 ## High-Priority Current Risks
 
@@ -31,7 +31,7 @@ This review uses STRIDE as the primary threat framing and cross-checks the resul
 | High | Application-level denial of service | Expensive synchronous endpoints and limited global throttling can degrade response during emergency operations | Add global throttling, async offload, queue controls, and edge protections |
 | High | Availability degradation from optional infrastructure | Redis is optional in code even though shared counters and coordination rely on it | Make Redis mandatory in production and monitor it as a critical dependency |
 | High | Audit and artifact gaps | Some operational artifacts are rebuilt from state rather than durably stored | Persist artifacts and strengthen audit evidence for operational workflows |
-| High | Unsafe deployment by documentation drift | Security and deployment docs still contain stale Flask assumptions | Align docs to the actual stack and use them as production gates |
+| High | Unsafe deployment by documentation drift | Security and deployment docs can still drift away from the actual Angular + Django stack | Align docs to the actual stack and use them as production gates |
 
 ## STRIDE Analysis
 
@@ -209,30 +209,30 @@ Required mitigations:
 - centralize frontend auth state and permission handling
 - test high-risk roles and tenant scenarios regularly
 
-#### Threat: Legacy Flask path bypasses modernized controls
+#### Threat: Reintroduction of a parallel runtime bypasses modernized controls
 
 | Aspect | Details |
 | --- | --- |
-| Description | If Flask remains reachable for live users, it can become an alternate control path with different protections, audit behavior, or data semantics. |
-| Impact | Split-brain authorization and incomplete hardening |
-| Likelihood | Medium during transition |
+| Description | If a legacy or parallel runtime is reintroduced after DMIS-10, it can recreate an alternate control path with different protections, audit behavior, or data semantics. |
+| Impact | Split-brain authorization, incomplete hardening, and operator confusion |
+| Likelihood | Low after DMIS-10, but high impact if reintroduced |
 | Severity | High |
 
 Required mitigations:
 
-- explicit inventory of all Flask entry points
-- redirect, isolate, or retire each legacy route
-- no implicit live dependency on Flask for production workflows
+- keep executable legacy runtime paths out of the repo and deployment model
+- keep CI and active docs aligned to Angular + Django as the only supported stack
+- no implicit alternate runtime dependency for production workflows
 
 ## OWASP Risk Alignment
 
 | OWASP Area | DMIS Current Concern |
 | --- | --- |
-| A01 Broken Access Control | Route inconsistency, tenant-scope reliance on application logic, legacy path risk |
+| A01 Broken Access Control | Route inconsistency, tenant-scope reliance on application logic, alternate-runtime reintroduction risk |
 | A02 Cryptographic Failures | Production-safe transport and cookie settings must be enforced consistently |
 | A04 Insecure Design | Current-state and target-state docs were previously misaligned with the real platform |
 | A05 Security Misconfiguration | Deploy checks already show critical production hardening gaps |
-| A06 Vulnerable and Outdated Components | Legacy Flask footprint increases platform complexity and review scope |
+| A06 Vulnerable and Outdated Components | Reintroducing retired runtime components would increase platform complexity and review scope |
 | A07 Identification and Authentication Failures | Auth optionality and dev impersonation are the highest current identity risks |
 | A08 Software and Data Integrity Failures | Generated artifacts and workflow mutations need stronger durability and control |
 | A09 Security Logging and Monitoring Failures | Telemetry and operational detection are not yet strong enough for production confidence |
@@ -244,7 +244,7 @@ The following conditions should be met before production launch:
 
 - no production path depends on dev-user impersonation
 - no non-local deployment can run with auth disabled
-- no critical workflow depends on Flask remaining live
+- Flask remains fully decommissioned and no alternate runtime path is reintroduced
 - tenant-safe authorization is validated across high-risk workflows
 - global throttling and expensive-work offload are in place
 - readiness, metrics, logging, and alerting exist for critical dependencies
@@ -259,5 +259,5 @@ Re-run this threat model when any of the following change:
 - tenant model or cross-tenant policy
 - queueing or background processing architecture
 - artifact storage design
-- Flask retirement status
+- alternate runtime or decommission status
 - deployment topology or operational hosting model

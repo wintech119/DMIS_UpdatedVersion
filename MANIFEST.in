@@ -1,7 +1,0 @@
-# Legacy rollback-only Flask package manifest.
-# The Angular + Django live release bundle is assembled in .gitlab-ci.yml and
-# does not publish app/templates or app/static as the production artifact.
-
-graft app/templates
-graft app/static
-requirements.txt

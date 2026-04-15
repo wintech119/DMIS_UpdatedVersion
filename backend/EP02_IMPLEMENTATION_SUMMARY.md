@@ -1,4 +1,7 @@
-﻿# EP-02 Supply Replenishment Integration Summary
+# EP-02 Supply Replenishment Integration Summary
+
+Historical migration note:
+DMIS-10 fully removed the legacy Flask runtime from the repo and deployable system. References below to Flask describe historical behavior context for the Operations cutover, not a current runtime path.
 
 ## Overview
 
@@ -24,7 +27,7 @@ EP-02 is not the owner of relief-request fulfillment, package allocation, dispat
 
 The repo still contains frozen `needs_list` execution behavior and supporting persistence for allocation, dispatch, and waybill compatibility.
 
-That code is transitional scaffolding only and must be retired as the new Django `operations` domain takes over the live Operations path.
+That code is transitional scaffolding only and should continue shrinking as the Django `operations` domain replaces the remaining compatibility surface.
 
 Freeze this language:
 
@@ -36,13 +39,13 @@ Freeze this language:
 
 - Django replenishment remains the active planning slice
 - the workflow dev store is still environment-gated and not proof of production Operations readiness
-- May 15 readiness depends on the new Django and Angular Operations implementation, not on keeping Flask Operations live
+- the historical May 15 cutover depended on the new Django and Angular Operations implementation, not on keeping Flask Operations live
 
 ## Implementation Guardrails
 
 - do not expand `needs_list` execution routes as if they were the future Operations API
 - do not claim that current compatibility coverage is already the final DB-backed Operations implementation
-- when Operations is ported to Django, migrate from Flask request and package rules, not from the current Django dev-store execution model
+- when reviewing the migration-era behavior baseline, use the former Flask request and package rules as historical reference only, not as a current runtime dependency
 
 ## Migration Direction
 
@@ -53,4 +56,4 @@ The target architecture is:
 - Angular replenishment module for planning
 - Angular operations module for fulfillment
 
-The compatibility surface must shrink as the Operations cutover lands.
+The compatibility surface should continue shrinking as Django operations replaces the remaining cutover-era wrappers.

@@ -1,11 +1,14 @@
 ﻿# Sprint 08 | Needs List Execution Boundary and Migration
 
-Last updated: 2026-03-24  
-Status: Approved correction baseline
+Last updated: 2026-04-15  
+Status: Historical correction baseline - superseded for current deployment guidance
+
+Historical note:
+This note records the Sprint 08 boundary correction used during the May 15 cutover window. It is not current deployment guidance. DMIS-10 later fully removed the legacy Flask runtime and rollback gate from the repo.
 
 ## Purpose
 
-This note is the durable source for the Sprint 08 boundary correction. It explains the current misbuild, the correct product boundary, and the implementation sequence required to move Operations off Flask before May 15.
+This note is the durable historical source for the Sprint 08 boundary correction. It explains the cutover-era misbuild, the corrected product boundary, and the implementation sequence that was used to move Operations off Flask before May 15.
 
 ## Correct Domain Language
 
@@ -17,11 +20,11 @@ This note is the durable source for the Sprint 08 boundary correction. It explai
 | `Transfer` | Replenishment execution output from an approved needs list |
 | `Procurement` | Replenishment execution output from an approved needs list |
 
-## Current Problem
+## Historical Sprint 08 Problem
 
-The repo already has useful replenishment planning work in Django and Angular, but parts of allocation and dispatch were attached to `needs_list` and the live Operations user path still depends on Flask.
+During Sprint 08, the repo already had useful replenishment planning work in Django and Angular, but parts of allocation and dispatch were attached to `needs_list` and the live Operations user path still depended on Flask.
 
-That is not the approved end state for May 15.
+That was not the approved end state for May 15.
 
 ## Target State
 
@@ -48,11 +51,11 @@ Target runtime shape:
 - Django APIs under `/api/v1/operations/*`
 - request and package contracts keyed by `reliefrqst_id` and `reliefpkg_id`, not `needs_list_id`
 
-## Execution Sequence
+## Historical Execution Sequence
 
 1. source-of-truth correction across briefs, prompts, migration notes, and release docs
 2. backend first: build the Django Operations domain and freeze further `needs_list` execution expansion
-3. frontend second: build Angular Operations routes and screens and move shell navigation off Flask
+3. frontend second: build Angular Operations routes and screens and move shell navigation off Flask during the cutover
 4. QA third: validate parity, regressions, and Flask retirement from the live user path
 
 ## Route Rules
@@ -77,12 +80,12 @@ Target Operations routes:
 - `/operations/package-fulfillment`
 - `/operations/dispatch`
 
-## Compatibility and Retirement Rule
+## Historical Compatibility and Retirement Rule
 
 - existing `needs_list` execution endpoints remain frozen as transitional compatibility code only
 - legacy redirects for removed replenishment execution routes may remain for bookmarks, but active UI navigation must target `/replenishment/needs-list/:id/review` directly
 - existing Angular allocation and dispatch components may remain as migration reference until the true Operations module exists
-- temporary shell links back to Flask may exist during the build window, but May 15 signoff requires the live user path to stop depending on them
+- temporary shell links back to Flask could exist during the historical build window, but May 15 signoff required the live user path to stop depending on them
 - no new UI contract may be built on top of `needs_list` execution APIs
 
 ## Stock and Lifecycle Rules
@@ -93,11 +96,11 @@ Target Operations routes:
 - distribution confirmation later must not re-deduct source stock
 - override approvals remain narrow: reason code plus supervisor approval, with no self-approval
 
-## May 15 Readiness Rule
+## Historical May 15 Readiness Rule
 
-The release is valid only if:
+The historical release was valid only if:
 
 - replenishment planning remains stable on Django and Angular
 - Operations is rebuilt on Django and Angular with the required parity evidence
 - the live user path no longer depends on Flask Operations by default
-- the cutover and retirement checklist in `docs/implementation/sprint_08_operations_cutover_and_flask_retirement.md` is complete or explicitly marked rollback-only for any still-open item
+- the cutover and retirement checklist in `docs/implementation/sprint_08_operations_cutover_and_flask_retirement.md` is complete or explicitly marks any still-open item as a temporary historical cutover exception

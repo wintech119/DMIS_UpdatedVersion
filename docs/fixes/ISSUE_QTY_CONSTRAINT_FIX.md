@@ -1,5 +1,8 @@
 # Fix: IntegrityError on c_reliefrqst_item_2a Constraint
 
+Historical note:
+This fix document refers to the legacy Flask implementation that was removed in DMIS-10. Any `app/*` path references below are preserved for historical traceability only and are not current runtime files.
+
 **Date:** November 18, 2025  
 **Status:** ✅ Fixed  
 **Severity:** Critical - Blocks package preparation workflow

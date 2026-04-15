@@ -1,7 +1,7 @@
 # Historical Sprint 08 Operations Cutover Notes
 
 Historical note:
-This file records the Sprint 08 cutover state. The current DMIS-09 posture is that Angular `operations/*` routes and Django `/api/v1/operations/*` APIs are the live shared-dev, staging, and production path of record. Flask is no longer part of the normal live path.
+This file records the Sprint 08 cutover state. The current DMIS-10 posture is that Angular `operations/*` routes and Django `/api/v1/operations/*` APIs are the live shared-dev, staging, and production path of record, and the legacy Flask runtime has been fully removed from the repo.
 
 What it replaces:
 - Flask relief request list/detail/create/update/submit
@@ -18,9 +18,9 @@ Known temporary cutover dependencies:
 - Allocation/dispatch parity is strongest when the request/package is linked through `NeedsListExecutionLink`.
 - For direct Operations requests without a planning link, allocation and dispatch run on the legacy request/package tables, but waybill JSON persistence is not yet backed by a dedicated Operations table.
 
-Current DMIS-09 status:
+Current historical disposition:
 - Angular Operations screens already route to these Django APIs and no normal live navigation points users to Flask.
-- Flask runtime activation is now gated behind the temporary `DMIS_FLASK_RUNTIME_MODE=rollback-only` exception.
+- DMIS-10 later removed the Flask runtime, its root packaging metadata, and its rollback gate entirely.
 - Canonical DB RBAC permission rows remain an operational hardening follow-up, but they are not a reason to keep Flask in the live path.
 
 Relief request tenancy governance note:

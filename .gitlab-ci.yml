@@ -527,7 +527,7 @@ workflow:
 .artify_opts:
   image: zonaldev/artify:1.10.9
 
-# -- derive release metadata and patch manifest.yml for the neutral bundle ---
+# -- derive release metadata and patch manifest.yml for the live-stack bundle ---
 .prepare_release_manifest:
   before_script:
     - export DMIS_RELEASE_VERSION="${DMIS_RELEASE_VERSION:-${CI_COMMIT_TAG:-${CI_PIPELINE_IID:-$CI_COMMIT_SHORT_SHA}}}"
@@ -582,9 +582,15 @@ verify-live-stack-bundle:
     - test ! -e "${RELEASE_DIR}/app"
     - test ! -e "${RELEASE_DIR}/pyproject.toml"
     - test ! -e "${RELEASE_DIR}/requirements.txt"
+    - test ! -e "${RELEASE_DIR}/MANIFEST.in"
+    - test ! -e "${RELEASE_DIR}/uv.lock"
     - grep -q "version: ${DMIS_RELEASE_VERSION}" "${RELEASE_DIR}/manifest.yml"
-    - ! sed '/verify-live-stack-bundle:/,$d' .gitlab-ci.yml | grep -q "app.__version__"
-    - ! grep -q 'attr = "app.__version__"' pyproject.toml
+    - test ! -e app
+    - test ! -e pyproject.toml
+    - test ! -e requirements.txt
+    - test ! -e MANIFEST.in
+    - test ! -e uv.lock
+    - '! grep -R -n "DMIS_FLASK_RUNTIME""_MODE" README.md DEPLOYMENT.md docs/adr/system_application_architecture.md docs/security/SECURITY_ARCHITECTURE.md docs/security/THREAT_MODEL.md docs/security/CONTROLS_MATRIX.md docs/implementation/production_readiness_checklist.md docs/implementation/production_hardening_and_flask_retirement_strategy.md'
 
 publish-package:
   stage: upload

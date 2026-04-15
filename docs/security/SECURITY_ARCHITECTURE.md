@@ -1,13 +1,13 @@
 # DMIS Security Architecture
 
-Last updated: 2026-04-09
+Last updated: 2026-04-15
 Status: Current-state and target-state security reference
 
 ## Purpose
 
 This document describes the Disaster Management Information System (DMIS) security architecture as it exists today and the production-ready target architecture required before go-live.
 
-This version supersedes the earlier Flask-centric description of the platform. DMIS is now centered on an Angular frontend and a Django backend, with the legacy Flask application treated as transition risk that should be retired from the live path.
+This version supersedes the earlier Flask-centric description of the platform. DMIS is now centered on an Angular frontend and a Django backend, and DMIS-10 fully removed the legacy Flask runtime from the repo and deployable system.
 
 ## Scope
 
@@ -18,7 +18,7 @@ This version supersedes the earlier Flask-centric description of the platform. D
 - Future async worker platform for background jobs
 - Object storage for generated artifacts and exports
 - Identity provider integration for OIDC/JWT
-- Residual Flask application in `app/`
+- historical Flask cutover records retained in documentation and Git history only
 
 ## Security Objectives
 
@@ -37,7 +37,7 @@ The target state is expected to align to:
 
 | Layer | Current Implementation | Current Risk |
 | --- | --- | --- |
-| Edge | NGINX example config under `docs/deploy/`, static Angular serving assumed | Deployment guidance is stale and still contains Flask-era assumptions |
+| Edge | NGINX example config under `docs/deploy/`, static Angular serving assumed | Deployment guidance still needs continuous validation against the active stack |
 | Frontend | Angular 21 SPA with lazy feature domains, signals, and OnPush components | Dev-user impersonation is still compiled into the app; route guards and failure handling are inconsistent |
 | API | Django 4.2 modular monolith with `api`, `operations`, `replenishment`, and `masterdata` apps | Security posture is env-dependent; several request paths remain synchronous and SQL-heavy |
 | Identity | JWT/JWKS validation exists in Django | Authentication can still be disabled by environment; frontend OIDC integration is incomplete |
@@ -45,7 +45,7 @@ The target state is expected to align to:
 | Cache | Redis is supported; LocMemCache is used when Redis is absent | Shared counters, circuit breakers, and coordination become incorrect in multi-worker production without Redis |
 | Background work | No mandatory worker plane yet | Long-running or retriable work remains coupled to request latency |
 | Artifact storage | Some workflow documents are reconstructed from state rather than durably stored | Auditability and recovery are weaker than required for production operations |
-| Legacy runtime | Flask application remains in repo and in transition planning | Residual live dependencies create operational, security, and change-management risk |
+| Legacy runtime | Flask runtime, packaging metadata, and rollback gate were removed in DMIS-10 | Reintroduction or stale documentation could recreate an alternate control-path risk |
 
 ## Current-State Reference Topology
 
@@ -63,8 +63,6 @@ CDN / WAF / Reverse Proxy
                                       +--> Redis (optional today)
                                       |
                                       +--> External IdP / JWKS
-                                      |
-                                      +--> Legacy Flask dependencies still under retirement planning
 ```
 
 ## Trust Boundaries
@@ -84,8 +82,8 @@ CDN / WAF / Reverse Proxy
 5. Admin and operator boundary
    Tenant administrators, national operators, and platform administrators are highly privileged users and require stronger authentication, audit logging, and approval boundaries.
 
-6. Legacy transition boundary
-   The remaining Flask application is a special risk boundary because it can bypass or duplicate controls if it stays reachable while Django/Angular become the live path.
+6. Historical transition boundary
+   The former Flask application was a special risk boundary during migration because it could bypass or duplicate controls. DMIS-10 closed that boundary; the ongoing requirement is to prevent reintroduction through code, docs, or deployment drift.
 
 ## Target Production Architecture
 
@@ -251,7 +249,7 @@ Broad Django API enforcement remains a target-state rollout gate, not a fully co
 | Cache/coordination | Redis is optional in code | Redis HA required wherever shared counters, locks, or circuit breakers matter |
 | Async operations | Mostly request-coupled today | Celery-backed workers for exports, notifications, document generation, and retries |
 | Observability | Minimal health endpoint; limited evidence of platform telemetry | Logs, metrics, traces, alerts, and readiness checks across all critical components |
-| Legacy isolation | Flask remains part of the transition plan | Flask removed from the live path, then decommissioned entirely |
+| Legacy isolation | Flask was fully decommissioned in DMIS-10 | Prevent reintroduction of a parallel runtime or rollback path |
 
 ## Production Gates
 
@@ -265,7 +263,7 @@ The following gates should be treated as mandatory before production launch:
 - Durable storage for operational artifacts such as waybills and exports
 - Liveness, readiness, metrics, and alerting in place
 - Backup, restore, and rollback procedures tested
-- Flask live routes retired or explicitly isolated as rollback-only during transition
+- Flask runtime, packaging, and rollback-only gate fully removed from the supported platform
 - Security architecture, threat model, and controls matrix aligned to the actual stack
 
 ## Residual Risks To Eliminate
@@ -277,12 +275,12 @@ The most important residual risks visible today are:
 - weak operational observability and simplistic health semantics
 - cache correctness depending on optional Redis
 - documentation drift that could lead to unsafe deployment decisions
-- incomplete retirement of the Flask application
+- stale documentation or release assumptions that could imply an alternate runtime still exists
 
 ## Governance
 
 - Security architecture review: at least quarterly, and before any launch decision
 - Threat model review: whenever the auth model, tenant model, or deployment model changes
 - Controls matrix review: whenever a control changes state from missing to partial or implemented
-- Flask retirement review: until all legacy routes and dependencies are removed from the live path
+- review any proposal to reintroduce an alternate runtime, deployment path, or rollback assumption
 
