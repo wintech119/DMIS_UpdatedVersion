@@ -1185,6 +1185,58 @@ class AsyncJobApiTests(TestCase):
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
     )
+    @patch("replenishment.views._require_record_scope", return_value=None)
+    @patch(
+        "replenishment.workflow_store_db.get_record",
+        return_value={"needs_list_id": "NL-ASYNC-4B-EQ", "warehouse_id": 10},
+    )
+    def test_async_job_download_returns_gone_when_expiry_equals_now(
+        self,
+        _mock_get_record,
+        _mock_scope,
+    ) -> None:
+        expires_at = timezone.now()
+        job = AsyncJob.objects.create(
+            job_id="job-download-expired-eq",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="NL-ASYNC-4B-EQ",
+            artifact_filename="procurement_needs_NL-ASYNC-4B-EQ.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="expired-eq-123",
+            expires_at=expires_at,
+        )
+        AsyncJobArtifact.objects.create(
+            job=job,
+            payload_text="item_id,item_name\n2,Tent\n",
+            size_bytes=len("item_id,item_name\n2,Tent\n".encode("utf-8")),
+            retention_expires_at=expires_at,
+        )
+
+        with patch("api.views.timezone.now", return_value=expires_at):
+            response = self.client.get("/api/v1/jobs/job-download-expired-eq/download")
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(
+            response.json(),
+            {
+                "job_id": "job-download-expired-eq",
+                "status": AsyncJob.Status.SUCCEEDED,
+                "detail": "The job artifact has expired.",
+            },
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[rbac.PERM_NEEDS_LIST_EXECUTE],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
     @patch("api.views.api_logger.error")
     @patch("replenishment.views._require_record_scope", return_value=None)
     @patch(
@@ -1645,6 +1697,25 @@ class AsyncJobModelTests(SimpleTestCase):
                 artifact_sha256="sha-aware-expiry",
                 artifact_expires_at=datetime.utcnow(),
             )
+
+    def test_mark_succeeded_rejects_expired_expiry(self) -> None:
+        now = timezone.now()
+        job = AsyncJob(
+            job_id="async-job-expired-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+        )
+
+        with patch("api.models.timezone.now", return_value=now):
+            with self.assertRaisesMessage(ValueError, "must be in the future"):
+                job.mark_succeeded(
+                    artifact_filename="report.csv",
+                    artifact_content_type="text/csv",
+                    artifact_sha256="sha-expired-expiry",
+                    artifact_expires_at=now,
+                )
 
     def test_artifact_ready_false_when_expiry_equals_now(self) -> None:
         now = timezone.now()

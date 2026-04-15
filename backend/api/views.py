@@ -290,7 +290,7 @@ def async_job_download(request, job_id: str):
     if auth_error:
         return auth_error
 
-    if job.expires_at and timezone.now() > job.expires_at:
+    if job.expires_at and timezone.now() >= job.expires_at:
         return Response(
             {
                 "job_id": job.job_id,

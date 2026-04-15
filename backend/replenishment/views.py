@@ -887,6 +887,12 @@ _ASYNC_EXPORT_JOB_TYPES = {
 }
 _NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE = 5
 _NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS = 60
+_NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS = (
+    _NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS + 5
+)
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS = 5
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS = 0.01
+_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS = 20
 
 
 def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
@@ -970,6 +976,29 @@ def _needs_list_export_rate_limit_key(
     )
 
 
+def _acquire_needs_list_export_rate_limit_lock(lock_key: str) -> str | None:
+    for _ in range(_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_ATTEMPTS):
+        owner_token = str(uuid.uuid4())
+        if cache.add(
+            lock_key,
+            owner_token,
+            timeout=_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_TIMEOUT_SECONDS,
+        ):
+            return owner_token
+        time.sleep(_NEEDS_LIST_EXPORT_RATE_LIMIT_LOCK_WAIT_SECONDS)
+    return None
+
+
+def _release_needs_list_export_rate_limit_lock(
+    lock_key: str,
+    owner_token: str | None,
+) -> None:
+    if not owner_token:
+        return
+    if cache.get(lock_key) == owner_token:
+        cache.delete(lock_key)
+
+
 def _claim_needs_list_export_slot(
     request,
     *,
@@ -978,6 +1007,7 @@ def _claim_needs_list_export_slot(
     tenant_id: int | None,
     endpoint_tier: str,
     active_event_phase: str | None,
+    actor_user_id: str | None,
 ) -> tuple[bool, int]:
     now = timezone.now().timestamp()
     capacity = float(_NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE)
@@ -988,20 +1018,10 @@ def _claim_needs_list_export_slot(
         client_ip=client_ip,
         tenant_id=tenant_id,
     )
-    state = cache.get(cache_key) or {}
-    tokens = float(state.get("tokens", capacity))
-    last_refill = float(state.get("last_refill", now))
-    elapsed = max(now - last_refill, 0.0)
-    tokens = min(capacity, tokens + (elapsed * refill_rate))
-    cache_timeout = int(refill_window) + 1
-
-    if tokens < 1.0:
-        retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
-        cache.set(
-            cache_key,
-            {"tokens": tokens, "last_refill": now},
-            timeout=cache_timeout,
-        )
+    lock_key = f"{cache_key}:lock"
+    cache_timeout = _NEEDS_LIST_EXPORT_RATE_LIMIT_CACHE_TIMEOUT_SECONDS
+    lock_owner_token = _acquire_needs_list_export_rate_limit_lock(lock_key)
+    if not lock_owner_token:
         logger.warning(
             "request.throttled",
             extra=build_log_extra(
@@ -1011,19 +1031,57 @@ def _claim_needs_list_export_slot(
                 endpoint_tier=endpoint_tier,
                 active_event_phase=active_event_phase,
                 enforcement_key=cache_key,
+                actor_user_id=actor_user_id,
+                tenant_id=tenant_id,
                 client_ip=client_ip,
-                token_count=round(tokens, 3),
-                retry_after=retry_after,
+                token_count=0.0,
+                retry_after=1,
+                throttle_reason="lock_timeout",
             ),
         )
-        return False, retry_after
+        return False, 1
 
-    cache.set(
-        cache_key,
-        {"tokens": tokens - 1.0, "last_refill": now},
-        timeout=cache_timeout,
-    )
-    return True, 1
+    try:
+        state = cache.get(cache_key) or {}
+        tokens = float(state.get("tokens", capacity))
+        last_refill = float(state.get("last_refill", now))
+        elapsed = max(now - last_refill, 0.0)
+        tokens = min(capacity, tokens + (elapsed * refill_rate))
+
+        if tokens < 1.0:
+            retry_after = max(int(math.ceil((1.0 - tokens) / refill_rate)), 1)
+            cache.set(
+                cache_key,
+                {"tokens": tokens, "last_refill": now},
+                timeout=cache_timeout,
+            )
+            logger.warning(
+                "request.throttled",
+                extra=build_log_extra(
+                    request,
+                    event="request.throttled",
+                    status_code=429,
+                    endpoint_tier=endpoint_tier,
+                    active_event_phase=active_event_phase,
+                    enforcement_key=cache_key,
+                    actor_user_id=actor_user_id,
+                    tenant_id=tenant_id,
+                    client_ip=client_ip,
+                    token_count=round(tokens, 3),
+                    retry_after=retry_after,
+                    throttle_reason="token_bucket_exhausted",
+                ),
+            )
+            return False, retry_after
+
+        cache.set(
+            cache_key,
+            {"tokens": tokens - 1.0, "last_refill": now},
+            timeout=cache_timeout,
+        )
+        return True, 1
+    finally:
+        _release_needs_list_export_rate_limit_lock(lock_key, lock_owner_token)
 
 
 def _needs_list_export_rate_limited_response(
@@ -1143,6 +1201,23 @@ def _enqueue_needs_list_export_job(
     active_event_phase = str(
         record.get("event_phase") or record.get("phase") or ""
     ).strip().upper() or None
+    dedupe_key = _async_export_dedupe_key(
+        job_type=job_type,
+        needs_list_id=needs_list_id,
+        actor_user_id=actor_user_id,
+        snapshot_version=data_version,
+    )
+    existing_job = AsyncJob.objects.filter(active_dedupe_key=dedupe_key).first()
+    if existing_job is not None:
+        payload = {
+            "needs_list_id": needs_list_id,
+            "format": requested_format,
+            "data_version": data_version,
+            **_serialize_export_job(existing_job),
+            "deduplicated": True,
+        }
+        return Response(payload, status=202)
+
     allowed, retry_after = _claim_needs_list_export_slot(
         request,
         user_key=rate_limit_actor_key,
@@ -1150,6 +1225,7 @@ def _enqueue_needs_list_export_job(
         tenant_id=tenant_id,
         endpoint_tier="file_export",
         active_event_phase=active_event_phase,
+        actor_user_id=actor_user_id,
     )
     if not allowed:
         return _needs_list_export_rate_limited_response(
@@ -1162,12 +1238,6 @@ def _enqueue_needs_list_export_job(
             actor_username=actor_username,
             retry_after=retry_after,
         )
-    dedupe_key = _async_export_dedupe_key(
-        job_type=job_type,
-        needs_list_id=needs_list_id,
-        actor_user_id=actor_user_id,
-        snapshot_version=data_version,
-    )
 
     created = False
     try:
@@ -6116,12 +6186,30 @@ for view_func in (
 def procurement_list_create(request):
     """List procurement orders (GET) or create a new one (POST)."""
     if request.method == "GET":
-        filters = {}
-        for key in ("status", "warehouse_id", "event_id", "needs_list_id", "supplier_id"):
-            val = request.query_params.get(key)
-            if val:
-                filters[key] = val
         errors: Dict[str, str] = {}
+        filters: Dict[str, Any] = {}
+        allowed_statuses = {
+            str(status_code).strip().upper()
+            for status_code, _label in Procurement.STATUS_CHOICES
+        }
+        status_filter = str(request.query_params.get("status") or "").strip().upper()
+        if status_filter:
+            if status_filter not in allowed_statuses:
+                errors["status"] = (
+                    "Must be one of: " + ", ".join(sorted(allowed_statuses)) + "."
+                )
+            else:
+                filters["status"] = status_filter
+        for field_name in ("warehouse_id", "event_id", "supplier_id"):
+            raw_value = request.query_params.get(field_name)
+            if raw_value is None:
+                continue
+            parsed_value = _parse_positive_int(raw_value, field_name, errors)
+            if parsed_value is not None:
+                filters[field_name] = parsed_value
+        needs_list_id = str(request.query_params.get("needs_list_id") or "").strip()
+        if needs_list_id:
+            filters["needs_list_id"] = needs_list_id
         include_items = _parse_optional_bool(
             request.query_params.get("include_items"),
             "include_items",

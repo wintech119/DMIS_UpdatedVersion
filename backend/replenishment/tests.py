@@ -2296,7 +2296,7 @@ class NeedsListWorkflowApiTests(TestCase):
         AUTH_USE_DB_RBAC=False,
     )
     @patch("replenishment.views.import_module")
-    def test_donations_export_post_rate_limits_after_five_requests(
+    def test_donations_export_post_deduplicated_requests_do_not_consume_rate_limit(
         self,
         mock_import_module,
     ) -> None:
@@ -2305,6 +2305,8 @@ class NeedsListWorkflowApiTests(TestCase):
             "needs_list_no": "NL-ASYNC-A",
             "status": "APPROVED",
             "warehouse_id": 10,
+            "tenant_id": 5,
+            "event_phase": "SURGE",
             "updated_at": "2026-04-10T12:00:00Z",
             "snapshot": {"items": []},
         }
@@ -2328,11 +2330,76 @@ class NeedsListWorkflowApiTests(TestCase):
         finally:
             cache.clear()
 
+        self.assertTrue(all(response.status_code == 202 for response in responses))
+        self.assertEqual(AsyncJob.objects.count(), 1)
+        self.assertEqual(delay.call_count, 1)
+        self.assertTrue(all(response.json().get("deduplicated") for response in responses[1:]))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.logger.warning")
+    @patch("replenishment.views.import_module")
+    def test_donations_export_post_rate_limits_after_five_requests(
+        self,
+        mock_import_module,
+        mock_logger_warning,
+    ) -> None:
+        records = [
+            {
+                "needs_list_id": "NL-A",
+                "needs_list_no": "NL-ASYNC-A",
+                "status": "APPROVED",
+                "warehouse_id": 10,
+                "tenant_id": 5,
+                "event_phase": "SURGE",
+                "updated_at": f"2026-04-10T12:00:0{index}Z",
+                "snapshot": {"items": []},
+            }
+            for index in range(6)
+        ]
+        delay = MagicMock()
+        mock_import_module.return_value = SimpleNamespace(
+            run_async_job=SimpleNamespace(delay=delay)
+        )
+        cache.clear()
+        try:
+            with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+                "replenishment.views.workflow_store.get_record", side_effect=records
+            ):
+                responses = [
+                    self.client.post(
+                        "/api/v1/replenishment/needs-list/NL-A/donations/export",
+                        {"format": "csv"},
+                        format="json",
+                    )
+                    for _ in range(6)
+                ]
+        finally:
+            cache.clear()
+
         self.assertTrue(all(response.status_code == 202 for response in responses[:5]))
         self.assertEqual(responses[5].status_code, 429)
         self.assertIn("Retry-After", responses[5])
-        self.assertEqual(AsyncJob.objects.count(), 1)
-        delay.assert_called_once()
+        self.assertEqual(AsyncJob.objects.count(), 5)
+        self.assertEqual(delay.call_count, 5)
+        throttle_logs = [
+            call.kwargs.get("extra", {})
+            for call in mock_logger_warning.call_args_list
+            if call.args and call.args[0] == "request.throttled"
+        ]
+        self.assertEqual(len(throttle_logs), 1)
+        self.assertEqual(throttle_logs[0].get("actor_user_id"), "dev-user")
+        self.assertEqual(throttle_logs[0].get("tenant_id"), 5)
+        self.assertEqual(throttle_logs[0].get("endpoint_tier"), "file_export")
+        self.assertEqual(throttle_logs[0].get("active_event_phase"), "SURGE")
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -7306,6 +7373,31 @@ class ProcurementPermissionApiTests(TestCase):
             response.json(),
             {"errors": {"include_items": "Must be a boolean."}},
         )
+        mock_list_procurements.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.list_procurements")
+    def test_procurement_list_rejects_invalid_filters(
+        self,
+        mock_list_procurements,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/replenishment/procurement/?warehouse_id=abc&status=NOT_A_STATUS"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertEqual(body["errors"]["warehouse_id"], "Must be an integer.")
+        self.assertIn("status", body["errors"])
         mock_list_procurements.assert_not_called()
 
     @override_settings(
