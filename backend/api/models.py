@@ -134,6 +134,8 @@ class AsyncJob(models.Model):
         artifact_sha256: str,
         artifact_expires_at: datetime,
     ) -> None:
+        if timezone.is_naive(artifact_expires_at):
+            raise ValueError("artifact_expires_at must be timezone-aware.")
         self.status = self.Status.SUCCEEDED
         self.error_message = None
         self.finished_at = timezone.now()

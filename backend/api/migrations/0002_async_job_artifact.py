@@ -5,6 +5,9 @@ from django.db import migrations, models
 from django.utils import timezone
 
 
+BATCH_SIZE = 500
+
+
 def backfill_durable_async_job_artifacts(apps, schema_editor) -> None:
     AsyncJob = apps.get_model("api", "AsyncJob")
     AsyncJobArtifact = apps.get_model("api", "AsyncJobArtifact")
@@ -14,24 +17,26 @@ def backfill_durable_async_job_artifacts(apps, schema_editor) -> None:
         AsyncJob.objects.filter(status="SUCCEEDED")
         .filter(artifact_payload__isnull=False)
         .exclude(artifact_payload="")
-        .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now))
+        .filter(expires_at__gt=now)
     )
 
     artifacts = []
-    for job in jobs.iterator():
+    for job in jobs.iterator(chunk_size=BATCH_SIZE):
         payload_text = str(job.artifact_payload or "")
         if not payload_text:
             continue
-        retention_expires_at = job.expires_at or now
         artifacts.append(
             AsyncJobArtifact(
                 job_id=job.id,
                 storage_backend="DB_TEXT",
                 payload_text=payload_text,
                 size_bytes=len(payload_text.encode("utf-8")),
-                retention_expires_at=retention_expires_at,
+                retention_expires_at=job.expires_at,
             )
         )
+        if len(artifacts) >= BATCH_SIZE:
+            AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)
+            artifacts.clear()
 
     if artifacts:
         AsyncJobArtifact.objects.bulk_create(artifacts, ignore_conflicts=True)

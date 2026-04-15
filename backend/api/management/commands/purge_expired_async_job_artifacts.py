@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
@@ -21,10 +21,23 @@ class Command(BaseCommand):
             action="store_true",
             help="Persist deletions. Without this flag, the command only previews the cleanup.",
         )
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            default=None,
+            help=(
+                "When provided with --apply, delete expired rows in bounded batches "
+                "instead of one large transaction."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         apply_changes = bool(options.get("apply"))
+        batch_size = options.get("batch_size")
         now = timezone.now()
+
+        if batch_size is not None and batch_size <= 0:
+            raise CommandError("--batch-size must be greater than zero.")
 
         expired_artifact_qs = AsyncJobArtifact.objects.filter(
             retention_expires_at__lte=now
@@ -51,9 +64,30 @@ class Command(BaseCommand):
             )
             return
 
-        with transaction.atomic():
-            expired_artifact_qs.delete()
-            expired_inline_qs.update(artifact_payload=None)
+        if batch_size is None:
+            with transaction.atomic():
+                expired_artifact_qs.delete()
+                expired_inline_qs.update(artifact_payload=None)
+        else:
+            while True:
+                artifact_batch = list(
+                    expired_artifact_qs.values_list("artifact_id", flat=True)[:batch_size]
+                )
+                if not artifact_batch:
+                    break
+                with transaction.atomic():
+                    AsyncJobArtifact.objects.filter(artifact_id__in=artifact_batch).delete()
+
+            while True:
+                inline_batch = list(
+                    expired_inline_qs.values_list("job_id", flat=True)[:batch_size]
+                )
+                if not inline_batch:
+                    break
+                with transaction.atomic():
+                    AsyncJob.objects.filter(job_id__in=inline_batch).update(
+                        artifact_payload=None
+                    )
 
         self.stdout.write(
             self.style.SUCCESS(

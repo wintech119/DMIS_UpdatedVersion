@@ -129,6 +129,8 @@ python manage.py collectstatic --no-input
 gunicorn dmis_api.wsgi:application --bind 127.0.0.1:8000 --workers 4
 ```
 
+Protected-branch release pipelines now run the same replenishment SQL migration in a `pre_deploy` step before `awx-deploy`, so rollout stops if the schema update fails.
+
 Run the async worker plane as a separate process whenever `DMIS_ASYNC_EAGER=0`:
 
 ```bash

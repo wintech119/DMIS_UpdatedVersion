@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Mapping
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -738,7 +739,8 @@ def _accessible_read_warehouse_ids(request) -> set[int] | None:
     if not tenant_ids:
         return set()
 
-    return data_access.get_warehouse_ids_for_tenants(tenant_ids)
+    scoped_warehouse_ids = data_access.get_warehouse_ids_for_tenants(tenant_ids)
+    return scoped_warehouse_ids or None
 
 
 def _tenant_scope_denied_response(
@@ -884,6 +886,8 @@ _ASYNC_EXPORT_JOB_TYPES = {
     "donation": AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
     "procurement": AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
 }
+_NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE = 5
+_NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS = 60
 
 
 def _needs_list_snapshot_version(record: Dict[str, Any], needs_list_id: str) -> str:
@@ -942,6 +946,87 @@ def _async_export_dedupe_key(
         ]
     )
     return f"async-export:{hashlib.sha256(base.encode('utf-8')).hexdigest()}"
+
+
+def _needs_list_export_rate_limit_key(
+    *,
+    actor_key: str,
+    tenant_id: int | None,
+    window_id: int,
+) -> str:
+    return ":".join(
+        [
+            "needs-list-export-rate-limit",
+            str(tenant_id if tenant_id is not None else "global"),
+            actor_key,
+            str(window_id),
+        ]
+    )
+
+
+def _claim_needs_list_export_slot(
+    *,
+    actor_key: str,
+    tenant_id: int | None,
+) -> tuple[bool, int]:
+    epoch_seconds = int(timezone.now().timestamp())
+    window_seconds = _NEEDS_LIST_EXPORT_RATE_LIMIT_WINDOW_SECONDS
+    retry_after = max(window_seconds - (epoch_seconds % window_seconds), 1)
+    window_id = epoch_seconds // window_seconds
+    cache_key = _needs_list_export_rate_limit_key(
+        actor_key=actor_key,
+        tenant_id=tenant_id,
+        window_id=window_id,
+    )
+
+    if cache.add(cache_key, 1, timeout=retry_after + 1):
+        return True, retry_after
+
+    try:
+        count = cache.incr(cache_key)
+    except ValueError:
+        cache.set(cache_key, 1, timeout=retry_after + 1)
+        count = 1
+    return count <= _NEEDS_LIST_EXPORT_RATE_LIMIT_PER_MINUTE, retry_after
+
+
+def _needs_list_export_rate_limited_response(
+    request,
+    *,
+    needs_list_id: str,
+    job_type: str,
+    tenant_id: int | None,
+    tenant_code: str | None,
+    actor_user_id: str | None,
+    actor_username: str | None,
+    retry_after: int,
+) -> Response:
+    logger.warning(
+        "job.queue_throttled",
+        extra=build_log_extra(
+            request,
+            event="job.queue_throttled",
+            needs_list_id=needs_list_id,
+            job_type=job_type,
+            tenant_id=tenant_id,
+            tenant_code=tenant_code,
+            actor_user_id=actor_user_id,
+            actor_username=actor_username,
+            retry_after=retry_after,
+        ),
+    )
+    response = Response(
+        {
+            "errors": {
+                "async": (
+                    "Too many queued export requests. Wait before requesting another export."
+                )
+            }
+        },
+        status=429,
+    )
+    response["Retry-After"] = str(retry_after)
+    return response
 
 
 def _queue_export_job_log_extra(
@@ -1031,6 +1116,22 @@ def _enqueue_needs_list_export_job(
     actor_username = _audit_username(request)
     request_id = get_request_id(request)
     data_version = _needs_list_snapshot_version(record, needs_list_id)
+    rate_limit_actor_key = str(actor_user_id or actor_username or "unknown").strip()
+    allowed, retry_after = _claim_needs_list_export_slot(
+        actor_key=rate_limit_actor_key,
+        tenant_id=tenant_id,
+    )
+    if not allowed:
+        return _needs_list_export_rate_limited_response(
+            request,
+            needs_list_id=needs_list_id,
+            job_type=job_type,
+            tenant_id=tenant_id,
+            tenant_code=tenant_code,
+            actor_user_id=actor_user_id,
+            actor_username=actor_username,
+            retry_after=retry_after,
+        )
     dedupe_key = _async_export_dedupe_key(
         job_type=job_type,
         needs_list_id=needs_list_id,
@@ -2669,6 +2770,8 @@ def needs_list_list(request):
         return Response({"errors": errors}, status=400)
 
     actor = _normalize_actor(_actor_id(request))
+    if mine_only and not actor:
+        return Response({"needs_lists": [], "count": 0})
     scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
     record_ids = [
         row.get("needs_list_id")
@@ -5988,10 +6091,15 @@ def procurement_list_create(request):
             val = request.query_params.get(key)
             if val:
                 filters[key] = val
-        include_items = _query_param_truthy(
+        errors: Dict[str, str] = {}
+        include_items = _parse_optional_bool(
             request.query_params.get("include_items"),
-            default=False,
+            "include_items",
+            errors,
         )
+        if errors:
+            return Response({"errors": errors}, status=400)
+        include_items = bool(include_items)
         try:
             page, page_size = _parse_pagination_params(
                 request,

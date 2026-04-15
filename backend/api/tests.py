@@ -1,6 +1,6 @@
 import sys
 import types
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from importlib import import_module
@@ -1498,6 +1498,25 @@ class AsyncJobArtifactMigrationTests(TestCase):
         self.assertEqual(retained_job.artifact_payload, "item_id,item_name\n1,Water\n")
         self.assertFalse(AsyncJobArtifact.objects.filter(job=expired_job).exists())
 
+    def test_backfill_migration_skips_jobs_without_retention_expiry(self) -> None:
+        migration_module = import_module("api.migrations.0002_async_job_artifact")
+        retained_job = AsyncJob.objects.create(
+            job_id="migration-inline-no-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_DONATION_EXPORT,
+            status=AsyncJob.Status.SUCCEEDED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="3",
+            artifact_filename="donation-null-expiry.csv",
+            artifact_content_type="text/csv",
+            artifact_sha256="retain-null-expiry",
+            artifact_payload="item_id,item_name\n5,Water Purification Tablet\n",
+            expires_at=None,
+        )
+
+        migration_module.backfill_durable_async_job_artifacts(django_apps, None)
+
+        self.assertFalse(AsyncJobArtifact.objects.filter(job=retained_job).exists())
+
 
 class AsyncJobArtifactCleanupCommandTests(TestCase):
     def _create_job(
@@ -1582,6 +1601,50 @@ class AsyncJobArtifactCleanupCommandTests(TestCase):
         self.assertTrue(AsyncJobArtifact.objects.filter(job=fresh_job).exists())
         self.assertEqual(fresh_job.artifact_payload, "item_id,item_name\n4,Generator\n")
         self.assertIn("were purged", output.getvalue())
+
+    def test_purge_expired_async_job_artifacts_apply_batches_when_requested(self) -> None:
+        expired_jobs = [
+            self._create_job(
+                job_id=f"expired-job-batch-{index}",
+                expires_at=timezone.now() - timedelta(hours=1),
+                artifact_payload=f"item_id,item_name\n{index},Water\n",
+                durable_payload=f"item_id,item_name\n{index},Water\n",
+            )
+            for index in (1, 2)
+        ]
+        output = StringIO()
+
+        call_command(
+            "purge_expired_async_job_artifacts",
+            apply=True,
+            batch_size=1,
+            stdout=output,
+        )
+
+        for job in expired_jobs:
+            job.refresh_from_db()
+            self.assertFalse(AsyncJobArtifact.objects.filter(job=job).exists())
+            self.assertIsNone(job.artifact_payload)
+        self.assertIn("were purged", output.getvalue())
+
+
+class AsyncJobModelTests(SimpleTestCase):
+    def test_mark_succeeded_requires_timezone_aware_expiry(self) -> None:
+        job = AsyncJob(
+            job_id="async-job-aware-expiry",
+            job_type=AsyncJob.JobType.NEEDS_LIST_PROCUREMENT_EXPORT,
+            status=AsyncJob.Status.QUEUED,
+            source_resource_type=AsyncJob.SourceType.NEEDS_LIST,
+            source_resource_id="1",
+        )
+
+        with self.assertRaisesMessage(ValueError, "timezone-aware"):
+            job.mark_succeeded(
+                artifact_filename="report.csv",
+                artifact_content_type="text/csv",
+                artifact_sha256="sha-aware-expiry",
+                artifact_expires_at=datetime.utcnow(),
+            )
 
 
 class RequestContextMiddlewareTests(SimpleTestCase):

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Dict, Iterable, Sequence, Tuple
 from django.db import IntegrityError, connection, transaction
 from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Value
@@ -66,6 +67,11 @@ _IN_PROGRESS_STAGE_ALIASES = {
     "RECEIVED": "RECEIVED",
     "RECEIVE": "RECEIVED",
 }
+
+
+@lru_cache(maxsize=1)
+def _have_warehouse_table() -> bool:
+    return "warehouse" in connection.introspection.table_names()
 
 
 def _normalize_actor(value: object) -> str:
@@ -1001,7 +1007,7 @@ def _header_queryset(
     sort_by: str = "date",
     sort_order: str = "desc",
 ) -> QuerySet[NeedsList]:
-    if "warehouse" in connection.introspection.table_names():
+    if _have_warehouse_table():
         warehouse_name_annotation = Coalesce(
             Subquery(
                 Warehouse.objects.filter(

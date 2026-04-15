@@ -148,11 +148,12 @@ def get_warehouse_ids_for_tenants(tenant_ids: Iterable[int]) -> set[int]:
                 if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
             )
     except DatabaseError as exc:
-        logger.warning(
+        logger.exception(
             "Tenant warehouse scope query failed for tenant_ids=%s: %s",
             normalized_tenant_ids,
             exc,
         )
+        raise
 
     try:
         with connection.cursor() as cursor:
@@ -170,11 +171,12 @@ def get_warehouse_ids_for_tenants(tenant_ids: Iterable[int]) -> set[int]:
                 if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
             )
     except DatabaseError as exc:
-        logger.warning(
+        logger.exception(
             "Direct warehouse ownership scope query failed for tenant_ids=%s: %s",
             normalized_tenant_ids,
             exc,
         )
+        raise
 
     return warehouse_ids
 

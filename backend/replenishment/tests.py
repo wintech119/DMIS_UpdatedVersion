@@ -7,6 +7,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import DatabaseError, connection, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1744,6 +1745,40 @@ class NeedsListWorkflowApiTests(TestCase):
         with patch("replenishment.views._tenant_context", return_value=context):
             self.assertIsNone(views._accessible_read_warehouse_ids(request))
 
+    @override_settings(TENANT_SCOPE_ENFORCEMENT=True)
+    @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value=set())
+    def test_accessible_read_warehouse_ids_treats_empty_scope_as_unbounded(
+        self,
+        mock_get_warehouse_ids_for_tenants,
+    ) -> None:
+        request = APIRequestFactory().get(
+            "/api/v1/replenishment/needs-list/",
+            {"tenant_id": "1"},
+        )
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=1,
+            active_tenant_code="AGENCY_A",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=1,
+                    tenant_code="AGENCY_A",
+                    tenant_name="Agency A",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            self.assertIsNone(views._accessible_read_warehouse_ids(request))
+
+        mock_get_warehouse_ids_for_tenants.assert_called_once_with({1})
+
     @override_settings(
         AUTH_ENABLED=False,
         DEV_AUTH_ENABLED=True,
@@ -2249,6 +2284,55 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(queued_logs), 1)
         self.assertEqual(queued_logs[0].get("job_id"), job.job_id)
         self.assertEqual(queued_logs[0].get("source_snapshot_version"), job.source_snapshot_version)
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="dev-user",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.import_module")
+    def test_donations_export_post_rate_limits_after_five_requests(
+        self,
+        mock_import_module,
+    ) -> None:
+        record = {
+            "needs_list_id": "NL-A",
+            "needs_list_no": "NL-ASYNC-A",
+            "status": "APPROVED",
+            "warehouse_id": 10,
+            "updated_at": "2026-04-10T12:00:00Z",
+            "snapshot": {"items": []},
+        }
+        delay = MagicMock()
+        mock_import_module.return_value = SimpleNamespace(
+            run_async_job=SimpleNamespace(delay=delay)
+        )
+        cache.clear()
+        try:
+            with patch("replenishment.views.workflow_store.store_enabled_or_raise"), patch(
+                "replenishment.views.workflow_store.get_record", return_value=record
+            ):
+                responses = [
+                    self.client.post(
+                        "/api/v1/replenishment/needs-list/NL-A/donations/export",
+                        {"format": "csv"},
+                        format="json",
+                    )
+                    for _ in range(6)
+                ]
+        finally:
+            cache.clear()
+
+        self.assertTrue(all(response.status_code == 202 for response in responses[:5]))
+        self.assertEqual(responses[5].status_code, 429)
+        self.assertIn("Retry-After", responses[5])
+        self.assertEqual(AsyncJob.objects.count(), 1)
+        delay.assert_called_once()
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -3579,6 +3663,33 @@ class NeedsListWorkflowApiTests(TestCase):
         )
         hydrated_ids = list(mock_get_records_by_ids.call_args.args[0])
         self.assertEqual(hydrated_ids, [mine_draft.get("needs_list_id")])
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.list_record_headers")
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    @patch("replenishment.views._actor_id", return_value=None)
+    def test_needs_list_list_returns_empty_personal_list_when_actor_missing(
+        self,
+        _mock_actor_id,
+        _mock_store_enabled,
+        mock_list_record_headers,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"needs_lists": [], "count": 0})
+        mock_list_record_headers.assert_not_called()
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -7126,6 +7237,32 @@ class ProcurementPermissionApiTests(TestCase):
         DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
         DEBUG=True,
         AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.list_procurements")
+    def test_procurement_list_rejects_invalid_include_items_flag(
+        self,
+        mock_list_procurements,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/replenishment/procurement/?include_items=not-a-bool"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"errors": {"include_items": "Must be a boolean."}},
+        )
+        mock_list_procurements.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
         TENANT_SCOPE_ENFORCEMENT=True,
     )
     @patch("replenishment.views.procurement_service.list_procurements", return_value=([], 0))
@@ -7680,10 +7817,14 @@ class ProcurementListPerformanceTests(TestCase):
         self._create_procurement("PROC-LIST-005", item_ids=[100, 101, 102])
         self._create_procurement("PROC-LIST-006", item_ids=[103, 104, 105])
 
-        with CaptureQueriesContext(connection) as captured:
-            procurements, count = procurement_service.list_procurements(
-                allowed_warehouse_ids=None
-            )
+        with patch(
+            "replenishment.services.procurement.data_access.get_warehouse_names",
+            return_value=({1: "Kingston Central Depot"}, []),
+        ):
+            with CaptureQueriesContext(connection) as captured:
+                procurements, count = procurement_service.list_procurements(
+                    allowed_warehouse_ids=None
+                )
 
         self.assertEqual(count, 2)
         self.assertEqual(len(procurements), 2)

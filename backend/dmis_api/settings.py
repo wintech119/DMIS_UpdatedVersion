@@ -864,16 +864,25 @@ _default_durable_export_retention_seconds = default_durable_export_retention_sec
     runtime_env=DMIS_RUNTIME_ENV,
     testing=TESTING,
 )
+# Treat only None as "unset" so an explicit 0 remains visible to downstream
+# validation; api.tasks still enforces a 60-second minimum retention floor.
+_configured_async_artifact_ttl_seconds = _get_int_env(
+    "DMIS_ASYNC_ARTIFACT_TTL_SECONDS",
+    None,
+)
 DMIS_ASYNC_ARTIFACT_TTL_SECONDS = (
-    _get_int_env("DMIS_ASYNC_ARTIFACT_TTL_SECONDS", _default_durable_export_retention_seconds)
-    or _default_durable_export_retention_seconds
+    _default_durable_export_retention_seconds
+    if _configured_async_artifact_ttl_seconds is None
+    else _configured_async_artifact_ttl_seconds
+)
+_configured_durable_export_retention_seconds = _get_int_env(
+    "DMIS_DURABLE_EXPORT_RETENTION_SECONDS",
+    None,
 )
 DMIS_DURABLE_EXPORT_RETENTION_SECONDS = (
-    _get_int_env(
-        "DMIS_DURABLE_EXPORT_RETENTION_SECONDS",
-        DMIS_ASYNC_ARTIFACT_TTL_SECONDS,
-    )
-    or DMIS_ASYNC_ARTIFACT_TTL_SECONDS
+    DMIS_ASYNC_ARTIFACT_TTL_SECONDS
+    if _configured_durable_export_retention_seconds is None
+    else _configured_durable_export_retention_seconds
 )
 DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES = (
     _get_int_env("DMIS_ASYNC_INLINE_ARTIFACT_MAX_BYTES", 524288) or 524288
