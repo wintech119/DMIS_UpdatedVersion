@@ -1236,6 +1236,7 @@ def list_record_headers_page(
 def get_records_by_ids(
     needs_list_ids: Iterable[object],
     *,
+    base_queryset: QuerySet[NeedsList] | None = None,
     include_audit_logs: bool = True,
 ) -> list[Dict[str, object]]:
     ordered_ids: list[int] = []
@@ -1257,8 +1258,9 @@ def get_records_by_ids(
     if include_audit_logs:
         prefetch_paths.extend(["audit_logs", "audit_logs__needs_list_item"])
 
+    scoped_queryset = base_queryset if base_queryset is not None else NeedsList.objects.all()
     needs_lists = list(
-        NeedsList.objects.filter(needs_list_id__in=ordered_ids)
+        scoped_queryset.filter(needs_list_id__in=ordered_ids)
         .prefetch_related(*prefetch_paths)
     )
     if not needs_lists:
@@ -1276,10 +1278,22 @@ def get_records_by_ids(
         return []
 
     warehouse_names, _ = data_access.get_warehouse_names(
-        [needs_list.warehouse_id for needs_list in ordered_needs_lists]
+        sorted(
+            {
+                needs_list.warehouse_id
+                for needs_list in ordered_needs_lists
+                if needs_list.warehouse_id is not None
+            }
+        )
     )
     event_names, _ = data_access.get_event_names(
-        [needs_list.event_id for needs_list in ordered_needs_lists]
+        sorted(
+            {
+                needs_list.event_id
+                for needs_list in ordered_needs_lists
+                if needs_list.event_id is not None
+            }
+        )
     )
     all_item_ids = sorted(
         {
@@ -1306,6 +1320,7 @@ def get_records_by_ids(
 def list_records(
     statuses: list[str] | None = None,
     *,
+    allowed_warehouse_ids: Iterable[int] | None = None,
     include_audit_logs: bool = True,
 ) -> list[Dict[str, object]]:
     """
@@ -1313,12 +1328,20 @@ def list_records(
 
     Accepts legacy API status aliases and maps them to database status values.
     """
+    base_queryset = _record_queryset(
+        statuses,
+        allowed_warehouse_ids=allowed_warehouse_ids,
+    )
     needs_list_ids = list(
-        _record_queryset(statuses)
+        base_queryset
         .order_by("-calculation_dtime", "-needs_list_id")
         .values_list("needs_list_id", flat=True)
     )
-    return get_records_by_ids(needs_list_ids, include_audit_logs=include_audit_logs)
+    return get_records_by_ids(
+        needs_list_ids,
+        base_queryset=base_queryset,
+        include_audit_logs=include_audit_logs,
+    )
 
 
 @transaction.atomic

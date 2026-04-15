@@ -1651,7 +1651,7 @@ def _load_persisted_snapshot_for_scope(
         return cached
 
     try:
-        records = workflow_store.list_records()
+        records = workflow_store.list_records(allowed_warehouse_ids=[warehouse_id])
     except RuntimeError:
         return None
     except Exception as exc:
@@ -2437,7 +2437,10 @@ def _find_submitted_or_approved_overlap_conflicts(
     if not current_pairs:
         return []
 
-    existing_records = workflow_store.list_records(sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES))
+    existing_records = workflow_store.list_records(
+        sorted(_DUPLICATE_GUARD_ACTIVE_STATUSES),
+        allowed_warehouse_ids=sorted({warehouse_id for warehouse_id, _ in current_pairs}),
+    )
     if not isinstance(existing_records, list):
         raise DuplicateConflictValidationError("Invalid existing needs list payload.")
     normalized_excluded_id = str(exclude_needs_list_id or "").strip()
@@ -2886,7 +2889,16 @@ def needs_list_list(request):
             allowed_warehouse_ids=scoped_warehouse_ids,
         )
     ]
-    records = workflow_store.get_records_by_ids(record_ids, include_audit_logs=False)
+    scoped_base_queryset = (
+        NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
+        if scoped_warehouse_ids is not None
+        else None
+    )
+    records = workflow_store.get_records_by_ids(
+        record_ids,
+        base_queryset=scoped_base_queryset,
+        include_audit_logs=False,
+    )
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
     filtered_records: list[Dict[str, Any]] = []
@@ -2986,7 +2998,16 @@ def needs_list_my_submissions(request):
         limit=page_size,
     )
     page_ids = [row.get("needs_list_id") for row in headers]
-    page_records = workflow_store.get_records_by_ids(page_ids, include_audit_logs=False)
+    scoped_base_queryset = (
+        NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
+        if scoped_warehouse_ids is not None
+        else None
+    )
+    page_records = workflow_store.get_records_by_ids(
+        page_ids,
+        base_queryset=scoped_base_queryset,
+        include_audit_logs=False,
+    )
     tenant_context = _tenant_context(request)
     enforce_tenant_scope = _should_enforce_tenant_scope(request)
     records_by_id = {

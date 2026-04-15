@@ -7073,6 +7073,116 @@ class WorkflowStoreDbSerializationTests(TestCase):
 
     @patch("replenishment.workflow_store_db.data_access.get_event_names")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_get_records_by_ids_respects_base_queryset(
+        self,
+        mock_item_names,
+        mock_warehouse_names,
+        mock_event_names,
+    ) -> None:
+        mock_warehouse_names.return_value = ({2: "Warehouse 2"}, [])
+        mock_event_names.return_value = ({1: "Event 1"}, [])
+        mock_item_names.return_value = ({}, [])
+
+        allowed = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-020",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=10,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        denied = NeedsList.objects.create(
+            needs_list_no="NL-1-3-20260216-021",
+            event_id=1,
+            warehouse_id=3,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=15,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        records = workflow_store_db.get_records_by_ids(
+            [allowed.needs_list_id, denied.needs_list_id],
+            base_queryset=NeedsList.objects.filter(warehouse_id=2),
+            include_audit_logs=False,
+        )
+
+        self.assertEqual(
+            [record["needs_list_id"] for record in records],
+            [str(allowed.needs_list_id)],
+        )
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_names")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_list_records_respects_allowed_warehouse_ids(
+        self,
+        mock_item_names,
+        mock_warehouse_names,
+        mock_event_names,
+    ) -> None:
+        mock_warehouse_names.return_value = ({2: "Warehouse 2"}, [])
+        mock_event_names.return_value = ({1: "Event 1"}, [])
+        mock_item_names.return_value = ({}, [])
+
+        allowed = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-022",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=20,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsList.objects.create(
+            needs_list_no="NL-1-3-20260216-023",
+            event_id=1,
+            warehouse_id=3,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="PENDING_APPROVAL",
+            total_gap_qty=25,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+
+        records = workflow_store_db.list_records(
+            ["SUBMITTED"],
+            allowed_warehouse_ids=[2],
+            include_audit_logs=False,
+        )
+
+        self.assertEqual(
+            [record["needs_list_id"] for record in records],
+            [str(allowed.needs_list_id)],
+        )
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_names")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
     def test_list_record_headers_page_method_filter_falls_back_to_legacy_notes_text(
         self,
         mock_warehouse_names,
