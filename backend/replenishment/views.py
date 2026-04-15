@@ -1,6 +1,7 @@
 ﻿import csv
 import io
 import hashlib
+import ipaddress
 import logging
 import time
 import re
@@ -955,10 +956,42 @@ def _async_export_dedupe_key(
 
 
 def _request_client_ip(request) -> str:
+    remote_addr = _normalize_ip_address(request.META.get("REMOTE_ADDR"))
+    if not remote_addr:
+        return "-"
+
+    trusted_proxies = _trusted_proxy_ip_set()
+    if remote_addr not in trusted_proxies:
+        return remote_addr
+
     forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", "") or "").strip()
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    return str(request.META.get("REMOTE_ADDR", "") or "-").strip() or "-"
+    if not forwarded_for:
+        return remote_addr
+
+    for raw_candidate in forwarded_for.split(","):
+        candidate = _normalize_ip_address(raw_candidate)
+        if candidate and candidate not in trusted_proxies:
+            return candidate
+    return remote_addr
+
+
+def _normalize_ip_address(value: object) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate or len(candidate) > 64:
+        return None
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        return None
+
+
+def _trusted_proxy_ip_set() -> set[str]:
+    trusted = set()
+    for raw_proxy in getattr(settings, "TRUSTED_PROXIES", ()) or ():
+        normalized_proxy = _normalize_ip_address(raw_proxy)
+        if normalized_proxy:
+            trusted.add(normalized_proxy)
+    return trusted
 
 
 def _needs_list_export_rate_limit_key(
@@ -2892,7 +2925,7 @@ def needs_list_list(request):
     scoped_base_queryset = (
         NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
         if scoped_warehouse_ids is not None
-        else None
+        else NeedsList.objects.all()
     )
     records = workflow_store.get_records_by_ids(
         record_ids,
@@ -3001,7 +3034,7 @@ def needs_list_my_submissions(request):
     scoped_base_queryset = (
         NeedsList.objects.filter(warehouse_id__in=sorted(set(scoped_warehouse_ids)))
         if scoped_warehouse_ids is not None
-        else None
+        else NeedsList.objects.all()
     )
     page_records = workflow_store.get_records_by_ids(
         page_ids,

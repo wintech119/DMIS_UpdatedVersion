@@ -813,6 +813,7 @@ SECURE_REFERRER_POLICY = os.getenv(
 CSRF_TRUSTED_ORIGINS = _get_csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", [])
 SECURE_PROXY_SSL_HEADER = _runtime_security_profile["required_proxy_ssl_header"]
 USE_X_FORWARDED_HOST = False
+TRUSTED_PROXIES = frozenset(_get_csv_env("DMIS_TRUSTED_PROXIES", []))
 
 if TESTING and not _get_bool_env("DJANGO_TEST_ENABLE_SECURE_SETTINGS", False):
     # Keep local and CI tests aligned with Django's default test client behavior.

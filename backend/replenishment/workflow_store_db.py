@@ -1236,7 +1236,7 @@ def list_record_headers_page(
 def get_records_by_ids(
     needs_list_ids: Iterable[object],
     *,
-    base_queryset: QuerySet[NeedsList] | None = None,
+    base_queryset: QuerySet[NeedsList],
     include_audit_logs: bool = True,
 ) -> list[Dict[str, object]]:
     ordered_ids: list[int] = []
@@ -1258,9 +1258,8 @@ def get_records_by_ids(
     if include_audit_logs:
         prefetch_paths.extend(["audit_logs", "audit_logs__needs_list_item"])
 
-    scoped_queryset = base_queryset if base_queryset is not None else NeedsList.objects.all()
     needs_lists = list(
-        scoped_queryset.filter(needs_list_id__in=ordered_ids)
+        base_queryset.filter(needs_list_id__in=ordered_ids)
         .prefetch_related(*prefetch_paths)
     )
     if not needs_lists:

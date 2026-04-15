@@ -69,6 +69,32 @@ class RepackagingDetailScopeTests(SimpleTestCase):
         self.assertEqual(response.data["detail"], "Not found.")
 
 
+class ReplenishmentRequestIpTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = APIRequestFactory()
+
+    def test_request_client_ip_ignores_untrusted_forwarded_for_headers(self) -> None:
+        request = self.factory.get(
+            "/api/v1/replenishment/needs-list/NL-A/donations/export",
+            REMOTE_ADDR="10.0.0.25",
+            HTTP_X_FORWARDED_FOR="198.51.100.77, 203.0.113.9",
+        )
+
+        self.assertEqual(views._request_client_ip(request), "10.0.0.25")
+
+    @override_settings(TRUSTED_PROXIES={"10.0.0.25", "203.0.113.9"})
+    def test_request_client_ip_uses_first_untrusted_forwarded_for_when_peer_is_trusted(
+        self,
+    ) -> None:
+        request = self.factory.get(
+            "/api/v1/replenishment/needs-list/NL-A/donations/export",
+            REMOTE_ADDR="10.0.0.25",
+            HTTP_X_FORWARDED_FOR="198.51.100.77, 203.0.113.9",
+        )
+
+        self.assertEqual(views._request_client_ip(request), "198.51.100.77")
+
+
 
 
 def _ensure_legacy_reference_rows() -> None:
@@ -7548,7 +7574,7 @@ class ProcurementPermissionApiTests(TestCase):
         with patch("replenishment.views._tenant_context", return_value=context), patch(
             "replenishment.views.data_access.get_warehouse_ids_for_tenants",
             return_value={11},
-        ):
+        ) as mock_get_warehouse_ids_for_tenants:
             response = self.client.get("/api/v1/replenishment/procurement/?tenant_id=2")
 
         self.assertEqual(response.status_code, 200)
@@ -7563,6 +7589,7 @@ class ProcurementPermissionApiTests(TestCase):
             offset=0,
             limit=100,
         )
+        mock_get_warehouse_ids_for_tenants.assert_called_once_with({1})
 
     @override_settings(
         AUTH_ENABLED=False,
