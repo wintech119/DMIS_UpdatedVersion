@@ -169,6 +169,14 @@ For requirements docs, feature specs, change notices, and other pre-implementati
 If the user wants to implement a module, a feature set, or a single feature from approved requirements, specs, or requirement deltas, do not begin implementation until that design handoff is complete.
 Keep the detailed workflow in the skill; do not duplicate it here.
 
+### System-Architecture-Review Routing
+
+For low-medium, medium, and high planning or implementation work, use `.agents/skills/system-architecture-review/SKILL.md` to check alignment.
+Treat implementation work as low-medium or higher unless it clearly falls under a documented low-risk exemption in `backend/AGENTS.md` or `frontend/AGENTS.md`.
+Run this review before finalizing the plan and again before final output after implementation.
+If the architecture review returns `Misaligned`, do not treat the work as complete.
+Keep the detailed review workflow in the skill; do not duplicate it here.
+
 ### Regression Guardrails
 
 **Principle**: The current local codebase is the authoritative implementation baseline. Do not regress the repo toward older commit-era structures, templates, workflow logic, or legacy code paths when newer local patterns already exist, unless the approved docs in `docs/` explicitly require that change.

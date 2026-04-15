@@ -121,7 +121,8 @@ frontend/src/app/
 
 ## Mandatory Architecture Review
 
-For medium- and high-risk plans or implementation work, use the shared architecture reviewer at `.agents/skills/system-architecture-review/SKILL.md` before the work is treated as complete.
+For low-medium, medium, and high plans or implementation work, automatically use the shared architecture reviewer at `.agents/skills/system-architecture-review/SKILL.md` to check alignment.
+Treat implementation work as low-medium or higher unless it clearly falls under a documented low-risk exemption in `frontend/AGENTS.md` or `backend/AGENTS.md`.
 
 Primary source-of-truth order:
 1. `docs/adr/system_application_architecture.md`
@@ -131,7 +132,7 @@ Primary source-of-truth order:
 5. `docs/implementation/production_readiness_checklist.md`
 6. `docs/implementation/production_hardening_and_flask_retirement_strategy.md`
 
-Expect two checkpoints for medium- and high-risk work:
+Expect two checkpoints for low-medium, medium, and high work:
 - review before finalizing the plan
 - review again before final output after implementation
 
@@ -139,6 +140,7 @@ Use the local project instructions in `frontend/AGENTS.md` and `backend/AGENTS.m
 Treat `system_application_architecture.md` as the canonical architecture baseline.
 Treat the hardening and Flask-retirement strategy as supporting execution guidance, not the main architecture reference.
 If the architecture review returns `Misaligned`, do not treat the work as complete.
+Keep the detailed review workflow in the skill; do not duplicate it here.
 
 ## Key Business Logic
 

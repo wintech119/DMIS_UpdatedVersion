@@ -22,12 +22,15 @@
 - Keep the detailed workflow in the skill; do not duplicate it here.
 
 ## Mandatory Architecture Review
-- For medium- and high-risk frontend work, use the shared architecture reviewer at `../.agents/skills/system-architecture-review/SKILL.md` before finalizing a plan.
-- Run the same architecture review again before final output when implementation work touches architecture-sensitive frontend areas.
+- For low-medium, medium, and high frontend work, automatically use the shared architecture reviewer at `../.agents/skills/system-architecture-review/SKILL.md` to check alignment.
+- Treat frontend implementation work as low-medium or higher unless it clearly falls under the low-risk exemptions below.
+- Run the architecture review before finalizing a plan.
+- Run the same architecture review again before final output after frontend implementation.
 - Treat `../docs/adr/system_application_architecture.md` as the primary architecture source of truth.
 - Treat `../docs/security/SECURITY_ARCHITECTURE.md`, `../docs/security/THREAT_MODEL.md`, and `../docs/security/CONTROLS_MATRIX.md` as the primary security and control references.
 - Treat `../docs/implementation/production_readiness_checklist.md` as the release-gating reference.
 - Treat `../docs/implementation/production_hardening_and_flask_retirement_strategy.md` as supporting execution guidance, not the main architecture baseline.
+- Keep the detailed review workflow in the skill; do not duplicate it here.
 
 ### Mandatory frontend review triggers
 - auth bootstrap, route guards, role and permission handling, token or session handling, and dev-user behavior
