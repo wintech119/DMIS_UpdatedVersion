@@ -554,6 +554,29 @@ class OperationsWorkflowContractTests(TestCase):
         )
         validate_selection_mock.assert_not_called()
 
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_requires_request_notes_for_high_urgency(
+        self,
+        validate_selection_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.create_request(
+                payload={
+                    "agency_id": 501,
+                    "urgency_ind": "H",
+                    "rqst_notes_text": "   ",
+                },
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"rqst_notes_text": "Justification is required for high-urgency requests."},
+        )
+        validate_selection_mock.assert_not_called()
+
     @patch("operations.contract_services.legacy_service.update_request")
     def test_update_request_rejects_invalid_requesting_agency_id_before_legacy_write(
         self,
@@ -573,6 +596,37 @@ class OperationsWorkflowContractTests(TestCase):
             {"requesting_agency_id": "requesting_agency_id must be a valid integer value."},
         )
         update_request_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    @patch("operations.contract_services.legacy_service._load_request")
+    def test_update_request_requires_request_notes_when_draft_becomes_high_urgency(
+        self,
+        load_request_mock,
+        validate_selection_mock,
+    ) -> None:
+        draft_request = self._request_stub(
+            reliefrqst_id=70,
+            agency_id=501,
+            status_code=contract_services.STATUS_DRAFT,
+        )
+        draft_request.urgency_ind = "M"
+        draft_request.rqst_notes_text = None
+        load_request_mock.side_effect = [draft_request, draft_request]
+
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.update_request(
+                70,
+                payload={"urgency_ind": "H"},
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"rqst_notes_text": "Justification is required for high-urgency requests."},
+        )
+        validate_selection_mock.assert_not_called()
 
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
@@ -638,6 +692,65 @@ class OperationsWorkflowContractTests(TestCase):
             {"agency_id": "agency_id must be a valid integer value."},
         )
         update_request_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_rejects_item_reason_longer_than_255_characters(
+        self,
+        validate_selection_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.create_request(
+                payload={
+                    "agency_id": 501,
+                    "urgency_ind": "M",
+                    "items": [
+                        {
+                            "item_id": 101,
+                            "request_qty": "3",
+                            "urgency_ind": "H",
+                            "rqst_reason_desc": "x" * 256,
+                        }
+                    ],
+                },
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"items[0].rqst_reason_desc": "Reason must be 255 characters or fewer."},
+        )
+        validate_selection_mock.assert_not_called()
+
+    @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")
+    def test_create_request_still_requires_reason_for_critical_items(
+        self,
+        validate_selection_mock,
+    ) -> None:
+        with self.assertRaises(OperationValidationError) as raised:
+            contract_services.create_request(
+                payload={
+                    "agency_id": 501,
+                    "urgency_ind": "M",
+                    "items": [
+                        {
+                            "item_id": 101,
+                            "request_qty": "3",
+                            "urgency_ind": "C",
+                        }
+                    ],
+                },
+                actor_id="requester-1",
+                tenant_context=self.dispatch_ready_context,
+                permissions=[PERM_OPERATIONS_REQUEST_CREATE_SELF],
+            )
+
+        self.assertEqual(
+            raised.exception.errors,
+            {"items[0].rqst_reason_desc": "Reason is required for high-priority items."},
+        )
+        validate_selection_mock.assert_not_called()
 
     @patch("operations.contract_services.get_request", return_value={"reliefrqst_id": 70})
     @patch("operations.contract_services.operations_policy.validate_relief_request_agency_selection")

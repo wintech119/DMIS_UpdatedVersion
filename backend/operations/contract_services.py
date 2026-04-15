@@ -189,6 +189,8 @@ _OPERATIONS_NATIVE_PACKAGE_STATUSES = frozenset(
         PACKAGE_STATUS_CANCELLED,
     }
 )
+_REQUEST_URGENCY_VALUES = {"C", "H", "M", "L"}
+_REQUEST_ITEM_REASON_MAX_LENGTH = 255
 
 STATUS_DRAFT = 0
 STATUS_AWAITING_APPROVAL = 1
@@ -559,14 +561,19 @@ def _upsert_request_items(reliefrqst_id: int, items: Sequence[Mapping[str, Any]]
         )
 
 
-def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = False) -> dict[str, Any]:
+def _validate_request_payload(
+    payload: Mapping[str, Any],
+    *,
+    partial: bool = False,
+    existing_request: Any | None = None,
+) -> dict[str, Any]:
     errors: dict[str, str] = {}
     normalized: dict[str, Any] = {}
     if not partial or "agency_id" in payload:
         normalized["agency_id"] = _positive_int(payload.get("agency_id"), "agency_id", errors)
     if not partial or "urgency_ind" in payload:
         urgency_ind = str(payload.get("urgency_ind") or "").strip().upper()
-        if urgency_ind not in {"C", "H", "M", "L"}:
+        if urgency_ind not in _REQUEST_URGENCY_VALUES:
             errors["urgency_ind"] = "Must be one of C, H, M, or L."
         else:
             normalized["urgency_ind"] = urgency_ind
@@ -583,6 +590,14 @@ def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = Fal
                 errors["eligible_event_id"] = "Selected event does not exist."
     if not partial or "rqst_notes_text" in payload:
         normalized["rqst_notes_text"] = str(payload.get("rqst_notes_text") or "").strip() or None
+    effective_urgency_ind = normalized.get("urgency_ind")
+    if partial and effective_urgency_ind is None:
+        effective_urgency_ind = str(getattr(existing_request, "urgency_ind", "") or "").strip().upper() or None
+    effective_request_notes = normalized.get("rqst_notes_text")
+    if partial and "rqst_notes_text" not in normalized:
+        effective_request_notes = str(getattr(existing_request, "rqst_notes_text", "") or "").strip() or None
+    if effective_urgency_ind == "H" and not effective_request_notes:
+        errors["rqst_notes_text"] = "Justification is required for high-urgency requests."
     raw_items = payload.get("items")
     normalized_items: list[dict[str, Any]] = []
     if raw_items is not None:
@@ -602,9 +617,11 @@ def _validate_request_payload(payload: Mapping[str, Any], *, partial: bool = Fal
                 if request_qty <= 0:
                     errors[f"items[{index}].request_qty"] = "Must be greater than zero."
                 urgency_ind = str(raw.get("urgency_ind") or normalized.get("urgency_ind") or "M").strip().upper()
-                if urgency_ind not in {"C", "H", "M", "L"}:
+                if urgency_ind not in _REQUEST_URGENCY_VALUES:
                     errors[f"items[{index}].urgency_ind"] = "Must be one of C, H, M, or L."
                 reason = str(raw.get("rqst_reason_desc") or "").strip() or None
+                if reason is not None and len(reason) > _REQUEST_ITEM_REASON_MAX_LENGTH:
+                    errors[f"items[{index}].rqst_reason_desc"] = "Reason must be 255 characters or fewer."
                 if urgency_ind in {"C", "H"} and not reason:
                     errors[f"items[{index}].rqst_reason_desc"] = "Reason is required for high-priority items."
                 required_by_date = _optional_date(
@@ -3894,7 +3911,7 @@ def _legacy_update_request(
     request = _legacy_helper("_load_request")(reliefrqst_id, for_update=True)
     if int(request.status_code) != STATUS_DRAFT:
         raise OperationValidationError({"status": "Only draft requests can be updated."})
-    normalized = _validate_request_payload(payload, partial=True)
+    normalized = _validate_request_payload(payload, partial=True, existing_request=request)
     target_agency_id = int(normalized["agency_id"]) if "agency_id" in normalized else int(request.agency_id)
     decision = operations_policy.validate_relief_request_agency_selection(
         agency_id=target_agency_id,
