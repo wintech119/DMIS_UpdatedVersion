@@ -1,5 +1,8 @@
 # Fix: Cancel Package Preparation Button Not Responsive
 
+Historical note:
+This fix document refers to the legacy Flask implementation that was removed in DMIS-10. Any `app.py` or `app/*` path references below are preserved for historical traceability only and are not current runtime files.
+
 ## Issue Date
 November 18, 2025
 

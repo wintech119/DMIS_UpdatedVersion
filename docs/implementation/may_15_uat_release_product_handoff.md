@@ -1,8 +1,11 @@
 ﻿# DMIS | May 15 UAT Release | Product Handoff
 
 Last updated: 2026-03-24  
-Status: Draft scaffold - not ready for signoff  
+Status: Historical handoff scaffold - superseded for current deployment guidance  
 Release target: `UAT-ready by May 15, 2026`
+
+Historical note:
+This handoff captures the May 15 cutover program context. It is not the current operational baseline. For current deployment posture, treat Angular + Django as the live path of record, and note that DMIS-10 later fully removed the legacy Flask runtime and rollback gate.
 
 ## Purpose
 
@@ -14,7 +17,7 @@ This handoff is the final cross-lane product record for the May 15 UAT release t
 - Sprint 08 boundary-correction evidence
 - Sprint 08 backend-first Operations rebuild evidence
 - Sprint 08 Angular Operations cutover evidence
-- Sprint 08 Flask retirement or rollback-only evidence
+- Sprint 08 Flask retirement evidence from the historical cutover window
 - Sprint 09 distribution confirmation and operational tracking evidence
 - Sprint 10 UAT execution and hardening evidence
 - final blocker disposition
@@ -28,7 +31,7 @@ This handoff is the final cross-lane product record for the May 15 UAT release t
 
 - Sprint 08 is corrected to treat `NeedsList` as the replenishment planning artifact, not the owner of package execution.
 - Relief requests, eligibility review, package fulfillment, and dispatch are being rebuilt under a new Django and Angular Operations path.
-- Legacy Flask Operations is now the behavior reference and temporary scaffold only during the cutover window.
+- Legacy Flask Operations was the behavior reference and temporary scaffold only during the cutover window.
 - May 15 signoff requires live Operations navigation and APIs to land on the new Angular and Django stack, not on Flask.
 
 ### Product Impact
@@ -48,7 +51,7 @@ This handoff is the final cross-lane product record for the May 15 UAT release t
 ### UAT Readiness Note
 
 - This correction clears the product-definition blocker for May 15.
-- UAT readiness still depends on backend parity, Angular Operations cutover, QA evidence, and explicit Flask retirement or rollback-only treatment.
+- UAT readiness still depends on backend parity, Angular Operations cutover, QA evidence, and explicit Flask retirement treatment in the historical cutover record.
 
 ## Interim Release Update | 2026-03-24 | Location-Storage Command Restoration
 

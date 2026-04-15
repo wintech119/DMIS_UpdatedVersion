@@ -1,6 +1,7 @@
 # Current Task Plan
 
-1. Verify each requested review comment against the live code and discard stale findings instead of reapplying them.
-2. Patch the confirmed skill and script gaps only where they still exist: fix the Angular review skill dependency metadata, strengthen the Final Review Standard with shared architecture-review requirements, and add early query validation in the UI/UX search helpers.
-3. Patch the confirmed operations gaps only where they still exist: require an idempotency header in the inventory-drift API test, harden `_required_positive_int_payload_value()` against bool and non-integer coercion, and add a focused regression test.
-4. Run targeted validation for the touched Python paths, then record the final system-architecture-review decision against the current architecture and security docs.
+1. Verify each requested review comment against the live code and discard the stale ones instead of applying them blindly.
+2. Standardize the requirements-to-design skill hook by adding the missing `.agents` skill path and repointing the four instruction docs to the same canonical location.
+3. Patch the confirmed backend gaps only where they still exist: procurement exception handling, bounded pagination, tenant-safe procurement reads, real pagination validation errors, `_iso_or_none(None)`, DB-side method-filter pagination, and the raw-SQL warehouse scope helper move.
+4. Update the affected replenishment tests so they prove the real behavior: offset handling, tenant-safe non-exposure, procurement scope filtering, and invalid pagination rejection.
+5. Run targeted backend tests and finish with a system-architecture review decision against the architecture and security source-of-truth docs.

@@ -1,6 +1,6 @@
 # DMIS Security Controls Matrix
 
-Last updated: 2026-04-09
+Last updated: 2026-04-15
 Status: Current-state controls and pre-production target controls
 
 ## Purpose
@@ -71,18 +71,18 @@ Status values:
 
 | ID | Control | Current State | Target State | Status | Production Gate | Standards |
 | --- | --- | --- | --- | --- | --- | --- |
-| GOV-01 | Current-state architecture documentation | Security and deployment docs were previously misaligned with the real stack | Docs match the active Angular/Django architecture and transition status | Partial | Yes | ISO 27001 |
+| GOV-01 | Current-state architecture documentation | Active architecture, security, and deployment docs were realigned in DMIS-10 to the Angular + Django platform | Docs match the active Angular/Django architecture and decommission status | Implemented | Yes | ISO 27001 |
 | GOV-02 | Threat model maintenance | Prior threat model was stale | Threat model reviewed on architecture and auth changes | Partial | No | OWASP ASVS 1 |
 | GOV-03 | Vulnerability scanning | Some scanning artifacts exist | SAST, dependency, and config scanning enforced in CI for release branches | Partial | No | Secure SDLC |
 | GOV-04 | Production release gates | Some handoff docs exist, but hardening gates are not yet one coherent checklist | Release checklist includes security, observability, backup, rollback, and Flask retirement | Missing | Yes | Governance |
-| GOV-05 | Flask retirement control | A sprint cutover doc exists, but full platform retirement is still in progress | Flask isolated, redirected, then removed from the live and deployed path | Partial | Yes | Change management |
+| GOV-05 | Flask retirement control | DMIS-10 removed the Flask runtime, packaging metadata, and rollback gate from the repo and deployable system | Flask stays decommissioned and cannot silently return as a runtime path | Implemented | Yes | Change management |
 
 ## Summary
 
 | Status | Count |
 | --- | ---: |
-| Implemented | 0 |
-| Partial | 18 |
+| Implemented | 2 |
+| Partial | 16 |
 | Missing | 10 |
 | Planned | 1 |
 
@@ -96,7 +96,7 @@ The most important controls to close before production are:
 4. worker-based async processing for expensive and retriable workloads
 5. readiness checks, telemetry, alerting, and tested recovery
 6. tenant-safe enforcement and durable artifact storage
-7. full retirement of Flask from live workflows
+7. prevent alternate-runtime drift through aligned docs, CI, and change review
 
 ## Review Cadence
 

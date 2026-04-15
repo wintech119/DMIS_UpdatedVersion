@@ -1,9 +1,12 @@
+import os
 import sys
 import types
 from datetime import datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from importlib import import_module
+from importlib.machinery import PathFinder
+from pathlib import Path
 from types import SimpleNamespace
 from django.apps import apps as django_apps
 from django.core.management import call_command
@@ -16,6 +19,10 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 from unittest.mock import patch
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from api import authentication, checks as api_checks
 from api import rbac
@@ -612,6 +619,38 @@ class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
                 local_auth_harness_enabled=False,
                 testing=False,
             )
+
+
+class LegacyFlaskDecommissionTests(SimpleTestCase):
+    def test_legacy_flask_runtime_module_is_removed(self) -> None:
+        self.assertIsNone(PathFinder.find_spec("app", [str(REPO_ROOT)]))
+
+    def test_legacy_flask_runtime_paths_are_removed(self) -> None:
+        for relative_path in (
+            "app",
+            "pyproject.toml",
+            "requirements.txt",
+            "MANIFEST.in",
+            "uv.lock",
+        ):
+            with self.subTest(relative_path=relative_path):
+                self.assertFalse((REPO_ROOT / relative_path).exists())
+
+    def test_active_docs_and_ci_no_longer_reference_flask_runtime_toggle(self) -> None:
+        for relative_path in (
+            ".gitlab-ci.yml",
+            "README.md",
+            "DEPLOYMENT.md",
+            "docs/adr/system_application_architecture.md",
+            "docs/security/SECURITY_ARCHITECTURE.md",
+            "docs/security/THREAT_MODEL.md",
+            "docs/security/CONTROLS_MATRIX.md",
+            "docs/implementation/production_readiness_checklist.md",
+            "docs/implementation/production_hardening_and_flask_retirement_strategy.md",
+        ):
+            with self.subTest(relative_path=relative_path):
+                contents = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn("DMIS_FLASK_RUNTIME_MODE", contents)
 
 
 class RuntimeSecurityConfigurationValidationTests(SimpleTestCase):

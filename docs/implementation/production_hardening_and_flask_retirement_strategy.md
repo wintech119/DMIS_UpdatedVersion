@@ -1,7 +1,7 @@
 # Production Hardening and Flask Retirement Strategy
 
-Last updated: 2026-04-14
-Status: Comprehensive pre-production strategy
+Last updated: 2026-04-15
+Status: Comprehensive pre-production strategy with DMIS-10 full decommission record
 
 ## Purpose
 
@@ -15,7 +15,7 @@ It covers:
 - the main gaps against scalability, performance, reliability, availability, and security goals
 - the target production architecture
 - a phased hardening roadmap
-- the plan to retire the remaining Flask application from the live path and then remove it entirely
+- the completed Flask retirement and the remaining hardening work after DMIS-10
 
 ## Strategic Outcome
 
@@ -31,7 +31,7 @@ The recommended end state is a production-grade modular monolith with:
 - OIDC/JWT identity integration as the only production auth model
 - durable artifact storage for exports, waybills, and audit evidence
 - full observability, recovery, and release gates
-- no Flask application in the live path
+- no Flask runtime or rollback path in the repo or deployable system
 
 ## Source-of-Truth Map
 
@@ -64,7 +64,7 @@ The recommended end state is a production-grade modular monolith with:
 - generated artifacts are not always durably stored
 - frontend auth and error handling are not centralized enough
 - several docs still describe the wrong stack
-- Flask has not yet been fully removed from the live-path risk surface
+- Flask has been fully removed from the runtime and deployable surface; active docs and CI now need to keep that state closed
 
 ## Gap Matrix By Non-Functional Requirement
 
@@ -74,7 +74,7 @@ The recommended end state is a production-grade modular monolith with:
 | Performance | Modern frontend foundation and PostgreSQL base are adequate | full-array UI transformations, synchronous backend workflows, inconsistent pagination and aggregation patterns | push aggregation server-side, optimize hot queries, add route/component chunking, use async jobs for expensive work |
 | Reliability | Core workflows exist across Django and Angular | retries, idempotency, artifact persistence, and state recovery are incomplete | introduce durable jobs, idempotent commands, stored artifacts, and stronger workflow integrity checks |
 | Availability | Architecture can be made resilient | health endpoint is too shallow, telemetry is weak, Redis is optional, DR evidence is limited | implement readiness/liveness, HA dependency posture, alerting, and tested restore procedures |
-| Security | JWT/RBAC/tenant model exists and Django middleware is present | auth optionality, dev impersonation, stale docs, limited global throttling, route inconsistencies, legacy Flask exposure | enforce secure defaults, centralize auth and HTTP handling, align docs, retire Flask |
+| Security | JWT/RBAC/tenant model exists and Django middleware is present | auth optionality, dev impersonation, stale docs, limited global throttling, route inconsistencies | enforce secure defaults, centralize auth and HTTP handling, align docs, and prevent alternate-runtime drift |
 | Governance | backlog and requirements artifacts are rich | current-state and target-state docs are fragmented and inconsistent | use the new strategy/security docs as the production-readiness baseline |
 
 ## Target Production Architecture
@@ -117,8 +117,8 @@ NGINX / Ingress
 5. Keep authorization centralized in the backend.
    Frontend gating improves UX, but backend authorization remains authoritative.
 
-6. Remove Flask from the live path completely before production.
-   If Flask remains live, the platform will keep paying an unnecessary reliability and security tax.
+6. Keep Flask fully decommissioned before production.
+   Reintroducing it would recreate an unnecessary reliability and security tax.
 
 ## Workstreams
 
@@ -199,16 +199,15 @@ Core work:
 ### Workstream E: Flask Retirement and Decommission
 
 Outcome:
-Flask is first removed from the live path, then removed from the deployable system.
+Flask is removed from the live path and from the deployable system.
 
 Core work:
 
 - inventory legacy routes, dependencies, and data flows
 - confirm parity or explicit replacement in Django/Angular
 - redirect or isolate all legacy live entry points
-- mark any residual capability as rollback-only with an end date
 - remove Flask-specific deployment and operational assumptions
-- delete legacy runtime once parity and rollback decisions are closed
+- delete legacy runtime, packaging, and rollback scaffolding once parity and rollback decisions are closed
 
 ## Phased Roadmap
 
@@ -302,7 +301,7 @@ Exit criteria:
 
 - no live navigation points to Flask
 - no production workflow requires Flask for normal operations
-- any rollback-only dependency is documented with owner and removal date
+- any temporary cutover dependency is documented with owner and removal date
 
 ### Phase 5: Full Flask Decommission
 
@@ -334,7 +333,7 @@ DMIS should not be considered production-ready until all of the following are tr
 - observability and alerting exist for edge, API, DB, cache, and queue dependencies
 - backup and restore testing has been completed successfully
 - critical artifacts are durably stored
-- Flask is out of the live path
+- Flask is fully decommissioned from the repo, deployment, and rollback model
 
 ## Flask Retirement Strategy
 
@@ -353,7 +352,7 @@ For each Flask capability, mark it as one of:
 
 - replaced in Django/Angular
 - intentionally retired
-- rollback-only until a named milestone
+- never kept as executable scaffolding once the decommission milestone is complete
 
 ### Step 3: Cutover Controls
 
@@ -368,6 +367,41 @@ For each Flask capability, mark it as one of:
 - remove obsolete documentation and deployment instructions
 - archive only what is needed for traceability
 
+## DMIS-09 Live-Path Inventory And Classification
+
+| Dependency surface | Current evidence | Classification | DMIS-09 disposition |
+| --- | --- | --- | --- |
+| Angular route and sidenav trees | `frontend/src/app/app.routes.ts`, `frontend/src/app/layout/sidenav/nav-config.ts` | already replaced by Angular + Django | Live navigation stays on internal Angular routes only; no normal `href` targets point to Flask |
+| Django API namespaces | `backend/dmis_api/urls.py`, `backend/operations/urls.py`, `backend/replenishment/urls.py`, `backend/masterdata/urls.py` | already replaced by Angular + Django | `/api/v1/*` remains the live backend path of record |
+| Reverse proxy path | `docs/deploy/nginx.conf.example` | already replaced by Angular + Django | NGINX example serves Angular at `/` and proxies `/api/` to Django only |
+| Legacy Flask feature routes and entrypoints | historical references only | fully retired in DMIS-10 | `app/` and the executable Flask runtime were deleted from the repo |
+| Root release packaging | `.gitlab-ci.yml`, `manifest.yml` | fully retired in DMIS-10 | Live-stack release flow remains, and obsolete root Flask packaging files were removed |
+| Shared-dev / staging / production operator guidance | `README.md`, `DEPLOYMENT.md` | fully retired in DMIS-10 | Docs now state that Flask is no longer part of the supported platform |
+| Migration-era cutover notes | `README_migration.md`, `docs/implementation/may_15_uat_release_product_handoff.md`, `backend/operations/CUTOVER_NOTES.md`, `docs/implementation/sprint_08_operations_cutover_and_flask_retirement.md` | intentionally retired as active guidance | Relabeled as historical cutover context and aligned to the completed Angular + Django live path |
+| Compatibility bridges on legacy tables and `NeedsListExecutionLink` | `backend/operations/`, `backend/replenishment/views.py` | already replaced by Angular + Django | Compatibility behavior remains inside Django only and is not treated as a Flask runtime dependency |
+
+## DMIS-10 Exception Closure
+
+| Exception | Former Scope | Closure |
+| --- | --- | --- |
+| former Flask rollback env gate | Emergency operator rollback only | Removed in DMIS-10 along with the executable Flask runtime and root packaging files |
+
+## DMIS-10 Verification Evidence
+
+- `docs/testing/role_based_system_testing_guide.md` now treats Angular + Django routes as the only authoritative live QA path and explicitly retires Flask dashboard route checks from current release validation.
+- `frontend/src/app/layout/sidenav/sidenav.component.spec.ts` now asserts visible live navigation uses Angular routes and exposes no legacy Flask-style `href` targets; the focused ChromeHeadless run recorded on 2026-04-15 passed (`TOTAL: 5 SUCCESS`).
+- `backend/api/tests.py` now verifies the legacy Flask runtime module and root packaging files are absent and that active docs/CI no longer reference the former Flask runtime env toggle.
+- `.gitlab-ci.yml` now builds `goj_dmis_live_stack_<version>.tar.gz`, validates that the bundle contains Django backend code and Angular browser assets, excludes removed legacy files, and checks that active docs no longer reference the former Flask runtime env toggle.
+- `README.md`, `DEPLOYMENT.md`, and the historical cutover records now reflect Angular + Django as the live shared-dev / staging / production path of record.
+
+## DMIS-10 Completed Decommission Record
+
+- deleted the `app/` legacy Flask runtime
+- removed the former Flask runtime env toggle and the rollback-only gate
+- removed the root legacy Flask packaging files and lockfile
+- retired Flask-bound legacy utilities/tests instead of keeping dead executable scaffolding
+- relabeled historical cutover documents so they do not describe a current rollback path
+
 ## Immediate Next Actions
 
 The highest-value next actions are:
@@ -380,7 +414,7 @@ The highest-value next actions are:
    see checklist 1 (`Security Baseline`) and checklist 2 (`Authorization and Tenant Safety`)
 4. require Redis and add readiness plus observability next
    see checklist 3 (`Platform Reliability and Availability`) and checklist 5 (`Data and Audit Integrity`)
-5. parallelize Flask route inventory and parity validation while the platform hardening work proceeds
+5. keep docs and CI guarding against alternate-runtime drift while the platform hardening work proceeds
    see checklist 7 (`Flask Retirement`)
 
 ## What "Almost Production Ready" Means Here
@@ -390,7 +424,7 @@ Because the application is still in development, "almost production ready" shoul
 - the architecture is stable enough to harden rather than redesign
 - the highest-severity security and reliability gaps are closed first
 - every remaining known gap is explicitly documented, prioritized, and owned
-- legacy runtime dependencies are being intentionally retired rather than tolerated indefinitely
+- legacy runtime dependencies have been retired and must not be reintroduced
 
 That is the standard this strategy is designed to support.
 

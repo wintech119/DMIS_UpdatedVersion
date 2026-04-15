@@ -1,6 +1,6 @@
 # DMIS System and Application Architecture
 
-Last updated: 2026-04-10
+Last updated: 2026-04-15
 Status: Canonical current-state and target-state architecture reference
 
 ## Purpose and Scope
@@ -13,7 +13,7 @@ It defines:
 - the recommended target architecture
 - the component and responsibility boundaries that new work should preserve
 - the production-shaping non-functional architecture expectations for scalability, performance, reliability, availability, and security
-- the architectural position of Redis, async workers, durable artifacts, observability, and legacy Flask retirement
+- the architectural position of Redis, async workers, durable artifacts, observability, and Flask decommission status
 - the rules that determine when new plans or implementations are aligned or misaligned with the intended platform direction
 
 This document should be used as the first architecture reference by implementation agents, planning agents, reviewers, and release decision-makers.
@@ -30,11 +30,11 @@ The architecture covered here includes:
 - object storage for durable operational artifacts and exports
 - OIDC/JWT identity integration
 - edge delivery components such as CDN, WAF, and ingress
-- the residual legacy Flask application in `app/` until fully retired
+- the historical Flask cutover record preserved in `docs/` and Git history
 
 ## Current-State Architecture
 
-DMIS is currently a transitional Angular + Django platform with a partially retired Flask footprint.
+DMIS is currently an Angular + Django platform. DMIS-10 completed the legacy Flask runtime decommission.
 
 ### Current logical shape
 
@@ -44,7 +44,7 @@ DMIS is currently a transitional Angular + Django platform with a partially reti
 - Redis support exists in code but is still optional in current runtime behavior.
 - Long-running or retryable operations are not yet consistently offloaded to a background worker plane.
 - Some operational artifacts are still reconstructed from workflow state rather than durably stored.
-- The legacy Flask application remains part of the transition and retirement surface.
+- No executable Flask runtime or rollback gate remains in the repo or deployable system.
 
 ### Current strengths
 
@@ -61,7 +61,7 @@ DMIS is currently a transitional Angular + Django platform with a partially reti
 - Redis-backed protections do not become truly reliable until Redis is mandatory in production
 - generated artifacts and audit evidence are not yet durable enough
 - stale deployment assumptions can still mislead production preparation
-- any live Flask dependency preserves duplicate-control-path risk
+- alternate-runtime drift would recreate duplicate-control-path risk that DMIS-10 removed
 
 ## Target-State Architecture
 
@@ -77,7 +77,7 @@ DMIS should move to a hardened modular monolith built around Angular and Django.
 - object storage for generated waybills, exports, attachments, and audit-relevant artifacts
 - Keycloak or equivalent OIDC provider as the only production identity model
 - centralized metrics, logs, traces, alerting, readiness, and recovery controls
-- Flask removed from the live path and then decommissioned
+- no Flask runtime or rollback path in the supported platform
 
 ### Recommended runtime topology
 
@@ -286,7 +286,7 @@ This requires:
 - backend-enforced authorization and tenant-safe object access
 - globally consistent validation, output safety, and throttling controls
 - durable auditability for approvals, dispatch, receipt, and other high-risk operations
-- complete Flask removal from the live path
+- complete Flask decommission from the runtime and deployable system
 
 Owner: Platform architecture / security lead
 Evidence:
@@ -342,30 +342,28 @@ Not allowed:
 - no optional Redis where shared correctness depends on it
 - no production-path dev-user behavior
 - no critical synchronous workflow that should be queued
-- no live Flask dependency for normal user journeys
+- no alternate runtime dependency for normal user journeys
 
 ## Legacy Flask Position
 
-### Temporarily allowed
+DMIS-10 completed the Flask decommission:
 
-Only transition or rollback-only handling may remain temporarily, and it must be:
-
-- explicitly inventoried
-- owned by a named follow-up work item
-- isolated from normal live traffic where possible
-- documented as temporary rather than tolerated indefinitely
+- the executable Flask runtime was removed from the repo
+- the root Flask packaging metadata and lockfile were removed
+- the rollback-only gate was removed
+- historical cutover notes remain only as non-current documentation
 
 ### Prohibited
 
 - adding new business logic to Flask for forward progress
-- leaving Flask reachable as an implicit normal production path outside the documented transitional exception scope
+- reintroducing Flask as a supported runtime, deployment assumption, or rollback path
 - duplicating modernized security or workflow logic across Flask and Django without an explicit retirement reason
 
-### Retirement direction
+### Decommission direction
 
-- remove Flask from the live path first
-- remove Flask from deployment assumptions second
-- decommission the runtime entirely once feature parity is complete, traffic cutover is documented, a deprecation flag or equivalent gating mechanism exists, and the current unconditional Flask initialization has been removed from startup
+- preserve traceability in historical docs and Git history only
+- keep active docs and CI aligned to Angular + Django as the only supported platform
+- treat any proposal to reintroduce a parallel runtime as an architecture review trigger
 
 ## Architecture Decision Rules
 
@@ -427,6 +425,6 @@ Use these documents together, in this order, when architecture-sensitive work is
 This architecture should be reviewed:
 
 - whenever auth, tenancy, deployment topology, or worker architecture changes
-- whenever Flask retirement status changes
+- whenever alternate-runtime assumptions or historical Flask references change materially
 - whenever the platform posture for security, reliability, or availability changes materially
 - before production launch decisions

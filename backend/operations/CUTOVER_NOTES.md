@@ -1,6 +1,7 @@
-# Sprint 08 Operations Cutover Notes
+# Historical Sprint 08 Operations Cutover Notes
 
-This app is the first Django-owned `/api/v1/operations/*` slice for the May 15 cutover.
+Historical note:
+This file records the Sprint 08 cutover state. The current DMIS-10 posture is that Angular `operations/*` routes and Django `/api/v1/operations/*` APIs are the live shared-dev, staging, and production path of record, and the legacy Flask runtime has been fully removed from the repo.
 
 What it replaces:
 - Flask relief request list/detail/create/update/submit
@@ -10,16 +11,17 @@ What it replaces:
 
 What stays compatibility-only:
 - `replenishment` `needs-list/*` execution endpoints remain frozen transitional wrappers.
-- When a request/package already has a `NeedsListExecutionLink`, Operations reuses that compatibility bridge so the existing reservation, audit, and waybill persistence logic is not duplicated.
+- When a request/package already has a `NeedsListExecutionLink`, Operations reuses that compatibility bridge so the existing reservation, audit, and waybill persistence logic is not duplicated. This is Django compatibility behavior, not a Flask runtime dependency.
 
 Known temporary cutover dependencies:
 - Direct Operations requests can be created and reviewed in Django without `needs_list`.
 - Allocation/dispatch parity is strongest when the request/package is linked through `NeedsListExecutionLink`.
 - For direct Operations requests without a planning link, allocation and dispatch run on the legacy request/package tables, but waybill JSON persistence is not yet backed by a dedicated Operations table.
 
-Remaining blockers before full Flask retirement:
-- Angular Operations still needs to switch its request, eligibility, package, and dispatch screens to these Django routes.
-- Canonical DB RBAC permission rows should still be seeded so the long-term Operations model does not depend on compatibility mapping in `api.rbac`.
+Current historical disposition:
+- Angular Operations screens already route to these Django APIs and no normal live navigation points users to Flask.
+- DMIS-10 later removed the Flask runtime, its root packaging metadata, and its rollback gate entirely.
+- Canonical DB RBAC permission rows remain an operational hardening follow-up, but they are not a reason to keep Flask in the live path.
 
 Relief request tenancy governance note:
 - Relief requests remain an Operations-owned workflow and are not normalized back into Supply Replenishment ownership.
@@ -42,6 +44,6 @@ Frontend readiness runbook:
 - To retire the temporary JRC frontend data later, run `python manage.py cleanup_relief_management_frontend_test_data --tenant-code JRC --apply`
 - To retire the temporary parish-to-subordinate QA authority data later, run `python manage.py cleanup_relief_management_hierarchy_test_data --parish-tenant-code PARISH-KN --subordinate-tenant-code FFP --apply`
 - For targeted rollout checks, add tenant IDs: `python manage.py check_relief_management_readiness --tenant-id 300 --tenant-id 400`
-- If DB RBAC must be canonical before cutover, run the readiness check with `--strict-permissions` and seed canonical `operations.*` permission rows before frontend points at production.
+- If DB RBAC must be canonical before promotion, run the readiness check with `--strict-permissions` and seed canonical `operations.*` permission rows before promotion.
 - If no active non-ODPEM agencies resolve to a tenant via `agency -> warehouse -> tenant`, the Relief Request create flow still lacks real beneficiary-agency targets outside ODPEM-owned data.
 - The agency audit command writes the exact agency, warehouse, and tenant ownership inventory needed for master-data remediation without inventing new ownership rules in code.

@@ -32,8 +32,8 @@ When invoked, do the following in order:
 
 ### 1) Find the authoritative source
 Use source precedence below:
-1. DMIS Requirements Specification v6.0 as the base behavior source.
-2. DMIS Requirements v6.1 Change Notice for deltas, fixes, and added controls.
+1. `docs/attached_assets/DMIS_Product_Backlog_v3.2.xlsx` as the primary requirement index and base behavior source for locating the relevant feature, epic, story, acceptance criteria, and guardrails.
+2. Approved change notices, delta notes, or linked requirement updates referenced by the backlog item.
 3. Supporting appendices for detail:
    - Approval matrix
    - State transitions
@@ -43,7 +43,7 @@ Use source precedence below:
    - System configuration
 4. Meeting notes / personas / UNOPS ToR documents only for context, not to override approved requirements.
 
-If the repo contains a newer approved version, use that newer version and note the change.
+If the repo contains a newer approved backlog or superseding approved requirement source, use that newer source and note the change.
 
 ### 2) Extract the behavior before designing anything
 Create a compact extraction table with these headings:

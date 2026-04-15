@@ -1,6 +1,6 @@
 # Production Readiness Checklist
 
-Last updated: 2026-04-10
+Last updated: 2026-04-15
 Status: Pre-production gate checklist
 
 Use this checklist together with:
@@ -69,12 +69,17 @@ Use this checklist together with:
 
 ## 7. Flask Retirement
 
-- [ ] all live Flask entry points are inventoried
-- [ ] each Flask capability is marked as replaced, retired, or rollback-only
-- [ ] live navigation no longer routes users to Flask
-- [ ] release notes and QA evidence reflect the Flask cutover state
-- [ ] Flask is not a hidden live dependency for normal operations
-- [ ] a final decommission plan exists for removing Flask from deployment
+- [x] all live Flask entry points were inventoried and resolved during cutover
+- [x] each Flask capability is marked as replaced or retired
+- [x] live navigation no longer routes users to Flask
+- [x] release notes, operator docs, and QA evidence reflect the final decommissioned state
+- [x] Flask is not a hidden live dependency for normal operations
+- [x] Flask runtime, root packaging metadata, and rollback gate are removed from the repo
+- [x] no deployment or packaging path depends on Flask artifacts
+- [x] historical traceability is preserved in clearly non-current documentation and Git history only
+
+Completion note:
+DMIS-10 completed the Flask decommission. Flask is no longer part of the DMIS runtime, deployment, or rollback model.
 
 ## Exit Rule
 

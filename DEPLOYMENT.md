@@ -15,6 +15,14 @@ Use these source-of-truth documents first when making deployment or hardening de
 
 This file is intentionally focused on deployment posture. It does not declare DMIS production-ready by itself.
 
+## Live deployment contract
+
+DMIS shared-dev, staging, and production deployments now assume only the Angular + Django stack is live:
+
+- the standard release artifact is the neutral bundle `goj_dmis_live_stack_<version>.tar.gz`
+- the bundle contains `backend/`, built Angular browser assets from `frontend/dist/dmis-frontend/browser`, `manifest.yml`, `README.md`, `DEPLOYMENT.md`, and `docs/deploy/nginx.conf.example`
+- DMIS-10 removed the legacy Flask runtime, its root packaging metadata, and its rollback gate from the repo and deployable system
+
 ## Runtime environments
 
 | Environment | `DMIS_RUNTIME_ENV` | Auth posture | Secure deployment posture |
@@ -169,6 +177,7 @@ npm run build
 ```
 
 Do not treat the local harness scripts as a production or staging deployment path.
+Do not reintroduce a parallel Flask runtime, package, or rollback path into shared-dev, staging, or production startup.
 
 ## Reverse proxy
 
