@@ -213,34 +213,47 @@ def _workflow_needs_list_table_name() -> str:
     return connection.ops.quote_name("needs_list")
 
 
-def _workflow_selected_method_sql() -> str:
-    metadata_table_name = _workflow_metadata_table_name()
+def _have_workflow_metadata_table() -> bool:
+    return _WORKFLOW_METADATA_TABLE_NAME in connection.introspection.table_names()
+
+
+def _workflow_legacy_selected_method_sql() -> str:
     needs_list_table_name = connection.ops.quote_name(NeedsList._meta.db_table)
     if connection.vendor == "postgresql":
-        metadata_expr = (
-            f"SELECT UPPER(COALESCE(metadata_json ->> 'selected_method', '')) "
-            f"FROM {metadata_table_name} "
-            f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
-        )
         legacy_expr = (
             "UPPER(COALESCE("
-            f"CASE WHEN TRIM(COALESCE({needs_list_table_name}.notes_text, '')) LIKE '{{%' "
-            f"THEN ({needs_list_table_name}.notes_text::jsonb ->> 'selected_method') "
-            "ELSE NULL END, ''))"
+            "NULLIF("
+            f"SUBSTRING(COALESCE({needs_list_table_name}.notes_text, '') "
+            "FROM '\"selected_method\"\\s*:\\s*\"([^\"]+)\"'),"
+            "''"
+            "), "
+            "''))"
         )
     else:
-        metadata_expr = (
-            f"SELECT UPPER(COALESCE(json_extract(metadata_json, '$.selected_method'), '')) "
-            f"FROM {metadata_table_name} "
-            f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
-        )
         legacy_expr = (
             "UPPER(COALESCE("
             f"CASE WHEN json_valid(COALESCE({needs_list_table_name}.notes_text, '')) "
             f"THEN json_extract({needs_list_table_name}.notes_text, '$.selected_method') "
             "ELSE NULL END, ''))"
         )
-    return f"COALESCE(NULLIF(({metadata_expr}), ''), {legacy_expr})"
+    return legacy_expr
+
+
+def _workflow_selected_method_sql(*, include_metadata: bool = True) -> str:
+    if not include_metadata:
+        return _workflow_legacy_selected_method_sql()
+
+    metadata_table_name = _workflow_metadata_table_name()
+    metadata_expr = (
+        f"SELECT UPPER(COALESCE(metadata_json ->> 'selected_method', '')) "
+        f"FROM {metadata_table_name} "
+        f"WHERE {metadata_table_name}.needs_list_id = {connection.ops.quote_name(NeedsList._meta.db_table)}.needs_list_id"
+    ) if connection.vendor == "postgresql" else (
+        f"SELECT UPPER(COALESCE(json_extract(metadata_json, '$.selected_method'), '')) "
+        f"FROM {metadata_table_name} "
+        f"WHERE {metadata_table_name}.needs_list_id = {connection.ops.quote_name(NeedsList._meta.db_table)}.needs_list_id"
+    )
+    return f"COALESCE(NULLIF(({metadata_expr}), ''), {_workflow_legacy_selected_method_sql()})"
 
 
 def _ensure_workflow_metadata_table() -> None:
@@ -288,40 +301,28 @@ def _parse_workflow_metadata(raw: object) -> Dict[str, object]:
 
 
 def _load_workflow_metadata(needs_list: NeedsList) -> Dict[str, object]:
-    try:
-        _ensure_workflow_metadata_table()
-        table_name = _workflow_metadata_table_name()
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT metadata_json FROM {table_name} WHERE needs_list_id = %s",
-                [int(needs_list.needs_list_id)],
+    if _have_workflow_metadata_table():
+        try:
+            table_name = _workflow_metadata_table_name()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT metadata_json FROM {table_name} WHERE needs_list_id = %s",
+                    [int(needs_list.needs_list_id)],
+                )
+                row = cursor.fetchone()
+            if row:
+                parsed = _parse_workflow_metadata(row[0])
+                if parsed:
+                    return parsed
+        except Exception as exc:  # pragma: no cover - defensive fallback path
+            logger.warning(
+                "Workflow metadata lookup failed for needs_list_id=%s: %s",
+                getattr(needs_list, "needs_list_id", None),
+                exc,
             )
-            row = cursor.fetchone()
-        if row:
-            parsed = _parse_workflow_metadata(row[0])
-            if parsed:
-                return parsed
-    except Exception as exc:  # pragma: no cover - defensive fallback path
-        logger.warning(
-            "Workflow metadata lookup failed for needs_list_id=%s: %s",
-            getattr(needs_list, "needs_list_id", None),
-            exc,
-        )
 
     # Legacy fallback for rows created before metadata table support.
-    legacy = _parse_workflow_metadata(needs_list.notes_text)
-    if legacy:
-        try:
-            _save_workflow_metadata(needs_list, legacy)
-        except Exception as exc:  # pragma: no cover - best effort migration only
-            logger.warning(
-                "Failed saving legacy workflow metadata for needs_list_id=%s legacy=%s: %s",
-                getattr(needs_list, "needs_list_id", None),
-                legacy,
-                exc,
-                exc_info=True,
-            )
-    return legacy
+    return _parse_workflow_metadata(needs_list.notes_text)
 
 
 def _load_workflow_metadata_map(needs_lists: Iterable[NeedsList]) -> Dict[int, Dict[str, object]]:
@@ -329,9 +330,8 @@ def _load_workflow_metadata_map(needs_lists: Iterable[NeedsList]) -> Dict[int, D
     metadata_by_id: Dict[int, Dict[str, object]] = {}
     needs_list_ids = [int(needs_list.needs_list_id) for needs_list in needs_list_rows]
 
-    if needs_list_ids:
+    if needs_list_ids and _have_workflow_metadata_table():
         try:
-            _ensure_workflow_metadata_table()
             table_name = _workflow_metadata_table_name()
             placeholders = ",".join(["%s"] * len(needs_list_ids))
             with connection.cursor() as cursor:
@@ -1224,9 +1224,11 @@ def list_record_headers_page(
         needs_lists = list(queryset[offset: offset + limit])
         return _serialize_record_headers(needs_lists), total_count
 
-    _ensure_workflow_metadata_table()
+    selected_method_sql = _workflow_selected_method_sql(
+        include_metadata=_have_workflow_metadata_table()
+    )
     filtered_queryset = queryset.annotate(
-        selected_method_filter=RawSQL(f"({_workflow_selected_method_sql()})", [])
+        selected_method_filter=RawSQL(f"({selected_method_sql})", [])
     ).filter(selected_method_filter=normalized_method)
     total_count = filtered_queryset.count()
     needs_lists = list(filtered_queryset[offset: offset + limit])
@@ -1310,7 +1312,7 @@ def get_records_by_ids(
             event_name=event_names.get(needs_list.event_id),
             db_items=needs_list.items.all(),
             item_lookup=item_lookup,
-            audit_logs=needs_list.audit_logs.all() if include_audit_logs else (),
+            audit_logs=needs_list.audit_logs.all() if include_audit_logs else None,
         )
         for needs_list in ordered_needs_lists
     ]

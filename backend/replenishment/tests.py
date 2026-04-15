@@ -26,7 +26,13 @@ try:
     from replenishment import workflow_store
 except ImportError:  # pragma: no cover - test fallback for repos without the legacy file store module.
     workflow_store = workflow_store_db
-from replenishment.models import NeedsList, NeedsListItem, Procurement, ProcurementItem
+from replenishment.models import (
+    NeedsList,
+    NeedsListAudit,
+    NeedsListItem,
+    Procurement,
+    ProcurementItem,
+)
 from replenishment.services import (
     approval as approval_service,
     criticality as criticality_service,
@@ -7155,6 +7161,87 @@ class WorkflowStoreDbSerializationTests(TestCase):
     @patch("replenishment.workflow_store_db.data_access.get_event_names")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
     @patch("replenishment.workflow_store_db.data_access.get_item_names")
+    def test_get_records_by_ids_without_prefetched_audits_uses_db_fallback_for_review_fields(
+        self,
+        mock_item_names,
+        mock_warehouse_names,
+        mock_event_names,
+    ) -> None:
+        mock_warehouse_names.return_value = ({2: "Warehouse 2"}, [])
+        mock_event_names.return_value = ({1: "Event 1"}, [])
+        mock_item_names.return_value = ({9: {"name": "Water", "code": "WTR"}}, [])
+
+        needs_list = NeedsList.objects.create(
+            needs_list_no="NL-1-2-20260216-024",
+            event_id=1,
+            warehouse_id=2,
+            event_phase="BASELINE",
+            calculation_dtime=timezone.now(),
+            demand_window_hours=24,
+            planning_window_hours=72,
+            safety_factor=1.25,
+            data_freshness_level="HIGH",
+            status_code="IN_PROGRESS",
+            total_gap_qty=20,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        item = NeedsListItem.objects.create(
+            needs_list=needs_list,
+            item_id=9,
+            uom_code="EA",
+            burn_rate=Decimal("1.00"),
+            burn_rate_source="CALCULATED",
+            available_stock=Decimal("5.00"),
+            reserved_qty=Decimal("0.00"),
+            inbound_transfer_qty=Decimal("0.00"),
+            inbound_donation_qty=Decimal("0.00"),
+            inbound_procurement_qty=Decimal("0.00"),
+            required_qty=Decimal("10.00"),
+            coverage_qty=Decimal("5.00"),
+            gap_qty=Decimal("5.00"),
+            time_to_stockout_hours=Decimal("5.00"),
+            severity_level="WARNING",
+            horizon_a_qty=Decimal("1.00"),
+            horizon_b_qty=Decimal("2.00"),
+            horizon_c_qty=Decimal("2.00"),
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        NeedsListAudit.objects.create(
+            needs_list=needs_list,
+            action_type="STATUS_CHANGED",
+            field_name="status_code",
+            old_value="PENDING_APPROVAL",
+            new_value="IN_PROGRESS",
+            notes_text="Preparation started.",
+            actor_user_id="reviewer",
+        )
+        NeedsListAudit.objects.create(
+            needs_list=needs_list,
+            needs_list_item=item,
+            action_type="COMMENT_ADDED",
+            notes_text="Need more detail.",
+            actor_user_id="reviewer",
+        )
+
+        records = workflow_store_db.get_records_by_ids(
+            [needs_list.needs_list_id],
+            base_queryset=NeedsList.objects.filter(needs_list_id=needs_list.needs_list_id),
+            include_audit_logs=False,
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["prep_started_by"], "reviewer")
+        self.assertIsNotNone(records[0]["prep_started_at"])
+        self.assertEqual(
+            records[0]["line_review_notes"]["9"]["comment"],
+            "Need more detail.",
+        )
+
+    @patch("replenishment.workflow_store_db.data_access.get_event_names")
+    @patch("replenishment.workflow_store_db.data_access.get_warehouse_names")
+    @patch("replenishment.workflow_store_db.data_access.get_item_names")
     def test_list_records_respects_allowed_warehouse_ids(
         self,
         mock_item_names,
@@ -7250,11 +7337,15 @@ class WorkflowStoreDbSerializationTests(TestCase):
             update_by_id="tester",
         )
 
-        headers, total_count = workflow_store_db.list_record_headers_page(
-            method_filter="B",
-            offset=0,
-            limit=10,
-        )
+        with patch(
+            "replenishment.workflow_store_db._ensure_workflow_metadata_table"
+        ) as mock_ensure_workflow_metadata_table:
+            headers, total_count = workflow_store_db.list_record_headers_page(
+                method_filter="B",
+                offset=0,
+                limit=10,
+            )
+            mock_ensure_workflow_metadata_table.assert_not_called()
 
         self.assertEqual(total_count, 1)
         self.assertEqual(len(headers), 1)
