@@ -21,7 +21,7 @@ from api.rbac import (
     PERM_CRITICALITY_OVERRIDE_MANAGE,
 )
 from api.tenancy import TenantContext, TenantMembership
-from replenishment import rules, views, workflow_store_db
+from replenishment import apps as replenishment_apps, rules, views, workflow_store_db
 try:
     from replenishment import workflow_store
 except ImportError:  # pragma: no cover - test fallback for repos without the legacy file store module.
@@ -99,6 +99,22 @@ class ReplenishmentRequestIpTests(SimpleTestCase):
         )
 
         self.assertEqual(views._request_client_ip(request), "198.51.100.77")
+
+
+class ReplenishmentBootstrapTests(SimpleTestCase):
+    @patch("replenishment.workflow_store_db._ensure_workflow_metadata_table")
+    def test_bootstrap_workflow_metadata_table_uses_migrated_db_alias(
+        self,
+        mock_ensure_workflow_metadata_table,
+    ) -> None:
+        app_config = SimpleNamespace(name="replenishment")
+
+        replenishment_apps._bootstrap_workflow_metadata_table(
+            app_config=app_config,
+            using="analytics",
+        )
+
+        mock_ensure_workflow_metadata_table.assert_called_once_with(using="analytics")
 
 
 

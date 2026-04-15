@@ -11,13 +11,17 @@ def _bootstrap_workflow_metadata_table(**kwargs) -> None:
     app_config = kwargs.get("app_config")
     if app_config is None or app_config.name != "replenishment":
         return
+    using = kwargs.get("using")
 
     from . import workflow_store_db
 
-    workflow_store_db._ensure_workflow_metadata_table()
+    workflow_store_db._ensure_workflow_metadata_table(using=using)
     logger.info(
         "workflow_metadata.bootstrap_complete",
-        extra={"event": "workflow_metadata.bootstrap_complete"},
+        extra={
+            "event": "workflow_metadata.bootstrap_complete",
+            "database": using or "default",
+        },
     )
 
 

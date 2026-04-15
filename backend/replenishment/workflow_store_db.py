@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Dict, Iterable, Sequence, Tuple
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError, connection, connections, transaction
 from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Cast, Coalesce
@@ -197,20 +197,22 @@ def _extract_horizon_qty(item_data: Dict[str, object], horizon_key: str) -> floa
     return 0.0
 
 
-def _workflow_metadata_table_name() -> str:
-    quoted_table_name = connection.ops.quote_name(_WORKFLOW_METADATA_TABLE_NAME)
-    if connection.vendor == "postgresql":
-        quoted_schema_name = connection.ops.quote_name("public")
+def _workflow_metadata_table_name(*, db_connection=None) -> str:
+    active_connection = db_connection or connection
+    quoted_table_name = active_connection.ops.quote_name(_WORKFLOW_METADATA_TABLE_NAME)
+    if active_connection.vendor == "postgresql":
+        quoted_schema_name = active_connection.ops.quote_name("public")
         return f"{quoted_schema_name}.{quoted_table_name}"
     return quoted_table_name
 
 
-def _workflow_needs_list_table_name() -> str:
-    metadata_table_name = _workflow_metadata_table_name()
+def _workflow_needs_list_table_name(*, db_connection=None) -> str:
+    active_connection = db_connection or connection
+    metadata_table_name = _workflow_metadata_table_name(db_connection=active_connection)
     if "." in metadata_table_name:
         schema_name, _ = metadata_table_name.split(".", 1)
-        return f"{schema_name}.{connection.ops.quote_name('needs_list')}"
-    return connection.ops.quote_name("needs_list")
+        return f"{schema_name}.{active_connection.ops.quote_name('needs_list')}"
+    return active_connection.ops.quote_name("needs_list")
 
 
 def _have_workflow_metadata_table() -> bool:
@@ -256,11 +258,12 @@ def _workflow_selected_method_sql(*, include_metadata: bool = True) -> str:
     return f"COALESCE(NULLIF(({metadata_expr}), ''), {_workflow_legacy_selected_method_sql()})"
 
 
-def _ensure_workflow_metadata_table() -> None:
-    table_name = _workflow_metadata_table_name()
-    needs_list_table_name = _workflow_needs_list_table_name()
-    with connection.cursor() as cursor:
-        if connection.vendor == "postgresql":
+def _ensure_workflow_metadata_table(*, using: str | None = None) -> None:
+    db_connection = connections[using or "default"]
+    table_name = _workflow_metadata_table_name(db_connection=db_connection)
+    needs_list_table_name = _workflow_needs_list_table_name(db_connection=db_connection)
+    with db_connection.cursor() as cursor:
+        if db_connection.vendor == "postgresql":
             cursor.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
