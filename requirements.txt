@@ -1,3 +1,7 @@
+# Legacy Flask runtime dependencies retained for rollback-only traceability.
+# Shared-dev, staging, and production use backend/requirements.txt with the
+# Angular + Django live stack bundle instead of this file.
+
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3

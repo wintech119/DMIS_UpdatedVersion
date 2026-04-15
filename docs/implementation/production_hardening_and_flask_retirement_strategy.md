@@ -1,7 +1,7 @@
 # Production Hardening and Flask Retirement Strategy
 
-Last updated: 2026-04-14
-Status: Comprehensive pre-production strategy
+Last updated: 2026-04-15
+Status: Comprehensive pre-production strategy with DMIS-09 live-path retirement inventory
 
 ## Purpose
 
@@ -367,6 +367,41 @@ For each Flask capability, mark it as one of:
 - remove Flask from deployed environments
 - remove obsolete documentation and deployment instructions
 - archive only what is needed for traceability
+
+## DMIS-09 Live-Path Inventory And Classification
+
+| Dependency surface | Current evidence | Classification | DMIS-09 disposition |
+| --- | --- | --- | --- |
+| Angular route and sidenav trees | `frontend/src/app/app.routes.ts`, `frontend/src/app/layout/sidenav/nav-config.ts` | already replaced by Angular + Django | Live navigation stays on internal Angular routes only; no normal `href` targets point to Flask |
+| Django API namespaces | `backend/dmis_api/urls.py`, `backend/operations/urls.py`, `backend/replenishment/urls.py`, `backend/masterdata/urls.py` | already replaced by Angular + Django | `/api/v1/*` remains the live backend path of record |
+| Reverse proxy path | `docs/deploy/nginx.conf.example` | already replaced by Angular + Django | NGINX example serves Angular at `/` and proxies `/api/` to Django only |
+| Legacy Flask feature routes and entrypoints | `app/main.py`, `app/wsgi.py`, `app/core/feature_registry.py` | temporary rollback-only exception | Startup now fails closed unless `DMIS_FLASK_RUNTIME_MODE=rollback-only` is set manually |
+| Root release packaging | `.gitlab-ci.yml`, `manifest.yml`, `pyproject.toml`, `requirements.txt`, `MANIFEST.in` | unresolved gap fixed in DMIS-09 | Protected-branch release flow now builds a neutral Angular + Django bundle and no longer derives release versioning from `app.__version__` |
+| Shared-dev / staging / production operator guidance | `README.md`, `DEPLOYMENT.md` | unresolved gap fixed in DMIS-09 | Docs now state that Flask is disabled by default and not part of the normal platform path |
+| Migration-era cutover notes | `README_migration.md`, `docs/implementation/may_15_uat_release_product_handoff.md`, `backend/operations/CUTOVER_NOTES.md`, `docs/implementation/sprint_08_operations_cutover_and_flask_retirement.md` | intentionally retired as active guidance | Relabeled as historical cutover context and aligned to the completed Angular + Django live path |
+| Compatibility bridges on legacy tables and `NeedsListExecutionLink` | `backend/operations/`, `backend/replenishment/views.py` | already replaced by Angular + Django | Compatibility behavior remains inside Django only and is not treated as a Flask runtime dependency |
+
+## DMIS-09 Temporary Exception Register
+
+| Exception | Scope | Owner | Control | Removal target |
+| --- | --- | --- | --- | --- |
+| `DMIS_FLASK_RUNTIME_MODE=rollback-only` | Emergency operator rollback only | Platform / release engineering | Manual opt-in, disabled by default, excluded from normal navigation and deployment docs | DMIS-10 full Flask decommission |
+
+## DMIS-09 Verification Evidence
+
+- `docs/testing/role_based_system_testing_guide.md` now treats Angular + Django routes as the only authoritative live QA path and explicitly retires Flask dashboard route checks from current release validation.
+- `frontend/src/app/layout/sidenav/sidenav.component.spec.ts` now asserts visible live navigation uses Angular routes and exposes no legacy Flask-style `href` targets; the focused ChromeHeadless run passed on 2026-04-15 (`TOTAL: 5 SUCCESS`).
+- `backend/api/tests.py` now verifies the shared Flask retirement gate fails closed by default, accepts only `rollback-only`, and returns an operator-facing rollback message; the focused Django test run passed on 2026-04-15.
+- `.gitlab-ci.yml` now builds `goj_dmis_live_stack_<version>.tar.gz`, validates that the bundle contains Django backend code and Angular browser assets, excludes `app/`, and no longer derives release versioning from `app.__version__`; a local 2026-04-15 bundle rehearsal produced `goj_dmis_live_stack_manual-20260415.tar.gz` with `backend/` and `browser/` present and `app/`, `pyproject.toml`, and `requirements.txt` absent after extraction.
+- `README.md`, `DEPLOYMENT.md`, and the historical cutover records now reflect Angular + Django as the live shared-dev / staging / production path of record.
+
+## DMIS-10 Full Decommission Follow-Ups
+
+- delete the `app/` legacy Flask runtime after the rollback-only exception is no longer needed
+- remove `DMIS_FLASK_RUNTIME_MODE` and the rollback-only gate once the exception is formally closed
+- delete the root legacy Flask packaging files after archival or legal traceability needs are satisfied
+- retire historical cutover scaffolding docs that no longer provide operational or audit value
+- close any remaining Django-only compatibility bridges that still exist solely because of the legacy Flask data model
 
 ## Immediate Next Actions
 

@@ -1,8 +1,11 @@
 ﻿# DMIS | May 15 UAT Release | Product Handoff
 
 Last updated: 2026-03-24  
-Status: Draft scaffold - not ready for signoff  
+Status: Historical handoff scaffold - superseded for current deployment guidance  
 Release target: `UAT-ready by May 15, 2026`
+
+Historical note:
+This handoff captures the May 15 cutover program context. It is not the current operational baseline. For current deployment posture, treat Angular + Django as the live path of record and Flask as a disabled-by-default rollback-only exception.
 
 ## Purpose
 

@@ -1,7 +1,10 @@
 ﻿# Sprint 08 | Operations Cutover and Flask Retirement
 
 Last updated: 2026-03-24  
-Status: Active cutover plan
+Status: Historical cutover plan
+
+Historical note:
+This document records the Sprint 08 plan that moved live Operations navigation and APIs off Flask. The completed DMIS-09 posture is Angular + Django as the live path of record, with Flask disabled by default and retained only as a temporary rollback-only exception.
 
 ## Purpose
 

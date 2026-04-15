@@ -1,7 +1,7 @@
 project_name: goj-dmis
 group_id: com.goj.DMIS
-application_name: goj-dmis-main
-artifact_id:  goj_dmis_main
+application_name: goj-dmis-live-stack
+artifact_id:  goj_dmis_live_stack
 version: {APP_VERSION}
 application_version: {PACKAGE_FILENAME}
 

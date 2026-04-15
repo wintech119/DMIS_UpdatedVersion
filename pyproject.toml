@@ -1,13 +1,13 @@
 [project]
-name = "goj_dmis"
-dynamic = ["version", "readme", "dependencies"]
+name = "goj_dmis_legacy_flask_runtime"
+version = "0.0.0"
+dynamic = ["readme", "dependencies"]
 
 requires-python = ">=3.11"
-keywords = ["webapp", "flask"]
+keywords = ["legacy", "rollback-only", "retired-runtime"]
 # license = "GPL3"
-description = "Disaster Management Information System for the Office of Disaster Preparedness and Emergency Management (ODPEM)"
+description = "Legacy rollback-only Flask runtime retained for temporary DMIS traceability; not the Angular + Django production artifact."
 classifiers = [
-    "Framework :: Flask",
     "Programming Language :: Python :: 3",
 ]
 
@@ -24,11 +24,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 
 [tool.setuptools.dynamic]
-version = {attr = "app.__version__"}  # any module attribute compatible with ast.literal_eval
 readme = {file = ["README.md", "replit.md"], content-type = "text/x-markdown"}
 dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*",]  # alternatively: `exclude = ["additional*"]`
+include = ["app*",]  # legacy rollback-only Flask package; not used by the live release bundle
 namespaces = false

@@ -527,22 +527,35 @@ workflow:
 .artify_opts:
   image: zonaldev/artify:1.10.9
 
-# -- add version number to manifest.yml ---
-.patch_manifest:
+# -- derive release metadata and patch manifest.yml for the neutral bundle ---
+.prepare_release_manifest:
   before_script:
-    - export PKGF_=$(basename dist/*.tar.gz|tail -1)
-    - >
-      python3 -c "import os;from app import __version__ as _v;_fn=os.getenv('PKGF_');
-      mf_=open('manifest.yml', 'rt').read().format(APP_VERSION=_v, PACKAGE_FILENAME=_fn);
-      print(f'Patching manifest.yml with version {_v}');open('manifest.yml', 'wt').write(mf_)"
+    - export DMIS_RELEASE_VERSION="${DMIS_RELEASE_VERSION:-${CI_COMMIT_TAG:-${CI_PIPELINE_IID:-$CI_COMMIT_SHORT_SHA}}}"
+    - export RELEASE_ARTIFACT="$(basename dist/*.tar.gz | tail -1)"
+    - sed -i "s/{APP_VERSION}/${DMIS_RELEASE_VERSION}/g; s/{PACKAGE_FILENAME}/${RELEASE_ARTIFACT}/g" manifest.yml
 
-build-package:
+build-live-stack-bundle:
   stage: build
+  image: node:22-bookworm
   script:
-    - pip install -U build
-    - echo "Packaging application"
+    - export DMIS_RELEASE_VERSION="${DMIS_RELEASE_VERSION:-${CI_COMMIT_TAG:-${CI_PIPELINE_IID:-$CI_COMMIT_SHORT_SHA}}}"
+    - export LIVE_STACK_ARTIFACT_BASENAME="goj_dmis_live_stack"
+    - export LIVE_STACK_ARTIFACT_NAME="${LIVE_STACK_ARTIFACT_BASENAME}_${DMIS_RELEASE_VERSION}.tar.gz"
+    - export LIVE_STACK_BUNDLE_DIR="dist/release/goj-dmis-live-stack-${DMIS_RELEASE_VERSION}"
+    - echo "Building Angular + Django live-stack bundle ${LIVE_STACK_ARTIFACT_NAME}"
+    - rm -rf dist/release
     - test -d dist && rm -f dist/*.tar.gz
-    - test -f pyproject.toml && python3 -m build -s
+    - cd frontend
+    - npm ci
+    - npm run build -- --configuration production
+    - cd ..
+    - mkdir -p "${LIVE_STACK_BUNDLE_DIR}/docs/deploy"
+    - cp README.md DEPLOYMENT.md manifest.yml "${LIVE_STACK_BUNDLE_DIR}/"
+    - cp docs/deploy/nginx.conf.example "${LIVE_STACK_BUNDLE_DIR}/docs/deploy/nginx.conf.example"
+    - cp -R backend "${LIVE_STACK_BUNDLE_DIR}/backend"
+    - cp -R frontend/dist/dmis-frontend/browser "${LIVE_STACK_BUNDLE_DIR}/browser"
+    - sed -i "s/{APP_VERSION}/${DMIS_RELEASE_VERSION}/g; s/{PACKAGE_FILENAME}/${LIVE_STACK_ARTIFACT_NAME}/g" "${LIVE_STACK_BUNDLE_DIR}/manifest.yml"
+    - tar -C dist/release -czf "dist/${LIVE_STACK_ARTIFACT_NAME}" "$(basename "${LIVE_STACK_BUNDLE_DIR}")"
   artifacts:
     paths:
       - dist/*.tar.gz
@@ -551,16 +564,38 @@ build-package:
     access: all
     expire_in: 2 hour
 
+verify-live-stack-bundle:
+  stage: test
+  dependencies:
+    - build-live-stack-bundle
+  script:
+    - export DMIS_RELEASE_VERSION="${DMIS_RELEASE_VERSION:-${CI_COMMIT_TAG:-${CI_PIPELINE_IID:-$CI_COMMIT_SHORT_SHA}}}"
+    - export RELEASE_ARTIFACT="$(basename dist/*.tar.gz | tail -1)"
+    - rm -rf dist/verify
+    - mkdir -p dist/verify
+    - tar -C dist/verify -xzf "dist/${RELEASE_ARTIFACT}"
+    - export RELEASE_DIR="$(find dist/verify -mindepth 1 -maxdepth 1 -type d | head -1)"
+    - test -n "${RELEASE_DIR}"
+    - test -d "${RELEASE_DIR}/backend"
+    - test -d "${RELEASE_DIR}/browser"
+    - test -f "${RELEASE_DIR}/browser/index.html"
+    - test ! -e "${RELEASE_DIR}/app"
+    - test ! -e "${RELEASE_DIR}/pyproject.toml"
+    - test ! -e "${RELEASE_DIR}/requirements.txt"
+    - grep -q "version: ${DMIS_RELEASE_VERSION}" "${RELEASE_DIR}/manifest.yml"
+    - ! sed '/verify-live-stack-bundle:/,$d' .gitlab-ci.yml | grep -q "app.__version__"
+    - ! grep -q 'attr = "app.__version__"' pyproject.toml
+
 publish-package:
   stage: upload
   dependencies:
-    - build-package
+    - build-live-stack-bundle
   extends:
     - .artify_opts
     - .release_cond
-    - .patch_manifest
+    - .prepare_release_manifest
   script:
-    - export ARTIFACT_NAME="$(basename dist/*.tar.gz|tail -1)
+    - export ARTIFACT_NAME="$(basename dist/*.tar.gz | tail -1)"
     - |-
       if [[ $CI_COMMIT_BRANCH =~ ^release-.*$ ]]; then
         NEX_REPO="releases";
@@ -592,11 +627,11 @@ replenishment-export-audit-migration:
 awx-deploy:
   stage: deploy
   dependencies:
-    - build-package
+    - build-live-stack-bundle
   extends:
     - .artify_opts
     - .release_cond
-    - .patch_manifest
+    - .prepare_release_manifest
   script:
     - echo "Calling the ansible web-hook to deploy"
     - echo "Sending Deployment Data to ${DEPLOY_HOOK_URL_:'no_url_found'}"

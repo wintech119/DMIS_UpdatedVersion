@@ -4,13 +4,13 @@
 # =============================================================================
 # This script scans Python dependencies for known vulnerabilities using
 # pip-audit and safety. It is designed to:
-#   - Scan requirements.txt or installed packages
+#   - Scan backend/requirements.txt or installed packages
 #   - Report CVEs and known security vulnerabilities
 #   - Exit with non-zero status if Critical/High vulnerabilities are found
 #   - Generate reports for CI/CD integration
 #
 # Usage:
-#   ./scripts/run_dep_scan.sh           # Scan requirements.txt
+#   ./scripts/run_dep_scan.sh           # Scan backend/requirements.txt
 #   ./scripts/run_dep_scan.sh --env     # Scan installed environment
 #   ./scripts/run_dep_scan.sh --report  # Generate JSON reports
 # =============================================================================
@@ -26,7 +26,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
-REQUIREMENTS_FILE="${PROJECT_DIR}/requirements.txt"
+REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-${PROJECT_DIR}/backend/requirements.txt}"
 REPORT_DIR="${PROJECT_DIR}/security-reports"
 
 # Counters for results
@@ -50,7 +50,7 @@ while [[ "$#" -gt 0 ]]; do
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --env      Scan installed environment instead of requirements.txt"
+            echo "  --env      Scan installed environment instead of backend/requirements.txt"
             echo "  --report   Generate JSON reports in security-reports/"
             echo "  --help     Show this help message"
             exit 0
@@ -102,7 +102,7 @@ fi
 
 # Check for requirements file
 if [ "$SCAN_ENV" = false ] && [ ! -f "$REQUIREMENTS_FILE" ]; then
-    echo -e "${YELLOW}! requirements.txt not found, scanning installed environment${NC}"
+    echo -e "${YELLOW}! backend/requirements.txt not found, scanning installed environment${NC}"
     SCAN_ENV=true
 fi
 

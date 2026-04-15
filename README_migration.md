@@ -1,5 +1,8 @@
 ﻿# Migration Scaffold (Operations Cutover)
 
+Historical note:
+This document captures the May 15 cutover-era migration plan. It is not current deployment guidance. The current shared-dev, staging, and production path of record is Angular + Django, with the legacy Flask runtime disabled by default and available only through the temporary `DMIS_FLASK_RUNTIME_MODE=rollback-only` exception.
+
 This repository is migrating under a strangler architecture, but the May 15 target is a real Operations cutover rather than a permanent split runtime.
 
 ## Target Runtime By May 15
@@ -63,11 +66,11 @@ QA validates:
 
 ## Transitional Compatibility Rule
 
-During the cutover period:
+During the historical cutover period:
 
 - frozen `needs_list` execution endpoints may remain in code as compatibility scaffolding
 - frozen Angular allocation or dispatch components may remain as migration reference
-- temporary links to Flask may exist during active implementation
+- temporary links to Flask may exist during active implementation (historical only; no longer allowed on the default live path)
 - May 15 signoff still requires Flask to be removed from the default live path
 
 ## Non-Negotiables

@@ -1,9 +1,11 @@
+import os
 import sys
 import types
 from datetime import datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 from django.apps import apps as django_apps
 from django.core.management import call_command
@@ -17,6 +19,15 @@ from rest_framework.response import Response
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from app import (
+    LegacyFlaskRuntimeDisabledError,
+    flask_runtime_warning,
+    require_flask_runtime_rollback_only,
+)
 from api import authentication, checks as api_checks
 from api import rbac
 from api.authentication import Principal
@@ -612,6 +623,32 @@ class RuntimeAuthConfigurationValidationTests(SimpleTestCase):
                 local_auth_harness_enabled=False,
                 testing=False,
             )
+
+
+class LegacyFlaskRuntimeRetirementGateTests(SimpleTestCase):
+    def test_flask_runtime_defaults_to_disabled(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesMessage(
+                LegacyFlaskRuntimeDisabledError,
+                "Angular + Django is the production path of record.",
+            ):
+                require_flask_runtime_rollback_only("app.main")
+
+    def test_flask_runtime_accepts_explicit_rollback_only_mode(self) -> None:
+        with patch.dict(os.environ, {"DMIS_FLASK_RUNTIME_MODE": "rollback-only"}, clear=True):
+            mode = require_flask_runtime_rollback_only("app.wsgi")
+
+        self.assertEqual(mode, "rollback-only")
+        self.assertIn("rollback-only mode", flask_runtime_warning("app.wsgi"))
+
+    def test_flask_runtime_failure_message_guides_operator_rollback(self) -> None:
+        with patch.dict(os.environ, {"DMIS_FLASK_RUNTIME_MODE": "disabled"}, clear=True):
+            with self.assertRaises(LegacyFlaskRuntimeDisabledError) as captured:
+                require_flask_runtime_rollback_only("app.main")
+
+        message = str(captured.exception)
+        self.assertIn("DMIS_FLASK_RUNTIME_MODE=rollback-only", message)
+        self.assertIn("temporary, operator-controlled rollback exception", message)
 
 
 class RuntimeSecurityConfigurationValidationTests(SimpleTestCase):

@@ -3,6 +3,13 @@ DRIMS - Disaster Relief Inventory Management System
 Main Flask Application
 """
 
+import logging
+
+from app import flask_runtime_warning, require_flask_runtime_rollback_only
+
+require_flask_runtime_rollback_only("app.main")
+logging.getLogger(__name__).warning(flask_runtime_warning("app.main"))
+
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf

@@ -110,4 +110,34 @@ describe('SidenavComponent', () => {
       'Task Center',
     ]);
   });
+
+  it('keeps visible live navigation on Angular routes and exposes no legacy Flask href targets', () => {
+    const visibleTargets = component.navSections.flatMap((section) =>
+      component.visibleGroups(section).flatMap((group) => [
+        ...(!group.disabled && !group.children?.length
+          ? [{ label: group.label, route: group.route, href: group.href }]
+          : []),
+        ...component.visibleChildren(group).map((child) => ({
+          label: child.label,
+          route: child.route,
+          href: child.href,
+        })),
+      ])
+    );
+
+    expect(visibleTargets.length).toBeGreaterThan(0);
+    expect(visibleTargets.every((target) => !target.href)).toBeTrue();
+    expect(
+      visibleTargets.every(
+        (target) => !target.route || (target.route.startsWith('/') && !target.route.startsWith('/dashboard'))
+      )
+    ).toBeTrue();
+    expect(
+      visibleTargets.some((target) =>
+        ['/executive/operations', '/eligibility', '/packaging', '/reports', '/notifications'].some(
+          (legacyPrefix) => (target.route ?? target.href ?? '').startsWith(legacyPrefix)
+        )
+      )
+    ).toBeFalse();
+  });
 });
