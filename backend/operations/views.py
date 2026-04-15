@@ -62,6 +62,7 @@ from replenishment.services import data_access
 
 logger = logging.getLogger("dmis.security")
 _RATE_LIMIT_WINDOW_SECONDS = 60
+_WRITE_LIMIT_PER_MINUTE = 40
 _HIGH_RISK_LIMIT_PER_MINUTE = 10
 _WORKFLOW_LIMIT_PER_MINUTE = 15
 _RATE_LIMIT_CACHE_TIMEOUT_SECONDS = _RATE_LIMIT_WINDOW_SECONDS + 5
@@ -408,6 +409,13 @@ def operations_requests(request):
                     actor_roles=_roles(request),
                 )
             )
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_create",
+            limit=_WRITE_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.create_request(
                 payload=_payload_object(request.data),
@@ -468,6 +476,13 @@ def operations_request_detail(request, reliefrqst_id: int):
                     actor_roles=_roles(request),
                 )
             )
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_update",
+            limit=_WRITE_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.update_request(
                 reliefrqst_id,
@@ -492,11 +507,20 @@ operations_request_detail.required_permission = {
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_request_submit(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="request_submit",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.submit_request(
                 reliefrqst_id,
                 actor_id=_actor_id(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:
@@ -550,6 +574,14 @@ operations_eligibility_detail.required_permission = PERM_OPERATIONS_ELIGIBILITY_
 @permission_classes([IsAuthenticated, OperationsPermission])
 def operations_eligibility_decision(request, reliefrqst_id: int):
     try:
+        idempotency_key = _required_idempotency_key(request)
+        rate_limited = _rate_limit_response(
+            request,
+            scope="eligibility_decision",
+            limit=_WORKFLOW_LIMIT_PER_MINUTE,
+        )
+        if rate_limited is not None:
+            return rate_limited
         return Response(
             operations_service.submit_eligibility_decision(
                 reliefrqst_id,
@@ -557,6 +589,7 @@ def operations_eligibility_decision(request, reliefrqst_id: int):
                 actor_id=_actor_id(request),
                 actor_roles=_roles(request),
                 tenant_context=_tenant_context(request),
+                idempotency_key=idempotency_key,
             )
         )
     except Exception as exc:

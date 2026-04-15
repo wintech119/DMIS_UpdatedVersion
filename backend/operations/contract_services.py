@@ -4394,7 +4394,24 @@ def update_request(
 
 
 @transaction.atomic
-def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantContext) -> dict[str, Any]:
+def submit_request(
+    reliefrqst_id: int,
+    *,
+    actor_id: str,
+    tenant_context: TenantContext,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="request_submit",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefrqst_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     legacy_service.submit_request(reliefrqst_id, actor_id=actor_id, tenant_context=tenant_context)
     request = _legacy_helper("_load_request")(reliefrqst_id)
     if _legacy_request_is_syncable(request):
@@ -4427,11 +4444,13 @@ def submit_request(reliefrqst_id: int, *, actor_id: str, tenant_context: TenantC
             role_codes=ELIGIBILITY_ROLE_CODES,
             queue_code=QUEUE_CODE_ELIGIBILITY,
         )
-    return _compat_request_response(
+    result = _compat_request_response(
         reliefrqst_id,
         actor_id=actor_id,
         tenant_context=tenant_context,
     )
+    cache.set(idempotency_cache_key, result, timeout=_IDEMPOTENCY_TTL_SECONDS)
+    return result
 
 
 def list_eligibility_queue(*, actor_id: str | None = None, actor_roles: Iterable[str] | None = None, tenant_context: TenantContext) -> dict[str, Any]:
@@ -4523,7 +4542,19 @@ def submit_eligibility_decision(
     actor_id: str,
     actor_roles: Iterable[str] | None,
     tenant_context: TenantContext,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    normalized_idempotency_key = _validated_idempotency_key(idempotency_key)
+    idempotency_cache_key = _idempotency_cache_key(
+        endpoint="eligibility_decision",
+        actor_id=actor_id,
+        tenant_context=tenant_context,
+        reliefpkg_id=reliefrqst_id,
+        idempotency_key=normalized_idempotency_key,
+    )
+    cached_result = cache.get(idempotency_cache_key)
+    if isinstance(cached_result, dict):
+        return cached_result
     normalized_roles = _require_roles(actor_roles, ELIGIBILITY_ROLE_CODES, message="Only eligibility approvers may decide requests.")
     request = legacy_service._load_request(reliefrqst_id, for_update=True)
     request_record = _sync_operations_request(request, actor_id=actor_id, status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW)
@@ -4647,6 +4678,7 @@ def submit_eligibility_decision(
         "decided_by_role_code": eligibility_decision.decided_by_role_code,
         "decided_at": legacy_service._as_iso(eligibility_decision.decided_at),
     }
+    cache.set(idempotency_cache_key, payload, timeout=_IDEMPOTENCY_TTL_SECONDS)
     return payload
 
 
