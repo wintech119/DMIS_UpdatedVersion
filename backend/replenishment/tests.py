@@ -3566,13 +3566,17 @@ class NeedsListWorkflowApiTests(TestCase):
 
             with patch(
                 "replenishment.views.workflow_store.get_records_by_ids",
-                wraps=workflow_store_db.get_records_by_ids,
+                wraps=workflow_store.get_records_by_ids,
             ) as mock_get_records_by_ids:
                 response = self.client.get(
                     "/api/v1/replenishment/needs-list/?mine=true&include_closed=false"
                 )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row.get("needs_list_id") for row in response.json().get("needs_lists", [])],
+            [mine_draft.get("needs_list_id")],
+        )
         hydrated_ids = list(mock_get_records_by_ids.call_args.args[0])
         self.assertEqual(hydrated_ids, [mine_draft.get("needs_list_id")])
 
@@ -3607,6 +3611,54 @@ class NeedsListWorkflowApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(mock_list_record_headers.call_args.kwargs.get("allowed_warehouse_ids"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-reader",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.workflow_store.list_record_headers", return_value=[])
+    @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value={11})
+    def test_needs_list_list_keeps_active_tenant_scope_when_requested_tenant_is_out_of_scope(
+        self,
+        mock_get_warehouse_ids_for_tenants,
+        mock_list_record_headers,
+    ) -> None:
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=1,
+            active_tenant_code="AGENCY_A",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=1,
+                    tenant_code="AGENCY_A",
+                    tenant_name="Agency A",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            response = self.client.get("/api/v1/replenishment/needs-list/?tenant_id=2")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"needs_lists": [], "count": 0})
+        mock_get_warehouse_ids_for_tenants.assert_called_once_with({1})
+        self.assertEqual(
+            mock_list_record_headers.call_args.kwargs.get("allowed_warehouse_ids"),
+            {11},
+        )
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -3824,7 +3876,7 @@ class NeedsListWorkflowApiTests(TestCase):
 
             with patch(
                 "replenishment.views.workflow_store.get_records_by_ids",
-                wraps=workflow_store_db.get_records_by_ids,
+                wraps=workflow_store.get_records_by_ids,
             ) as mock_get_records_by_ids:
                 response = self.client.get(
                     "/api/v1/replenishment/needs-list/my-submissions/?page=1&page_size=1"
@@ -3836,6 +3888,7 @@ class NeedsListWorkflowApiTests(TestCase):
         self.assertEqual(len(body.get("results", [])), 1)
         hydrated_ids = list(mock_get_records_by_ids.call_args.args[0])
         self.assertEqual(len(hydrated_ids), 1)
+        self.assertEqual(body["results"][0].get("id"), hydrated_ids[0])
     
     @override_settings(
         AUTH_ENABLED=False,
@@ -3882,7 +3935,7 @@ class NeedsListWorkflowApiTests(TestCase):
                 side_effect=AssertionError("my-submissions should not use the full header list helper"),
             ), patch(
                 "replenishment.views.workflow_store.list_record_headers_page",
-                wraps=workflow_store_db.list_record_headers_page,
+                wraps=workflow_store.list_record_headers_page,
             ) as mock_list_record_headers_page:
                 response = self.client.get(
                     "/api/v1/replenishment/needs-list/my-submissions/?page=2&page_size=1"
@@ -3927,6 +3980,81 @@ class NeedsListWorkflowApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(mock_list_record_headers_page.call_args.kwargs.get("allowed_warehouse_ids"))
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="tenant-reader",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.workflow_store.list_record_headers_page", return_value=([], 0))
+    @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value={11})
+    def test_my_submissions_keeps_active_tenant_scope_when_requested_tenant_is_out_of_scope(
+        self,
+        mock_get_warehouse_ids_for_tenants,
+        mock_list_record_headers_page,
+    ) -> None:
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=1,
+            active_tenant_code="AGENCY_A",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=1,
+                    tenant_code="AGENCY_A",
+                    tenant_name="Agency A",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            response = self.client.get(
+                "/api/v1/replenishment/needs-list/my-submissions/?tenant_id=2&page=1&page_size=10"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"count": 0, "next": None, "previous": None, "results": []},
+        )
+        mock_get_warehouse_ids_for_tenants.assert_called_once_with({1})
+        self.assertEqual(
+            mock_list_record_headers_page.call_args.kwargs.get("allowed_warehouse_ids"),
+            {11},
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="submitter",
+        DEV_AUTH_ROLES=["LOGISTICS"],
+        DEV_AUTH_PERMISSIONS=[],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.workflow_store.store_enabled_or_raise")
+    def test_my_submissions_rejects_invalid_pagination_params(
+        self,
+        _mock_store_enabled,
+    ) -> None:
+        response = self.client.get(
+            "/api/v1/replenishment/needs-list/my-submissions/?page=abc&page_size=10"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"page": "Must be an integer."}})
 
     @override_settings(
         AUTH_ENABLED=False,
@@ -6280,6 +6408,9 @@ class NeedsListWorkflowApiTests(TestCase):
 
 
 class WorkflowStoreDbSerializationTests(TestCase):
+    def test_iso_or_none_preserves_nulls(self) -> None:
+        self.assertIsNone(workflow_store_db._iso_or_none(None))
+
     @patch("replenishment.workflow_store_db.data_access.get_event_name")
     @patch("replenishment.workflow_store_db.data_access.get_warehouse_name")
     @patch("replenishment.workflow_store_db.data_access.get_item_names")
@@ -6908,6 +7039,7 @@ class ProcurementPermissionApiTests(TestCase):
         self.assertEqual(default_response.status_code, 200)
         mock_list_procurements.assert_called_with(
             None,
+            allowed_warehouse_ids=None,
             include_items=False,
             offset=0,
             limit=100,
@@ -6920,7 +7052,12 @@ class ProcurementPermissionApiTests(TestCase):
         self.assertEqual(mock_list_procurements.call_args_list[-1].args, ({"needs_list_id": "NL-1"},))
         self.assertEqual(
             mock_list_procurements.call_args_list[-1].kwargs,
-            {"include_items": True, "offset": 0, "limit": 100},
+            {
+                "allowed_warehouse_ids": None,
+                "include_items": True,
+                "offset": 0,
+                "limit": 100,
+            },
         )
 
     @override_settings(
@@ -6953,9 +7090,84 @@ class ProcurementPermissionApiTests(TestCase):
         self.assertIn("page=1", str(body.get("previous")))
         mock_list_procurements.assert_called_with(
             None,
+            allowed_warehouse_ids=None,
             include_items=False,
             offset=1,
             limit=1,
+        )
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+    )
+    @patch("replenishment.views.procurement_service.list_procurements")
+    def test_procurement_list_rejects_invalid_pagination_params(
+        self,
+        mock_list_procurements,
+    ) -> None:
+        response = self.client.get("/api/v1/replenishment/procurement/?page=abc")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"errors": {"page": "Must be an integer."}})
+        mock_list_procurements.assert_not_called()
+
+    @override_settings(
+        AUTH_ENABLED=False,
+        DEV_AUTH_ENABLED=True,
+        TEST_DEV_AUTH_ENABLED=True,
+        DEV_AUTH_USER_ID="exec-user",
+        DEV_AUTH_ROLES=["EXECUTIVE"],
+        DEV_AUTH_PERMISSIONS=["replenishment.procurement.view"],
+        DEBUG=True,
+        AUTH_USE_DB_RBAC=False,
+        TENANT_SCOPE_ENFORCEMENT=True,
+    )
+    @patch("replenishment.views.procurement_service.list_procurements", return_value=([], 0))
+    @patch("replenishment.views.data_access.get_warehouse_ids_for_tenants", return_value={11})
+    def test_procurement_list_uses_active_tenant_scope_when_requested_tenant_is_out_of_scope(
+        self,
+        _mock_get_warehouse_ids_for_tenants,
+        mock_list_procurements,
+    ) -> None:
+        context = TenantContext(
+            requested_tenant_id=2,
+            active_tenant_id=1,
+            active_tenant_code="AGENCY_A",
+            active_tenant_type="AGENCY",
+            memberships=(
+                TenantMembership(
+                    tenant_id=1,
+                    tenant_code="AGENCY_A",
+                    tenant_name="Agency A",
+                    tenant_type="AGENCY",
+                    is_primary=True,
+                    access_level="WRITE",
+                ),
+            ),
+            can_read_all_tenants=False,
+            can_act_cross_tenant=False,
+        )
+
+        with patch("replenishment.views._tenant_context", return_value=context):
+            response = self.client.get("/api/v1/replenishment/procurement/?tenant_id=2")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"count": 0, "next": None, "previous": None, "procurements": []},
+        )
+        mock_list_procurements.assert_called_once_with(
+            None,
+            allowed_warehouse_ids={11},
+            include_items=False,
+            offset=0,
+            limit=100,
         )
 
     @override_settings(
@@ -7380,11 +7592,17 @@ class ProcurementDraftUpdateTests(TestCase):
 
 
 class ProcurementListPerformanceTests(TestCase):
-    def _create_procurement(self, procurement_no: str, *, item_ids: list[int]) -> Procurement:
+    def _create_procurement(
+        self,
+        procurement_no: str,
+        *,
+        item_ids: list[int],
+        warehouse_id: int = 1,
+    ) -> Procurement:
         procurement = Procurement.objects.create(
             procurement_no=procurement_no,
             event_id=1,
-            target_warehouse_id=1,
+            target_warehouse_id=warehouse_id,
             procurement_method="SINGLE_SOURCE",
             status_code="DRAFT",
             create_by_id="tester",
@@ -7415,7 +7633,9 @@ class ProcurementListPerformanceTests(TestCase):
         ) as mock_get_warehouse_name, patch(
             "replenishment.services.procurement.data_access.get_item_names"
         ) as mock_get_item_names:
-            procurements, count = procurement_service.list_procurements()
+            procurements, count = procurement_service.list_procurements(
+                allowed_warehouse_ids=None
+            )
 
         self.assertEqual(count, 2)
         self.assertEqual(len(procurements), 2)
@@ -7444,7 +7664,10 @@ class ProcurementListPerformanceTests(TestCase):
         ) as mock_get_item_names, patch(
             "replenishment.services.procurement.data_access.get_warehouse_name"
         ) as mock_get_warehouse_name:
-            procurements, count = procurement_service.list_procurements(include_items=True)
+            procurements, count = procurement_service.list_procurements(
+                allowed_warehouse_ids=None,
+                include_items=True,
+            )
 
         self.assertEqual(count, 2)
         self.assertEqual(len(procurements[0].get("items", [])), 2)
@@ -7458,30 +7681,69 @@ class ProcurementListPerformanceTests(TestCase):
         self._create_procurement("PROC-LIST-006", item_ids=[103, 104, 105])
 
         with CaptureQueriesContext(connection) as captured:
-            procurements, count = procurement_service.list_procurements()
+            procurements, count = procurement_service.list_procurements(
+                allowed_warehouse_ids=None
+            )
 
         self.assertEqual(count, 2)
         self.assertEqual(len(procurements), 2)
         self.assertEqual(len(captured), 1)
+
+    def test_list_procurements_applies_allowed_warehouse_scope(self) -> None:
+        first = self._create_procurement("PROC-LIST-007", item_ids=[100], warehouse_id=1)
+        second = self._create_procurement("PROC-LIST-008", item_ids=[101], warehouse_id=2)
+
+        with patch(
+            "replenishment.services.procurement.data_access.get_warehouse_names",
+            return_value=({2: "Montego Bay Depot"}, []),
+        ):
+            procurements, count = procurement_service.list_procurements(
+                allowed_warehouse_ids={2}
+            )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(procurements), 1)
+        self.assertEqual(procurements[0].get("procurement_id"), second.procurement_id)
+        self.assertNotEqual(procurements[0].get("procurement_id"), first.procurement_id)
 
     def test_list_procurements_honors_offset_and_limit(self) -> None:
         first = self._create_procurement("PROC-LIST-010", item_ids=[100])
         second = self._create_procurement("PROC-LIST-011", item_ids=[101])
         third = self._create_procurement("PROC-LIST-012", item_ids=[102])
 
+        base_time = timezone.now()
+        Procurement.objects.filter(procurement_id=first.procurement_id).update(
+            create_dtime=base_time - timedelta(minutes=3)
+        )
+        Procurement.objects.filter(procurement_id=second.procurement_id).update(
+            create_dtime=base_time - timedelta(minutes=2)
+        )
+        Procurement.objects.filter(procurement_id=third.procurement_id).update(
+            create_dtime=base_time - timedelta(minutes=1)
+        )
+
         with patch(
             "replenishment.services.procurement.data_access.get_warehouse_names",
             return_value=({1: "Kingston Central Depot"}, []),
         ):
-            procurements, count = procurement_service.list_procurements(
+            first_page, first_count = procurement_service.list_procurements(
+                allowed_warehouse_ids=None,
+                offset=0,
+                limit=1,
+            )
+            second_page, second_count = procurement_service.list_procurements(
+                allowed_warehouse_ids=None,
                 offset=1,
                 limit=1,
             )
 
-        self.assertEqual(count, 3)
-        self.assertEqual(len(procurements), 1)
-        returned_ids = {row.get("procurement_id") for row in procurements}
-        self.assertTrue(returned_ids.issubset({first.procurement_id, second.procurement_id, third.procurement_id}))
+        self.assertEqual(first_count, 3)
+        self.assertEqual(second_count, 3)
+        self.assertEqual(len(first_page), 1)
+        self.assertEqual(len(second_page), 1)
+        self.assertEqual(first_page[0].get("procurement_id"), third.procurement_id)
+        self.assertEqual(second_page[0].get("procurement_id"), second.procurement_id)
+        self.assertNotEqual(first_page[0].get("procurement_id"), second_page[0].get("procurement_id"))
 
     def test_list_procurements_paginated_summary_query_count_is_constant_with_line_items(self) -> None:
         self._create_procurement("PROC-LIST-020", item_ids=[100, 101, 102])
@@ -7493,6 +7755,7 @@ class ProcurementListPerformanceTests(TestCase):
         ):
             with CaptureQueriesContext(connection) as captured:
                 procurements, count = procurement_service.list_procurements(
+                    allowed_warehouse_ids=None,
                     offset=0,
                     limit=1,
                 )

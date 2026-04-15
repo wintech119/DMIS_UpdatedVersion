@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, Sequence, Tuple
 from django.db import IntegrityError, connection, transaction
 from django.db.models import CharField, DateTimeField, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import Cast, Coalesce
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.dateparse import parse_datetime
@@ -81,6 +82,8 @@ def _record_owned_by_actor(needs_list: NeedsList, actor: str | None) -> bool:
 
 
 def _iso_or_none(value: object) -> str | None:
+    if value is None:
+        return None
     if hasattr(value, "isoformat"):
         return value.isoformat()  # type: ignore[union-attr]
     return str(value).strip() or None
@@ -202,6 +205,20 @@ def _workflow_needs_list_table_name() -> str:
         schema_name, _ = metadata_table_name.split(".", 1)
         return f"{schema_name}.{connection.ops.quote_name('needs_list')}"
     return connection.ops.quote_name("needs_list")
+
+
+def _workflow_selected_method_sql() -> str:
+    metadata_table_name = _workflow_metadata_table_name()
+    needs_list_table_name = connection.ops.quote_name(NeedsList._meta.db_table)
+    if connection.vendor == "postgresql":
+        selected_method_expr = "UPPER(COALESCE(metadata_json ->> 'selected_method', ''))"
+    else:
+        selected_method_expr = "UPPER(COALESCE(json_extract(metadata_json, '$.selected_method'), ''))"
+    return (
+        f"SELECT {selected_method_expr} "
+        f"FROM {metadata_table_name} "
+        f"WHERE {metadata_table_name}.needs_list_id = {needs_list_table_name}.needs_list_id"
+    )
 
 
 def _ensure_workflow_metadata_table() -> None:
@@ -1185,37 +1202,13 @@ def list_record_headers_page(
         needs_lists = list(queryset[offset: offset + limit])
         return _serialize_record_headers(needs_lists), total_count
 
-    matched_needs_lists: list[NeedsList] = []
-    matched_count = 0
-    batch: list[NeedsList] = []
-    batch_size = max(limit * 4, 50)
-    for needs_list in queryset.iterator(chunk_size=batch_size):
-        batch.append(needs_list)
-        if len(batch) < batch_size:
-            continue
-        metadata_by_id = _load_workflow_metadata_map(batch)
-        for candidate in batch:
-            metadata = metadata_by_id.get(int(candidate.needs_list_id), {})
-            selected_method = str(metadata.get("selected_method") or "").strip().upper()
-            if selected_method != normalized_method:
-                continue
-            if matched_count >= offset and len(matched_needs_lists) < limit:
-                matched_needs_lists.append(candidate)
-            matched_count += 1
-        batch = []
-
-    if batch:
-        metadata_by_id = _load_workflow_metadata_map(batch)
-        for candidate in batch:
-            metadata = metadata_by_id.get(int(candidate.needs_list_id), {})
-            selected_method = str(metadata.get("selected_method") or "").strip().upper()
-            if selected_method != normalized_method:
-                continue
-            if matched_count >= offset and len(matched_needs_lists) < limit:
-                matched_needs_lists.append(candidate)
-            matched_count += 1
-
-    return _serialize_record_headers(matched_needs_lists), matched_count
+    _ensure_workflow_metadata_table()
+    filtered_queryset = queryset.annotate(
+        selected_method_filter=RawSQL(f"({_workflow_selected_method_sql()})", [])
+    ).filter(selected_method_filter=normalized_method)
+    total_count = filtered_queryset.count()
+    needs_lists = list(filtered_queryset[offset: offset + limit])
+    return _serialize_record_headers(needs_lists), total_count
 
 
 def get_records_by_ids(

@@ -11,7 +11,7 @@ import re
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from django.db import IntegrityError, connection, transaction
 from django.db.models import IntegerField, Max, Sum
@@ -32,6 +32,7 @@ logger = logging.getLogger("dmis.audit")
 
 _PROCUREMENT_NO_RETRY_ATTEMPTS = 3
 _PROCUREMENT_NO_RETRY_BACKOFF_SECONDS = 0.02
+PROCUREMENT_MAX_PAGE_SIZE = 200
 
 # Valid status transitions
 _VALID_TRANSITIONS = {
@@ -194,7 +195,12 @@ def _serialize_procurement_payload(
         try:
             warehouse_name = data_access.get_warehouse_name(proc.target_warehouse_id) or ""
         except Exception:
-            pass
+            logger.exception(
+                "Failed to resolve procurement warehouse name for procurement_id=%s target_warehouse_id=%s",
+                proc.procurement_id,
+                proc.target_warehouse_id,
+            )
+            raise
 
     # Get approval info
     phase = "BASELINE"
@@ -218,7 +224,12 @@ def _serialize_procurement_payload(
                         iid: info.get("name", "") for iid, info in names_data.items()
                     }
                 except Exception:
-                    pass
+                    logger.exception(
+                        "Failed to resolve procurement item names for procurement_id=%s item_ids=%s",
+                        proc.procurement_id,
+                        item_ids,
+                    )
+                    raise
         else:
             item_names_map = {
                 item_id: info.get("name", "") if isinstance(info, dict) else ""
@@ -493,12 +504,25 @@ def create_procurement_standalone(
 def list_procurements(
     filters: Optional[Dict[str, Any]] = None,
     *,
+    allowed_warehouse_ids: Iterable[int] | None,
     include_items: bool = False,
     offset: int = 0,
     limit: int | None = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """List procurement orders with optional filters."""
     qs = Procurement.objects.select_related("supplier", "needs_list").all()
+
+    if allowed_warehouse_ids is not None:
+        scoped_warehouse_ids = sorted(
+            {
+                int(candidate)
+                for candidate in allowed_warehouse_ids
+                if candidate is not None
+            }
+        )
+        if not scoped_warehouse_ids:
+            return [], 0
+        qs = qs.filter(target_warehouse_id__in=scoped_warehouse_ids)
 
     if filters:
         if filters.get("status"):
@@ -516,7 +540,7 @@ def list_procurements(
     total_count: int | None = None
     if limit is not None:
         offset = max(int(offset), 0)
-        limit = max(int(limit), 1)
+        limit = min(max(int(limit), 1), PROCUREMENT_MAX_PAGE_SIZE)
         total_count = ordered_qs.count()
         ordered_qs = ordered_qs[offset: offset + limit]
 

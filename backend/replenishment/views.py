@@ -274,6 +274,14 @@ class DuplicateConflictValidationError(ValueError):
     """Raised when duplicate-conflict validation input is malformed."""
 
 
+class PaginationValidationError(ValueError):
+    """Raised when pagination query parameters are invalid."""
+
+    def __init__(self, errors: Dict[str, str]):
+        self.errors = errors
+        super().__init__("Invalid pagination parameters.")
+
+
 workflow_store = workflow_store_db
 
 
@@ -730,48 +738,7 @@ def _accessible_read_warehouse_ids(request) -> set[int] | None:
     if not tenant_ids:
         return set()
 
-    placeholders = ",".join(["%s"] * len(tenant_ids))
-    warehouse_ids: set[int] = set()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT DISTINCT warehouse_id
-                FROM tenant_warehouse
-                WHERE
-                    tenant_id IN ({placeholders})
-                    AND effective_date <= CURRENT_DATE
-                    AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-                """,
-                list(tenant_ids),
-            )
-            warehouse_ids.update(
-                parsed
-                for raw_warehouse_id, in cursor.fetchall()
-                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
-            )
-    except DatabaseError:
-        warehouse_ids.clear()
-
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT warehouse_id
-                FROM warehouse
-                WHERE tenant_id IN ({placeholders})
-                """,
-                list(tenant_ids),
-            )
-            warehouse_ids.update(
-                parsed
-                for raw_warehouse_id, in cursor.fetchall()
-                if (parsed := _to_int_or_none(raw_warehouse_id)) is not None
-            )
-    except DatabaseError:
-        pass
-
-    return warehouse_ids
+    return data_access.get_warehouse_ids_for_tenants(tenant_ids)
 
 
 def _tenant_scope_denied_response(
@@ -2601,13 +2568,23 @@ def _parse_pagination_params(
     default_page_size: int = 10,
     max_page_size: int = 100,
 ) -> tuple[int, int]:
-    page = _parse_positive_int(request.query_params.get("page"), "page", {}) or 1
-    page_size = (
-        _parse_positive_int(request.query_params.get("page_size"), "page_size", {})
-        or default_page_size
+    errors: Dict[str, str] = {}
+    raw_page = request.query_params.get("page")
+    raw_page_size = request.query_params.get("page_size")
+    page = (
+        _parse_positive_int(raw_page, "page", errors)
+        if raw_page not in (None, "")
+        else 1
     )
+    page_size = (
+        _parse_positive_int(raw_page_size, "page_size", errors)
+        if raw_page_size not in (None, "")
+        else default_page_size
+    )
+    if errors:
+        raise PaginationValidationError(errors)
     page_size = max(1, min(page_size, max_page_size))
-    return page, page_size
+    return page or 1, page_size
 
 
 def _build_paginated_payload(
@@ -2782,7 +2759,10 @@ def needs_list_my_submissions(request):
 
     # Terminal statuses hidden by default unless explicitly requested via filter.
     _DEFAULT_EXCLUDED_STATUSES = {"CANCELLED", "SUPERSEDED"}
-    page, page_size = _parse_pagination_params(request)
+    try:
+        page, page_size = _parse_pagination_params(request)
+    except PaginationValidationError as exc:
+        return Response({"errors": exc.errors}, status=400)
     scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
     headers, total_count = workflow_store.list_record_headers_page(
         store_status_filters,
@@ -6012,13 +5992,18 @@ def procurement_list_create(request):
             request.query_params.get("include_items"),
             default=False,
         )
-        page, page_size = _parse_pagination_params(
-            request,
-            default_page_size=100,
-            max_page_size=200,
-        )
+        try:
+            page, page_size = _parse_pagination_params(
+                request,
+                default_page_size=100,
+                max_page_size=200,
+            )
+        except PaginationValidationError as exc:
+            return Response({"errors": exc.errors}, status=400)
+        scoped_warehouse_ids = _accessible_read_warehouse_ids(request)
         procurements, count = procurement_service.list_procurements(
             filters or None,
+            allowed_warehouse_ids=scoped_warehouse_ids,
             include_items=include_items,
             offset=(page - 1) * page_size,
             limit=page_size,

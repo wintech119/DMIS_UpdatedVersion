@@ -17,7 +17,7 @@
 - If the UI exposes a workflow or rule not documented in `../docs`, flag it rather than silently normalizing it.
 
 ## Requirements-To-Design Gate
-- For requirements docs, feature specs, change notices, and other pre-implementation design work, use `../.codex/skills/requirements-to-design/SKILL.md`.
+- For requirements docs, feature specs, change notices, and other pre-implementation design work, use `../.agents/skills/requirements-to-design/SKILL.md`.
 - If the user wants to implement a module, feature set, or single feature from approved requirements, specs, or requirement deltas, do not begin frontend implementation until that design handoff is complete.
 - Keep the detailed workflow in the skill; do not duplicate it here.
 

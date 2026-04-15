@@ -165,7 +165,7 @@ Field-first mindset, works on mobile during hurricane response. Low tolerance fo
 
 ### Requirements-To-Design Routing
 
-For requirements docs, feature specs, change notices, and other pre-implementation design work, use `.codex/skills/requirements-to-design/SKILL.md`.
+For requirements docs, feature specs, change notices, and other pre-implementation design work, use `.agents/skills/requirements-to-design/SKILL.md`.
 If the user wants to implement a module, a feature set, or a single feature from approved requirements, specs, or requirement deltas, do not begin implementation until that design handoff is complete.
 Keep the detailed workflow in the skill; do not duplicate it here.
 
