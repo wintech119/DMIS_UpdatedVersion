@@ -1940,6 +1940,7 @@ def _request_summary_payload(request: ReliefRqst, request_record: OperationsReli
     payload["legacy_status_code"] = payload.pop("status_code")
     payload["status_code"] = request_record.status_code
     payload["status_label"] = STATUS_LABELS.get(request_record.status_code, request_record.status_code.title())
+    payload["request_mode"] = request_record.origin_mode
     payload["origin_mode"] = request_record.origin_mode
     payload["requesting_tenant_id"] = request_record.requesting_tenant_id
     payload["requesting_agency_id"] = request_record.requesting_agency_id

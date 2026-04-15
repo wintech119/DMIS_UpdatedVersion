@@ -676,7 +676,14 @@ class OperationsWorkflowContractTests(TestCase):
 
     @patch(
         "operations.contract_services._request_summary_payload",
-        side_effect=lambda request, request_record: {"requesting_tenant_id": request_record.requesting_tenant_id},
+        side_effect=lambda request, request_record: {
+            "requesting_tenant_id": request_record.requesting_tenant_id,
+            "request_mode": request_record.origin_mode,
+            "origin_mode": request_record.origin_mode,
+            "requesting_agency_id": request_record.requesting_agency_id,
+            "beneficiary_tenant_id": request_record.beneficiary_tenant_id,
+            "beneficiary_agency_id": request_record.beneficiary_agency_id,
+        },
     )
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.ReliefPkg.objects.filter")
@@ -717,6 +724,11 @@ class OperationsWorkflowContractTests(TestCase):
         )
 
         self.assertEqual(result["requesting_tenant_id"], 30)
+        self.assertEqual(result["request_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(result["origin_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(result["requesting_agency_id"], 777)
+        self.assertEqual(result["beneficiary_tenant_id"], 20)
+        self.assertEqual(result["beneficiary_agency_id"], 501)
 
     def test_package_sync_skips_version_bump_when_record_matches_legacy(self) -> None:
         original_updated_at = timezone.make_aware(datetime(2026, 3, 26, 8, 45, 0))
@@ -4269,6 +4281,12 @@ class OperationsWorkflowContractTests(TestCase):
         side_effect=lambda request, request_record: {
             "reliefrqst_id": int(request.reliefrqst_id),
             "status_code": request_record.status_code,
+            "request_mode": request_record.origin_mode,
+            "origin_mode": request_record.origin_mode,
+            "requesting_tenant_id": request_record.requesting_tenant_id,
+            "requesting_agency_id": request_record.requesting_agency_id,
+            "beneficiary_tenant_id": request_record.beneficiary_tenant_id,
+            "beneficiary_agency_id": request_record.beneficiary_agency_id,
         },
     )
     @patch("operations.contract_services.ReliefPkg.objects.filter")
@@ -4292,7 +4310,21 @@ class OperationsWorkflowContractTests(TestCase):
         get_agency_scope_mock.return_value = self._agency_scope_for(501, 20, "FFP")
         get_request_mock.return_value = {"reliefrqst_id": 70, "items": [], "packages": []}
         filter_packages_mock.return_value.order_by.return_value = []
-        self._create_operations_request_record()
+        OperationsReliefRequest.objects.create(
+            relief_request_id=70,
+            request_no="RQ00070",
+            requesting_tenant_id=30,
+            requesting_agency_id=777,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode=ORIGIN_MODE_FOR_SUBORDINATE,
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_APPROVED_FOR_FULFILLMENT,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
         OperationsEligibilityDecision.objects.create(
             relief_request_id=70,
             decision_code="APPROVED",
@@ -4312,6 +4344,12 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual(payload["status_code"], REQUEST_STATUS_APPROVED_FOR_FULFILLMENT)
         self.assertTrue(payload["decision_made"])
         self.assertFalse(payload["can_edit"])
+        self.assertEqual(payload["request_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(payload["origin_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(payload["requesting_tenant_id"], 30)
+        self.assertEqual(payload["requesting_agency_id"], 777)
+        self.assertEqual(payload["beneficiary_tenant_id"], 20)
+        self.assertEqual(payload["beneficiary_agency_id"], 501)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services._sync_operations_request")
@@ -4837,6 +4875,56 @@ class OperationsWorkflowContractTests(TestCase):
         self.assertEqual([row["reliefrqst_id"] for row in result["results"]], [82])
         self.assertTrue(OperationsReliefRequest.objects.filter(relief_request_id=82).exists())
         self.assertFalse(OperationsReliefRequest.objects.filter(relief_request_id=83).exists())
+
+    @patch("operations.contract_services.operations_policy.get_agency_scope")
+    @patch(
+        "operations.contract_services.legacy_service._request_summary",
+        return_value={"reliefrqst_id": 82, "status_code": "SUBMITTED"},
+    )
+    @patch("operations.contract_services.ReliefRqst.objects.order_by")
+    def test_request_list_exposes_canonical_request_mode_and_tenant_context(
+        self,
+        order_by_mock,
+        _request_summary_mock,
+        get_agency_scope_mock,
+    ) -> None:
+        OperationsReliefRequest.objects.create(
+            relief_request_id=82,
+            request_no="RQ00082",
+            requesting_tenant_id=30,
+            requesting_agency_id=777,
+            beneficiary_tenant_id=20,
+            beneficiary_agency_id=501,
+            origin_mode=ORIGIN_MODE_FOR_SUBORDINATE,
+            event_id=12,
+            request_date=date(2026, 3, 26),
+            urgency_code="H",
+            status_code=REQUEST_STATUS_UNDER_ELIGIBILITY_REVIEW,
+            create_by_id="tester",
+            update_by_id="tester",
+        )
+        order_by_mock.return_value.iterator.return_value = [
+            self._request_stub(
+                reliefrqst_id=82,
+                agency_id=501,
+                status_code=contract_services.legacy_service.STATUS_SUBMITTED,
+            )
+        ]
+        get_agency_scope_mock.return_value = self.agency_scope
+
+        result = contract_services.list_requests(
+            actor_id="controller-1",
+            actor_roles=[],
+            tenant_context=_tenant_context(tenant_id=30, tenant_code="CTRL-30", tenant_type="PARISH"),
+        )
+
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(result["results"][0]["request_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(result["results"][0]["origin_mode"], ORIGIN_MODE_FOR_SUBORDINATE)
+        self.assertEqual(result["results"][0]["requesting_tenant_id"], 30)
+        self.assertEqual(result["results"][0]["requesting_agency_id"], 777)
+        self.assertEqual(result["results"][0]["beneficiary_tenant_id"], 20)
+        self.assertEqual(result["results"][0]["beneficiary_agency_id"], 501)
 
     @patch("operations.contract_services.operations_policy.get_agency_scope")
     @patch("operations.contract_services.legacy_service.get_request")
